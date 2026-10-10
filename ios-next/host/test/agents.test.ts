@@ -121,7 +121,7 @@ describe("AgentsProvider with a fake ACP agent", () => {
 describe("codex-acp terminal output meta", () => {
   it("accumulates terminal_output_delta into the tool output and notes non-zero exits", async () => {
     const { applyTerminalMeta } = await import("../src/providers/agents.ts");
-    const acc = new Map<string, string>();
+    const acc = new Map<string, { tail: string; total: number }>();
     const item: any = { id: "tool-1", kind: "tool", toolKind: "execute", title: "t", status: "running", locations: [] };
     applyTerminalMeta(item, acc, { terminal_output_delta: { data: "stdout-42\n" } });
     applyTerminalMeta(item, acc, { terminal_output_delta: { data: "Darwin\n" }, terminal_exit: { exit_code: 0 } });
@@ -134,5 +134,19 @@ describe("codex-acp terminal output meta", () => {
     applyTerminalMeta(silent, acc, { terminal_exit: { exit_code: 0 } });
     expect(silent.output).toBe("exit 0");
     expect(acc.size).toBe(0);
+  });
+
+  it("shows the tail of long streamed output with a count of what scrolled off", async () => {
+    const { applyTerminalMeta } = await import("../src/providers/agents.ts");
+    const acc = new Map<string, { tail: string; total: number }>();
+    const item: any = { id: "tool-long", kind: "tool", toolKind: "execute", title: "t", status: "running", locations: [] };
+    const chunk = "x".repeat(10_000) + "\n";
+    for (let i = 0; i < 5; i++) applyTerminalMeta(item, acc, { terminal_output_delta: { data: chunk } });
+    applyTerminalMeta(item, acc, { terminal_output_delta: { data: "LAST LINE\n" } });
+    const total = chunk.length * 5 + "LAST LINE\n".length;
+    const kept = 32 * 1024;
+    expect(item.output.startsWith(`… ${total - kept} earlier characters\n`)).toBe(true);
+    expect(item.output.endsWith("LAST LINE\n")).toBe(true);
+    expect(acc.get("tool-long")!.tail.length).toBe(kept);
   });
 });

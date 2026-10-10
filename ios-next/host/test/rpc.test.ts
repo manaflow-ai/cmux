@@ -103,3 +103,25 @@ describe("lane-open race", () => {
     await expect(hello).resolves.toMatchObject({ hostId: "h1" });
   });
 });
+
+describe("pre-open buffer limits", () => {
+  it("closes the link when the peer floods messages before it opens", async () => {
+    const { createStaggeredLoopbackPair } = await import("../src/transport/loopback.ts");
+    const { MAX_EARLY_MESSAGES } = await import("../src/transport/link.ts");
+    const [phone, host] = createStaggeredLoopbackPair();
+    const closed = new Promise<void>((r) => host.on("state", (s) => s === "closed" && r()));
+    for (let i = 0; i <= MAX_EARLY_MESSAGES; i++) phone.send("ctl", `{"t":"evt","topic":"x${i}"}`);
+    await closed;
+    expect(host.closeReason).toMatch(/before the link opened/);
+  });
+
+  it("closes the link when early bytes exceed the cap", async () => {
+    const { createStaggeredLoopbackPair } = await import("../src/transport/loopback.ts");
+    const [phone, host] = createStaggeredLoopbackPair();
+    const closed = new Promise<void>((r) => host.on("state", (s) => s === "closed" && r()));
+    phone.send("blk", new Uint8Array(3 * 1024 * 1024));
+    phone.send("blk", new Uint8Array(2 * 1024 * 1024));
+    await closed;
+    expect(host.closeReason).toMatch(/before the link opened/);
+  });
+});

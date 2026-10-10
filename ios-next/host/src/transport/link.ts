@@ -8,6 +8,10 @@ export type Lane = "ctl" | "int" | "blk";
 export const LANES: readonly Lane[] = ["ctl", "int", "blk"] as const;
 export const LANE_IDS: Record<Lane, number> = { ctl: 0, int: 1, blk: 2 };
 
+/** Limits on messages held while a link is still connecting. */
+export const MAX_EARLY_MESSAGES = 256;
+export const MAX_EARLY_BYTES = 4 * 1024 * 1024;
+
 export type LinkState = "connecting" | "open" | "closed";
 
 export interface LinkEvents {
@@ -47,6 +51,7 @@ export abstract class ChunkLink extends EventEmitter implements Link {
    * link until "open", so those messages are held and replayed right after it.
    */
   private early: [Lane, Uint8Array][] = [];
+  private earlyBytes = 0;
   private readonly reassemblers: Record<Lane, Reassembler> = {
     ctl: new Reassembler(),
     int: new Reassembler(),
@@ -94,7 +99,13 @@ export abstract class ChunkLink extends EventEmitter implements Link {
     }
     if (!msg) return;
     if (this._state === "connecting") {
+      // A peer that floods before the link opens is broken or hostile.
+      if (this.early.length >= MAX_EARLY_MESSAGES || this.earlyBytes + msg.byteLength > MAX_EARLY_BYTES) {
+        this.close(`peer sent more than ${MAX_EARLY_MESSAGES} messages or ${MAX_EARLY_BYTES} bytes before the link opened`);
+        return;
+      }
       this.early.push([lane, msg]);
+      this.earlyBytes += msg.byteLength;
       return;
     }
     if (this._state === "open") this.emit("message", lane, msg);
@@ -108,6 +119,7 @@ export abstract class ChunkLink extends EventEmitter implements Link {
     this.emit("state", state);
     const early = this.early;
     this.early = [];
+    this.earlyBytes = 0;
     if (state === "open") for (const [lane, msg] of early) this.emit("message", lane, msg);
   }
 }
