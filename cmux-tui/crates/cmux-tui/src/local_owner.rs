@@ -554,6 +554,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }
+    // The app directory settings this client took at start go to the owner
+    // daemon it spawns only (cx-e0cs): the owner takes them out of its own
+    // environment again and applies the bundle rule (first_party_dir).
+    if let Some(dir) = cmux_tui_core::first_party_dir::taken() {
+        command.env(cmux_tui_core::first_party_dir::ENV, dir);
+    }
+    if let Some(dirs) = cmux_tui_core::first_party_dir::apps_dirs() {
+        command.env(cmux_tui_core::first_party_dir::DIRS_ENV, dirs);
+    }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]
