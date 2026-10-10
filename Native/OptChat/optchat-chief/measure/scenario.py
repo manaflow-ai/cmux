@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """The scripted conversations of the Chief parity harness, shared by both sides.
+(This file is the only copy: other parity harnesses load it from here.)
 
 Two scenarios:
   smoke  ~18 turns: short questions, a long paste, tool turns in a scratch
