@@ -19,6 +19,10 @@ extension Motion {
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
         let spring = self.spring(token)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
+        guard #available(macOS 15, *) else {
+            // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
+            return runTimed(self.duration(token), changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(animation, changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
@@ -28,6 +32,9 @@ extension Motion {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
+        guard #available(macOS 15, *) else {
+            return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 

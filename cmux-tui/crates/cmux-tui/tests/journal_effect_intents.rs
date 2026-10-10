@@ -1,8 +1,10 @@
-//! Effect receipt commits ride the journal writer's batch on a real headless
-//! daemon: terminal creates under terminal output commit their effect
-//! receipts as writer intents (one shared fsync per batch), no create commits
-//! its effect receipt on the request thread, and the journal writer never
-//! takes the workspace registry lock while requests wait for its receipts.
+//! Registry commits ride the journal writer's batch on a real headless
+//! daemon: under terminal output, a terminal create commits its terminal
+//! records (reserved, ready) and its effect receipt as writer intents, and a
+//! topology write (`rename-workspace`) commits its resource patch as one (one
+//! shared fsync per batch). None of them runs its own transaction on the
+//! request thread, and the journal writer never takes the workspace registry
+//! lock while requests wait for its receipts.
 #![cfg(unix)]
 
 use std::fs;
@@ -13,9 +15,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-/// Creates measured under output load. Each create commits one effect
-/// receipt with its topology patch.
+/// Creates measured under output load. Each create commits two terminal
+/// records (reserved, ready) and one effect receipt with its topology patch.
 const CREATES: usize = 8;
+/// Writer intents per create: terminal reserved, terminal ready, effect.
+const INTENTS_PER_CREATE: usize = 3;
+/// Topology writes measured under output load, one resource patch each.
+const RENAMES: usize = 6;
 const BUSY_TERMINALS: usize = 3;
 
 fn test_timeout(timeout: Duration) -> Duration {
@@ -148,11 +154,33 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
             }),
         );
     }
+    for index in 0..RENAMES {
+        request(
+            &daemon.socket,
+            serde_json::json!({
+                "cmd": "rename-workspace",
+                "workspace": workspace,
+                "name": format!("intents-{index}"),
+            }),
+        );
+    }
+    let renamed = request(&daemon.socket, serde_json::json!({"cmd": "list-workspaces"}));
+    assert!(
+        renamed["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|entry| entry["id"] == workspace
+                && entry["name"] == format!("intents-{}", RENAMES - 1)),
+        "the last rename did not take effect: {renamed}"
+    );
     let after = write_path(&daemon.socket);
     let delta = |name: &str| counter(&after, name) - counter(&before, name);
+    let expected = (CREATES * INTENTS_PER_CREATE + RENAMES) as u64;
     assert!(
-        delta("effect_intents") >= CREATES as u64,
-        "{CREATES} creates committed only {} effect receipts as writer intents: {after}",
+        delta("effect_intents") >= expected,
+        "{CREATES} creates and {RENAMES} renames committed only {} of {expected} registry \
+         commits as writer intents: {after}",
         delta("effect_intents")
     );
     assert!(delta("effect_intent_batches") > 0, "no writer batch carried an intent: {after}");
@@ -160,7 +188,7 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
     assert_eq!(
         delta("request_effect_commits"),
         0,
-        "creates committed effect receipts on the request thread: {after}"
+        "creates or renames committed on the request thread: {after}"
     );
     assert_eq!(
         counter(&after, "writer_registry_locks"),

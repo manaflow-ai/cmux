@@ -1,7 +1,7 @@
 import CmuxNextDaemon
 
 extension DaemonService {
-    typealias TabCloseCommand = (label: String, run: @Sendable (DaemonConnection) async throws -> Void)
+    typealias TabCloseCommand = (label: String, run: DaemonCommandBody)
 
     /// The daemon command that closes `tab`, shared by the strip, the
     /// palette, the menu, and the CLI. While the owner's reaper runs
