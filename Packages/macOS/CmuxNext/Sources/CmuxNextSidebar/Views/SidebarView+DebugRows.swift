@@ -25,6 +25,8 @@ public struct SidebarDebugRow: Sendable {
     /// whether it clips its content (an opening or closing row).
     public var shownFrame: CGRect? = nil
     public var clips: Bool = false
+    /// The group the row lists in (its id), nil for a loose row.
+    public var group: String? = nil
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -72,6 +74,15 @@ extension SidebarView {
         }
     }
 
+    /// The new-workspace button (+) in window points from the top-left, so a
+    /// proof clicks it (`debug.mouse`); nil while it is hidden.
+    public func debugNewButtonFrame() -> CGRect? {
+        guard !newButton.isHiddenOrHasHiddenAncestor, newButton.window != nil else { return nil }
+        let inWindow = newButton.convert(newButton.bounds, to: nil)
+        let height = window?.contentView?.bounds.height ?? 0
+        return CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
+    }
+
     /// The list's rows and their views, the selection and the drag (debug).
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
@@ -102,7 +113,8 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.clipsToBounds == true)
+                                   activity: activity, icon: icon, group: row.group?.rawValue,
+                                   shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.clipsToBounds == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

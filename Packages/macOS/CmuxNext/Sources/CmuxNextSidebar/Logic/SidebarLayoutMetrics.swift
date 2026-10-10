@@ -71,6 +71,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// Keep the active workspace visible beneath a collapsed group so the
+    /// current destination remains anchored while the other members fold away.
+    public var activeWorkspaceID: WorkspaceID?
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name

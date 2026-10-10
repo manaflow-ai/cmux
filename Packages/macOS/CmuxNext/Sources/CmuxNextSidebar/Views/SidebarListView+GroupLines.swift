@@ -6,7 +6,7 @@ import CmuxNextDesign
 struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
-    var color: GroupColor
+    var color: GroupTint
 }
 
 // The members' line (the Chrome tab group line): ONE view per open group
@@ -48,7 +48,7 @@ extension SidebarGroupLine {
             let top = head.midY, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.color ?? end.groupColor ?? .grey)
+                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
         }
     }
 }

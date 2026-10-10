@@ -74,7 +74,7 @@ final class SidebarGroupLineViews {
 
 /// One members' line: a rounded bar in its group's header color.
 final class GroupLineView: NSView {
-    var color: GroupColor = .grey {
+    var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
 

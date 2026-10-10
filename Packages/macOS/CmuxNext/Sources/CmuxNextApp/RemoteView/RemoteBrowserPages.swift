@@ -38,9 +38,9 @@ enum RemoteBrowserPages {
 
     #if DEBUG
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
-    @MainActor private static var sessions: [String: WeakSession] = [:]
+    @MainActor static var sessions: [String: WeakSession] = [:]
 
-    private struct WeakSession {
+    struct WeakSession {
         weak var value: RemoteBrowserSession?
     }
 
@@ -95,9 +95,9 @@ enum RemoteBrowserPages {
     /// serves only a viewer with its per-launch secret). The record keeps
     /// the file's path; the secret is read when the tab connects.
     @MainActor
-    static func open(address: String, url: String?, secretFile: String? = nil, in pane: PaneController) throws {
+    static func open(address: String, url: String?, secretFile: String? = nil, machine: String? = nil, in pane: PaneController) throws {
         let first = url.flatMap(URL.init(string:))
-        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first, secretFile: secretFile) else {
+        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first, secretFile: secretFile, machine: machine) else {
             throw ActionFailure(message: RemoteBrowserStrings.addressNotRecognized(address))
         }
         if let path = record.secretFile {
@@ -115,7 +115,7 @@ enum RemoteBrowserPages {
     /// is the tab's failure (it then does not connect).
     @MainActor
     private static func hostToken(for record: RemoteBrowserTabRecord) -> Result<String?, RemoteBrowserFailure> {
-        if let secret = localHosts[record.endpoint.port]?.secret { return .success(secret) }
+        if record.machine == nil, let secret = localHosts[record.endpoint.port]?.secret { return .success(secret) }
         guard let path = record.secretFile else { return .success(nil) }
         do {
             return .success(try RemoteBrowserSecretFile(path: path).read())
@@ -132,10 +132,12 @@ enum RemoteBrowserPages {
         // started gives it, else the record's secret file.
         guard let record = RemoteBrowserTabRecord(url: url) else { return nil }
         let credential = hostToken(for: record)
+        // A host on another machine: its loopback over the machine's daemon link.
+        let carrier = record.machine.map { services.remoteLocalhost.browserCarrier(machine: $0, port: record.endpoint.port) }
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
-                                                     viewer: "cmux-next", token: try? credential.get()),
+                                                     viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
-        let localHost = localHosts[record.endpoint.port]
+        let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
         session.openTab = { [weak services] target, disposition, answer in
             // A page's new tab is a remote tab on the same runtime host (RT1).
             guard let services, let holder = pane(holding: key, services: services) else { return answer(nil) }
@@ -149,7 +151,7 @@ enum RemoteBrowserPages {
                 }
                 return
             }
-            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target, secretFile: record.secretFile)
+            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target, secretFile: record.secretFile, machine: record.machine)
             holder.newBrowserTab(url: child.url, background: background) { surface in
                 answer(String(describing: surface))
             }
@@ -173,7 +175,7 @@ enum RemoteBrowserPages {
     }
 
     @MainActor
-    private static func pane(holding key: String, services: AppServices) -> PaneController? {
+    static func pane(holding key: String, services: AppServices) -> PaneController? {
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where pane.pane.tabs.contains(where: { $0.id == key }) {
                 return pane
@@ -182,7 +184,7 @@ enum RemoteBrowserPages {
         return nil
     }
 
-    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `secret_file`?, `pane`?)
+    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `secret_file`?, `machine`?, `pane`?)
     /// runs the shared open path in that pane or the focused one; `open_local`
     /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
@@ -211,7 +213,7 @@ enum RemoteBrowserPages {
                     return ["starting": true]
                 }
                 try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue,
-                         secretFile: params["secret_file"]?.stringValue, in: pane)
+                         secretFile: params["secret_file"]?.stringValue, machine: params["machine"]?.stringValue, in: pane)
                 return ["opened": true]
             } catch {
                 return ["error": .string(String(describing: error))]
@@ -265,7 +267,10 @@ enum RemoteBrowserPages {
                 hosts.append(.object(row))
             }
             let failure: JSONValue = lastLocalFailure.map(JSONValue.string) ?? .null
-            return ["sessions": .array(rows), "local_hosts": .array(hosts),
+            let pages: [String: JSONValue] = services.cache.browsers.compactMapValues { entry in
+                (entry.tab as? MachineBrowserPageTab).map { JSONValue.string($0.messageText) }
+            }
+            return ["sessions": .array(rows), "local_hosts": .array(hosts), "machine_pages": .object(pages),
                     "local_starting": .number(Double(startingLocalHosts)), "local_failure": failure]
         case "navigate":
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }

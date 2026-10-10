@@ -1198,7 +1198,7 @@ function SlashMenu({
   if (matches.length === 0)
     return (
       <div
-        className="acpmux-slash-menu acpmux-slash-empty"
+        className="ui-popup acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
@@ -1210,7 +1210,7 @@ function SlashMenu({
   return (
     <div
       ref={list}
-      className="acpmux-slash-menu"
+      className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

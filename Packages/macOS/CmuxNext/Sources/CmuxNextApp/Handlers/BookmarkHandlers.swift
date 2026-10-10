@@ -122,6 +122,11 @@ enum BookmarkHandlers {
                              _ disposition: BookmarkOpenDisposition) throws {
         let profile = resolver.profile(invocation)
         let node = try resolver.node(invocation, profile: profile)
+        // Agents never open Chromium's own pages, also not through a bookmark (AgentURLPolicy).
+        if invocation.origin != .user {
+            let urls = node.isFolder ? services.bookmarks.tree(profile).children(of: node.id).compactMap(\.url) : [node.url].compactMap { $0 }
+            if urls.contains(where: { AgentURLPolicy.refuses($0) }) { throw ActionFailure(message: MiscHandlerStrings.agentChromiumPage) }
+        }
         guard !node.isFolder else { return BookmarkOpener(services: services).openAll(in: node.id, profile: profile) }
         BookmarkOpener(services: services).open(node, profile: profile, disposition: disposition)
     }

@@ -36,8 +36,11 @@ final class SidebarTabRowView: SidebarRowView {
         title.stringValue = tab.title
         title.font = tab.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.subtitleFont
         unread = tab.isUnread
-        icon.image = tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.tabIconSize) }
-            ?? NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
+        // A page's favicon draws as is (not a template, so the unread tint leaves it alone).
+        let side = SidebarStyle.tabIconSize
+        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
+            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+            ?? NSImage.icon(tab.kind.icon, size: side)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"

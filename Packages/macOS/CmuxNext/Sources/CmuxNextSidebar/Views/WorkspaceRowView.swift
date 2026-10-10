@@ -23,6 +23,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
+    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
+    /// under the button. Shows on hover and on the selected row.
+    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
+                                       label: Strings.workspaceMenu)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
     let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
@@ -48,6 +52,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
+    var onMore: (() -> Void)?
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
@@ -72,7 +77,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -88,10 +93,11 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
         placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
+        moreButton.onPress = { [weak self] in self?.onMore?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, disclosureButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, disclosureButton] }
 
     /// Reads the agent mark setting and redraws the row once when it changes (no polling).
     private func observedAgentMarkVariant() -> SidebarAgentMarkVariant {
@@ -110,6 +116,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isDropTarget = false
         onClose = nil
+        onMore = nil
         onSelect = nil
         onToggleTabs = nil
         title.stopMarquee()
@@ -310,6 +317,13 @@ final class WorkspaceRowView: SidebarRowView {
             closeButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
         }
         if slot > 0 { trailing -= slot + Metrics.space2 }
+        // The menu button sits left of the close-or-badge slot; hidden (not only clear) when it does not show.
+        let showMore = (isHovered || isSelected) && !isPlaceholderRow && onMore != nil
+        moreButton.isHidden = !showMore
+        if showMore {
+            moreButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus

@@ -102,7 +102,15 @@ extension RemoteRdStreamTransport {
         endpoint: RemoteRdLoopbackEndpoint, user: String, install: String, token: String? = nil,
         nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
     ) -> RemoteRdStreamTransport? {
+        remoteBrowser(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), user: user, install: install, token: token, nowMicros: nowMicros)
+    }
+
+    /// The same transport over any byte path (a host on another machine).
+    public static func remoteBrowser(
+        carrier: any RemoteRdByteCarrier, user: String, install: String, token: String? = nil,
+        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
+    ) -> RemoteRdStreamTransport? {
         let hello = RemoteRdHello(user: user, install: install, token: token, service: remoteBrowserService, caps: [inputServiceCap])
-        return RemoteRdStreamTransport(endpoint: endpoint, hello: hello, startKey: "tab", control: true, nowMicros: nowMicros)
+        return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: "tab", control: true, nowMicros: nowMicros)
     }
 }

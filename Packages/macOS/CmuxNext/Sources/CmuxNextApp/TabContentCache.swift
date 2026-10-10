@@ -16,7 +16,7 @@ import Observation
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:]
+    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):

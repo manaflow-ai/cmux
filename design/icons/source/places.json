@@ -502,6 +502,17 @@
    ]
   },
   {
+   "name": "remote.display",
+   "meaning": "Remote desktop / a machine's display (Remote View)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='4' width='17' height='12.5' rx='2.5'/><path d='M12 16.5V20M8.75 20h6.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='4' width='17' height='12.5' rx='2.5' fill='currentColor'/><path d='M12 16.5V20M8.75 20h6.5'/></svg>",
+   "alts": [],
+   "note": "Monitor on a stand, rx 2.5 (frame). Solid fills the screen; the stand stays a stroke.",
+   "replaces": [
+    "display"
+   ]
+  },
+  {
    "name": "group.ungroup",
    "meaning": "Ungroup workspaces",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-group-ungroup' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-group-ungroup)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M9.282 4.752v14.496'/></g><path d='M4 4l16 16'/></svg>",

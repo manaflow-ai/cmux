@@ -19,8 +19,8 @@ export type ScreenRow =
   | { type: "search"; text: string }
   /// Load `url` (what `text` resolved to).
   | { type: "open"; url: string; text: string }
-  | { type: "tab"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string };
+  | { type: "tab"; id: string; title: string; detail?: string; icon?: string }
+  | { type: "history"; url: string; title?: string; icon?: string };
 
 /// Open tabs and visited pages shown under the field.
 export const MAX_MATCH_ROWS = 4;
@@ -82,9 +82,24 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
 function screenRow(row: OmnibarRow): ScreenRow[] {
   switch (row.type) {
     case "tab":
-      return [{ type: "tab", id: row.id, title: row.title, ...(row.detail ? { detail: row.detail } : {}) }];
+      return [
+        {
+          type: "tab",
+          id: row.id,
+          title: row.title,
+          ...(row.detail ? { detail: row.detail } : {}),
+          ...(row.icon ? { icon: row.icon } : {}),
+        },
+      ];
     case "history":
-      return [{ type: "history", url: row.url, ...(row.title ? { title: row.title } : {}) }];
+      return [
+        {
+          type: "history",
+          url: row.url,
+          ...(row.title ? { title: row.title } : {}),
+          ...(row.icon ? { icon: row.icon } : {}),
+        },
+      ];
     default:
       return [];
   }

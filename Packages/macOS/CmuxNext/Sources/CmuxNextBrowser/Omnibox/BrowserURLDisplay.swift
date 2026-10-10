@@ -4,7 +4,8 @@ public import Foundation
 public nonisolated enum BrowserURLDisplay {
     /// Compact text shown when the field is not being edited: no `https://`,
     /// no `www.`, no trailing slash on a bare host, percent escapes decoded.
-    /// `http://` is kept so insecure pages stay recognizable.
+    /// `http://` is kept so insecure pages stay recognizable; `chrome://`
+    /// and `chrome-extension://` are kept as Chromium keeps them.
     public static func displayText(for url: URL?) -> String {
         guard let url else { return "" }
         if BrowserNewTabPage.isNewTabPage(url) { return "" }
@@ -27,7 +28,12 @@ public nonisolated enum BrowserURLDisplay {
             text.removeLast()
         }
         text = text.removingPercentEncoding ?? text
-        return scheme == "http" ? "http://" + text : text
+        // Chromium's own pages keep their scheme, as Chromium shows them
+        // (`chrome://extensions`, never a bare `extensions`).
+        if let scheme, scheme == "http" || ChromiumInternalURL.chromiumSchemes.contains(scheme) {
+            return scheme + "://" + text
+        }
+        return text
     }
 
     /// The host's UTF-16 range inside `displayText(for:)`, which the
@@ -36,7 +42,9 @@ public nonisolated enum BrowserURLDisplay {
     public static func hostRange(in text: String, for url: URL?) -> NSRange? {
         guard let url, !url.isFileURL, var host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
         if host.lowercased().hasPrefix("www."), host.split(separator: ".").count > 2 { host = String(host.dropFirst(4)) }
-        let prefix = text.lowercased().hasPrefix("http://") ? "http://" : ""
+        let scheme = url.scheme?.lowercased() ?? ""
+        let kept = scheme == "http" || ChromiumInternalURL.chromiumSchemes.contains(scheme)
+        let prefix = kept && text.lowercased().hasPrefix(scheme + "://") ? scheme + "://" : ""
         let hostText = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         guard text.dropFirst(prefix.count).lowercased().hasPrefix(hostText.lowercased()) else { return nil }
         return NSRange(location: prefix.utf16.count, length: hostText.utf16.count)

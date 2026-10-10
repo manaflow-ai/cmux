@@ -1,6 +1,6 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
-// folder and toggle, as in T3 Chat and ChatGPT); the summary (Sources) button, whose popover also
+// folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
 // opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -33,12 +33,22 @@ export type ChatMenuItem =
       shortcutAction?: string;
       disabled?: boolean;
       onSelect?: () => void;
-      children?: { key: string; label: string; onSelect: () => void }[];
+      children?: ChatMenuChild[];
     };
+
+/// The menu's groups in order, the empty ones dropped, with a separator between each two.
+export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
+  groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
+
+/// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
+export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
 
 export function ChatHeaderTools({
   onTerminal,
   onBrowser,
+  sideTabs = false,
+  onSideTabs,
+  onPointerEnter,
   tabTools = true,
   summary,
   menu,
@@ -50,6 +60,11 @@ export function ChatHeaderTools({
   /// `toggle` closes the split this button opened when it is still there.
   onTerminal: (mode: QuickActionMode) => void;
   onBrowser: (mode: QuickActionMode) => void;
+  /// Whether the panes beside the chat show: [+] New tab reads Hide tabs, in the same spot.
+  sideTabs?: boolean;
+  onSideTabs?: () => void;
+  /// The pointer reached the tools: the App rereads the layout, so [+] reads right before a click.
+  onPointerEnter?: () => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
@@ -66,10 +81,23 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const actions = useQuickActions();
   return (
-    <div className="acpmux-header-tools">
+    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {tabTools &&
         actions.map(({ id, mode }) =>
-          id === "terminal" ? (
+          id === "newTab" ? (
+            // One button whose label and icon change, so the next click lands on it again.
+            <button
+              key={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+              aria-pressed={sideTabs}
+              title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+              onClick={onSideTabs}
+            >
+              <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
+            </button>
+          ) : id === "terminal" ? (
             <button
               key={id}
               type="button"
@@ -157,16 +185,12 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
+      <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children
-          ? children.map((child) => (
-              <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                <span className="acpmux-chat-menu-label">{child.label}</span>
-              </MenuItem>
-            ))
+          ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
           : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
@@ -185,9 +209,7 @@ function ChatMenu({
                   }
                 >
                   {row.children.map((child) => (
-                    <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                      <span className="acpmux-chat-menu-label">{child.label}</span>
-                    </MenuItem>
+                    <ChatMenuChildRow key={child.key} child={child} />
                   ))}
                 </Submenu>
               ) : (
@@ -205,6 +227,16 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
+      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+    </MenuItem>
+  );
+}
+
+function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
+  const shortcut = useShortcut(child.shortcutAction ?? "");
+  return (
+    <MenuItem className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+      <span className="acpmux-chat-menu-label">{child.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>
   );
