@@ -37,7 +37,11 @@ enum AppBrowserPage {
         let stale = markAgentDriven(tabID, services: services)
         // The engine the record names, with url/title written back to the record.
         let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
-        guard let page = entry?.tab else {
+        // Chromium makes a page asynchronously: an action right after
+        // `cmux browser open` waits for it, bounded (cx-qncg).
+        var made = entry?.tab
+        if made == nil { made = await awaitPage(tabID, services: services, within: actionWait) }
+        guard let page = made else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
@@ -59,6 +63,10 @@ enum AppBrowserPage {
         case .state:
             return ["url": .string(page.state.url?.absoluteString ?? "about:blank"), "title": .string(page.state.title ?? "")]
         case .evaluate(let script):
+            try await ensureBrowser(page)
+            // The page's pending navigation (the first load after open) ends
+            // first, bounded; then the script acts on the loaded document.
+            _ = await awaitPendingNavigation(page, within: actionWait)
             do {
                 let value = try await page.evaluate(script)
                 return ["value": CmuxNextSettings.JSONValue(foundation: value.foundationValue) ?? .null]
@@ -67,5 +75,20 @@ enum AppBrowserPage {
             }
         }
         return [:]
+    }
+
+    /// A Chromium page has no browser until its pane shows it: a background
+    /// tab, a tab `cmux browser open` made without focus, or the page
+    /// `rebuildStale` put in place of a stale one. Scripts need the browser,
+    /// so it is created in the background (no focus, nothing shown; agents
+    /// drive hidden tabs) and awaited. Without this every script on such a
+    /// page failed with `js_error` "closed". The control deadline bounds the
+    /// wait (`browserCreated` resumes false when the call is cancelled).
+    static func ensureBrowser(_ page: any BrowserTab) async throws {
+        guard let page = page as? CEFTab, !page.agentRelay.hasBrowser else { return }
+        page.agentRelay.createBrowser()
+        guard await page.agentRelay.browserCreated() else {
+            throw ControlError(code: "unavailable", message: "The browser page could not start; retry")
+        }
     }
 }

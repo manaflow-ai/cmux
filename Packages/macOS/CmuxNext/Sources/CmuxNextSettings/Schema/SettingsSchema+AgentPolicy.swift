@@ -29,12 +29,14 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
+        .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -46,9 +48,11 @@ extension SettingsSchema {
         "sidebar.minimalMode",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
-        "sidebar.spacesPosition",
+        "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
+        "tabs.newTabTemplate",
         "newTerminal.opensWorkspace",
+        "tabs.cmdWClosesPinnedTabs",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -68,6 +72,7 @@ extension SettingsSchema {
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
+        "appearance.appTheme",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -102,6 +107,8 @@ extension SettingsSchema {
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
         "appearance.statusIndicator.honorStatusStyle",
+        "appearance.statusIndicator.showAgentWorkingOnTabs",
+        "appearance.statusIndicator.showPageLoading",
         "status.inferCommandBusy",
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
@@ -109,7 +116,8 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -149,6 +157,9 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        "agents.chats.roots": .privacy,
+        "agents.chats.discovery": .privacy,
+        "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
@@ -164,6 +175,7 @@ extension SettingsSchema {
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
+        "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,
@@ -174,6 +186,8 @@ extension SettingsSchema {
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
+        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        "computerUse.enabled": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

@@ -52,6 +52,15 @@ enum BookmarkHandlers {
             let index = invocation["index"]?.intValue ?? services.bookmarks.tree(profile).children(of: folder).count
             try apply(services, .move(id: node.id, parent: folder, index: index), profile)
         })
+        registry.bind("bookmark.copyLink", run: { invocation in
+            let node = try resolver.node(invocation, profile: resolver.profile(invocation))
+            guard let url = node.url else { throw ActionFailure(message: BookmarkAppStrings.folderHasNoLink) }
+            context.copy(url.absoluteString)
+        })
+        // A folder's menu leaves Copy Bookmark Link out (quiet: building a menu never refuses).
+        ActionTargetVisibility.hide("bookmark.copyLink", in: registry) { invocation in
+            (try? resolver.node(invocation, profile: resolver.profile(invocation)))?.isFolder == true
+        }
         registry.bind("bookmark.remove", run: { invocation in
             let profile = resolver.profile(invocation)
             let node = try resolver.node(invocation, profile: profile)
@@ -73,6 +82,26 @@ enum BookmarkHandlers {
                 return BookmarkFiles(services: services).chooseImport(profile: profile)
             }
             BookmarkFiles(services: services).importFile(URL(filePath: (path as NSString).expandingTildeInPath), profile: profile)
+        })
+        registry.bind("bookmark.importFromBrowser", run: { invocation in
+            let profile = resolver.profile(invocation)
+            let window = context.activeWindow?.window
+            guard let browser = invocation["browser"]?.stringValue, !browser.isEmpty else {
+                return BookmarkBrowserImport(services: services).choose(profile: profile, window: window)
+            }
+            // CLI and agents (bookmarks are not secrets, I5): name the browser, optionally the profile.
+            let source = invocation["source"]?.stringValue
+            registry.track(Task { @MainActor in
+                let found = await Task.detached { BookmarkBrowserImport.sources(environment: BookmarkBrowserImport.liveEnvironment()) }.value
+                let picked = BookmarkBrowserImport.match(found, browser: browser, source: source)
+                guard !picked.isEmpty else {
+                    return ActionWorkFailure(BookmarkAppStrings.importUnknownSource([browser, source].compactMap { $0 }.joined(separator: " ")))
+                }
+                let work = BookmarkBrowserImport(services: services)
+                let outcome = await work.run(picked, target: profile)
+                work.announce(outcome, in: window)
+                return outcome.failed.isEmpty ? nil : ActionWorkFailure(BookmarkAppStrings.importFailed(outcome.failed.joined(separator: ", ")))
+            })
         })
         registry.bind("bookmark.export", run: { invocation in
             let profile = resolver.profile(invocation)

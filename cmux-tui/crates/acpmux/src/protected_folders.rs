@@ -8,26 +8,37 @@
 
 use std::path::{Path, PathBuf};
 
-/// The locations macOS guards, relative to the home folder.
-const GUARDED_IN_HOME: &[&str] = &[
-    "Desktop",
-    "Documents",
-    "Downloads",
-    "Pictures",
-    "Music",
-    "Movies",
-    "Library/Mobile Documents",
-    "Library/CloudStorage",
-    "Library/Containers",
-    "Library/Group Containers",
-    "Library/Mail",
-    "Library/Messages",
-    "Library/Safari",
-    "Library/Calendars",
-];
+/// The one protected-folder list for every layer (data/protected-folders.json):
+/// Swift and TypeScript get generated copies (scripts/cmux-next/gen-protected-folders.py).
+const PROTECTED_FOLDERS_JSON: &str = include_str!("../data/protected-folders.json");
 
-/// Guarded locations outside the home folder: other and network volumes.
-const GUARDED_ROOTS: &[&str] = &["/Volumes", "/Network", "/net"];
+#[derive(serde::Deserialize)]
+struct ProtectedEntry {
+    path: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProtectedList {
+    /// The locations macOS guards, relative to the home folder.
+    in_home: Vec<ProtectedEntry>,
+    /// Guarded locations outside the home folder: other and network volumes.
+    roots: Vec<ProtectedEntry>,
+}
+
+/// The parsed list; `None` only if the embedded file is invalid (the unit
+/// tests parse it), and then every folder is refused (fail closed).
+fn protected_list() -> Option<&'static ProtectedList> {
+    static LIST: std::sync::OnceLock<Option<ProtectedList>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| match serde_json::from_str(PROTECTED_FOLDERS_JSON) {
+        Ok(list) => Some(list),
+        Err(e) => {
+            tracing::error!("data/protected-folders.json: {e}");
+            None
+        }
+    })
+    .as_ref()
+}
 
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
 /// The folder is checked as spelled and with its symlinks resolved.
@@ -60,6 +71,29 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     guarded(&resolved, &homes).and_then(refused)
 }
 
+/// The folder for agents acpmux starts with no person asking (the model
+/// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
+/// empty of the person's files. Never the home folder: an agent scans its
+/// folder at start. When the acpmux home itself is guarded, a folder in the
+/// per-user temp dir. Created if missing.
+pub fn unattended_cwd() -> PathBuf {
+    unattended_cwd_in(&crate::config::home(), dirs::home_dir().as_deref())
+}
+
+/// `unattended_cwd` for an acpmux home and a user home folder.
+pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
+    let own = acpmux_home.join("unattended");
+    let dir = if refusal_in(&own, home).is_none() {
+        own
+    } else {
+        std::env::temp_dir().join("acpmux-unattended")
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
+    }
+    dir
+}
+
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
     let folded = fold(path);
     if folded == "/" {
@@ -69,7 +103,10 @@ fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
         let root = root.to_lowercase();
         folded == root || folded.starts_with(&format!("{root}/"))
     };
-    if GUARDED_ROOTS.iter().any(|root| under(root)) {
+    let Some(list) = protected_list() else {
+        return Some("unknown: the protected-folder list is invalid");
+    };
+    if list.roots.iter().any(|root| under(&root.path)) {
         return Some("on another or a network volume");
     }
     for home in homes {
@@ -77,7 +114,7 @@ fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
         if folded == home {
             return Some("the home folder");
         }
-        if GUARDED_IN_HOME.iter().any(|relative| under(&format!("{home}/{relative}"))) {
+        if list.in_home.iter().any(|relative| under(&format!("{home}/{}", relative.path))) {
             return Some("in a privacy-protected folder");
         }
     }
@@ -94,6 +131,23 @@ fn fold(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shared_list_parses_and_holds_the_guarded_folders() {
+        let list = protected_list().unwrap();
+        let home: Vec<&str> = list.in_home.iter().map(|e| e.path.as_str()).collect();
+        for path in [
+            "Desktop",
+            "Documents",
+            "Downloads",
+            "Library/Mobile Documents",
+            "Library/CloudStorage",
+        ] {
+            assert!(home.contains(&path), "{path} missing from data/protected-folders.json");
+        }
+        let roots: Vec<&str> = list.roots.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(roots, ["/Volumes", "/Network", "/net"]);
+    }
 
     #[test]
     fn refuses_home_root_and_guarded_folders_as_spelled() {
@@ -130,6 +184,21 @@ mod tests {
             assert_eq!(refusal_in(Path::new(cwd), Some(home)), None, "{cwd} must be allowed");
         }
         assert!(refusal_in(Path::new("relative"), Some(home)).is_some());
+    }
+
+    #[test]
+    fn the_unattended_folder_is_acpmux_own_and_never_guarded() {
+        let root = std::env::temp_dir().join(format!("acpmux-unattended-{}", uuid::Uuid::now_v7()));
+        let home = root.join("me");
+        let dir = unattended_cwd_in(&home.join(".acpmux"), Some(&home));
+        assert_eq!(dir, home.join(".acpmux/unattended"));
+        assert!(dir.is_dir());
+        assert_eq!(refusal_in(&dir, Some(&home)), None);
+        // An acpmux home inside Documents: the folder moves out of it.
+        let guarded = unattended_cwd_in(&home.join("Documents/acpmux"), Some(&home));
+        assert!(!guarded.starts_with(home.join("Documents")), "{}", guarded.display());
+        assert_eq!(refusal_in(&guarded, Some(&home)), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(unix)]

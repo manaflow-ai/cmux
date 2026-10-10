@@ -173,6 +173,9 @@ pub struct TranslatorSpec {
     pub mode: String,
     pub model: String,
     pub effort: String,
+    /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
+    #[serde(default)]
+    pub fast: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
 }

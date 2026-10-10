@@ -8,7 +8,8 @@ public enum SessionStateChange: Sendable, Hashable {
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
-    case terminal(ResourceID, TerminalProgressReport?)
+    /// A terminal's OSC 9;4 progress and OSC 7501 program status records.
+    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [])
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -88,16 +89,20 @@ enum SessionWire {
             }
             var zoom: Double?
             if case .number(let value)? = extra?["zoom"] { zoom = value }
-            return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"))
+            return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
+                                                icon: extra?["icon"]?.stringValue)
         }
 
         var progress: TerminalProgressReport? {
             guard case .object(let object)? = extra?["progress"],
                   let state = object["state"]?.stringValue.flatMap(TerminalProgressReport.State.init(rawValue:)) else { return nil }
             var value: Int?
-            if case .number(let number)? = object["value"] { value = Int(number) }
+            if case .number(let number)? = object["value"] { value = number.saturatedInteger(Int.self) }
             return TerminalProgressReport(state: state, value: value)
         }
+
+        /// OSC 7501 records (`extra.program_status`).
+        var programStatus: [ProgramStatusRecord] { ProgramStatusRecord.records(extra) }
     }
 
     struct StateLists: Decodable {
@@ -129,12 +134,14 @@ enum SessionWire {
                 if workspace.ephemeral { mirror.ephemeralWorkspaces.insert(workspace.id) }
                 if let folder = workspace.agentFolder { mirror.agentFolders[workspace.id] = folder }
             }
-            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens[screen.id] = screen.screenState }
-            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs[tab.id] = tab.tabRecord }
-            for terminal in terminals?.compactMap(\.value) ?? [] { mirror.terminalProgress[terminal.id] = terminal.progress }
+            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
+            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
+            for terminal in terminals?.compactMap(\.value) ?? [] {
+                mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus))
+            }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
-            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus[status.workspaceID] = status }
-            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups[group.id] = group }
+            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
+            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups.updateValue(group, forKey: group.id) }
             return mirror
         }
     }
@@ -160,7 +167,9 @@ enum SessionWire {
             case ("delete", "screen"): change = .screen(rid, nil)
             case ("upsert", "tab"): change = .tab(rid, try c.decode(Entity.self, forKey: .value).tabRecord)
             case ("delete", "tab"): change = .tab(rid, nil)
-            case ("upsert", "terminal"): change = .terminal(rid, try c.decode(Entity.self, forKey: .value).progress)
+            case ("upsert", "terminal"):
+                let terminal = try c.decode(Entity.self, forKey: .value)
+                change = .terminal(rid, terminal.progress, programStatus: terminal.programStatus)
             case ("delete", "terminal"): change = .terminal(rid, nil)
             case ("state_upsert", "closed"): change = .closed(try c.decode(ClosedItem.self, forKey: .value))
             case ("state_delete", "closed"): change = .closedRemoved(id)

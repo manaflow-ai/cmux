@@ -237,7 +237,7 @@ stop_daemon() {
 # Start the daemon (command identical to cmuxTuiDaemonCommand()).
 # Under systemd the unit sets CMUX_TUI_HOST_SCOPES=systemd: the daemon moves
 # each terminal host it starts into its own transient scope
-# (cmux-terminal-host-<pid>.scope in cmux-terminal-hosts.slice, via
+# (cmux-terminal-host-<pid>.scope in cmuxhosts.slice, via
 # `sudo -n busctl ... StartTransientUnit` with a fixed argv), so a stop or
 # restart of cmux-tui-daemon.service keeps every terminal for the next daemon
 # to adopt. A failed move leaves the host in this unit. Without systemd the

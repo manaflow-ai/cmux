@@ -37,6 +37,14 @@ pub struct WorkspaceGroupSnapshot {
     /// loose workspace. Older daemons omit it.
     #[serde(default)]
     pub top_index: Option<u32>,
+    /// The group's icon (`workspace-group-icon-v1`): one emoji or an SF
+    /// Symbol name; `None` is no icon. Older daemons omit it.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// Pinned (saved) group (`workspace-group-pin-v1`): it stays when its
+    /// workspaces close. Older daemons omit it (not pinned).
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// A session-qualified workspace in the personal order.
@@ -117,6 +125,11 @@ pub struct WorkspaceGroupUpdateOptions {
     /// personal workspace at index `i`; `Clear` puts it after every loose
     /// workspace.
     pub top_index: Update<u32>,
+    /// The group's icon (`workspace-group-icon-v1`): one emoji or an SF
+    /// Symbol name; `Clear` removes it.
+    pub icon: Update<String>,
+    /// Pin (save) or unpin the group (`workspace-group-pin-v1`).
+    pub pinned: Option<bool>,
 }
 
 /// Fields of `workspace.place`. `group: Update::Clear` ungroups the
@@ -204,15 +217,19 @@ impl Session {
         options: WorkspaceGroupUpdateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceGroupSnapshot>> {
-        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index } = options;
+        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index, icon, pinned } =
+            options;
         if name.is_none()
             && matches!(color, Update::Unchanged)
             && collapsed.is_none()
             && room.is_none()
             && matches!(top_index, Update::Unchanged)
+            && matches!(icon, Update::Unchanged)
+            && pinned.is_none()
         {
             return Err(Error::InvalidArgument(
-                "workspace group update must change name, color, collapsed, room, or top_index"
+                "workspace group update must change name, color, collapsed, room, top_index, icon, \
+                 or pinned"
                     .to_string(),
             ));
         }
@@ -223,6 +240,7 @@ impl Session {
             .group_params(group)?
             .optional_string(field::NAME, name)
             .optional_bool("collapsed", collapsed)
+            .optional_bool("pinned", pinned)
             .optional_string("room", room);
         let params = match color {
             Update::Unchanged => params,
@@ -233,6 +251,11 @@ impl Session {
             Update::Unchanged => params,
             Update::Clear => params.value("top_index", Value::Null),
             Update::Set(index) => params.u32("top_index", index),
+        };
+        let params = match icon {
+            Update::Unchanged => params,
+            Update::Clear => params.value("icon", Value::Null),
+            Update::Set(icon) => params.string("icon", icon),
         };
         mutation_snapshot(
             self.client.mutate(ops::WORKSPACE_GROUP_UPDATE, params, mutation)?,

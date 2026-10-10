@@ -313,7 +313,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.rename",
                 title: String(localized: "action.workspaceGroup.rename", defaultValue: "Rename Group…", bundle: .module),
-                keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.contextMenu],
+                keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.workspaceGroup], cliName: "workspace-group rename"
             ),
             ActionDescriptor(
@@ -344,12 +344,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.ungroup",
                 title: String(localized: "action.workspaceGroup.ungroup", defaultValue: "Ungroup Workspaces", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "rectangle.stack.badge.minus",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group ungroup"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group ungroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.delete",
                 title: String(localized: "action.workspaceGroup.delete", defaultValue: "Delete Group", bundle: .module),
-                keywords: ["group", "remove"], category: .workspace, symbol: "trash", surfaces: [.contextMenu],
+                keywords: ["group", "remove"], category: .workspace, symbol: "trash", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup], cliName: "workspace-group delete",
                 destructive: true
             ),

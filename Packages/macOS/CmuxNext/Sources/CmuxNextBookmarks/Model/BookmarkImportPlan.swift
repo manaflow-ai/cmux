@@ -22,19 +22,38 @@ public nonisolated struct BookmarkImportItem: Sendable, Hashable {
 /// Bar, replaced in place on a re-import; an HTML file is one "Imported"
 /// folder there.
 public nonisolated enum BookmarkImportPlan {
+    /// One browser source's import: the operation and what it holds.
+    public nonisolated struct SourceImport: Sendable, Hashable {
+        public var operation: BookmarkOperation
+        /// Bookmarks the operation creates.
+        public var added: Int
+        /// Bookmarks left out because the same URL is already in the same folder.
+        public var duplicates: Int
+    }
+
     /// The replace-or-create operation for one browser source. Items keep
     /// their order; folders appear in order of first use. When every item
     /// shares the same first folder (the source's bar), that level is dropped.
     public static func source(title: String, sourceKey: String, items: [BookmarkImportItem]) -> BookmarkOperation {
+        sourceImport(title: title, sourceKey: sourceKey, items: items).operation
+    }
+
+    /// `source(title:sourceKey:items:)` with counts. A bookmark whose URL is
+    /// already in the same folder is skipped (decision
+    /// BOOKMARKS-IMPORT-EVERY-BROWSER I4); the same URL in another folder stays.
+    public static func sourceImport(title: String, sourceKey: String, items: [BookmarkImportItem]) -> SourceImport {
         let shared = items.first?.folderPath.first
         let strip = shared != nil && items.allSatisfy { $0.folderPath.first == shared }
         let paths = items.map { strip ? Array($0.folderPath.dropFirst()) : $0.folderPath }
         let root = Builder()
+        var added = 0
         for (item, path) in zip(items, paths) {
-            root.add(.bookmark(item.title, item.url, created: item.created), at: path[...])
+            if root.add(.bookmark(item.title, item.url, created: item.created), at: path[...]) { added += 1 }
         }
         let folder = BookmarkDraft.folder(title, root.drafts)
-        return .importDrafts(parent: BookmarkRoot.bar.rawValue, index: nil, sourceKey: sourceKey, replace: true, drafts: [folder])
+        return SourceImport(operation: .importDrafts(parent: BookmarkRoot.bar.rawValue, index: nil, sourceKey: sourceKey, replace: true,
+                                                     drafts: [folder]),
+                            added: added, duplicates: items.count - added)
     }
 
     /// An HTML file into a new folder named `title` at the end of the bar.
@@ -66,15 +85,22 @@ public nonisolated enum BookmarkImportPlan {
         }
 
         private var entries: [Entry] = []
+        private var urls: Set<String> = []
 
-        func add(_ draft: BookmarkDraft, at path: ArraySlice<String>) {
-            guard let name = path.first else { return entries.append(.leaf(draft)) }
+        /// False when the folder already holds this URL (the draft is skipped).
+        @discardableResult
+        func add(_ draft: BookmarkDraft, at path: ArraySlice<String>) -> Bool {
+            guard let name = path.first else {
+                if let url = draft.url, !urls.insert(url.absoluteString).inserted { return false }
+                entries.append(.leaf(draft))
+                return true
+            }
             for case .folder(let title, let child) in entries where title == name {
                 return child.add(draft, at: path.dropFirst())
             }
             let child = Builder()
             entries.append(.folder(name, child))
-            child.add(draft, at: path.dropFirst())
+            return child.add(draft, at: path.dropFirst())
         }
 
         var drafts: [BookmarkDraft] {

@@ -80,6 +80,7 @@ fn scratch() -> (PathBuf, PathBuf, FolderGate) {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     (root, repo, gate)

@@ -41,13 +41,27 @@ pub fn run(opts: &Opts) -> Res<()> {
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", if cfg!(feature = "x264") { "x264" } else { "openh264" }),
+        codec: opts.str_or("codec", "openh264"),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", 1000)?,
+        upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
+        upstream_record_max_bytes: opts
+            .num_or::<u64>("upstream-record-max-mb", 1024)?
+            .saturating_mul(1 << 20),
     };
+    if let Some(dir) = &cfg.upstream_record {
+        // Fail at start, not at the first viewer.
+        crate::upstream::RecordSink::new(dir, cfg.upstream_record_max_bytes)
+            .map_err(|e| format!("--upstream-record {}: {e}", dir.display()))?;
+        eprintln!(
+            "cmux-rd host: development only: --upstream-record writes the viewer's microphone, camera and \
+             screen share to {}",
+            dir.display()
+        );
+    }
     let policy = HostPolicy {
         enabled: true,
         owner_user: owner,
@@ -215,8 +229,13 @@ fn serve_viewer(
         return Ok("refused: missing or wrong session token".into());
     }
     // Route by service (C1): this host serves remote desktop only. Upstream
-    // media (C4) is offered only once the desktop has a sink for it.
-    let host_caps = crate::upstream::offered_caps(&crate::upstream::NoSink);
+    // media (C4) is offered only when the desktop has a sink for it (today the
+    // development recording sink, `--upstream-record DIR`).
+    let sink = crate::upstream::session_sink(
+        cfg.upstream_record.as_deref(),
+        cfg.upstream_record_max_bytes,
+    );
+    let host_caps = crate::upstream::offered_caps(&*sink);
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -270,6 +289,7 @@ fn serve_viewer(
         udp_port,
         max_datagram,
         &negotiated,
+        sink,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -294,6 +314,7 @@ fn stream_session(
     udp_port: Option<u16>,
     max_datagram: usize,
     negotiated: &Negotiated,
+    sink: Box<dyn crate::upstream::UpstreamSink>,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
@@ -308,7 +329,7 @@ fn stream_session(
         None => DatagramOut::Stream,
     };
     let carrier = if udp_port.is_some() { "udp" } else { "stream" };
-    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps)?;
+    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     write_control(
         stream,

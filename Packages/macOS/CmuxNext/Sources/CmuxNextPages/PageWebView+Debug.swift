@@ -36,6 +36,48 @@ extension PageWebView {
         return value
     }
 
+    /// SCROLLBARS-FOLLOW-MACOS audit: the page's `data-scrollers` and every element that would show
+    /// a scroller at rest under "Always" (its overflow is auto or scroll on an axis whose content is
+    /// larger than its box), with the overflow in CSS pixels. An overflow of a few pixels is a
+    /// layout bug that "Always" makes visible.
+    public func debugScrollers() async -> JSONValue {
+        let script = """
+        const out = [];
+        const name = (el) => {
+          let s = el.tagName.toLowerCase();
+          if (el.id) s += '#' + el.id;
+          const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '';
+          if (cls) s += '.' + cls;
+          return s;
+        };
+        const path = (el) => {
+          const parts = [];
+          for (let e = el; e && e.nodeType === 1 && parts.length < 4; e = e.parentElement) parts.unshift(name(e));
+          return parts.join(' > ');
+        };
+        const scrolls = (v) => v === 'auto' || v === 'scroll' || v === 'overlay';
+        const visit = (root) => {
+          for (const el of root.querySelectorAll('*')) {
+            if (el.shadowRoot) visit(el.shadowRoot);
+            const cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            const isRoot = el === document.scrollingElement;
+            const y = el.scrollHeight - el.clientHeight;
+            const x = el.scrollWidth - el.clientWidth;
+            const rootY = isRoot && cs.overflowY !== 'hidden' && getComputedStyle(document.body || el).overflowY !== 'hidden';
+            const rootX = isRoot && cs.overflowX !== 'hidden' && getComputedStyle(document.body || el).overflowX !== 'hidden';
+            if (y > 0 && (scrolls(cs.overflowY) || rootY)) out.push({ element: path(el), axis: 'y', overflow: y, box: el.clientHeight });
+            if (x > 0 && (scrolls(cs.overflowX) || rootX)) out.push({ element: path(el), axis: 'x', overflow: x, box: el.clientWidth });
+          }
+        };
+        visit(document);
+        return JSON.stringify({ scrollers: document.documentElement.getAttribute('data-scrollers'), overflowing: out });
+        """
+        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
+        return value
+    }
+
     /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
     /// control with no pointer). Returns whether an element matched.
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can

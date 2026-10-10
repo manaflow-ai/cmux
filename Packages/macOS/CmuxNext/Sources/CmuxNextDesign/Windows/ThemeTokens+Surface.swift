@@ -15,4 +15,21 @@ extension ThemeTokens {
     /// window's one backdrop at the window's opacity instead of covering it
     /// with an opaque fill (Lawrence R48).
     public nonisolated var cardFill: ThemeRGB { hoverFill.withAlpha(isDark ? 0.05 : 0.035) }
+
+    /// A scrim for text over the window's backdrop (the Home people list):
+    /// the surface background at ``legibilityScrimOpacity``, laid over the
+    /// window's tint. The background image still shows through; over an
+    /// opaque window it composites to the background itself.
+    public nonisolated var legibilityScrim: ThemeRGB { surfaceBackground.withAlpha(Self.legibilityScrimOpacity) }
+
+    /// How much of the surface background ``legibilityScrim`` adds.
+    public nonisolated static let legibilityScrimOpacity = 0.35
+
+    /// A small capsule behind a label over busy content (the Home header's
+    /// name pill): the surface background at ``capsuleScrimOpacity``.
+    public nonisolated var capsuleScrim: ThemeRGB { surfaceBackground.withAlpha(Self.capsuleScrimOpacity) }
+
+    /// How much of the surface background ``capsuleScrim`` covers: enough
+    /// for a title over text, still translucent.
+    public nonisolated static let capsuleScrimOpacity = 0.72
 }

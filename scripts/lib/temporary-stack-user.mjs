@@ -99,7 +99,10 @@ export function stackConfigurationFromEnvFile(environmentFile) {
   const values = parseEnvFile(readFileSync(environmentFile, "utf8"));
   return {
     projectId: requiredValue(values, "NEXT_PUBLIC_STACK_PROJECT_ID"),
-    publishableClientKey: requiredValue(values, "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"),
+    // Optional: the production project requires no publishable key.
+    ...(values.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim()
+      ? { publishableClientKey: values.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY.trim() }
+      : {}),
     secretServerKey: requiredValue(values, "STACK_SECRET_SERVER_KEY"),
   };
 }

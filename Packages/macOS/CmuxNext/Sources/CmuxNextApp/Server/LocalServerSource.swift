@@ -34,6 +34,8 @@ final class LocalServerSource: ServerSource {
     /// Runs a check's fix; nil on success, else the user-facing refusal.
     typealias Fix = @MainActor (_ check: HealthCheckID) async -> String?
     typealias MakeWatcher = @MainActor (_ file: URL, _ onChange: @escaping @Sendable () -> Void) -> any ServerFileWatching
+    /// The kernel vnode watch (`ConfigFileWatcher`) every App source uses.
+    static let fileWatcher: MakeWatcher = { file, onChange in ConfigFileWatcher(url: file, onChange: onChange) }
 
     nonisolated static let statusArguments = ["server", "status", "--json"]
     nonisolated static let rolesArguments = ["host", "roles", "--json"]
@@ -75,7 +77,7 @@ final class LocalServerSource: ServerSource {
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },
-            makeWatcher: { file, onChange in ConfigFileWatcher(url: file, onChange: onChange) },
+            makeWatcher: fileWatcher,
             localFixes: ServerHealthFixer.localFixes)
     }
 

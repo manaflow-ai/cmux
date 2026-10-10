@@ -35,7 +35,8 @@ export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
-  { code: Schema.Literal("auth.forbidden"), message: Schema.String },
+  // team.not_member (cx-5xew): x-cmux-team names a team the caller is not a member of now; auth.forbidden is every other refusal.
+  { code: Schema.Literals(["auth.forbidden", "team.not_member"]), message: Schema.String },
   { httpApiStatus: 403 }
 ) {}
 
@@ -64,7 +65,9 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, { pr
   {
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
-    error: [Unauthenticated, PolicyRefused]
+    // OwnerUnreachable (503, retryable): the policy gate could not reach a TeamDO or UserDO (cx-44j.51).
+    // Forbidden: x-cmux-team names a team the session is not a member of (cx-3bi.43).
+    error: [Unauthenticated, Forbidden, PolicyRefused, OwnerUnreachable]
   }
 ) {}
 
@@ -147,7 +150,7 @@ export class AuthGroup extends HttpApiGroup.make("auth")
       // `agent`: a chief of this user; the token then acts as that chief (principal.agent), checked on every request.
       payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
       success: TokenResponse,
-      error: [BadRequest, Forbidden, PolicyRefused]
+      error: [BadRequest, Forbidden, PolicyRefused, OwnerUnreachable]
     })
   ) {}
 

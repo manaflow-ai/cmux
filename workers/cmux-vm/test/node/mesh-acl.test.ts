@@ -1,6 +1,6 @@
 /** The mesh ACL compiler (src/mesh/acl.ts) and the address plan (src/mesh/config.ts). Pure functions. */
 import { describe, expect, it } from "vitest";
-import { compileAcl, parseAllow, peersOf, planApply } from "../../src/mesh/acl.ts";
+import { ADDRESS_RULE_PORT, compileAcl, parseAllow, parseDeviceIpv6, peersOf, planApply } from "../../src/mesh/acl.ts";
 import { slotCidr } from "../../src/mesh/config.ts";
 
 const D1 = "dev_aaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -78,6 +78,117 @@ describe("peersOf", () => {
     if (!result.ok) throw new Error("compile failed");
     const peers = peersOf(D1, result.rules);
     expect([...peers.keys()].sort()).toEqual([V1, V2]);
+  });
+});
+
+describe("device IPv6 address rules (transport.md 7, 13.6)", () => {
+  const A1 = "2600:1700:abcd:1::5";
+  const A2 = "2600:1700:abcd:2::9";
+  const withAddresses = (addresses: ReadonlyMap<string, string>, rules: ReadonlyArray<{ src: string[]; dst: string[]; allow: string[] }>, limits = { rulesPerResource: 180, rulesPerMesh: 500 }) =>
+    compileAcl({ document: { rules }, deviceIds: [D1, D2], vmIds: [V1, V2], deviceIpv6: addresses, ...limits });
+
+  it("opens the VM's overlay port to the device's /128 once per (device, VM) pair the policy allows", () => {
+    const result = withAddresses(new Map([[D1, A1]]), [{ src: [D1], dst: [V1], allow: ["tcp:8080", "icmp"] }]);
+    if (!result.ok) throw new Error("compile failed");
+    const address = result.rules.filter((rule) => rule.cidr !== null);
+    expect(address).toEqual([
+      expect.objectContaining({ deviceId: D1, vmId: V1, protocol: "udp", port: ADDRESS_RULE_PORT, cidr: `${A1}/128` }),
+    ]);
+    expect(ADDRESS_RULE_PORT).toBe(4101);
+    // The tunnel rules stay as they were.
+    expect(result.rules.filter((rule) => rule.cidr === null).map((rule) => rule.key)).toEqual([`${D1}>${V1}:icmp:*`, `${D1}>${V1}:tcp:8080`]);
+  });
+
+  it("emits no address rule for a device without an address or a pair the policy does not allow", () => {
+    const result = withAddresses(new Map([[D2, A2]]), [{ src: [D1], dst: [V1], allow: ["icmp"] }]);
+    if (!result.ok) throw new Error("compile failed");
+    expect(result.rules.filter((rule) => rule.cidr !== null)).toEqual([]);
+  });
+
+  it("a changed address is a new rule plus a delete of the old one", () => {
+    const before = withAddresses(new Map([[D1, A1]]), [{ src: [D1], dst: [V1], allow: ["icmp"] }]);
+    const after = withAddresses(new Map([[D1, A2]]), [{ src: [D1], dst: [V1], allow: ["icmp"] }]);
+    if (!before.ok || !after.ok) throw new Error("compile failed");
+    const plan = planApply(before.rules, after.rules);
+    expect(plan.create.map((rule) => rule.cidr)).toEqual([`${A2}/128`]);
+    expect(plan.remove.map((rule) => rule.cidr)).toEqual([`${A1}/128`]);
+  });
+
+  it("never makes a policy fail its budget: address rules that do not fit are left out, tunnel rules stay", () => {
+    const result = withAddresses(new Map([[D1, A1], [D2, A2]]), [{ src: ["device:*"], dst: [V1], allow: ["icmp"] }], { rulesPerResource: 3, rulesPerMesh: 500 });
+    if (!result.ok) throw new Error("an address must never make the policy fail");
+    expect(result.rules.filter((rule) => rule.cidr === null)).toHaveLength(2);
+    expect(result.rules.filter((rule) => rule.cidr !== null)).toHaveLength(1);
+    const meshCap = withAddresses(new Map([[D1, A1]]), [{ src: [D1], dst: ["vm:*"], allow: ["icmp"] }], { rulesPerResource: 180, rulesPerMesh: 3 });
+    if (!meshCap.ok) throw new Error("an address must never make the policy fail");
+    expect(meshCap.rules).toHaveLength(3);
+  });
+
+  it("keeps existing address rules when a new address competes for the last room on a VM", () => {
+    // D1's rule sorts first, but D2's already exists: D2 keeps its rule and D1 waits for room.
+    const existing = `${D2}>${V1}:udp:4101:from:${A2}/128`;
+    const result = compileAcl({
+      document: { rules: [{ src: ["device:*"], dst: [V1], allow: ["icmp"] }] },
+      deviceIds: [D1, D2],
+      vmIds: [V1, V2],
+      deviceIpv6: new Map([[D1, A1], [D2, A2]]),
+      existingAddressKeys: new Set([existing]),
+      rulesPerResource: 3,
+      rulesPerMesh: 500,
+    });
+    if (!result.ok) throw new Error("compile failed");
+    expect(result.rules.filter((rule) => rule.cidr !== null).map((rule) => rule.key)).toEqual([existing]);
+  });
+
+  it("a policy over budget without any address still fails", () => {
+    const result = withAddresses(new Map([[D1, A1]]), [{ src: ["device:*"], dst: [V1], allow: ["tcp:1", "tcp:2"] }], { rulesPerResource: 3, rulesPerMesh: 500 });
+    expect(result).toMatchObject({ ok: false, reason: "perResource", resourceId: V1, count: 4 });
+  });
+
+  it("keeps address rules out of the peer map's allowed ports", () => {
+    const result = withAddresses(new Map([[D1, A1]]), [{ src: [D1], dst: [V1], allow: ["icmp"] }]);
+    if (!result.ok) throw new Error("compile failed");
+    expect(peersOf(D1, result.rules).get(V1)?.map((rule) => rule.protocol)).toEqual(["icmp"]);
+  });
+});
+
+describe("parseDeviceIpv6", () => {
+  it("accepts a global unicast address and returns its canonical form", () => {
+    expect(parseDeviceIpv6("2600:1700:ABCD:0001:0000:0000:0000:0005")).toBe("2600:1700:abcd:1::5");
+    expect(parseDeviceIpv6("2a01:4f8::1")).toBe("2a01:4f8::1");
+    expect(parseDeviceIpv6("2600:0:0:1:0:0:0:1")).toBe("2600:0:0:1::1");
+    expect(parseDeviceIpv6("3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")).toBe("3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+    expect(parseDeviceIpv6("2001:200::1")).toBe("2001:200::1");
+  });
+  it("refuses every address that is not one device's own global unicast address", () => {
+    for (const bad of [
+      "",
+      "::",
+      "::1",
+      "fe80::1",
+      "fd7c:6d78::1",
+      "fc00::1",
+      "ff02::1",
+      "::ffff:192.0.2.1",
+      "2001:db8::1",
+      "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+      "2002:c000:0201::1",
+      "4000::1",
+      "2001:1::1",
+      "2001:1ff::1",
+      "3fff::1",
+      "3fff:fff::1",
+      "2600::1/64",
+      "2600::1%en0",
+      "2600:::1",
+      "2600::1::2",
+      "2600:1:2:3:4:5:6:7:8",
+      "2600:12345::1",
+      "192.0.2.1",
+      " 2600::1",
+    ]) {
+      expect(parseDeviceIpv6(bad), bad).toBeNull();
+    }
   });
 });
 

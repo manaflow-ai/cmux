@@ -1,0 +1,328 @@
+[
+ {
+  "name": "ticket taken and meta dropped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "cmuxGesture": "t1"
+    }
+   }
+  },
+  "ticket": "t1",
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m"
+   }
+  },
+  "prompt_stripped": null,
+  "setting": {
+   "session_id": "s",
+   "config_id": "mode",
+   "value": "m"
+  }
+ },
+ {
+  "name": "non-string ticket and other meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "sessionId": "s",
+    "configId": "c",
+    "value": 2,
+    "_meta": {
+     "cmuxGesture": 5,
+     "acpmux": {}
+    }
+   }
+  },
+  "ticket": "",
+  "other_meta": true,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "sessionId": "s",
+    "configId": "c",
+    "value": 2,
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "prompt_stripped": null,
+  "setting": {
+   "session_id": "s",
+   "config_id": "c",
+   "value": null
+  }
+ },
+ {
+  "name": "prompt block meta stripped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hi",
+      "_meta": {
+       "a": 1
+      }
+     },
+     {
+      "type": "resource",
+      "resource": {
+       "uri": "u",
+       "_meta": {
+        "b": 2
+       }
+      }
+     },
+     {
+      "type": "resource_link",
+      "annotations": {
+       "_meta": {
+        "c": 3
+       }
+      }
+     },
+     {
+      "type": "image"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p"
+     }
+    }
+   }
+  },
+  "ticket": null,
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hi",
+      "_meta": {
+       "a": 1
+      }
+     },
+     {
+      "type": "resource",
+      "resource": {
+       "uri": "u",
+       "_meta": {
+        "b": 2
+       }
+      }
+     },
+     {
+      "type": "resource_link",
+      "annotations": {
+       "_meta": {
+        "c": 3
+       }
+      }
+     },
+     {
+      "type": "image"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p"
+     }
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hi"
+     },
+     {
+      "type": "resource",
+      "resource": {
+       "uri": "u"
+      }
+     },
+     {
+      "type": "resource_link",
+      "annotations": {}
+     },
+     {
+      "type": "image"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p"
+     }
+    }
+   }
+  },
+  "setting": null
+ },
+ {
+  "name": "prompt without block meta unchanged",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hi"
+     }
+    ]
+   }
+  },
+  "ticket": null,
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hi"
+     }
+    ]
+   }
+  },
+  "prompt_stripped": null,
+  "setting": null
+ },
+ {
+  "name": "config option without session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "configId": "c"
+   }
+  },
+  "ticket": null,
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "configId": "c"
+   }
+  },
+  "prompt_stripped": null,
+  "setting": {
+   "session_id": null,
+   "config_id": "c",
+   "value": null
+  }
+ },
+ {
+  "name": "a held prompt's ticket: its acpmux is not other meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "ticket": "t",
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "prompt_stripped": null,
+  "setting": null
+ },
+ {
+  "name": "a setting's ticket beside acpmux: other meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "ticket": "t",
+  "other_meta": true,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "prompt_stripped": null,
+  "setting": {
+   "session_id": "s",
+   "config_id": "mode",
+   "value": "m"
+  }
+ }
+]

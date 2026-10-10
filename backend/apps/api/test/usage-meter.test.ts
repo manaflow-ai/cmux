@@ -105,9 +105,10 @@ describe("cap math and authorization (pure)", () => {
 describe("SchedulerDO abuse limits (pure)", () => {
   const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
   let txn = 0
+  const rows = new MemoryRows()
   const ctx = (at: number): ReduceContext => {
     const tx = `tx${txn++}`
-    return { principal: user, now: at, tx, newId: idFactory(tx), rows: new MemoryRows() }
+    return { principal: user, now: at, tx, newId: idFactory(tx), rows }
   }
   const T0 = Date.UTC(2026, 9, 3, 10, 0, 0)
 
@@ -124,11 +125,13 @@ describe("SchedulerDO abuse limits (pure)", () => {
     let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
     const created = schedulerDomain.reduce(s, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "n" }] }, concurrency: { max: 10, on_limit: "queue" } }, ctx(T0))
     if (!created.ok) throw new Error(created.code)
+    rows.apply(created.writes ?? [])
     s = created.state
-    const id = Object.keys(s.automations)[0]!
+    const id = (created.value as { id: string }).id
     for (let i = 0; i < RUN_BURST; i++) {
       const r = schedulerDomain.reduce(s, "automation.run", { automation: id }, ctx(T0))
       if (!r.ok) throw new Error(`run ${i}: ${r.code}`)
+      rows.apply(r.writes ?? [])
       s = r.state
     }
     const limited = schedulerDomain.reduce(s, "automation.run", { automation: id }, ctx(T0))
@@ -155,11 +158,15 @@ describe("SchedulerDO abuse limits (pure)", () => {
     })
     const runs: Record<string, RunRecord> = {}
     const automations: Record<string, any> = {}
-    for (let a = 0; a < 6; a++) automations[`auto_${a}`] = { concurrency: { max: 10, on_limit: "queue" } }
+    for (let a = 0; a < 6; a++) automations[`auto_${a}`] = { id: `auto_${a}`, created_at: T0, concurrency: { max: 10, on_limit: "queue" } }
     // 48 running over 5 automations, then 10 queued on a sixth.
     for (let i = 0; i < 48; i++) runs[`r${i}`] = run(i, `auto_${i % 5}`, "running", true)
     for (let i = 48; i < 58; i++) runs[`r${i}`] = run(i, "auto_5", "queued", false)
-    const state = { owner: "team_aaaaaaaaaaaaaaaaaaaa", automations, runs, chains: {} } as unknown as SchedulerState
-    expect(dispatchable(state)).toHaveLength(MAX_ACTIVE_RUNS_PER_TEAM - 48)
+    // The rows an old head with these maps migrates to ((g1)).
+    const migrated = schedulerDomain.reduce({ owner: "team_aaaaaaaaaaaaaaaaaaaa", automations, runs, chains: {} } as unknown as SchedulerState, "scheduler.rows_migrate", {}, { ...ctx(T0), principal: { identity: "system:scheduler", kind: "system" } })
+    if (!migrated.ok) throw new Error(migrated.code)
+    const store = new MemoryRows()
+    store.apply(migrated.writes ?? [])
+    expect(dispatchable(migrated.state, store)).toHaveLength(MAX_ACTIVE_RUNS_PER_TEAM - 48)
   })
 })

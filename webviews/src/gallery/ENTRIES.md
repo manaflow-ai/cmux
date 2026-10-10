@@ -123,33 +123,48 @@ runs the same function before each screenshot, with trusted Playwright input.
 },
 ```
 
-`ctx` has `click`, `hover`, `focus`, `type(text, target?)`, `press("Meta+k")`,
-`pointer.down/move/up` (the macOS press-drag-release menus), `waitFor(condition, { capMs })` and
-`find`. A target is `{ role, name }` (name is a string or a RegExp), `{ testId }`, `{ text }` or
-`{ selector }`. `waitFor` checks again on each DOM mutation, animation end, transition end and
-frame. It never waits for a fixed time; its cap only fails a wait that never comes true.
+`ctx` has `click`, `hover`, `focus`, `scroll(target, position)`, `selectText(target)`,
+`type(text, target?)`, `press("Meta+k")`, `pointer.down/move/up` (the macOS press-drag-release
+menus), `waitFor(condition, { capMs })` and `find`. A target is `{ role, name }` (name is a
+string or a RegExp), `{ testId }`, `{ text }` or `{ selector }`. `waitFor` checks again on each
+DOM mutation, animation end, transition end and frame. It never waits for a fixed time; its cap
+only fails a wait that never comes true.
 
 Each action is one step, and the stage measures it:
 
 - anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
   resize (0 px).
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- action-to-settled latency: wall time from dispatching the gesture until the page settles; the
+  matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
+  interaction has a user-facing responsiveness budget.
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
   reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
   headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
   there it only warns ("software-rendered, not a gate"). Real WebKit frame timing comes from the
   native app on a fleet Mac. The anchor and layout-shift checks are strict in both engines.
 
-To loosen a check, the entry writes the value and the reason, and `validateEntries` refuses a
-check without a reason:
+To loosen a check, the entry or the individual variant writes the value and the reason. Variant
+checks override the entry defaults, and `validateEntries` refuses a check without a reason:
 
 ```ts
 checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
 ```
 
+For an interaction with a responsiveness budget, combine the frame checks with a measured settle
+budget. The report still records every sample and the matrix shows its p50 / p95 / max values:
+
+```ts
+checks: {
+  settleMaxMs: { value: 250, reason: "Image viewer actions should settle within a quarter second." },
+},
+```
+
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
-matrix index shows a layout shift cell and a long frames cell (pass, warn or fail, with the
-numbers) for each case; click a cell for each step's details. A failing play fails the run. The
+matrix index shows layout shift and long frames cells (pass, warn or fail, with the numbers), plus
+action-to-settled p50 / p95 / max latency and sample count when a case has play steps; click a cell
+for each step's details. Scroll and text-selection steps are measured alongside clicks, keys and
+press-drag gestures. A failing play fails the run. The
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
@@ -175,7 +190,7 @@ something an entry now covers. After you add an entry:
 ```sh
 cd webviews
 CMUX_GALLERY_UPDATE_ALLOWLIST=1 bun test test/gallery-coverage.test.ts   # shrink the allowlist
-bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/gallery-theme.test.ts test/pane-english.test.ts
+bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/pane-english.test.ts
 bun run typecheck
 ```
 
@@ -223,7 +238,7 @@ Lawrence can see them side by side and pick one. Three pieces, all next to the c
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
 defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
    `description`. `defaultArm` is the arm that ships. Add the definition to
-   `src/experiments/registry.ts` (one import, one list item); `test/experiments.test.ts` checks it.
+   `src/experiments/registry.ts` (one import, one list item).
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
    host override `globalThis.cmuxExperiments` (the gallery's stage frame sets it from `arm=`), else
    the debug key `localStorage["cmux.experiments"]` (`{"<id>":"<arm>"}`, for dogfood in the app),
@@ -253,7 +268,8 @@ the link reads the same keys with `readCompare` (`src/gallery/compare.ts`).
 
 Each cell shows two measurement lines: `VM ...`, the numbers a matrix run measured on a Freestyle
 VM (the entry's `measurements`), and `here, last step ...`, the frames the viewer's own browser
-measured. An arm reports its main-thread planning with `performance.measure("cmux-motion:...")`;
+measured. Both lines also report action-to-settled p50, p95 and max for clicks, keys and press-drag
+pointer steps. An arm reports its main-thread planning with `performance.measure("cmux-motion:...")`;
 the harness shows the largest as `plan`.
 
 Measuring on Freestyle (never a browser on a laptop):
@@ -265,8 +281,8 @@ cd ../scripts/gallery-matrix && bun runner.ts --manifest /tmp/exp.json --gallery
 bun experiments.ts --output-dir /tmp/exp-run --run <name> --publish   # strips/, experiments.json, experiments.html
 ```
 
-`--experiments` writes, per arm, one `measure=1` case (the script at 1x; frame intervals and the
-planning time per step) and a frame strip (`freeze=<step>:<ms>` pauses every animation that many ms
+`--experiments` writes, per arm, one `measure=1` case (the script at 1x; frame intervals,
+action-to-settled latency and planning time per step) and a frame strip (`freeze=<step>:<ms>` pauses every animation that many ms
 after the step's input). Copy the arm numbers from `experiments.json` into the entry's
 `measurements`. To ship the winner, set `defaultArm`, then delete the other arms' code and the
 experiment (registry line, definition, gallery `experiment`) once the choice is final.

@@ -66,9 +66,25 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   addPseudoLocales(table);
   installCatalog(table);
   document.documentElement.lang = context.env.locale;
-  const mock = createMockClient(structuredClone(state.options ?? {}));
+  const options = structuredClone(state.options ?? {});
+  const themes = state.allThemes ? (await import("virtual:cmux-gallery/themes")).default : [];
+  if (state.allThemes) {
+    // The app publishes every bundled Ghostty theme and answers their colors.
+    const { mockDomains } = await import("../../pages/settings/mockProvider");
+    options.domains = { ...mockDomains, ...options.domains, themes: themes.map((theme) => theme.name) };
+  }
+  const mock = createMockClient(options);
+  if (state.allThemes) mock.provider.themeColors = themes;
   mock.provider.host = { ...mock.provider.host, ...structuredClone(state.host ?? {}) };
+  // The stage's own window theme stands in for the user's Ghostty config, as the app sends the
+  // colors in effect while appearance.theme is unset.
+  if (mock.provider.host.theme) {
+    const config = { ...context.theme, name: "" };
+    mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
+  }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
+  if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
+  if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {
     call: (op, params) =>
@@ -91,7 +107,12 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.agents.state",
+      "cmux.settings.agents.run",
+      "cmux.settings.harnesses.state",
+      "cmux.settings.harnesses.run",
       "cmux.settings.theme.set",
+      "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
@@ -104,6 +125,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.page.command",
       "cmux.settings.host.changed",
       "cmux.settings.accounts.changed",
+      "cmux.settings.agents.changed",
+      "cmux.settings.harnesses.changed",
     ],
   );
   if (state.backdropImages) {
@@ -121,12 +144,13 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   const { sectionHref } = await import("../../pages/settings/router");
   history.replaceState(null, "", `${location.pathname}${location.search}#${sectionHref(state.section, state.focus)}`);
   document.documentElement.dataset.cmuxPage = "settings";
+  if (state.look) document.documentElement.dataset.settingsLook = state.look;
   await import("../../pages/settings/main");
   if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
-    const { rowsInSection } = await import("../../pages/settings/schema");
+    const { categoryOf, categoryRows } = await import("../../pages/settings/categories");
     await fixtureElement(
-      rowsInSection(state.section).length
-        ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled)"
+      categoryRows(categoryOf(state.section)).length
+        ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled), [data-theme-picker]:not(:disabled)"
         : "[data-card]",
     );
   }

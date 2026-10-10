@@ -57,7 +57,7 @@ pub(super) fn decode_pty_custody(payload: &[u8]) -> anyhow::Result<(u32, u32)> {
 }
 
 /// Host side: answer an authenticated `FLAG_PTY_CUSTODY` hello, then close.
-pub(super) fn serve(
+pub(crate) fn serve(
     host: &HostShared,
     mut stream: UnixStream,
     hello_frame: &Frame,
@@ -172,6 +172,35 @@ pub fn request_terminal_host_pty_custody(
     }
     let (child_pid, session_id) = decode_pty_custody(&frame.payload)?;
     Ok(PtyCustody { master, child_pid, session_id })
+}
+
+impl PtyCustody {
+    /// Whether the session leader still runs (not a zombie) and leads its
+    /// session, so a replacement host could serve it.
+    pub fn session_alive(&self) -> bool {
+        match (libc::pid_t::try_from(self.child_pid), libc::pid_t::try_from(self.session_id)) {
+            (Ok(pid), Ok(session)) => adopted_child::leads_session(pid, session),
+            _ => false,
+        }
+    }
+}
+
+impl HostAttachment {
+    /// Whether this attachment holds its host's PTY master.
+    pub(crate) fn holds_pty_custody(&self) -> bool {
+        self.pty_custody.is_some()
+    }
+
+    /// Keep `custody` for this attachment's host. It is released with the
+    /// attachment: when the terminal ends, is closed or its Surface drops.
+    pub(crate) fn keep_pty_custody(&mut self, custody: PtyCustody) {
+        self.pty_custody = Some(custody);
+    }
+
+    /// Take the held PTY master, to start a replacement host on it.
+    pub(crate) fn take_pty_custody(&mut self) -> Option<PtyCustody> {
+        self.pty_custody.take()
+    }
 }
 
 /// An aligned control buffer for one descriptor.

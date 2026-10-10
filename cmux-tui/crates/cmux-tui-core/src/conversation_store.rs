@@ -30,7 +30,7 @@ pub(crate) use import::ImportedMessage;
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 /// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop
 /// guard lives in `agent_guard`. Version 1 ledger rows are not consulted.
-const SCHEMA_VERSION: i64 = 2;
+pub(crate) const SCHEMA_VERSION: i64 = 2;
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
@@ -710,6 +710,10 @@ pub enum ConversationEvent {
     Changed { conversation: String, rev: u64, transaction: Option<Arc<str>>, change: Value },
     /// A participant started or stopped typing. Never stored or replayed.
     Typing { conversation: String, participant: String, on: bool },
+    /// An agent's live reply text (`conversation.draft`): the v2
+    /// `conversation.events` item, delivered only on that stream (never on
+    /// the raw subscribe stream or the remote relay). Never stored.
+    Draft { conversation: String, participant: String, item: Value },
 }
 
 impl ConversationEvent {
@@ -729,7 +733,13 @@ impl ConversationEvent {
                 "participant": participant,
                 "on": on,
             }),
+            Self::Draft { item, .. } => item.clone(),
         }
+    }
+
+    /// Drafts travel only on `conversation.events`.
+    pub(crate) const fn is_draft(&self) -> bool {
+        matches!(self, Self::Draft { .. })
     }
 }
 
@@ -740,9 +750,16 @@ impl ConversationEvent {
 #[derive(Default)]
 pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
+    /// `conversation.draft` replay and rate state (memory only).
+    pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    /// Who is typing in each conversation now (memory only): typing is never
+    /// stored, but a snapshot says who types so a client that missed a
+    /// typing item can recover the state.
+    pub(crate) typing:
+        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }

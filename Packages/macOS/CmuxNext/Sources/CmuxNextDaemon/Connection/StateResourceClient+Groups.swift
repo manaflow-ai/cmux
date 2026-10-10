@@ -94,13 +94,17 @@ extension StateResourceClient {
 
     /// `topIndex` (`personal-mixed-order-v1`): the personal row index the
     /// group shows right before; `.clear` puts it after every loose workspace.
+    /// `icon` (`workspace-group-icon-v1`) and `pinned` (`workspace-group-pin-v1`).
     public func updateWorkspaceGroup(_ group: String, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                                     collapsed: Bool? = nil, topIndex: FieldUpdate<Int> = .unchanged) async throws {
+                                     collapsed: Bool? = nil, topIndex: FieldUpdate<Int> = .unchanged,
+                                     icon: FieldUpdate<String> = .unchanged, pinned: Bool? = nil) async throws {
         var params: [String: JSONValue] = ["workspace_group": .string(group)]
         if let name { params["name"] = .string(name) }
         Self.field(color, into: &params, "color") { .string($0) }
         if let collapsed { params["collapsed"] = .bool(collapsed) }
         Self.field(topIndex, into: &params, "top_index") { .number(Double(max(0, $0))) }
+        Self.field(icon, into: &params, "icon") { .string($0) }
+        if let pinned { params["pinned"] = .bool(pinned) }
         try await stateMutation("workspace_group.update", params)
     }
 

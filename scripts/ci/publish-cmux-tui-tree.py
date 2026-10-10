@@ -24,11 +24,34 @@ import tempfile
 from typing import Any
 
 
+# Every binary a tree carries. The macOS arm64 three come first: the cmux-next
+# app bundles them, and the tree completeness checks in cmux-tui-artifacts.yml
+# read only them (trees published before the Linux targets stay complete).
+# Linux daemon mode fetches the musl daemon and its app host
+# (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). The
+# workflow reads this list with --list-companions.
 COMPANION_NAMES = (
     "cmux-tui-aarch64-apple-darwin",
     "cmux-tui-app-host-aarch64-apple-darwin",
     "cmux-tui-cloud-server-aarch64-apple-darwin",
+    "cmux-tui-x86_64-unknown-linux-musl",
+    "cmux-tui-aarch64-unknown-linux-musl",
+    "cmux-tui-app-host-x86_64-unknown-linux-musl",
+    "cmux-tui-app-host-aarch64-unknown-linux-musl",
 )
+# completion.json attests these (unchanged since before the Linux targets, so a
+# republication of an older tree writes byte-identical immutable metadata);
+# completion-linux.json attests the rest. An older tree gains its Linux
+# binaries on its next republication without an immutable conflict.
+GATE_NAMES = COMPANION_NAMES[:3]
+# The Windows daemon (GPUI Windows daemon mode; unsigned, sha256-pinned, decision
+# of 2026-10-08), fetched by pin-cmux-tui.sh on Windows hosts. It has its own
+# attestation, completion-windows.json, because a tree published before the
+# Windows target keeps the source commit that built it, and that commit's
+# manifest has no Windows binary: the republication that adds it uses a newer
+# commit's build of the same tree, and completion-windows.json names that
+# commit. The workflow reads this list with --list-windows-companions.
+WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 
@@ -110,13 +133,19 @@ def publish_tree(
     manifest_file: Path,
     source_file: Path | None = None,
     publish_source: bool = False,
+    windows_manifest_file: Path | None = None,
+    windows_source_commit: str | None = None,
 ) -> dict[str, str]:
-    """Validate and publish all arm64 tree companions.
+    """Validate and publish all tree companions (COMPANION_NAMES).
 
     ``manifest_file`` is the immutable commit-addressed manifest that attests
     the bytes.  ``source_file`` is an existing tree source.json, when present;
     it is retained as-is for repairs.  A new publisher may set
     ``publish_source`` to write its generated source metadata once.
+
+    ``windows_manifest_file`` and ``windows_source_commit`` (together) also
+    publish WINDOWS_NAMES from ``assets_dir``, attested by that commit's
+    manifest, and record them in completion-windows.json.
     """
     if len(key) != 40 or any(character not in "0123456789abcdef" for character in key):
         raise PublicationError(f"invalid tree key {key!r}")
@@ -151,6 +180,35 @@ def publish_tree(
                 f"companion {name} digest {actual} does not match commit manifest {expected}"
             )
         digests[name] = actual
+
+    windows_digests: dict[str, str] = {}
+    if (windows_manifest_file is None) != (windows_source_commit is None):
+        raise PublicationError("--windows-manifest-file and --windows-source-commit go together")
+    if windows_manifest_file is not None and windows_source_commit is not None:
+        if len(windows_source_commit) != 40 or any(
+            character not in "0123456789abcdef" for character in windows_source_commit
+        ):
+            raise PublicationError(f"invalid Windows source commit {windows_source_commit!r}")
+        windows_manifest = _load_json(windows_manifest_file, "Windows commit manifest")
+        windows_commit = windows_manifest.get("commit", windows_manifest.get("sourceCommit"))
+        if windows_commit != windows_source_commit:
+            raise PublicationError(
+                f"Windows commit manifest source {windows_commit!r} does not match {windows_source_commit}"
+            )
+        windows_binaries = windows_manifest.get("binaries")
+        if not isinstance(windows_binaries, dict):
+            raise PublicationError("Windows commit manifest has no binaries object")
+        for name in WINDOWS_NAMES:
+            expected = _require_sha(windows_binaries.get(name), f"Windows manifest binary {name}")
+            path = assets_dir / name
+            if not path.is_file():
+                raise PublicationError(f"missing companion {name} in {assets_dir}")
+            actual = _sha256(path)
+            if actual != expected:
+                raise PublicationError(
+                    f"companion {name} digest {actual} does not match commit manifest {expected}"
+                )
+            windows_digests[name] = actual
 
     if publish_source:
         if source_file is None or not source_file.is_file():
@@ -187,7 +245,7 @@ def publish_tree(
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
-        for name, digest in digests.items():
+        for name, digest in {**digests, **windows_digests}.items():
             binary = assets_dir / name
             _upload(
                 uploader,
@@ -208,35 +266,59 @@ def publish_tree(
                 cache_control=cache,
             )
 
-        completion = {
-            "schemaVersion": 1,
-            "key": key,
-            "sourceCommit": source_commit,
-            "binaries": digests,
-        }
-        if source_file is not None and source_file.is_file():
-            completion["sourceSha256"] = _sha256(source_file)
-        completion_file = temporary_dir / "completion.json"
-        completion_file.write_text(json.dumps(completion, indent=2, sort_keys=True) + "\n")
-        _upload(
-            uploader,
-            completion_file,
-            endpoint_url=endpoint_url,
-            bucket=bucket,
-            key=f"{prefix}/completion.json",
-            cache_control=cache,
-        )
-    return digests
+        def write_completion(
+            name: str, binaries: dict[str, str], commit: str = source_commit
+        ) -> None:
+            completion: dict[str, Any] = {
+                "schemaVersion": 1,
+                "key": key,
+                "sourceCommit": commit,
+                "binaries": binaries,
+            }
+            if commit == source_commit and source_file is not None and source_file.is_file():
+                completion["sourceSha256"] = _sha256(source_file)
+            completion_file = temporary_dir / name
+            completion_file.write_text(json.dumps(completion, indent=2, sort_keys=True) + "\n")
+            _upload(
+                uploader,
+                completion_file,
+                endpoint_url=endpoint_url,
+                bucket=bucket,
+                key=f"{prefix}/{name}",
+                cache_control=cache,
+            )
+
+        if windows_digests and windows_source_commit is not None:
+            write_completion("completion-windows.json", windows_digests, windows_source_commit)
+        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in GATE_NAMES})
+        # Last: the cmux-next gate reads completion.json as "the tree is complete".
+        write_completion("completion.json", {n: d for n, d in digests.items() if n in GATE_NAMES})
+    return {**digests, **windows_digests}
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["--list-companions"]:
+        print("\n".join(COMPANION_NAMES))
+        return 0
+    if argv == ["--list-windows-companions"]:
+        print("\n".join(WINDOWS_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--list-companions", action="store_true",
+                        help="print the companion names, one per line, and exit")
+    parser.add_argument("--list-windows-companions", action="store_true",
+                        help="print the Windows companion names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)
     parser.add_argument("--manifest-file", type=Path, required=True)
     parser.add_argument("--source-file", type=Path)
     parser.add_argument("--publish-source", action="store_true")
+    parser.add_argument("--windows-manifest-file", type=Path,
+                        help="the commit manifest that attests the Windows companions")
+    parser.add_argument("--windows-source-commit",
+                        help="the commit whose build the Windows companions are")
     parser.add_argument("--uploader", type=Path, required=True)
     parser.add_argument("--endpoint-url", required=True)
     parser.add_argument("--bucket", required=True)
@@ -252,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
             manifest_file=args.manifest_file,
             source_file=args.source_file,
             publish_source=args.publish_source,
+            windows_manifest_file=args.windows_manifest_file,
+            windows_source_commit=args.windows_source_commit,
         )
     except (OSError, PublicationError, ValueError) as error:
         print(f"cmux-tui tree publication failed: {error}; see {REPAIR_POINTER}", file=sys.stderr)

@@ -30,8 +30,10 @@ public struct FirefoxSessionReader {
         guard size > 0, size <= maximumSize else { return nil }
         var output = [UInt8](repeating: 0, count: size)
         let written = bytes.withUnsafeBufferPointer { source in
-            output.withUnsafeMutableBufferPointer { destination in
-                compression_decode_buffer(destination.baseAddress!, size, source.baseAddress! + 12, bytes.count - 12, nil, COMPRESSION_LZ4_RAW)
+            output.withUnsafeMutableBufferPointer { destination -> Int in
+                // Both buffers are non-empty (checked above); without a base address nothing decodes.
+                guard let target = destination.baseAddress, let input = source.baseAddress else { return 0 }
+                return compression_decode_buffer(target, size, input + 12, bytes.count - 12, nil, COMPRESSION_LZ4_RAW)
             }
         }
         return written == size ? Data(output) : nil

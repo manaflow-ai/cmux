@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// Turns a theme spec (room, workspace or terminal) into colors for the
 /// chrome and a Ghostty config for the surfaces, resolved like the global
@@ -27,8 +28,9 @@ final class ThemeResolver {
 
     init() {
         isDark = Self.systemIsDark()
-        appearanceObservation = NSApp?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.appearanceDidChange() }
+        // KVO calls back on the changing thread: inline on main, a hop from anywhere else.
+        appearanceObservation = NSApp?.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] _, _ in
+            MainDelivery().run { self?.appearanceDidChange() }
         }
         let runtime = GhosttyRuntime.shared
         let previous = runtime.onConfigChange
