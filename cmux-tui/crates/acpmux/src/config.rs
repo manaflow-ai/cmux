@@ -782,10 +782,14 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
-    // Windows port: owner-only is an ACL there (a later landing); the file
-    // keeps the folder's ACL (a user profile folder is private by default).
-    #[cfg(not(unix))]
-    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    // Windows: created with an owner-only access list (`owner_only.rs`).
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        let mut f = crate::owner_only::create_new(&tmp)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+    }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }

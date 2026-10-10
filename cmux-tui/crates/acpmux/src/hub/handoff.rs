@@ -303,9 +303,8 @@ impl Handoffs {
                     use std::os::unix::fs::DirBuilderExt;
                     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
                 }
-                // Windows port: owner-only is an ACL there (a later landing).
-                #[cfg(not(unix))]
-                std::fs::DirBuilder::new().recursive(true).create(dir)?;
+                #[cfg(windows)]
+                crate::owner_only::create_dir_all(dir)?;
                 let bytes = serde_json::to_vec_pretty(record)?;
                 crate::config::write_atomic(
                     &dir.join(format!("{}.json", record.handoff_id)),

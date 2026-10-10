@@ -428,3 +428,88 @@ fn daemon_run_reads_its_person_key_and_writes_ready_on_inherited_handles() {
     drop(daemon);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// True when `path` is owned by this user and its protected access list
+/// grants only this user (the SDK's owner-only check reads any file).
+fn owner_only(path: &Path) -> bool {
+    let me = cmux::local_socket::win::current_identity().unwrap().user_sid;
+    cmux::local_socket::win::directory_is_owner_only(path, &me)
+        .unwrap_or_else(|e| panic!("read the access list of {}: {e}", path.display()))
+}
+
+/// What the daemon writes (mode 0600 / 0700 on Unix) is owner-only on
+/// Windows: config.json with its token, the per-launch LocalApp and peer
+/// token files and their run folder, and daemon.log of a started daemon.
+#[test]
+fn the_daemon_writes_its_state_owner_only() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("acl");
+    let out =
+        acpmux(&exe, &home).args(["daemon", "start"]).output().expect("run acpmux daemon start");
+    assert!(out.status.success(), "acpmux daemon start failed: {}", text(&out));
+    let checked = [
+        home.join("config.json"),
+        home.join("daemon.log"),
+        home.join("run"),
+        home.join("run").join("localapp.token"),
+        home.join("run").join("peer.token"),
+    ];
+    let wide: Vec<String> = checked
+        .iter()
+        .filter(|p| !p.exists() || !owner_only(p))
+        .map(|p| p.display().to_string())
+        .collect();
+    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert!(wide.is_empty(), "missing or not owner-only: {wide:?}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// `acpmux harness add` writes an owner-only profile that loads; once
+/// Everyone may change the file, `harness list` refuses it with the reason
+/// and the fix (a profile runs a program with the user's rights).
+#[test]
+fn a_profile_another_user_can_change_is_refused() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("profile");
+    let config = home.join("xdg");
+    let run = |args: &[&str]| -> Output {
+        acpmux(&exe, &home).env("XDG_CONFIG_HOME", &config).args(args).output().expect("run acpmux")
+    };
+    let out = run(&["harness", "add", "winecho", "--command", r"C:\Windows\System32\cmd.exe"]);
+    assert!(out.status.success(), "harness add failed: {}", text(&out));
+    let file = config.join("cmux").join("harnesses").join("winecho.toml");
+    assert!(owner_only(&file), "the written profile is not owner-only: {}", file.display());
+    let list = |out: Output| -> Value {
+        assert!(out.status.success(), "harness list failed: {}", text(&out));
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{e}: {}", text(&out)))
+    };
+    let v = list(run(&["--json", "harness", "list"]));
+    let ids = |v: &Value| -> Vec<String> {
+        v["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|h| h["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert!(ids(&v).contains(&"winecho".to_owned()), "the owner-only profile did not load: {v}");
+
+    let granted = Command::new("icacls")
+        .arg(&file)
+        .args(["/grant", "*S-1-1-0:(M)"])
+        .output()
+        .expect("run icacls");
+    assert!(granted.status.success(), "icacls failed: {}", text(&granted));
+    let v = list(run(&["--json", "harness", "list"]));
+    assert!(!ids(&v).contains(&"winecho".to_owned()), "a profile Everyone can change loaded: {v}");
+    let diagnostics = v["diagnostics"].to_string();
+    assert!(
+        diagnostics.contains("another user (S-1-1-0) can change this file")
+            && diagnostics.contains("icacls"),
+        "no refusal with its fix: {diagnostics}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}

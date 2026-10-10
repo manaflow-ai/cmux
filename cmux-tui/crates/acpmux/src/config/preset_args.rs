@@ -192,13 +192,16 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
     written?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
 }
-/// Windows port: the 0700/0400 modes are ACLs there (a later landing).
-#[cfg(not(unix))]
-pub fn write_system_prompt(_presets: &Path, _name: &str, _text: &str) -> io::Result<String> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        crate::platform::unsupported("preset system prompts").to_string(),
-    ))
+/// Windows: the folder and the file owner-only (`owner_only.rs`); the
+/// file is replaced atomically as on Unix.
+#[cfg(windows)]
+pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
+    let dir = preset_dir(presets, name);
+    crate::owner_only::create_dir_all(&dir)?;
+    crate::owner_only::restrict(&dir)?;
+    crate::config::write_atomic(&dir.join(SYSTEM_PROMPT_FILE), text.as_bytes())
+        .map_err(io::Error::other)?;
+    Ok(crate::sha256::sha256_hex(text.as_bytes()))
 }
 
 /// Removes preset `name`'s directory (its system prompt file).

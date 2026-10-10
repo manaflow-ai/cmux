@@ -342,9 +342,8 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     }
-    // Windows port: owner-only is an ACL there (a later landing).
-    #[cfg(not(unix))]
-    std::fs::DirBuilder::new().recursive(true).create(&dir)?;
+    #[cfg(windows)]
+    crate::owner_only::create_dir_all(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes())?;
     let diagnostics =
         match profiles::parse_profile_toml(&text, &path, Some(&id), ProfileSource::UserFile) {

@@ -236,10 +236,8 @@ pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home)?;
     let log_path = home.join("daemon.log");
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
+    // Owner-only, as on Unix: the log can carry agent output and requests.
+    let log = crate::owner_only::open_append(&log_path)
         .with_context(|| format!("open {}", log_path.display()))?;
     let log_err = log.try_clone()?;
     let nul = std::fs::OpenOptions::new().read(true).open("NUL").context("open NUL")?;

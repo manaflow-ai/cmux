@@ -115,11 +115,28 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     f.sync_all()?;
     Ok(token)
 }
-/// Windows port: the token file is created owner-only with an ACL there (a
-/// later landing).
-#[cfg(not(unix))]
-pub(crate) fn create_secret(_path: &Path) -> anyhow::Result<String> {
-    Err(crate::platform::unsupported("the acpmux token files"))
+/// Windows: as on Unix, with an owner-only access list for the private
+/// folder and the file (created new, never through a link).
+#[cfg(windows)]
+pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        crate::agent_host::ensure_private_dir(dir)?;
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
+    }
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("the OS random generator for {}: {e}", path.display()))?;
+    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let mut f = crate::owner_only::create_new(path)
+        .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
+    f.write_all(token.as_bytes())?;
+    f.sync_all()?;
+    Ok(token)
 }
 
 /// `frame` without the token field, so the token never reaches the

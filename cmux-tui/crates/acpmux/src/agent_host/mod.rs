@@ -276,12 +276,10 @@ pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     }
     Ok(())
 }
-/// Windows port: an owner-only ACL there (`cmux::local_socket::private_directory`,
-/// a later landing). Until then no private directory is made, so nothing
-/// that needs one is written.
-#[cfg(not(unix))]
-pub fn ensure_private_dir(_dir: &Path) -> Result<()> {
-    Err(crate::platform::unsupported("private directories"))
+/// Windows: an owner-only access list, made or checked (`owner_only.rs`).
+#[cfg(windows)]
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    Ok(crate::owner_only::private_dir(dir)?)
 }
 
 /// Random lowercase hex.

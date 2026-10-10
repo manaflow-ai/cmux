@@ -400,11 +400,13 @@ fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     }
     Ok(written?)
 }
-/// Windows port: owner-only files are ACLs there (a later landing); until
-/// then no private file is written.
-#[cfg(not(unix))]
-fn write_private(_path: &Path, _bytes: &[u8]) -> anyhow::Result<()> {
-    Err(crate::platform::unsupported("private files"))
+/// Windows: the folder and the file owner-only (`owner_only.rs`).
+#[cfg(windows)]
+fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)?;
+    crate::config::write_atomic(path, bytes)
 }
 
 #[cfg(unix)]
