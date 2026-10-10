@@ -137,10 +137,21 @@ extension AppDelegate {
 
     /// Returns the workspace it selected, which the window's Cloud tree then reveals.
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
-        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+        guard let manager,
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
+
+        // Admission selects the loading workspace before provider lookup. That
+        // intentional selection advances the navigation fence once; accept it
+        // only when it is exactly that admission revision. A later away/back
+        // navigation leaves the same workspace selected but has a newer fence,
+        // so it still withdraws the reveal instead of stealing focus.
+        if manager.selectedTabId == workspaceID {
+            guard manager.cloudWorkspaceSelection.revision == revision &+ 1 else { return nil }
+            return workspace
+        }
+        guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil
     }
