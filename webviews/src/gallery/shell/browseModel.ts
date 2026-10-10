@@ -55,8 +55,15 @@ export function browseMatches(item: BrowseItem, query: string): boolean {
   return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants}`.toLowerCase().includes(needle);
 }
 
+/** Prefer the first variant named by a query so a filtered card shows the state being searched for. */
+function browseMatchedVariant(item: BrowseItem, query: string): string | undefined {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return undefined;
+  return Object.keys(item.entry.variants).find((variant) => variant.toLowerCase().includes(needle));
+}
+
 /** Filter contact-sheet cards by text and available motion, without changing the stable
- * recommended variant for each entry. */
+ * recommended variant for each entry unless the query names one of its variants. */
 export function filterBrowseItems(
   entries: readonly GalleryEntry[],
   query: string,
@@ -66,7 +73,7 @@ export function filterBrowseItems(
     (item) =>
       browseMatches(item, query) &&
       (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
-  );
+  ).map((item) => ({ ...item, variant: browseMatchedVariant(item, query) ?? item.variant }));
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */
