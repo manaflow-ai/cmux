@@ -127,12 +127,20 @@ def main():
         f"reply {reply}; browser tabs {before} -> {browsers()}", bool(grew))
 
     # Cmd-T as the user presses it (debug.key: the key router, user origin) on that browser
-    # tab opens the New Tab page (tabs.newTabKind's default), not a browser tab.
-    time.sleep(1)  # test harness
+    # tab opens the New Tab page under tabs.newTabKind's default ("page"), not a browser tab.
+    # The slot's config may name another kind, so the check sets the default and restores it.
+    saved = rpc("settings.get", {"path": "tabs.newTabKind"})
+    print("tabs.newTabKind was:", saved, "set:", rpc("settings.set", {"path": "tabs.newTabKind", "value": "page"}), flush=True)
+    time.sleep(1)  # test harness: the config reloads
     before_tabs, before = len(daemon_tabs()), browsers()
     print("Cmd-T:", rpc("debug.key", {"key": "t", "modifiers": ["command"]}), flush=True)
     opened = wait(lambda: len(daemon_tabs()) > before_tabs, 15)
     time.sleep(2)  # test harness: give a wrong browser tab time to appear
+    previous = (saved or {}).get("value")
+    if isinstance(previous, str) and previous != "page":
+        rpc("settings.set", {"path": "tabs.newTabKind", "value": previous})
+    elif previous is None:
+        rpc("settings.unset", {"path": "tabs.newTabKind"})
     row("Cmd-T on a browser tab still opens the New Tab page", f"one more tab; browser tabs stay {before}",
         f"tabs {before_tabs} -> {len(daemon_tabs())}; browser tabs {browsers()}", bool(opened) and browsers() == before)
 
