@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import Network
 
 /// The local model relay's admin socket (cmux-tui crate cmux-coderouter,
