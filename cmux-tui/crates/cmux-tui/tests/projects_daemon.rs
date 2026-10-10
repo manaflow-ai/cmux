@@ -137,9 +137,9 @@ fn projects_daemon_observe_edit_remove_and_sync_over_the_socket() {
         json!({"source": "codex", "entries": [{"path": app, "last_used_ms": "90"}]}),
         "p-3",
     );
-    let picked = daemon.dir.join("picked");
-    fs::create_dir_all(&picked).unwrap();
-    let picked = picked.canonicalize().unwrap().to_string_lossy().into_owned();
+    // A folder the user picks (temporary folders are never projects).
+    let picked = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().unwrap();
+    let picked = picked.to_string_lossy().into_owned();
     daemon.mutate("project.add", json!({"path": picked}), "p-4");
     let projects = daemon.list(json!({}));
     assert_eq!(projects.len(), 2, "{projects:?}");
