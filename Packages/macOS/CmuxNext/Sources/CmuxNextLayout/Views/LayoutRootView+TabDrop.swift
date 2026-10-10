@@ -11,6 +11,7 @@ extension LayoutRootView {
     @discardableResult
     public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint, removing: PaneID? = nil) -> DropTarget? {
         dragTab = tab
+        tabDragRemoving = removing
         guard let active = model.activeScreenID, let view = screenViews[active] else {
             hideHighlight()
             return nil
@@ -67,17 +68,21 @@ extension LayoutRootView {
     }
 
     /// Ends a tab drag. Emits `.dropTab` when over a target and returns it.
+    /// The drop resolves with the pane the preview's split room was decided
+    /// with, so it lands where the ring shows (cx-ohle).
     @discardableResult
     public func endTabDrag(_ tab: TabID, locationInWindow: NSPoint) -> DropTarget? {
-        let target = updateTabDrag(tab, locationInWindow: locationInWindow)
+        let target = updateTabDrag(tab, locationInWindow: locationInWindow, removing: tabDragRemoving)
         hideHighlight()
         dragTab = nil
+        tabDragRemoving = nil
         if let target { model.dropTab(tab, on: target) }
         return target
     }
 
     public func cancelTabDrag() {
         dragTab = nil
+        tabDragRemoving = nil
         hideHighlight()
     }
 

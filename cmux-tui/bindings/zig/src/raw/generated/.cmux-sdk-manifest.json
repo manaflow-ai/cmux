@@ -2,17 +2,17 @@
   "files": [
     {
       "path": "presence_test.zig",
-      "sha256": "bbc2f35adf45b4b5f0209799a6db2d107f146e022e584254bb9dafb1c9e7f8a4",
-      "size": 14544
+      "sha256": "1999bc054e6a8134c62b1233e2765a7b6fe97ba7a8f3054f509b00a61f24895b",
+      "size": 14620
     },
     {
       "path": "protocol.zig",
-      "sha256": "5755bd291f1bef2bc256aeadacdf03012e77c3739cf91ca86720971fe994673b",
-      "size": 320229
+      "sha256": "06649a98d159c2848377e25d7133814267b1677d7bbeb974b691070da11b67e2",
+      "size": 321379
     }
   ],
   "format": 1,
-  "ir_sha256": "84da8d2a29ac36e3762e3ee3e706408d9aafdbb49914588748007c8145723193",
+  "ir_sha256": "f382884389f70001c1e5211d87278c3a818ed4ecc0519f401288b1837abfa808",
   "language": "zig",
   "mux_protocol": 12,
   "schema_version": 2
