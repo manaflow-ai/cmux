@@ -254,10 +254,6 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
             },
-            .async("debug.home.api") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
-                return await DebugHomeAPI.handle(call.params, services: services)
-            }.withDeadline(.fixed(.seconds(30))),
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
