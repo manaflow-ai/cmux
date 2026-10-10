@@ -645,6 +645,7 @@ struct CoderouterAccountStoreTests {
 
         #expect(firstPanel.coderouterStore === remountedPanel.coderouterStore)
         #expect(firstPanel.coderouterStore.lane === remountedPanel.coderouterStore.lane)
+        #expect(CoderouterAccountStore().lane === CoderouterAccountStore().lane)
     }
 }
 

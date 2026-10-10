@@ -178,6 +178,10 @@ struct CoderouterAccountState: Equatable {
 /// active organization in a shared config file.
 @MainActor
 final class CoderouterCLIOperationLane {
+    /// CodeRouter's legacy CLI stores its active organization in one shared
+    /// configuration file, so serialization must cover every window.
+    static let shared = CoderouterCLIOperationLane()
+
     private var tail: Task<Void, Never>?
     private var generation = 0
 
@@ -221,5 +225,5 @@ final class CoderouterAccountStore {
     var state = CoderouterAccountState()
     var isRefreshing = false
     var refreshRequest = 0
-    @ObservationIgnored let lane = CoderouterCLIOperationLane()
+    @ObservationIgnored let lane = CoderouterCLIOperationLane.shared
 }
