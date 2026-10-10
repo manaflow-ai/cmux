@@ -107,6 +107,15 @@ final class PageFloatingOverlays {
         ])
     }
 
+    /// Whether a click at `view`'s center goes to the overlay host
+    /// (diagnostics); nil when it is not presented.
+    func takesMouse(_ view: NSView) -> Bool? {
+        guard let window = view.window?.parent, view.superview != nil,
+              let host = WindowOverlayHost.existingHost(for: window) else { return nil }
+        let frame = view.convert(view.bounds, to: nil)
+        return host.acceptsMouse(at: NSPoint(x: frame.midX, y: frame.midY))
+    }
+
     /// The window's pages moved or were re-clipped without a layout of this
     /// chrome (a pane swap of equal size): the cards follow.
     private func observePages() {
