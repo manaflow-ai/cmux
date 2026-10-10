@@ -37,7 +37,7 @@ struct SidebarJumpToUnreadButtonTests {
         #expect(!allRead.isVisible)
         #expect(unread.countText == "3")
         #expect(allRead.countText == nil)
-        #expect(unread.label == "Jump to Unread")
+        #expect(unread.label == "Jump to unread")
     }
 
     @Test
