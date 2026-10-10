@@ -23,33 +23,40 @@ extension AppDelegate {
         /// The most recent submit. Equal timestamps resolve by workspace id,
         /// then panel id, so the choice never depends on dictionary order.
         nonisolated static func newest(in candidates: [LastPromptTarget]) -> LastPromptTarget? {
-            candidates.max { lhs, rhs in
-                if lhs.submittedAt != rhs.submittedAt { return lhs.submittedAt < rhs.submittedAt }
-                if lhs.workspaceId != rhs.workspaceId { return lhs.workspaceId.uuidString > rhs.workspaceId.uuidString }
-                return lhs.panelId.uuidString > rhs.panelId.uuidString
-            }
+            candidates.min(by: isNewer)
+        }
+
+        /// Every candidate, most recent submit first, in the same order
+        /// ``newest(in:)`` picks from.
+        nonisolated static func newestFirst(_ candidates: [LastPromptTarget]) -> [LastPromptTarget] {
+            candidates.sorted(by: isNewer)
+        }
+
+        private nonisolated static func isNewer(_ lhs: LastPromptTarget, than rhs: LastPromptTarget) -> Bool {
+            if lhs.submittedAt != rhs.submittedAt { return lhs.submittedAt > rhs.submittedAt }
+            if lhs.workspaceId != rhs.workspaceId { return lhs.workspaceId.uuidString < rhs.workspaceId.uuidString }
+            return lhs.panelId.uuidString < rhs.panelId.uuidString
         }
     }
 
-    /// The surface the user last sent a prompt from, or nil when no live panel
-    /// in any window has a recorded prompt.
-    func lastPromptTarget() -> LastPromptTarget? {
+    /// Every live panel with a recorded prompt, across all windows, most
+    /// recent submit first.
+    func lastPromptTargetsNewestFirst() -> [LastPromptTarget] {
         let candidates = liveWorkspaceIdentityTabManagers().flatMap { manager in
             manager.tabs.flatMap { $0.lastPromptTargets }
         }
-        return LastPromptTarget.newest(in: candidates)
+        return LastPromptTarget.newestFirst(candidates)
     }
 
     /// Selects the workspace (and its window) and focuses the surface of the
-    /// most recent prompt. Returns the target it focused, or nil when there is
-    /// none or the focus did not land.
+    /// most recent prompt. A window that is briefly detached cannot take
+    /// focus, so the next most recent target is tried instead. Returns the
+    /// target it focused, or nil when none would take focus.
     @discardableResult
     func jumpToLastPrompt() -> LastPromptTarget? {
-        guard let target = lastPromptTarget(),
-              focusTerminal(tabId: target.workspaceId, surfaceId: target.panelId) else {
-            return nil
+        lastPromptTargetsNewestFirst().first { target in
+            focusTerminal(tabId: target.workspaceId, surfaceId: target.panelId)
         }
-        return target
     }
 
     /// Keyboard and menu entry point: beeps when there is nowhere to jump.

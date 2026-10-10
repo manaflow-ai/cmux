@@ -30,6 +30,17 @@ struct JumpToLastPromptTests {
         #expect(Target.newest(in: [middle, older, newest]) == newest)
     }
 
+    /// The jump tries targets in this order, so a window that cannot take focus
+    /// falls through to the next most recent prompt instead of a beep.
+    @Test func newestFirstOrdersEveryCandidateFromTheMostRecentSubmit() {
+        let older = Self.target(100)
+        let newest = Self.target(300)
+        let middle = Self.target(200)
+
+        #expect(Target.newestFirst([older, newest, middle]) == [newest, middle, older])
+        #expect(Target.newestFirst([older, newest, middle]).first == Target.newest(in: [middle, older, newest]))
+    }
+
     @Test func equalSubmitTimesResolveTheSameWayInAnyOrder() throws {
         let lowWorkspace = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let highWorkspace = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
