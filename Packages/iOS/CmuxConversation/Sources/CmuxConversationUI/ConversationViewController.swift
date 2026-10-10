@@ -280,6 +280,7 @@ public final class ConversationViewController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isOnScreen = true
+        ReplySwipeIndicator.prewarm(traits: traitCollection)
         updateViewing()
         focusComposerIfEmpty()
     }
@@ -314,6 +315,9 @@ public final class ConversationViewController: UIViewController {
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             collectionView.reloadData()
+        }
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            ReplySwipeIndicator.prewarm(traits: traitCollection)
         }
         if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
             || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
