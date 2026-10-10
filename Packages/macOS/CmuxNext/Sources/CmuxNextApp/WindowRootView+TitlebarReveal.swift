@@ -41,12 +41,19 @@ extension WindowRootView {
     }
 
     /// The region is the top row above a left sidebar, and at least the
-    /// traffic lights and the band (a right or hidden sidebar): the content's
-    /// top row (its tab strip) does not reveal. The glass patch covers the
-    /// traffic lights with a small margin.
-    func layoutTitlebarReveal(rowHeight: CGFloat) {
+    /// traffic lights and the band at its full width (a right or hidden
+    /// sidebar): the rest of the content's top row (its tab strip) does not
+    /// reveal. The extent is the open band's, never the band's current
+    /// frame: a collapsed band is 0 wide, so a frame-based region was only
+    /// the traffic lights and the pointer over the top-left tab bar did not
+    /// open it (Lawrence 2026-10-09). One fixed region also means the open
+    /// band's growth never moves the edge under the pointer (no flicker).
+    /// The glass patch covers the traffic lights with a small margin.
+    /// - Parameter fullBandMaxX: The open band's trailing edge.
+    func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
-        let width = min(bounds.width, max(sidebarMaxX, toolbarBand.frame.maxX + Metrics.space3))
+        let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
+        let width = min(bounds.width, max(sidebarMaxX, bandMaxX + Metrics.space3))
         titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero
