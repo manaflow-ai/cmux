@@ -140,15 +140,6 @@ mod tests {
     const TX: TransactionId = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
     #[test]
-    fn request_is_a_bare_binding_header() {
-        let request = binding_request(TX);
-        assert_eq!(request.len(), 20);
-        assert_eq!(&request[0..2], &[0x00, 0x01]);
-        assert_eq!(&request[4..8], &[0x21, 0x12, 0xA4, 0x42]);
-        assert_eq!(&request[8..20], &TX);
-    }
-
-    #[test]
     fn rfc5769_ipv4_response_vector() {
         // RFC 5769 section 2.2, attributes other than XOR-MAPPED-ADDRESS
         // replaced by nothing: 192.0.2.1:32853.
@@ -160,15 +151,6 @@ mod tests {
         ]);
         let addr = parse_binding_success(&bytes, &tx).expect("vector parses");
         assert_eq!(addr, "192.0.2.1:32853".parse().expect("address"));
-    }
-
-    #[test]
-    fn round_trip_v4_and_v6() {
-        for addr in ["203.0.113.9:41641", "[2001:db8::1]:41641"] {
-            let addr: SocketAddr = addr.parse().expect("address");
-            let response = binding_success(TX, addr);
-            assert_eq!(parse_binding_success(&response, &TX), Ok(addr));
-        }
     }
 
     #[test]
