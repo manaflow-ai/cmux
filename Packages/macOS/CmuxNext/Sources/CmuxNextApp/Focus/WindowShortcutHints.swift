@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import Observation
@@ -23,7 +24,7 @@ final class WindowShortcutHints {
             self?.refresh()
         }
         settingsTask = Task { [weak self] in
-            for await enabled in Observations({ DesignSettings.shared.showModifierHoldHints }) {
+            for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
                 self?.monitor?.setEnabled(enabled)
             }
         }

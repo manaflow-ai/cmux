@@ -404,6 +404,12 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
+    /// `initialize`, session load or new, config replay) may take. Past it
+    /// the request fails with a `deadline_exceeded` error and the agent is
+    /// ended. Default 90000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_start_timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -484,6 +490,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// `agentStartTimeoutMs`, or its 90 s default.
+    pub fn agent_start_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
     /// Family of a configured profile.
     pub fn family(&self, profile: &str) -> Option<String> {
         self.harnesses.get(profile).map(|p| derive_family(profile, p))
@@ -808,8 +819,6 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 }
 
 mod launchers;
-#[cfg(test)]
-pub(super) use launchers::launcher_ok;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;

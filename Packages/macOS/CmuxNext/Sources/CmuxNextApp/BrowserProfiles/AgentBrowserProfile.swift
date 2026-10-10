@@ -47,7 +47,7 @@ enum AgentBrowserProfile {
             once.begin(continuation)
             // Event-driven: the profile list is observable state of the home store.
             let watch = Task { @MainActor in
-                for await known in Observations({ profiles.isKnown(id) }) where known {
+                for await known in ObservationStream({ profiles.isKnown(id) }) where known {
                     if once.resume(.success(())) { timer.cancel() }
                     return
                 }
