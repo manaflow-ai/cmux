@@ -2,7 +2,8 @@
 //! sessions share one runtime directory, as the tagged apps of one user do
 //! on a shared host. A person's call lists both. An agent's call (an acpmux
 //! session, a Chief turn) never reads another session: it gets
-//! `origin.forbidden` and no records.
+//! `origin.forbidden` and no records. A session owner an agent started
+//! does not pass the agent's variables to a person's terminal in it.
 
 use super::*;
 
@@ -128,4 +129,104 @@ fn a_person_lists_every_own_session_and_an_agent_reads_no_other_session() {
         assert_eq!(error["details"]["reason"], "agent_caller", "{key}: {error}");
         assert_eq!(error["details"]["marker"], key, "{key}: {error}");
     }
+}
+
+/// A detached session owner that an agent started (`server ensure` with the
+/// agent's variables). It stops at drop and ends its terminals.
+struct AgentStartedOwner {
+    socket: PathBuf,
+    base: PathBuf,
+}
+
+impl AgentStartedOwner {
+    fn ensure(base: &std::path::Path, name: &str) -> Self {
+        let socket =
+            cmux_tui_core::platform::runtime_dir_for_base(base).join(format!("{name}.sock"));
+        let owner = Self { socket, base: base.to_path_buf() };
+        let mut command = owner.server(name, "ensure");
+        command
+            .env("ACPMUX_ENV", "1")
+            .env("ACPMUX_SESSION_ID", "s_agent_owner")
+            .env("ACPMUX_SESSION_NAME", "agent-owner")
+            .env("CMUX_CHIEF_OWNER_SOCKET", &owner.socket)
+            .env("CMUX_AGENT_PRINCIPAL", "agent_1a2b3c4d");
+        assert_success(&command.output().unwrap());
+        owner
+    }
+
+    fn server(&self, name: &str, action: &str) -> Command {
+        let mut command = Command::new(bin());
+        command
+            .args(["server", action, "--json", "--session", name, "--socket"])
+            .arg(&self.socket)
+            .env("XDG_RUNTIME_DIR", &self.base)
+            .env("CMUX_TUI_STATE_DIR", self.base.join(format!("{name}-state")))
+            .env("CMUX_TUI_CONFIG", self.base.join(format!("{name}-config.json")))
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG");
+        for key in AGENT_MARKERS {
+            command.env_remove(key);
+        }
+        command
+    }
+
+    fn cli(&self, args: &[&str]) -> Output {
+        Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&self.socket)
+            .args(args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap()
+    }
+}
+
+impl Drop for AgentStartedOwner {
+    fn drop(&mut self) {
+        let _ = self.server("gamma", "stop").arg("--end-terminals").output();
+    }
+}
+
+#[test]
+fn a_person_terminal_in_an_owner_an_agent_started_lists_every_session() {
+    let sessions = TwoSessions::start();
+    let owner = AgentStartedOwner::ensure(&sessions.base.0, "gamma");
+
+    // A person types in a terminal of that owner: its shell must not carry
+    // the agent's variables, so --all-sessions lists every session.
+    assert_success(&owner.cli(&["workspace", "create", "--name", "gamma-ws"]));
+    let terminals = json_output(&owner.cli(&["terminal", "list"]));
+    let terminal = terminals[0]["id"].as_str().expect("the workspace has a terminal").to_owned();
+    let out = sessions.base.0.join("person-list.json");
+    let done = sessions.base.0.join("person-list.done");
+    let line = format!(
+        "'{}' --json workspace list --all-sessions > '{}' 2>&1; echo $? > '{}.tmp' && mv '{}.tmp' '{}'\n",
+        bin(),
+        out.display(),
+        done.display(),
+        done.display(),
+        done.display()
+    );
+    assert_success(&owner.cli(&["terminal", &terminal, "write", "--text", &line]));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !done.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let listed = fs::read_to_string(&out).unwrap_or_default();
+    let status = fs::read_to_string(&done).unwrap_or_default();
+    for session in ["alpha", "beta", "gamma"] {
+        assert!(
+            listed.contains(&format!("\"session\":\"{session}\"")),
+            "a person's terminal in an agent-started owner must list {session} (exit {status}):\n{listed}"
+        );
+    }
+    assert_eq!(status.trim(), "0", "{listed}");
+
+    // An agent call still gets the refusal, now with three sessions there.
+    let agent = sessions.list(&[("ACPMUX_SESSION_ID", "s_agent")]);
+    assert_eq!(agent.status.code(), Some(1), "{agent:?}");
+    assert_eq!(json_error(&agent)["code"], "origin.forbidden");
 }

@@ -7,7 +7,7 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { MockChangelogProvider } from "./mockProvider";
-import { ChangelogStore } from "./store";
+import { ChangelogStore, parseSpan } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -17,7 +17,9 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   document.documentElement.lang = strings.language;
   document.title = strings.t("changelog.page.title");
   createRoot(root).render(<ChangelogPage store={store} strings={strings} />);
-  void store.start();
+  void store.start(parseSpan(location.hash));
+  // The host moves an open page to a new update's span (`PageWebView.open(route:)`).
+  window.addEventListener("hashchange", () => void store.setSpan(parseSpan(location.hash)));
   return store;
 }
 
