@@ -470,7 +470,10 @@ fn projection_difference(
             let stated =
                 stated.map(|value| stable_value(&json!({"resource":resource,"value":value})));
             if stated.as_ref() != Some(value) {
-                return Ok(Some(format!("the scoped projection omits a changed {resource} {id}")));
+                return Ok(Some(format!(
+                    "the scoped projection omits a changed {resource} {id}: the journal states \
+                     {stated:?}, the full projection {value}"
+                )));
             }
         }
     }
