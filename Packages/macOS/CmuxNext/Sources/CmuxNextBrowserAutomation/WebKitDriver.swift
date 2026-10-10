@@ -59,7 +59,11 @@ public final class WebKitDriver: DriverCallHandler {
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
         case "input.mouse": return try await inputMouse(params)
-        case "input.key": return try await inputKey(params)
+        case "input.key":
+            if let kind = Self.clipboardShortcut(params) { return try await clipboardKey(kind, params) }
+            return try await inputKey(params)
+        case "clipboard.read": return try clipboardRead(params)
+        case "clipboard.write": return try clipboardWrite(params)
         case "input.insertText": return try await inputInsertText(params)
         case "tab.screenshot": return try await tabScreenshot(params)
         case "tab.pdf": return try await tabPDF(params)
@@ -158,6 +162,8 @@ final class TabSession {
     /// lag the load event.
     var lastTitle: String?
     var watcher: TabWatcher?
+    /// The tab's virtual clipboard: `{type, base64}` items (WebKitDriver+Clipboard).
+    var clipboard: [DriverJSON] = []
     let messages: LoadStateMessages
 
     init(tabID: BrowserTabID, driver: WebKitDriver) {
