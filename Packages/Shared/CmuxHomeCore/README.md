@@ -27,9 +27,9 @@ means a title made from the participants), `participants`, `lastSeq`, `rev`,
 `pinRank`, `kind(me:)` (`.chief`, `.direct` or `.group`).
 
 `unreadCount(me:)` does not count my own messages. My newest message counts
-as read up to its seq. Also, after my send, the local owner moves my read
-cursor to the seq of that send. Thus a reply between messages from other
-people does not count.
+as read up to its seq. Also, the local owner moves the read cursor of the
+sender to the seq of each send, for every client (CLI and paired phones too).
+Thus a reply between messages from other people does not count.
 
 `Message`: `id`, `conversation`, `seq`, `author`, `parts`, `createdAt`,
 `editedAt`, `retractedAt`, `reactions`, `replyTo`, `threadRoot`.
@@ -44,7 +44,7 @@ one time only. A resend with the same key gets the stored answer back
 
 | Op | Owner op | Notes |
 |---|---|---|
-| `.sendMessage(conversation:parts:threadRoot:)` | `message.send` | `threadRoot` is optional. When it is set, the message is a reply in the thread of that root. Both owners carry the root as `reply_to` part 0. Thus a message read back has `replyTo.message == threadRoot`. |
+| `.sendMessage(conversation:parts:threadRoot:)` | `message.send` | `threadRoot` is optional. When it is set, the message is a reply in the thread of that root. The local owner stores it as `thread_root` and refuses a root that is itself in a thread (`invalid_thread_root`). Both owners also carry the root as `reply_to` part 0, so an owner without threads (the cloud owner, an older daemon) keeps the thread. A message without `thread_root` reads its thread from `reply_to`. |
 | `.editMessage(message:conversation:parts:)` | `message.edit` | Only for my own messages. The owner sets `editedAt`. |
 | `.retractMessage(message:conversation:)` | `message.retract` | Only for my own messages. The owner sets `retractedAt`. |
 | `.addReaction(message:conversation:reaction:partIndex:)` | `reaction.add` | |
@@ -77,11 +77,8 @@ in the other.
 
 ## Known limits
 
-- The local daemon (cmux-conversation) has no `thread_root` field. A thread
-  reply is a `reply_to` the root. Thus the local owner stores a reply to a
-  reply as a thread of that reply. The Slack-style composer always sends the
-  root.
-- The daemon does not move the read cursor of the sender. `DaemonHomeSource`
-  moves it after a send from this app. A send from the CLI or from a paired
-  phone does not move it. To fix this in the owner, change the
-  cmux-conversation reducer (a CORE-window change).
+- The cloud owner has no `thread_root` field yet. A cloud thread reply is a
+  `reply_to` the root, so the cloud stores a reply to a reply as a thread of
+  that reply. The Slack-style composer always sends the root.
+- The cloud owner does not move the read cursor of the sender. The
+  `unreadCount(me:)` rule above keeps my own cloud messages read.

@@ -71,6 +71,8 @@ pub(crate) struct RemoteMessage {
     pub parts: Vec<RemotePart>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<RemoteReplyTo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<String>,
@@ -136,6 +138,7 @@ pub(crate) fn message(message: &Message) -> RemoteMessage {
         author: message.author.clone(),
         parts: message.parts.iter().filter_map(part).collect(),
         reply_to: message.reply_to.as_ref().map(reply_to),
+        thread_root: message.thread_root.clone(),
         created_at: message.created_at.clone(),
         edited_at: message.edited_at.clone(),
         retracted_at: message.retracted_at.clone(),

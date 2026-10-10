@@ -47,6 +47,7 @@ fn plain_text(op: &Op) -> Option<String> {
         Op::MessageSend {
             parts,
             reply_to: None,
+            thread_root: None,
             ..
         } => match parts.as_slice() {
             [Part::Text { text, runs: None }] => Some(text.clone()),

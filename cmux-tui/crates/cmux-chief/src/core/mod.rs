@@ -472,6 +472,7 @@ impl Core {
                     runs: None,
                 }],
                 reply_to: None,
+                thread_root: None,
             },
             child: None,
         });

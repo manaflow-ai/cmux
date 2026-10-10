@@ -8968,6 +8968,16 @@
             "name": "ConversationPartRef"
           }
         },
+        "thread_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The root message of the thread this message replies in; a root has none."
+        },
         "created_at": {
           "required": true,
           "type": {

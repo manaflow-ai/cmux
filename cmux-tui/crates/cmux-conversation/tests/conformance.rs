@@ -67,6 +67,7 @@ fn run_op(head: &ConversationHead, request: &Request) -> Value {
         new_message_id: &request.new_message_id,
         target: request.target.as_ref(),
         reply_target: request.reply_target.as_ref(),
+        thread_target: None,
         last_message: request.last_message.as_ref(),
     };
     let commit = match apply(head, &op_request) {

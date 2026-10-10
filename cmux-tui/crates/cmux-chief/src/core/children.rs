@@ -137,6 +137,7 @@ impl Core {
                     client_msg_id: key,
                     parts: vec![work_part(&session.name, status, session.last_prompt.as_deref())],
                     reply_to: None,
+                    thread_root: None,
                 },
                 child: Some(session.session_id.clone()),
             });

@@ -85,7 +85,8 @@ nonisolated enum HomeCoreMapping {
                 editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
                 reactions: message.reactions.map(reaction),
                 replyTo: message.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) },
-                threadRoot: message.replyTo.map { MessageID($0.messageID) })
+                // A message from before threads marked its thread as a reply to the root.
+                threadRoot: (message.threadRoot ?? message.replyTo?.messageID).map { MessageID($0) })
     }
 
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
@@ -129,9 +130,11 @@ nonisolated enum HomeCoreMapping {
     static func op(_ op: HomeOp, key: IdempotencyKey) -> (conversation: String, op: ConversationOp)? {
         switch op {
         case .sendMessage(let conversation, let parts, let threadRoot):
-            // The local owner has no thread field: a thread reply is a reply to the root's first part.
+            // `thread_root` is the thread. The reply to the root's first part
+            // keeps the thread on a daemon from before threads, which drops the field.
             return (conversation.rawValue, .send(clientMsgID: key.rawValue, parts: Self.parts(parts),
-                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) }))
+                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                                 threadRoot: threadRoot?.rawValue))
         case .editMessage(let message, let conversation, let parts):
             return (conversation.rawValue, .edit(messageID: message.rawValue, parts: Self.parts(parts)))
         case .retractMessage(let message, let conversation):

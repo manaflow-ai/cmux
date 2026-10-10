@@ -5692,7 +5692,7 @@ QuestionState = object{kind:"pending"} | object{kind:"cancelled"} | object{kind:
 QuestionAnswer = object{selections:map<string, object{option_ids:[string], other?:string}>, respondent?:object{participant:string, display_name:string, device?:string, remote:bool}, answered_at?:string}
 DerivedImage = object{hash:string, mime_type:"image/jpeg"|"image/webp", byte_count:uint64}
 Reaction = object{author:string, part_index:uint32, kind:object{tapback:"love"|"like"|"dislike"|"laugh"|"emphasize"|"question"}|object{emoji:string}, at:string}
-Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
+Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, thread_root?:string, created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
 Summary = object{id:string, owner:"local", title:string, participants:[Participant], last_seq:uint64, rev:uint64, created_at:string, updated_at:string, last_message?:Message, read_cursors:map<string,uint64>}
 ```
 
@@ -5832,7 +5832,7 @@ with `replayed:true` and publishes nothing. `op` is tagged by `kind`:
 
 | kind | fields | rule |
 | --- | --- | --- |
-| `message.send` | `client_msg_id, parts, reply_to?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part |
+| `message.send` | `client_msg_id, parts, reply_to?, thread_root?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part; `thread_root` names a message of this conversation that has no `thread_root` itself (`invalid_thread_root` otherwise; a thread has one level), and the new message carries it; the send also moves the sender's own read cursor to the new message's seq, so no client counts its own messages as unread |
 | `message.edit` | `message_id, parts` | author only; not retracted |
 | `message.retract` | `message_id` | author only; parts and reactions become empty |
 | `reaction.add` / `reaction.remove` | `message_id, part_index, reaction` | `reaction` is a reaction `kind` object; one per (author, part, kind) |
@@ -5853,7 +5853,7 @@ error text: `not_participant`, `not_author`, `unknown_message`,
 `invalid_client_msg_id`, `invalid_part_index`, `duplicate_reaction`,
 `unknown_reaction`, `invalid_reaction`, `duplicate_participant`,
 `invalid_participant`, `invalid_title`, `human_only`, `question_closed`,
-`invalid_answer`. A malformed request (an unknown op
+`invalid_answer`, `invalid_thread_root`. A malformed request (an unknown op
 kind, a bad `transaction` or idempotency key) is a plain bad request.
 
 Params: `conversation`, `idempotency_key`, `op` (required), `actor` (optional; the owner stamps the connection's principal and refuses a different value with `actor_mismatch`),

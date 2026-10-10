@@ -43,7 +43,7 @@ pub(crate) const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
 /// Section 4: the op kinds a remote peer may send, with their exact fields.
 /// Approval kinds, `participants.*` and `title.set` are refused by name.
 const ALLOWED_OPS: &[(&str, &[&str])] = &[
-    ("message.send", &["client_msg_id", "parts", "reply_to"]),
+    ("message.send", &["client_msg_id", "parts", "reply_to", "thread_root"]),
     ("message.edit", &["message_id", "parts"]),
     ("message.retract", &["message_id"]),
     ("reaction.add", &["message_id", "part_index", "reaction"]),
@@ -170,6 +170,10 @@ fn check_op(value: &Value) -> Result<(), Denial> {
     }
     if let Some(message) = op.get("message_id") {
         check_id(message, "msg_")?;
+    }
+    if let Some(thread_root) = op.get("thread_root") {
+        // A message id only; the owner refuses one outside the conversation.
+        check_id(thread_root, "msg_")?;
     }
     if let Some(reply_to) = op.get("reply_to") {
         let Value::Object(reply_to) = reply_to else { return Err(Denial::UnknownParam) };

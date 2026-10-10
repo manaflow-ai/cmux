@@ -170,6 +170,11 @@ pub struct Message {
     pub parts: Vec<Part>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<PartRef>,
+    /// The root message of the thread this message is a reply in. A root
+    /// has none; a thread has one level. Messages before threads have none
+    /// (their `reply_to` stays as it was).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<String>,
@@ -235,6 +240,10 @@ pub enum Op {
         parts: Vec<Part>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<PartRef>,
+        /// The thread root this message replies in: a message of this
+        /// conversation that is not itself in a thread.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_root: Option<String>,
     },
     #[serde(rename = "message.edit")]
     MessageEdit { message_id: String, parts: Vec<Part> },
@@ -275,6 +284,14 @@ impl Op {
     pub fn reply_to(&self) -> Option<&PartRef> {
         match self {
             Self::MessageSend { reply_to, .. } => reply_to.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The thread root a `message.send` replies in, which the host loads.
+    pub fn thread_root(&self) -> Option<&str> {
+        match self {
+            Self::MessageSend { thread_root, .. } => thread_root.as_deref(),
             _ => None,
         }
     }

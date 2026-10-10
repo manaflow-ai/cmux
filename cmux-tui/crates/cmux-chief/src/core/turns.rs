@@ -219,6 +219,7 @@ impl Core {
                                 client_msg_id: key,
                                 parts: vec![Part::Text { text, runs: None }],
                                 reply_to: None,
+                                thread_root: None,
                             },
                             child: None,
                         });

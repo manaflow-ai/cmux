@@ -147,9 +147,6 @@ nonisolated final class DaemonHomeSource: HomeSource {
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
         let connection = try requireOwner()
         let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
-        if case .sendMessage = intent.op, let seq = result.seq, !result.replayed {
-            readThrough(seq, in: mapped.conversation, on: connection)
-        }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))
     }
 

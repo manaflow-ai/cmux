@@ -443,6 +443,10 @@ fn apply_op_in(
         Some(reply_to) => load_message_by_id(transaction, &reply_to.message_id)?,
         None => None,
     };
+    let thread_target = match op.thread_root() {
+        Some(root) => load_message_by_id(transaction, root)?,
+        None => None,
+    };
     let last_message = load_message_by_seq(transaction, conversation, head.last_seq)?;
     let mut commit = cmux_conversation::apply(
         &head,
@@ -454,6 +458,7 @@ fn apply_op_in(
             new_message_id: &new_message_id,
             target: target.as_ref(),
             reply_target: reply_target.as_ref(),
+            thread_target: thread_target.as_ref(),
             last_message: last_message.as_ref(),
         },
     )
@@ -466,6 +471,15 @@ fn apply_op_in(
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
         cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
+    }
+    if op.is_send() {
+        // The sender has read its own message, for every client of this
+        // owner (cx-59n8.2). The host does it, not the reducer: the reducer
+        // stays equal to the cloud reducer's conformance corpus. The change
+        // stays `message`; clients read the cursor from the summary.
+        let seq = commit.head.last_seq;
+        let cursor = commit.head.read_cursors.entry(actor.to_string()).or_insert(0);
+        *cursor = (*cursor).max(seq);
     }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;
