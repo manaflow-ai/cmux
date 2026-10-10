@@ -550,13 +550,7 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    // Windows port: no mode bits; the owner-only ACL lands with the
-    // daemon's private folders (a later landing).
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
+    crate::router_socket::owner_only(&tmp);
     std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
@@ -740,29 +734,15 @@ pub fn local_router(home: &Path, family: &str) -> Result<(String, String), Route
     local_router_with(home, family, false)
 }
 
-/// Windows port: the router's admin socket is Unix only until it is ported;
-/// the route is unavailable.
-#[cfg(not(unix))]
-pub fn local_router_with(
-    _home: &Path,
-    _family: &str,
-    _need_upstream: bool,
-) -> Result<(String, String), RouteError> {
-    Err(RouteError::Unavailable(
-        crate::platform::unsupported("the local CodeRouter's admin socket").to_string(),
-    ))
-}
-
 /// `local_router`, and for the cmux model router also a live upstream (the app
 /// signed the relay in), else `route.unavailable` with the reason.
-#[cfg(unix)]
 pub fn local_router_with(
     home: &Path,
     family: &str,
     need_upstream: bool,
 ) -> Result<(String, String), RouteError> {
+    use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
     let socket = home.join("router").join("router.sock");
     let unavailable = |what: String| {

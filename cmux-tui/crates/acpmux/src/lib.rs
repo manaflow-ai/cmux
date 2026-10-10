@@ -39,6 +39,7 @@ mod platform;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;
+mod router_socket;
 pub mod routes;
 pub mod rpc;
 pub mod schema;
