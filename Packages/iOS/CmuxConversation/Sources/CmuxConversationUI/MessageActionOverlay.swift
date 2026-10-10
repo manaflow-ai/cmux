@@ -58,6 +58,9 @@ final class MessageActionOverlay: UIView {
     func beginPress() {
         isPressing = true
         isUserInteractionEnabled = false
+        // Not a modal surface yet: VoiceOver stays put until the menu opens.
+        accessibilityElementsHidden = true
+        accessibilityViewIsModal = false
         pressHidden = subviews.filter { $0 !== snapshotClip && $0.alpha > 0 }
         pressHidden.forEach { $0.alpha = 0 }
         guard !UIAccessibility.isReduceMotionEnabled else { return }
@@ -83,13 +86,20 @@ final class MessageActionOverlay: UIView {
         if grow.state == .active { grow.stopAnimation(true) }
     }
 
-    /// The press ended before the click: the bubble settles back and the
-    /// overlay goes away without ever showing the menu.
+    /// The press ended before the click: the overlay goes away without ever
+    /// showing the menu. iOS 26.5 Messages lets the bubble settle back over
+    /// ~0.2 s; iOS 27.0 drops it back to rest in the next frame.
     func cancelPress() {
         guard isPressing, !isDismissing else { return }
         isPressing = false
         isDismissing = true
         stopPressGrowth()
+        if #available(iOS 27, *) {
+            snapshotClip.transform = .identity
+            removeFromSuperview()
+            onDismiss?()
+            return
+        }
         UIView.animate(springDuration: 0.3, bounce: 0, initialSpringVelocity: 0, delay: 0, options: [.beginFromCurrentState]) {
             self.snapshotClip.transform = .identity
         } completion: { _ in
@@ -505,6 +515,8 @@ final class MessageActionOverlay: UIView {
             isPressing = false
             stopPressGrowth()
             isUserInteractionEnabled = true
+            accessibilityElementsHidden = false
+            accessibilityViewIsModal = true
             pressHidden.forEach { $0.alpha = 1 }
             pressHidden = []
         }
