@@ -457,7 +457,41 @@ fn a_terminal_in_a_plain_job_without_breakaway_survives_restart_and_job_close() 
     );
 }
 
-/// A terminal with its own host reports no fallback.
+/// Whether this test process runs in a Job Object that forbids breakaway
+/// and kills its processes on close (the hosted Windows runner does): a
+/// daemon started from it can only start hosts inside that job.
+fn own_job_ends_hosts() -> bool {
+    use windows_sys::Win32::System::JobObjects::{
+        IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: plain queries of this process's own job into owned buffers.
+    unsafe {
+        let mut in_job = 0;
+        if IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job) == 0
+            || in_job == 0
+        {
+            return false;
+        }
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        let ok = QueryInformationJobObject(
+            std::ptr::null_mut(),
+            JobObjectExtendedLimitInformation,
+            (&raw mut limits).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            std::ptr::null_mut(),
+        );
+        let flags = limits.BasicLimitInformation.LimitFlags;
+        ok != 0
+            && flags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK) == 0
+            && flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0
+    }
+}
+
+/// A terminal with its own host reports no fallback, unless the job this
+/// test runs in ends hosts (then it says `breakaway_denied`).
 #[test]
 fn a_hosted_terminal_reports_no_fallback() {
     let daemon = Daemon::new("hosted");
@@ -467,5 +501,9 @@ fn a_hosted_terminal_reports_no_fallback() {
     );
     let surface = created["surface"].as_u64().unwrap();
     let tab = tab_of(&daemon.socket, surface);
-    assert!(tab["terminal_host_fallback"].is_null(), "{tab}");
+    if own_job_ends_hosts() {
+        assert_eq!(tab["terminal_host_fallback"], "breakaway_denied", "{tab}");
+    } else {
+        assert!(tab["terminal_host_fallback"].is_null(), "{tab}");
+    }
 }

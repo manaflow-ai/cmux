@@ -70,7 +70,7 @@ impl Mux {
             };
             hook(unlocked);
         }
-        #[cfg(all(test, unix))]
+        #[cfg(all(test, any(unix, windows)))]
         let use_host_runtime = !self.test_surface_runtime;
         #[cfg(all(not(test), any(unix, windows)))]
         let use_host_runtime = true;

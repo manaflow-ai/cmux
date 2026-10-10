@@ -223,6 +223,6 @@ mod memory_pressure {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "standby_host_tests.rs"]
 mod tests;

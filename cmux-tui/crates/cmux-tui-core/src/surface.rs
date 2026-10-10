@@ -162,7 +162,7 @@ use crate::browser::{
     BrowserMouseDispatch, BrowserPointerOwner, BrowserResizeWaiter, BrowserSurface,
     PendingBrowserResize,
 };
-#[cfg(all(unix, test))]
+#[cfg(all(any(unix, windows), test))]
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{

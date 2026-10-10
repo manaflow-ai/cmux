@@ -92,7 +92,7 @@ impl Surface {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) mod test_fixture {
     use std::os::unix::net::UnixStream;
     use std::sync::Arc;
