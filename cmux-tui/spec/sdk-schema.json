@@ -3248,6 +3248,68 @@
    },
    "additional_properties": false
   },
+  "PaneSurfaceResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 9
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 9
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "split-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "split-client-keys-v1"
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "split-client-keys-v1"
+    }
+   },
+   "additional_properties": false
+  },
   "LayoutUndoUndone": {
    "kind": "object",
    "fields": {
@@ -5571,13 +5633,170 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_projection": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsResourceProjection"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "schema is 1.",
     "journal_writer is null for ephemeral sessions without a durable journal.",
-    "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
+    "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
+    "resource_projection is present only when the request names it in include."
+   ]
+  },
+  "ServerStatsResourceProjection": {
+   "kind": "object",
+   "fields": {
+    "projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "full_projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scoped_projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scope_fallbacks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "crosschecks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "crosscheck_mismatches": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "read_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "index_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "diff_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "projected_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_prune_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_apply_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_journal_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "written_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journaled_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
+    "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
+    "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes.",
+    "full_projections plus scoped_projections is projections; a scoped projection restates only the workspaces it changed, and scope_fallbacks counts scoped projections that found a change outside their scope and ran full. crosschecks counts scoped projections compared with the full projection (debug builds, or CMUX_TUI_PROJECTION_CROSSCHECK=1); crosscheck_mismatches counts comparisons that differed."
    ]
   },
   "GuestUrlOpenResult": {
@@ -7153,7 +7372,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "install: and the stable install id of the machine whose acpmux runs the session."
+     "description": "install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it."
     },
     "session": {
      "type": {
@@ -10972,6 +11191,40 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -10981,11 +11234,12 @@
    },
    "result": {
     "kind": "ref",
-    "name": "SurfaceResult"
+    "name": "PaneSurfaceResult"
    },
    "stream": null,
    "constraints": [
-    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
    ]
   },
   "new-pane-right": {
@@ -11124,6 +11378,40 @@
       "default": null,
       "since": 12,
       "capability": "pane-browser-kind-v1"
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -11134,12 +11422,13 @@
    },
    "result": {
     "kind": "ref",
-    "name": "SurfaceResult"
+    "name": "PaneSurfaceResult"
    },
    "stream": null,
    "constraints": [
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
-    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
    ]
   },
   "split": {
@@ -11271,6 +11560,40 @@
       "default": null,
       "since": 12,
       "capability": "pane-browser-kind-v1"
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -11280,13 +11603,14 @@
    },
    "result": {
     "kind": "ref",
-    "name": "SurfaceResult"
+    "name": "PaneSurfaceResult"
    },
    "stream": null,
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
-    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
    ]
   },
   "set-ratio": {
@@ -14580,7 +14904,20 @@
    "capability": "server-stats-v1",
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "include": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -14589,7 +14926,8 @@
    },
    "stream": null,
    "constraints": [
-    "Owner-only diagnostics; never journaled and safe to poll."
+    "Owner-only diagnostics; never journaled and safe to poll.",
+    "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
    ]
   },
   "paste-image": {

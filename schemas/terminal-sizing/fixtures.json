@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'clear_viewport' is a viewer that hid the terminal (iOS: app in background, terminal off screen) and stops counting until its next report; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
+  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests, the cmux-terminal-sizing and cmux-mobile-core Rust tests, and the cmux-mobile-ffi Swift and Kotlin binding tests. Steps run in order; 'clear_viewport' is a viewer that hid the terminal (iOS: app in background, terminal off screen) and stops counting until its next report; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
   "cases": [
     {
       "name": "default policy is fit everyone",

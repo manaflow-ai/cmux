@@ -172,6 +172,51 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar remove-section",
                 destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 100)])
             ),
+            // Leo (2026-10-06): Projects and Chats hide from their headers'
+            // menus and come back from the sidebar's menu or Settings
+            // (`sidebar.showProjects`, `sidebar.showChats`; scripts set those).
+            ActionDescriptor(
+                id: "sidebar.section.hide", title: t("action.sidebar.section.hide", "Hide Section"),
+                keywords: ["sidebar", "section", "hide", "recents"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section,
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarSection, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.projects.hide", title: t("action.sidebar.projects.hide", "Hide Projects"),
+                keywords: ["sidebar", "section", "hide", "projects", "workspaces"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.sections.showHidden", title: t("action.sidebar.sections.showHidden", "Show Hidden Sections"),
+                keywords: ["sidebar", "section", "show", "unhide", "projects", "recents"], category: .sidebar, symbol: "eye",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
+            ),
+            // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
+            // Projects list buckets its loose rows (`sidebar.groupBy`).
+            ActionDescriptor(
+                id: "sidebar.groupBy.none", title: t("action.sidebar.groupBy.none", "Group by None"),
+                keywords: ["sidebar", "projects", "group", "ungroup", "none", "flat"], category: .sidebar, symbol: "list.bullet",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 110, folder: .group)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.groupBy.folder", title: t("action.sidebar.groupBy.folder", "Group by Folder"),
+                keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"], category: .sidebar, symbol: "folder",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
+            ),
+            // Leo (2026-10-09): the sidebar's and a workspace row's menus
+            // check Show Tabs Under Workspaces (`sidebar.showWorkspaceTabs`;
+            // scripts set that). Both menus are at their 12-row top level, so
+            // it sits in Options.
+            ActionDescriptor(
+                id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
+                keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
+            ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),
                 keywords: ["sidebar", "section", "reset", "default", "layout"], category: .sidebar, symbol: "arrow.counterclockwise",

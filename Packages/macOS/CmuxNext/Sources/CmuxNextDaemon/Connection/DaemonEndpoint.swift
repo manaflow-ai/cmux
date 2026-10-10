@@ -167,6 +167,10 @@ public struct DaemonCapabilities: Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     public let agentSessionTabs = "agent-session-tabs-v1"
+    /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
+    /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
+    /// "Agent session attach").
+    public let agentSessionAttach = "agent-session-attach-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
@@ -206,6 +210,9 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// `palette_usage.get|record|import`: the user's palette usage history
+    /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
+    public let paletteUsage = "palette-usage-v1"
     /// `move-tab-to-split` `respawn`: splitting a pane with its only tab
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
@@ -245,9 +252,9 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
@@ -257,6 +264,12 @@ public struct DaemonCapabilities: Sendable {
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
     public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
+
+    /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
+    /// a daemon without it is an older build, and restarting cmux updates it.
+    public func isServedByBundledDaemon(_ capability: String) -> Bool {
+        required.contains(capability) || optional.contains(capability)
+    }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection

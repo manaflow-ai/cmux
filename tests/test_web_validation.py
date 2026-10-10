@@ -16,6 +16,33 @@ import web_validation as gate
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
+class CmuxNextBaseWebVerdict(unittest.TestCase):
+    """feat-cmux-next pushes run ci-web's checks under the same `web / ...` names as PRs.
+
+    ci.yml runs only on pull requests, so on 2026-10-07 react-apps-check was red on feat-cmux-next
+    unseen, and gh-merge-green's base-aware excusal had no base verdict for any web check.
+    """
+
+    def setUp(self):
+        # Text, not YAML: this file runs on a bare runner Python without PyYAML.
+        self.text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text()
+
+    def test_every_feat_cmux_next_push_runs_it(self):
+        self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
+        self.assertNotIn("pull_request", self.text)
+        self.assertNotIn("paths:", self.text)
+
+    def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
+        self.assertIn(
+            "jobs:\n  web:\n    uses: ./.github/workflows/ci-web.yml\n    with:\n"
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
+            self.text,
+        )
+
+    def test_a_later_push_never_cancels_a_verdict(self):
+        self.assertIn("group: cmux-next-web-${{ github.sha }}\n  cancel-in-progress: false\n", self.text)
+
+
 class WebValidationTests(unittest.TestCase):
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (

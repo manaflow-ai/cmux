@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494";
+inline constexpr std::string_view kProtocolIrSha256 = "1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -108,6 +108,7 @@ enum class PaneDirection;
 enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
+struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
@@ -140,6 +141,7 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
@@ -3117,8 +3119,10 @@ struct NewPaneRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -3135,8 +3139,10 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     Field<float> width{};
@@ -3317,6 +3323,16 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PaneSurfaceResult {
+    Field<std::string> pane_id{};
+    Field<bool> replayed{};
+    Id surface{};
+    Field<std::string> tab_id{};
+    Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
+    friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
 struct PasteImageRequest {
@@ -3964,13 +3980,36 @@ struct ServerStatsRegistryLock {
 };
 
 struct ServerStatsRequest {
+    Field<std::vector<std::string>> include{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResourceProjection {
+    ServerStatsHistogram commit_apply_us{};
+    ServerStatsHistogram commit_journal_us{};
+    ServerStatsHistogram commit_prune_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t commits{};
+    std::uint64_t crosscheck_mismatches{};
+    std::uint64_t crosschecks{};
+    ServerStatsHistogram diff_us{};
+    std::uint64_t full_projections{};
+    ServerStatsHistogram index_us{};
+    ServerStatsHistogram journaled_changes{};
+    ServerStatsHistogram projected_changes{};
+    std::uint64_t projections{};
+    ServerStatsHistogram read_us{};
+    std::uint64_t scope_fallbacks{};
+    std::uint64_t scoped_projections{};
+    ServerStatsHistogram written_changes{};
+    friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
@@ -4264,8 +4303,10 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -5455,6 +5496,12 @@ struct Codec<PaneRef> {
 };
 
 template <>
+struct Codec<PaneSurfaceResult> {
+    static Result<Json> encode(const PaneSurfaceResult& value);
+    static Result<PaneSurfaceResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -5644,6 +5691,12 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsResourceProjection> {
+    static Result<Json> encode(const ServerStatsResourceProjection& value);
+    static Result<ServerStatsResourceProjection> decode(const Json& value);
 };
 
 template <>

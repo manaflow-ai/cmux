@@ -13,6 +13,8 @@ public struct JSONC {
         case malformed(offset: Int)
         /// The document's root is not an object, so a key path cannot be set.
         case rootIsNotObject
+        /// An edit named no key (an empty key path).
+        case emptyPath
     }
 
     // MARK: - Reading
@@ -65,7 +67,7 @@ public struct JSONC {
     /// intermediate objects as needed. Everything outside the edited value
     /// is preserved byte for byte.
     public static func setting(_ value: JSONValue, at path: [String], in source: String) throws -> String {
-        precondition(!path.isEmpty, "path must not be empty")
+        guard !path.isEmpty else { throw Failure.emptyPath }
         let bytes = Array(source.utf8)
         guard let root = try parseRoot(bytes) else {
             // Empty or comment-only file: write a fresh document after it.
@@ -81,7 +83,7 @@ public struct JSONC {
 
     /// `source` with the member at `path` removed. Unchanged when absent.
     public static func removing(_ path: [String], in source: String) throws -> String {
-        precondition(!path.isEmpty, "path must not be empty")
+        guard !path.isEmpty else { throw Failure.emptyPath }
         let bytes = Array(source.utf8)
         guard let root = try parseRoot(bytes) else { return source }
         guard case .object(var object) = root else { throw Failure.rootIsNotObject }
@@ -194,7 +196,7 @@ public struct JSONC {
     }
 
     private static func setting(_ value: JSONValue, at path: ArraySlice<String>, in object: ObjectNode, bytes: [UInt8], edits: inout [Edit]) {
-        let key = path.first!
+        guard let key = path.first else { return }  // the public entry refuses an empty path
         let rest = path.dropFirst()
         if let member = object.members.first(where: { $0.key == key }) {
             if rest.isEmpty {

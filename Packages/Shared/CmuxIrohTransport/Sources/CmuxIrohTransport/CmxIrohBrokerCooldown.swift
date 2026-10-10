@@ -44,7 +44,7 @@ public struct CmxIrohBrokerCooldown: Equatable, Sendable {
             clear()
             return nil
         }
-        return Int(remaining.rounded(.up))
+        return remaining.rounded(.up).saturatedInteger(Int.self)
     }
 
     /// Clears the floor, optionally only when it belongs to one account.

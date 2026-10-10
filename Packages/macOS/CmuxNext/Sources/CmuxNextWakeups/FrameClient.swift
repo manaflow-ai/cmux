@@ -42,10 +42,11 @@ public final class FrameClient {
         self.init(owner: owner, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }, onFrame: onFrame)
     }
 
-    /// A client of a fixed scheduler.
+    /// A client of a fixed scheduler (``FrameScheduler/app`` once that scheduler is gone,
+    /// as for a view client without a window).
     public convenience init(owner: String, isAnimation: Bool = true, on scheduler: FrameScheduler,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [unowned scheduler] in scheduler }, onFrame: onFrame)
+        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
     }
 
     /// Starts ticking (no effect while active).

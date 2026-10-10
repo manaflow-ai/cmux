@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
@@ -51,6 +51,12 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agentPane.showContextUsage" : {
+      "default" : true,
+      "description" : "The ring beside the model that fills as the chat uses its context window.",
+      "title" : "Show Context Usage",
+      "type" : "boolean"
     },
     "agents.chats.discovery" : {
       "default" : true,
@@ -118,6 +124,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.startAgentGlobalHotKey" : {
+      "default" : false,
+      "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Start Agent from Any App",
+      "type" : "boolean"
+    },
     "app.uiScale" : {
       "default" : 1,
       "description" : "app.uiScale",
@@ -128,13 +140,13 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "description" : "app.warnBeforeClosingAgentSession",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
@@ -756,6 +768,11 @@
       "title" : "DisabledFeatures",
       "type" : "array"
     },
+    "DisableTelemetry" : {
+      "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
+      "title" : "DisableTelemetry",
+      "type" : "boolean"
+    },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
@@ -1032,9 +1049,10 @@
       "type" : "string"
     },
     "layout.stripScrollbar" : {
-      "default" : "auto",
+      "default" : "system",
       "description" : "A thin bar under the columns that shows and moves the visible range.",
       "enum" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -1457,6 +1475,22 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.groupBy" : {
+      "default" : "none",
+      "description" : "sidebar.groupBy",
+      "enum" : [
+        "none",
+        "folder"
+      ],
+      "title" : "Group Projects By",
+      "type" : "string"
+    },
+    "sidebar.groupByComputer" : {
+      "default" : false,
+      "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+      "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
@@ -1499,9 +1533,15 @@
       "type" : "string"
     },
     "sidebar.showChats" : {
-      "default" : false,
-      "description" : "Shows the device-wide Chats section in the sidebar.",
-      "title" : "Show Chats",
+      "default" : true,
+      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
+      "title" : "Show All Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showProjects" : {
+      "default" : true,
+      "description" : "sidebar.showProjects",
+      "title" : "Show Projects",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -1528,6 +1568,16 @@
         "bottom"
       ],
       "title" : "Spaces Position",
+      "type" : "string"
+    },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
       "type" : "string"
     },
     "sidebar.stepping" : {
@@ -1996,6 +2046,20 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabTemplate" : {
+      "default" : "default",
+      "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+      "enum" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "title" : "New Tab Template",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2128,6 +2192,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.newPlacement" : {
+      "default" : "top",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "enum" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "title" : "New Workspace Position",
       "type" : "string"
     }
   },

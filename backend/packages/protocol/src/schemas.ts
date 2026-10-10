@@ -21,13 +21,14 @@ export const Revision = Schema.String.check(Schema.isPattern(/^[0-9]+$/)).annota
   description: "Decimal per-object revision (the owner's event sequence)."
 })
 export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]).annotate({ identifier: "Origin" })
-export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
+export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm", "team-vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
 /**
  * Grant classes. All but `cloud-link` are op risks. `cloud-link` (CLOUD-LINK-FOLLOWUPS 5) is a narrow
- * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
- * iPhone app can dial its machines without general execute.
+ * grant class that no op declares as its risk: it covers only cloud.machine.link_token and a
+ * force-command restricted team_vm.ssh_cert agent certificate (cx-wb5.66), so the iPhone and Mac
+ * apps can dial their machines without general execute.
  */
 /** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
 export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
@@ -115,12 +116,21 @@ export const Host = Schema.Struct({
   /** The host's WireGuard public key (base64, 32 bytes), made on the host and never leaving it. */
   wg_public_key: Schema.optionalKey(WgPublicKey),
   /** Network policy tags, for example `tag:server`. */
-  tags: Schema.optionalKey(Schema.Array(Schema.String))
+  tags: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Set when its owner left the team: the host waits for a team owner to reassign or remove it (cx-44j.49). */
+  orphaned: Schema.optionalKey(Schema.Struct({ at: Schema.Int, former_owner: UserId }))
 }).annotate({ identifier: "Host" })
+
+/**
+ * A team role (spec H5, H12): a named bundle of default grants that TeamDO checks
+ * (backend/apps/api/src/domains/team-roles.ts). `guest` has no default grants and uses no seat;
+ * `billing` sees only billing and the billing audit entries.
+ */
+export const TeamRole = Schema.Literals(["owner", "admin", "member", "billing", "guest"]).annotate({ identifier: "TeamRole" })
 
 export const TeamMember = Schema.Struct({
   user: UserId,
-  role: Schema.Literals(["owner", "admin", "member"]),
+  role: TeamRole,
   display_name: Schema.String
 }).annotate({ identifier: "TeamMember" })
 
@@ -133,6 +143,7 @@ export const ErrorCode = Schema.Literals([
   "operation.failed",
   "auth.unauthenticated",
   "auth.forbidden",
+  "team.not_member",
   "owner.unreachable",
   "mutation.indeterminate",
   "policy.invalid",

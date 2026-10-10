@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494";
+pub const ir_sha256 = "1a125d40a1072221e7191839cefa0b173f2c6a3048d5553f02597ce44ec32c57";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -49,7 +49,7 @@ pub const AgentReportSource = enum {
 pub const AgentSessionSource = struct {
     /// The agent kind the chat was started with.
     harness: wire.Field([]const u8) = .absent,
-    /// install: and the stable install id of the machine whose acpmux runs the session.
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     host: []const u8,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     host_name: wire.Field([]const u8) = .absent,
@@ -1169,6 +1169,15 @@ pub const PaneNeighborResult = struct {
 /// A pane named by its numeric id or its public pane_ id.
 pub const PaneRef = wire.Value;
 
+pub const PaneSurfaceResult = struct {
+    pane_id: wire.Field([]const u8) = .absent,
+    replayed: wire.Field(bool) = .absent,
+    surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+};
+
 pub const PingResult = struct {
     build_commit: wire.Field([]const u8) = .absent,
     ghostty_commit: wire.Field([]const u8) = .absent,
@@ -1519,12 +1528,37 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsResourceProjection = struct {
+    commit_apply_us: ServerStatsHistogram,
+    commit_journal_us: ServerStatsHistogram,
+    commit_prune_us: ServerStatsHistogram,
+    commit_us: ServerStatsHistogram,
+    commits: u64,
+    crosscheck_mismatches: u64,
+    crosschecks: u64,
+    diff_us: ServerStatsHistogram,
+    full_projections: u64,
+    index_us: ServerStatsHistogram,
+    journaled_changes: ServerStatsHistogram,
+    projected_changes: ServerStatsHistogram,
+    projections: u64,
+    read_us: ServerStatsHistogram,
+    scope_fallbacks: u64,
+    scoped_projections: u64,
+    written_changes: ServerStatsHistogram,
+};
+
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "resource_projection",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -5814,8 +5848,10 @@ pub const NewPaneRequest = struct {
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5823,7 +5859,7 @@ pub const NewPaneRequest = struct {
     };
 };
 
-pub const NewPaneResult = SurfaceResult;
+pub const NewPaneResult = PaneSurfaceResult;
 
 pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneResult) {
     return client.callTyped(
@@ -5837,7 +5873,9 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -5852,8 +5890,10 @@ pub const NewPaneRightRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -5863,7 +5903,7 @@ pub const NewPaneRightRequest = struct {
     };
 };
 
-pub const NewPaneRightResult = SurfaceResult;
+pub const NewPaneRightResult = PaneSurfaceResult;
 
 pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded(NewPaneRightResult) {
     return client.callTyped(
@@ -5878,7 +5918,9 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
@@ -6872,7 +6914,9 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
-pub const ServerStatsRequest = struct {};
+pub const ServerStatsRequest = struct {
+    include: wire.Field([]const []const u8) = .absent,
+};
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
     return client.callTyped(
@@ -7506,8 +7550,10 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     kind: wire.Field(PaneKind) = .absent,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
 
@@ -7516,7 +7562,7 @@ pub const SplitRequest = struct {
     };
 };
 
-pub const SplitResult = SurfaceResult;
+pub const SplitResult = PaneSurfaceResult;
 
 pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) {
     return client.callTyped(
@@ -7531,7 +7577,9 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },

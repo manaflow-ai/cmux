@@ -40,7 +40,7 @@ public final class DesignSettings {
     /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
-    public var stripScrollbar: StripScrollbarMode = .auto
+    public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
@@ -102,6 +102,8 @@ public final class DesignSettings {
     public var sidebarSide: SidebarSide = .left
     /// `sidebar.spacesPosition` (R109).
     public var spacesPosition: SpacesPosition = .bottom
+    /// `sidebar.spacesVisibility` (cx-5k3r).
+    public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).

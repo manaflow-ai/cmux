@@ -17,7 +17,7 @@ final class TreeChangeBroadcaster: Sendable {
         let id: Int? = state.withLock { state in
             guard !state.finished else { return nil }
             defer { state.next += 1 }
-            state.subscribers[state.next] = continuation
+            state.subscribers.updateValue(continuation, forKey: state.next)
             return state.next
         }
         guard let id else {

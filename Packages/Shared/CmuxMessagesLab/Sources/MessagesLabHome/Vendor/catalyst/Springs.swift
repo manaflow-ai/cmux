@@ -119,7 +119,8 @@ struct SpringElement {
     var isPulse: Bool { abs(to - from) < 1e-6 }
     func share(_ i: Int) -> Double {
         let total = components.reduce(0) { $0 + $1.delta }
-        return abs(total) < 1e-9 ? 0 : components[i].delta / total
+        guard let component = components[checked: i] else { return 0 } // cmux: checked
+        return abs(total) < 1e-9 ? 0 : component.delta / total
     }
     /// Value at `tau` after the event for a move from `a` to `b` (pulse: `a` plus the fitted deltas).
     func value(_ tau: Double, from a: Double, to b: Double) -> Double {
@@ -150,9 +151,9 @@ enum Springs {
                                                spring: Spring(duration: duration, bounce: c["bounce"] as? Double ?? 0,
                                                               initialVelocity: c["initialVelocity"] as? Double ?? 0),
                                                delta: c["delta"] as? Double ?? 0,
-                                               curve: cp?.count == 4 ? Curve(x1: cp![0], y1: cp![1], x2: cp![2], y2: cp![3], duration: duration) : nil)
+                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // cmux: no force unwrap
             }
-            out[name] = SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps)
+            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name) // cmux
         }
         return out
     }()
@@ -178,9 +179,14 @@ enum Springs {
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
     static var bubbleRight: SpringElement { element("bubble.right") }
-    static var bubbleWidth: SpringElement { element("bubble.width") }
+    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
+    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleWidth: SpringElement { osElement("bubble.width") }
     static var bubbleCenterY: SpringElement { element("bubble.centerY") }
-    static var bubbleScale: SpringElement { element("bubble.scale") }
+    static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    static func osElement(_ name: String) -> SpringElement {
+        ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
+    }
     static var bubbleOpacity: SpringElement { element("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
     static var fieldOpacity: SpringElement { element("field.opacity") }
@@ -269,7 +275,7 @@ enum Animate {
     static func sampledPulse(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, depth: Double = 1,
                              begin: CFTimeInterval) {
         let end = element.settleTime
-        let n = max(2, Int(end * 240))
+        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // cmux: at most 60 s of samples, no trap on NaN
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = (0...n).map {
             NSNumber(value: min(1, max(0, base + depth * (element.value(Double($0) / 240, from: base, to: base) - base))))
@@ -288,10 +294,11 @@ enum Animate {
     /// lowest value and then stays at 0 (a surface that leaves with the
     /// pulse's fade-out and does not come back). Sampled at 240 Hz.
     static func sampledUntilMinimum(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, begin: CFTimeInterval) {
-        let n = max(2, Int(element.settleTime * 240))
-        var values: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
-        let low = values.indices.min { values[$0] < values[$1] } ?? n
-        for i in low...n { values[i] = 0 }
+        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // cmux: at most 60 s, no trap on NaN
+        let samples: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
+        // cmux: zero from the lowest sample on, without index math.
+        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
+        let values = samples.enumerated().map { $0.offset >= low ? 0 : $0.element }
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = values.map { NSNumber(value: $0) }
         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
@@ -487,17 +494,19 @@ enum Presenter {
                 tau = 0
             }
             let total = k.duration * Double(max(1, k.repeatCount))
-            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : (kp, values.last!.doubleValue) }
+            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // cmux: no force unwrap
             // Wrap only repeating animations (a one-shot at exactly its end
             // must not wrap to its first value).
             if k.repeatCount > 1 { tau = tau.truncatingRemainder(dividingBy: k.duration) }
             let u = tau / k.duration
             let times = (k.keyTimes ?? []).map(\.doubleValue)
             let ts = times.count == values.count ? times : values.indices.map { Double($0) / Double(values.count - 1) }
-            var i = 1
-            while i < ts.count - 1, ts[i] < u { i += 1 }
-            let f = max(0, min(1, (u - ts[i - 1]) / max(1e-9, ts[i] - ts[i - 1])))
-            let v = values[i - 1].doubleValue + (values[i].doubleValue - values[i - 1].doubleValue) * f
+            // cmux: the first inner key time at or past u, else the last; checked reads.
+            let i = ts.dropFirst().dropLast().firstIndex(where: { $0 >= u }) ?? max(1, ts.count - 1)
+            guard let t0 = ts[checked: i - 1], let t1 = ts[checked: i], let v0 = values[checked: i - 1]?.doubleValue,
+                  let v1 = values[checked: i]?.doubleValue else { return (kp, values.last?.doubleValue ?? 0) }
+            let f = max(0, min(1, (u - t0) / max(1e-9, t1 - t0)))
+            let v = v0 + (v1 - v0) * f
             return (kp, v)
         }
         return nil

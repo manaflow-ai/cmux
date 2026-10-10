@@ -201,8 +201,8 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     public init(session: String, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         self.session = session
-        keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
-        keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+        keepaliveIntervalMs = Int(clamping: IrxProtocol().keepaliveInterval.components.seconds) * 1000
+        keepaliveDeadlineMs = Int(clamping: IrxProtocol().keepaliveDeadline.components.seconds) * 1000
         self.natBarrier = natBarrier
     }
 }
@@ -283,11 +283,12 @@ public struct IrxFrameCodec: Sendable {
 
     public func encode(_ value: some Encodable) throws -> Data {
         let body = try JSONEncoder().encode(value)
-        guard body.count <= IrxProtocol().maximumControlFrameByteCount else {
+        guard body.count <= IrxProtocol().maximumControlFrameByteCount,
+              let bodyLength = UInt32(exactly: body.count) else {
             throw IrxFrameCodecError.frameTooLarge(body.count)
         }
         var data = Data(capacity: 4 + body.count)
-        var length = UInt32(body.count).bigEndian
+        var length = bodyLength.bigEndian
         withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
         data.append(body)
         return data

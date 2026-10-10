@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextLayout
 import CmuxNextSettings
 
 /// `debug.mouse` (DEBUG builds): synthesized mouse events for one of this
@@ -23,7 +24,9 @@ import CmuxNextSettings
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
 /// (default), `right`, `middle` (AppKit's `otherMouse*` events, button
 /// number 2: a middle click on a sidebar workspace row closes it);
-/// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
+/// `modifiers`: `cmd`, `shift`, `option`, `ctrl`. Every action also moves
+/// the synthesized pointer that layout hover reads (`LayoutRootView.
+/// setDebugPointer`); `leave` moves it out of the window.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
@@ -76,12 +79,27 @@ enum DebugMouse {
                   let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
                 return .object(["error": .string("no view under the point")])
             }
+            // A real scroll first meets the layout's event monitor (strip and
+            // row scrolls); a windowless synthesized one skips monitors, so
+            // the layout under the point gets it first, then the view.
+            let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
+            if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) {
+                LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
+                return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                                "delivered_to": .string("LayoutRootView")])
+            }
             target.scrollWheel(with: event)
+            LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered_to": .string(String(describing: type(of: target)))])
+        case "leave":
+            // The synthesized pointer leaves the window (divider hover clears).
+            LayoutRootView.setDebugPointer(nil, in: window)
+            return .object(["window": .string(controller.state.id)])
         case "hover":
             // Hover: tracking-area owners get the events at once (DebugHover).
             let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
+            LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered": .number(Double(delivered)), "crossings": .array(DebugHover.lastCrossings.map(JSONValue.string))])
         default:
@@ -89,6 +107,10 @@ enum DebugMouse {
         }
         let posted = events.compactMap { $0 }
         guard posted.count == events.count else { return .object(["error": .string("could not synthesize events")]) }
+        // The layout's hover reads the pointer, not events: the synthesized
+        // pointer ends where the last event is (cx-ww20).
+        let last = action == "drag" ? NSPoint(x: params["to_x"]?.doubleValue ?? point.x, y: params["to_y"]?.doubleValue ?? point.y) : point
+        LayoutRootView.setDebugPointer(baseLocation(last, in: window), in: window)
         // Agent input: never the user choosing the app (no-activate guard).
         SyntheticInput.register(posted)
         for event in posted { NSApp.postEvent(event, atStart: false) }

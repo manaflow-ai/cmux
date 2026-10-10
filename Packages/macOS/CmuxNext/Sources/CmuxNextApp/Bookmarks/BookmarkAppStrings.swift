@@ -81,7 +81,7 @@ enum BookmarkAppStrings {
         case .invalidKind?: t("bookmarks.error.invalidKind", "A folder has no URL")
         case .tooLarge?: t("bookmarks.error.tooLarge", "Too many bookmarks or too long a name")
         case .tooDeep?: t("bookmarks.error.tooDeep", "Folders cannot nest that deep")
-        case nil: String(format: t("bookmarks.error.other", "Bookmark error: %@"), String(describing: error))
+        case nil: String(format: t("bookmarks.error.other", "Bookmark error: %@"), RefusalStrings.describe(error))
         }
     }
 }

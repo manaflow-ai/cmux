@@ -27,7 +27,7 @@ pub(super) fn lock_path(record_path: &Path, terminal_id: &str, incarnation: &str
 /// A held PTY ownership lock. Dropping it (or the process ending) releases
 /// the lock; the file stays until the exit is acknowledged.
 #[derive(Debug)]
-pub(super) struct PtyOwnershipLock {
+pub(crate) struct PtyOwnershipLock {
     _file: File,
 }
 
@@ -104,7 +104,7 @@ impl PtyOwnershipLock {
 /// Remove the fence file of `terminal_id`/`incarnation` when no host holds
 /// it (its terminal ended and was acknowledged, or its record was proven
 /// dead). A held lock is left alone.
-pub(super) fn remove_released(record_path: &Path, terminal_id: &str, incarnation: &str) {
+pub(crate) fn remove_released(record_path: &Path, terminal_id: &str, incarnation: &str) {
     remove_released_path(&lock_path(record_path, terminal_id, incarnation));
 }
 

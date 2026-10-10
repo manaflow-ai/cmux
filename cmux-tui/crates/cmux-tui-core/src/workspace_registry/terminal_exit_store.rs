@@ -171,7 +171,8 @@ impl WorkspaceRegistry {
                 "terminal exit topology changes must be a JSON array"
             );
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut terminal = read_terminal(&tx, terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
         let terminal_revision = transaction_terminal_revision(&tx)?;
@@ -270,7 +271,7 @@ impl WorkspaceRegistry {
             }
         }
         let changes = Value::Array(changes);
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "op": "terminal-exited",
             "terminal_id": terminal_id,
@@ -341,17 +342,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [next_resource_revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                &mutation.origin,
-                &mutation.id,
-                &fingerprint_json,
-                &result_json,
-                sqlite_terminal_revision,
-            ],
+        super::mutation_ledger::insert_keyed_mutation(
+            &tx,
+            super::mutation_ledger::KeyedLedger::Terminal,
+            &mutation,
+            &fingerprint_json,
+            &result_json,
+            sqlite_terminal_revision,
         )?;
         tx.execute(
             "INSERT INTO terminal_events(
@@ -393,13 +390,15 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn set_terminal_exit_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
-            self.connection.execute_batch(
+            self.connection.get().execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_terminal_exit
                  BEFORE INSERT ON terminal_mutations
                  BEGIN SELECT RAISE(ABORT, 'forced terminal exit failure'); END;",
             )?;
         } else {
-            self.connection.execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
+            self.connection
+                .get()
+                .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
         }
         Ok(())
     }

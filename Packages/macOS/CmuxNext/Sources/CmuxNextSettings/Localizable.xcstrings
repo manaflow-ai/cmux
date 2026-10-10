@@ -787,137 +787,6 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingTab.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب أو مساحة عمل تشغّل الطرفية فيها برنامجًا. علامات التبويب الخاملة تُغلق فورًا دائمًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice ili radnog prostora čiji terminal pokreće program. Neaktivne kartice se uvijek odmah zatvaraju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en fane eller et arbejdsområde, hvor terminalen kører et program. Inaktive faner lukkes altid med det samme."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Tabs oder Arbeitsbereichs fragen, dessen Terminal ein Programm ausführt. Untätige Tabs schließen immer sofort."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña o un espacio de trabajo cuyo terminal ejecuta un programa. Las pestañas inactivas se cierran siempre al instante."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet ou un espace de travail dont le terminal exécute un programme. Les onglets inactifs se ferment toujours immédiatement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda o uno spazio di lavoro il cui terminale esegue un programma. Le schede inattive si chiudono sempre subito."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルでプログラムが実行中のタブやワークスペースを閉じる前に確認します。アイドル状態のタブはいつでもすぐに閉じます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំង ឬកន្លែងធ្វើការដែលទែមីណាល់កំពុងដំណើរការកម្មវិធី។ ផ្ទាំងទំនេរតែងតែបិទភ្លាមៗ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널에서 프로그램이 실행 중인 탭이나 워크스페이스를 닫기 전에 묻습니다. 유휴 탭은 항상 바로 닫힙니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en fane eller et arbeidsområde lukkes når terminalen kjører et program. Inaktive faner lukkes alltid med en gang."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty lub obszaru roboczego, w którego terminalu działa program. Bezczynne karty zawsze zamykają się od razu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba ou um espaço de trabalho cujo terminal está executando um programa. Abas ociosas sempre fecham na hora."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки или рабочего пространства, в терминале которых работает программа. Неактивные вкладки всегда закрываются сразу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บหรือพื้นที่ทำงานที่เทอร์มินัลกำลังเรียกใช้โปรแกรม แท็บที่ว่างอยู่จะปิดทันทีเสมอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalinde bir program çalışan sekmeyi veya çalışma alanını kapatmadan önce sor. Boştaki sekmeler her zaman hemen kapanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки чи робочого простору, у терміналі яких працює програма. Неактивні вкладки завжди закриваються одразу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab hoặc không gian làm việc có terminal đang chạy chương trình. Tab rảnh luôn đóng ngay."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭终端正在运行程序的标签页或工作区前先询问。空闲的标签页始终会立即关闭。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉終端機正在執行程式的分頁或工作區前先詢問。閒置的分頁一律立即關閉。"
-          }
-        }
-      }
-    },
     "settings.app.warnBeforeClosingAgentSession": {
       "extractionState": "manual",
       "localizations": {
@@ -1045,137 +914,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉正在工作的代理程式前發出警告"
-          }
-        }
-      }
-    },
-    "settings.app.warnBeforeClosingAgentSession.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب طرفية لا يزال وكيلها يعمل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice terminala čiji agent još radi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en terminalfane, hvor agenten stadig arbejder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Terminal-Tabs fragen, dessen Agent noch arbeitet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a terminal tab whose agent is still working."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña de terminal cuyo agente sigue trabajando."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet de terminal dont l’agent travaille encore."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda del terminale il cui agente sta ancora lavorando."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントがまだ作業中のターミナルタブを閉じる前に確認します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំងទែមីណាល់ដែលភ្នាក់ងាររបស់វានៅតែកំពុងធ្វើការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 아직 작업 중인 터미널 탭을 닫기 전에 묻습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en terminalfane lukkes når agenten fortsatt arbeider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty terminala, której agent wciąż pracuje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba de terminal cujo agente ainda está trabalhando."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки терминала, агент которой ещё работает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บเทอร์มินัลที่เอเจนต์ยังทำงานอยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajanı hâlâ çalışan bir terminal sekmesini kapatmadan önce sor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки термінала, агент якої ще працює."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab terminal có tác tử vẫn đang làm việc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭智能体仍在工作的终端标签页前先询问。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉代理程式仍在工作的終端機分頁前先詢問。"
           }
         }
       }
@@ -65578,57 +65316,267 @@
       }
     },
     "settings.sidebar.showChats": {
-        "extractionState": "manual",
-        "localizations": {
-          "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار المحادثات" } },
-          "bs": { "stringUnit": { "state": "needs_review", "value": "Show Chats (bs)" } },
-          "da": { "stringUnit": { "state": "needs_review", "value": "Show Chats (da)" } },
-          "de": { "stringUnit": { "state": "needs_review", "value": "Chats anzeigen" } },
-          "en": { "stringUnit": { "state": "translated", "value": "Show Chats" } },
-          "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar chats" } },
-          "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher les conversations" } },
-          "it": { "stringUnit": { "state": "needs_review", "value": "Show Chats (it)" } },
-          "ja": { "stringUnit": { "state": "translated", "value": "チャットを表示" } },
-          "km": { "stringUnit": { "state": "needs_review", "value": "Show Chats (km)" } },
-          "ko": { "stringUnit": { "state": "needs_review", "value": "채팅 표시" } },
-          "nb": { "stringUnit": { "state": "needs_review", "value": "Show Chats (nb)" } },
-          "pl": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pl)" } },
-          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pt-BR)" } },
-          "ru": { "stringUnit": { "state": "needs_review", "value": "Show Chats (ru)" } },
-          "th": { "stringUnit": { "state": "needs_review", "value": "Show Chats (th)" } },
-          "tr": { "stringUnit": { "state": "needs_review", "value": "Show Chats (tr)" } },
-          "uk": { "stringUnit": { "state": "needs_review", "value": "Show Chats (uk)" } },
-          "vi": { "stringUnit": { "state": "needs_review", "value": "Show Chats (vi)" } },
-          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "显示聊天" } },
-          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "顯示聊天" } }
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار كل المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (bs)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (da)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Chats anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar todos los chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher tous les chats"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのチャットを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (km)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 채팅 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (nb)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (pl)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (pt-BR)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (ru)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (th)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (tr)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (uk)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show All Chats (vi)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示所有聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示所有聊天"
+          }
         }
-      },
+      }
+    },
     "settings.sidebar.showChats.help": {
-        "extractionState": "manual",
-        "localizations": {
-          "ar": { "stringUnit": { "state": "needs_review", "value": "يعرض قسم المحادثات على الجهاز في الشريط الجانبي." } },
-          "bs": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (bs)" } },
-          "da": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (da)" } },
-          "de": { "stringUnit": { "state": "needs_review", "value": "Zeigt den geräteweiten Chat-Bereich in der Seitenleiste an." } },
-          "en": { "stringUnit": { "state": "translated", "value": "Shows the device-wide Chats section in the sidebar." } },
-          "es": { "stringUnit": { "state": "needs_review", "value": "Muestra la sección de chats del dispositivo en la barra lateral." } },
-          "fr": { "stringUnit": { "state": "needs_review", "value": "Affiche la section des conversations de l’appareil dans la barre latérale." } },
-          "it": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (it)" } },
-          "ja": { "stringUnit": { "state": "translated", "value": "デバイス全体のチャットセクションをサイドバーに表示します。" } },
-          "km": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (km)" } },
-          "ko": { "stringUnit": { "state": "needs_review", "value": "기기 전체 채팅 섹션을 사이드바에 표시합니다." } },
-          "nb": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (nb)" } },
-          "pl": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pl)" } },
-          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pt-BR)" } },
-          "ru": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (ru)" } },
-          "th": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (th)" } },
-          "tr": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (tr)" } },
-          "uk": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (uk)" } },
-          "vi": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (vi)" } },
-          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在侧边栏显示设备上的聊天部分。" } },
-          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在側邊欄顯示裝置上的聊天區段。" } }
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض كل محادثات وكلاء البرمجة على هذا الكمبيوتر، الأحدث أولًا، أسفل الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (bs)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (da)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt jeden Chat von Coding-Agenten auf diesem Computer, die neuesten zuerst, unten in der Seitenleiste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra todos los chats de agentes de código de este ordenador, primero los más recientes, al final de la barra lateral."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche tous les chats d’agents de code de cet ordinateur, du plus récent au plus ancien, en bas de la barre latérale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータのすべてのコーディングエージェントのチャットを、新しい順にサイドバーの下部に表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (km)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터의 모든 코딩 에이전트 채팅을 최신순으로 사이드바 하단에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (nb)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (pl)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (pt-BR)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (ru)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (th)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (tr)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (uk)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (vi)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在边栏底部显示这台电脑上所有编程代理的聊天，最新的在前。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄底部顯示這台電腦上所有程式設計代理的聊天，最新的在前。"
+          }
         }
-      },
+      }
+    },
     "settings.group.chats": {
       "extractionState": "manual",
       "localizations": {
@@ -68769,6 +68717,4198 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "帳號按鈕上方的「你知道嗎」卡片每天介紹一項你還沒用過的 cmux 功能。"
+          }
+        }
+      }
+    },
+    "settings.app.startAgentGlobalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「エージェントを開始」（⌃⌥⌘Space）を、ほかのアプリが前面にあるときにも使えます。キーは「キーボードショートカット」で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «بدء وكيل» (⌃⌥⌘Space) أثناء وجود تطبيق آخر في المقدمة. غيّر مفتاحه في اختصارات لوحة المفاتيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta (⌃⌥⌘Space) radi dok je druga aplikacija u prvom planu. Prečicu promijenite u Prečicama tastature."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker, mens en anden app er forrest. Skift tasten under Tastaturgenveje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Agent starten“ (⌃⌥⌘Space) funktioniert, während eine andere App im Vordergrund ist. Die Taste änderst du unter Tastaturkurzbefehle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona mientras otra app está en primer plano. Cambia su atajo en Atajos de teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent (⌃⌥⌘Space) fonctionne lorsqu’une autre app est au premier plan. Modifiez son raccourci dans Raccourcis clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente (⌃⌥⌘Space) funziona mentre un’altra app è in primo piano. Cambia il tasto in Scorciatoie da tastiera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ (⌃⌥⌘Space) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។ ប្តូរគ្រាប់ចុចរបស់វានៅក្នុងផ្លូវកាត់ក្តារចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이 앞에 있어도 에이전트 시작(⌃⌥⌘Space)이 작동합니다. 키는 키보드 단축키에서 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker mens en annen app er foran. Endre tasten under Tastatursnarveier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta (⌃⌥⌘Space) działa, gdy na pierwszym planie jest inna aplikacja. Klawisz zmienisz w Skrótach klawiszowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona enquanto outro app está em primeiro plano. Altere a tecla em Atalhos de teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустить агента» (⌃⌥⌘Space) работает, когда впереди другое приложение. Клавишу можно изменить в разделе «Сочетания клавиш»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์ (⌃⌥⌘Space) ใช้งานได้ขณะที่แอปอื่นอยู่ด้านหน้า เปลี่ยนปุ่มได้ในปุ่มลัดแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Başlat (⌃⌥⌘Space), başka bir uygulama öndeyken de çalışır. Tuşunu Klavye Kısayolları'ndan değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустити агента» (⌃⌥⌘Space) працює, коли попереду інша програма. Клавішу можна змінити в розділі «Сполучення клавіш»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử (⌃⌥⌘Space) hoạt động khi một ứng dụng khác ở phía trước. Đổi phím trong Phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他应用在前台时也可使用“启动智能体”（⌃⌥⌘Space）。可在“键盘快捷键”中更改按键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 App 在前景時也可使用「啟動代理」（⌃⌥⌘Space）。可在「鍵盤快速鍵」中更改按鍵。"
+          }
+        }
+      }
+    },
+    "settings.app.startAgentGlobalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもエージェントを開始"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء وكيل من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent aus jeder App starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 에이전트 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Ajan Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用启动智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 啟動代理"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateClassic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلاسيكي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasično"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klassisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klassisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clásico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បុរាណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클래식"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klassisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasyczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clássico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Классический"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลาสสิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Класичний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cổ điển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "经典"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "經典"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateConsole": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وحدة التحكم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konzola"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsol"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsole"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Console"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consola"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Console"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Console"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンソール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុងសូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "콘솔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsoll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsola"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Console"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Консоль"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอนโซล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konsol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Консоль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bảng điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "控制台"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主控台"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateThreads": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tråde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Threads"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hilos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スレッド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខ្សែសន្ទនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스레드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tråder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wątki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ветки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เธรด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konular"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гілки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話列表"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateComposer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المحرر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređivač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redactor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rédaction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンポーザー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីសរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작성기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redigering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Редактор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวเขียน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Редактор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编写器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編寫器"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabTemplateDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Типово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預設"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabTemplate.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخطيط صفحة علامة التبويب الجديدة. يتخطى خيار الطرفية الصفحة ويفتح طرفية. النقاط أسفل الصفحة تغيره أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raspored stranice nove kartice. Terminal preskače stranicu i otvara terminal. Tačke na dnu stranice ga također mijenjaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutet af siden Ny fane. Terminal springer siden over og åbner en terminal. Prikkerne nederst på siden ændrer det også."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Layout der Seite „Neuer Tab“. Terminal überspringt die Seite und öffnet ein Terminal. Die Punkte unten auf der Seite ändern es ebenfalls."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El diseño de la página Nueva pestaña. Terminal omite la página y abre una terminal. Los puntos al pie de la página también lo cambian."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La disposition de la page Nouvel onglet. Terminal ignore la page et ouvre un terminal. Les points en bas de la page la changent aussi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il layout della pagina Nuova scheda. Terminale salta la pagina e apre un terminale. Anche i punti in fondo alla pagina lo cambiano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブページのレイアウトです。「ターミナル」はページを表示せずにターミナルを開きます。ページ下部のドットでも変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់នៃទំព័រផ្ទាំងថ្មី។ ទែមីណាល់រំលងទំព័រ ហើយបើកទែមីណាល់។ ចំណុចនៅខាងក្រោមទំព័រក៏ផ្លាស់ប្ដូរវាដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 페이지의 레이아웃입니다. 터미널은 페이지를 건너뛰고 터미널을 엽니다. 페이지 하단의 점으로도 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppsettet for siden Ny fane. Terminal hopper over siden og åpner en terminal. Prikkene nederst på siden endrer det også."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Układ strony Nowa karta. Terminal pomija stronę i otwiera terminal. Kropki na dole strony też go zmieniają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O layout da página Nova aba. Terminal pula a página e abre um terminal. Os pontos no rodapé da página também o alteram."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет страницы новой вкладки. «Терминал» пропускает страницу и открывает терминал. Точки внизу страницы тоже его меняют."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลย์เอาต์ของหน้าแท็บใหม่ เทอร์มินัลจะข้ามหน้าและเปิดเทอร์มินัล จุดที่ด้านล่างของหน้าก็เปลี่ยนได้เช่นกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme sayfasının düzeni. Terminal sayfayı atlar ve bir terminal açar. Sayfanın altındaki noktalar da bunu değiştirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет сторінки нової вкладки. «Термінал» пропускає сторінку й відкриває термінал. Крапки внизу сторінки теж його змінюють."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bố cục của trang Thẻ mới. Terminal bỏ qua trang và mở terminal. Các chấm ở cuối trang cũng thay đổi nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页的布局。“终端”跳过该页面并打开终端。页面底部的圆点也可以更改它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁頁面的版面配置。「終端機」會略過該頁面並開啟終端機。頁面底部的圓點也可以變更它。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قالب علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predložak nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skabelon for ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorlage für neuen Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Template"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plantilla de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modèle du nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modello nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのテンプレート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គំរូផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 템플릿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mal for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szablon nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelo da nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทมเพลตแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme Şablonu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mẫu thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁範本"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showProjects": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار المشاريع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži projekte"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis projekter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekte anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Projects"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar proyectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les projets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra progetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクトを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញគម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis prosjekter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż projekty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar projetos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать проекты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projeleri göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати проєкти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示專案"
+          }
+        }
+      }
+    },
+    "settings.choice.stripScrollbarSystem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow System"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتباع النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prati sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg systemet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemeinstellung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguir el sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suivre le système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segui il sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムに従う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 설정 따르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg systemet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zgodnie z systemem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguir o sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как в системе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตามระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemi izle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як у системі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "跟随系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "跟隨系統"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spacesVisibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペースを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis rum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញលំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis områder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przestrzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanları Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示空間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spacesVisibility.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ポインタを置いたとき」を選ぶと、ポインタがサイドバー上にあるときだけ、ほかのボタンと同じようにスペースを表示します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض خيار «عند التمرير» المساحات فقط أثناء وجود المؤشر فوق الشريط الجانبي، مثل أزراره الأخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku prikazuje prostore samo dok je pokazivač iznad bočne trake, kao i njena ostala dugmad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør viser rummene kun, mens markøren er over sidepanelet, ligesom dets andre knapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Beim Darüberfahren“ zeigt die Bereiche nur, solange der Zeiger über der Seitenleiste ist, wie ihre anderen Tasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero muestra los espacios solo mientras el puntero está sobre la barra lateral, como sus otros botones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol affiche les espaces uniquement lorsque le pointeur est sur la barre latérale, comme ses autres boutons."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio mostra gli spazi solo mentre il puntatore è sulla barra laterale, come gli altri pulsanti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញលំហតែពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ ដូចប៊ូតុងផ្សេងទៀតរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올렸을 때를 선택하면 다른 버튼처럼 포인터가 사이드바 위에 있을 때만 스페이스를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker viser områdene bare mens pekeren er over sidefeltet, som de andre knappene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu pokazuje przestrzenie tylko wtedy, gdy wskaźnik jest nad paskiem bocznym, tak jak jego pozostałe przyciski."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o cursor mostra os espaços apenas enquanto o ponteiro está sobre a barra lateral, como os outros botões."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведении» показывает пространства только когда указатель над боковой панелью, как и её другие кнопки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์จะแสดงสเปซเฉพาะขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง เหมือนปุ่มอื่นๆ ของแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince seçeneği, alanları yalnızca işaretçi kenar çubuğunun üzerindeyken, diğer düğmeleri gibi gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведенні» показує простори лише тоді, коли вказівник над бічною панеллю, як і її інші кнопки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột chỉ hiện các không gian khi con trỏ ở trên thanh bên, giống các nút khác của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“悬停时”仅在指针位于边栏上方时显示空间，与边栏的其他按钮一样。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「懸停時」僅在指標位於側邊欄上方時顯示空間，與側邊欄的其他按鈕一樣。"
+          }
+        }
+      }
+    },
+    "settings.workspaces.newPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Položaj novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placering af nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position neuer Arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posición del nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position du nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizione del nuovo spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 워크스페이스 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plassering av nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozycja nowego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição do novo espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Положение нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanının konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування нового робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.workspaces.newPlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. تبقى مساحات العمل المثبتة فوقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Prikačeni radni prostori ostaju iznad njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Fastgjorte arbejdsområder bliver over det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Angeheftete Arbeitsbereiche bleiben darüber."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Los espacios de trabajo fijados quedan encima."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Les espaces de travail épinglés restent au-dessus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Gli spazi di lavoro fissati restano sopra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。ピン留めしたワークスペースはその上に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 고정된 워크스페이스는 그 위에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Festede arbeidsområder blir over det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Przypięte obszary robocze zostają nad nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Os espaços de trabalho fixados ficam acima dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Закреплённые рабочие пространства остаются выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Sabitlenmiş çalışma alanları üstünde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Закріплені робочі простори залишаються вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Các không gian làm việc đã ghim vẫn ở phía trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。已固定的工作区保持在其上方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。已釘選的工作區保持在其上方。"
+          }
+        }
+      }
+    },
+    "settings.choice.afterCurrentWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Current Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد مساحة العمل الحالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon trenutnog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter nuværende arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach aktuellem Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Después del espacio de trabajo actual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Après l'espace de travail actuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopo lo spazio di lavoro attuale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペースの後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់ពីកន្លែងធ្វើការបច្ចុប្បន្ន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "현재 워크스페이스 다음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etter gjeldende arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po bieżącym obszarze roboczym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depois do espaço de trabalho atual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "После текущего рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถัดจากพื้นที่ทำงานปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geçerli çalışma alanından sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після поточного робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau không gian làm việc hiện tại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前工作区之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前工作區之後"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupByComputer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Workspaces by Computer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميع مساحات العمل حسب الكمبيوتر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupiši radne prostore po računaru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppér arbejdsområder efter computer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche nach Computer gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar espacios de trabajo por ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grouper les espaces de travail par ordinateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggruppa gli spazi di lavoro per computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをコンピュータごとにまとめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់កន្លែងធ្វើការជាក្រុមតាមកុំព្យូទ័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컴퓨터별로 워크스페이스 묶기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper arbeidsområder etter datamaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupuj obszary robocze według komputera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar espaços de trabalho por computador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группировать рабочие пространства по компьютерам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดกลุ่มพื้นที่ทำงานตามคอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanlarını bilgisayara göre grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групувати робочі простори за комп'ютером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm không gian làm việc theo máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按电脑分组工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依電腦分組工作區"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupByComputer.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف: قائمة واحدة لمساحات العمل، وتعرض مساحة العمل الموجودة على كمبيوتر آخر اسمه تحت عنوانها. تشغيل: قسم لكل كمبيوتر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno: jedna lista radnih prostora, a radni prostor na drugom računaru navodi ga ispod naslova. Uključeno: odjeljak po računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra: én liste med arbejdsområder, og et arbejdsområde på en anden computer viser dens navn under titlen. Til: en sektion pr. computer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus: eine Liste der Arbeitsbereiche; ein Arbeitsbereich auf einem anderen Computer nennt ihn unter seinem Titel. An: ein Abschnitt pro Computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado: una sola lista de espacios de trabajo; uno en otro ordenador muestra su nombre bajo el título. Activado: una sección por ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé : une seule liste d'espaces de travail ; un espace sur un autre ordinateur le nomme sous son titre. Activé : une section par ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato: un solo elenco di spazi di lavoro; uno su un altro computer ne mostra il nome sotto il titolo. Attivato: una sezione per computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: ワークスペースを 1 つのリストで表示し、別のコンピュータのワークスペースはタイトルの下にそのコンピュータ名を表示します。オン: コンピュータごとにセクションを分けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ៖ បញ្ជីកន្លែងធ្វើការតែមួយ ហើយកន្លែងធ្វើការនៅលើកុំព្យូទ័រផ្សេងបង្ហាញឈ្មោះវានៅក្រោមចំណងជើង។ បើក៖ ផ្នែកមួយសម្រាប់កុំព្យូទ័រនីមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔: 워크스페이스를 하나의 목록으로 보여 주고, 다른 컴퓨터의 워크스페이스는 제목 아래에 그 컴퓨터 이름을 표시합니다. 켬: 컴퓨터마다 섹션을 나눕니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av: én liste med arbeidsområder, og et arbeidsområde på en annen datamaskin viser navnet under tittelen. På: én seksjon per datamaskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone: jedna lista obszarów roboczych, a obszar na innym komputerze podaje jego nazwę pod tytułem. Włączone: sekcja dla każdego komputera."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado: uma única lista de espaços de trabalho; um espaço em outro computador mostra o nome dele abaixo do título. Ativado: uma seção por computador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выкл.: один список рабочих пространств; у пространства на другом компьютере его имя показано под названием. Вкл.: раздел для каждого компьютера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด: แสดงพื้นที่ทำงานเป็นรายการเดียว และพื้นที่ทำงานบนคอมพิวเตอร์อื่นจะแสดงชื่อเครื่องใต้ชื่อเรื่อง เปิด: แยกส่วนตามคอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı: tek bir çalışma alanı listesi; başka bir bilgisayardaki çalışma alanı başlığının altında onun adını gösterir. Açık: her bilgisayar için bir bölüm."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимк.: один список робочих просторів; простір на іншому комп'ютері показує його назву під заголовком. Увімк.: розділ для кожного комп'ютера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt: một danh sách không gian làm việc; không gian trên máy tính khác hiện tên máy dưới tiêu đề. Bật: mỗi máy tính một mục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭：所有工作区显示为一个列表，其他电脑上的工作区在标题下显示该电脑名称。开启：每台电脑一个分区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉：所有工作區顯示為一個清單，其他電腦上的工作區在標題下顯示該電腦名稱。開啟：每台電腦一個區段。"
+          }
+        }
+      }
+    },
+    "settings.category.theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបរាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motyw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主題"
+          }
+        }
+      }
+    },
+    "settings.category.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理"
+          }
+        }
+      }
+    },
+    "settings.category.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy and Security"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخصوصية والأمان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privatnost i sigurnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonymitet og sikkerhed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datenschutz und Sicherheit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privacidad y seguridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Confidentialité et sécurité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privacy e sicurezza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プライバシーとセキュリティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកជនភាព និងសុវត្ថិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개인정보 보호 및 보안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personvern og sikkerhet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prywatność i bezpieczeństwo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privacidade e Segurança"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфиденциальность и безопасность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความเป็นส่วนตัวและความปลอดภัย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizlilik ve Güvenlik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфіденційність і безпека"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyền riêng tư và bảo mật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐私与安全性"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱私權與安全性"
+          }
+        }
+      }
+    },
+    "settings.category.experimental": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimental"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجريبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimentalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimentelt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimentell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimental"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expérimental"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sperimentale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実験的機能"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពិសោធន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실험적 기능"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimentelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperymentalne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimental"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Экспериментальные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทดลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deneysel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Експериментальні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实验性"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "實驗性"
+          }
+        }
+      }
+    },
+    "settings.pageGroup.localData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data on This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البيانات على هذا الـMac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaci na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Data på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daten auf diesem Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datos en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Données sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dati su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMac上のデータ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិន្នន័យនៅលើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 데이터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Data på denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dane na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dados neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Данные на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อมูลบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’teki Veriler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дані на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dữ liệu trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此Mac上的数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此Mac上的資料"
+          }
+        }
+      }
+    },
+    "settings.pageGroup.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network Requests"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبات الشبكة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mrežni zahtjevi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Netværksanmodninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Netzwerkanfragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solicitudes de red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Requêtes réseau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richieste di rete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ネットワークリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណើបណ្ដាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "네트워크 요청"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettverksforespørsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żądania sieciowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solicitações de Rede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сетевые запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำขอเครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ağ İstekleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мережеві запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yêu cầu mạng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网络请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網路請求"
+          }
+        }
+      }
+    },
+    "settings.pageGroup.sidebarKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Navigation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التنقل في الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigacija bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigation i indholdsoversigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigation in der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navegación de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigation dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigazione nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការរុករករបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 탐색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigering i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nawigacja paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navegação da Barra Lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Навигация по боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การนำทางแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar Çubuğu Gezintisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Навігація бічною панеллю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều hướng thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏导航"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄導覽"
+          }
+        }
+      }
+    },
+    "settings.pageGroup.terminalBehavior": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behavior"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السلوك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponašanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adfærd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verhalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comportamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comportement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comportamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動作"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឥរិយាបថ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "동작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atferd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zachowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comportamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поведение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Davranış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поведінка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hành vi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行为"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行為"
+          }
+        }
+      }
+    },
+    "settings.choice.groupByFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المجلد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Folder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasör"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тека"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "資料夾"
+          }
+        }
+      }
+    },
+    "settings.choice.groupByNone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "なし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميع المشاريع حسب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupiši projekte po"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppér projekter efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekte gruppieren nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Projects By"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar proyectos por"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regrouper les projets par"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggruppa progetti per"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクトのグループ化"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ក្រុមគម្រោងតាម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트 그룹 기준"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper prosjekter etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupuj projekty według"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar projetos por"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группировать проекты по"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดกลุ่มโปรเจกต์ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projeleri şuna göre grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групувати проєкти за"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm dự án theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "项目分组方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "專案分組方式"
+          }
+        }
+      }
+    },
+    "settings.agentPane.showContextUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار استخدام السياق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži korištenje konteksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kontekstforbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontextnutzung anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Context Usage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso del contexto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher l’utilisation du contexte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra uso del contesto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コンテキストの使用量を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការប្រើប្រាស់បរិបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컨텍스트 사용량 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kontekstbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż użycie kontekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso do contexto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать использование контекста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงการใช้บริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlam kullanımını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати використання контексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện mức dùng ngữ cảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示上下文用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示上下文用量"
+          }
+        }
+      }
+    },
+    "settings.agentPane.showContextUsage.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحلقة بجانب النموذج التي تمتلئ كلما استخدمت المحادثة نافذة السياق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prsten pored modela koji se puni dok razgovor koristi kontekstni prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringen ved siden af modellen, der fyldes, efterhånden som chatten bruger sit kontekstvindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Ring neben dem Modell, der sich füllt, während der Chat sein Kontextfenster nutzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ring beside the model that fills as the chat uses its context window."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El anillo junto al modelo que se llena a medida que el chat usa su ventana de contexto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’anneau à côté du modèle qui se remplit à mesure que le chat utilise sa fenêtre de contexte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’anello accanto al modello che si riempie man mano che la chat usa la finestra di contesto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットがコンテキストウィンドウを使うにつれて満ちる、モデルの横のリング。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រង្វង់នៅក្បែរម៉ូដែលដែលពេញឡើងនៅពេលការជជែកប្រើបង្អួចបរិបទរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 컨텍스트 창을 사용할수록 채워지는 모델 옆의 링입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringen ved siden av modellen som fylles etter hvert som chatten bruker kontekstvinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pierścień obok modelu, który wypełnia się, gdy czat zużywa okno kontekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O anel ao lado do modelo que se enche conforme o chat usa sua janela de contexto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольцо рядом с моделью, которое заполняется по мере того, как чат использует контекстное окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วงแหวนข้างโมเดลที่เติมเต็มขึ้นเมื่อแชตใช้หน้าต่างบริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet bağlam penceresini kullandıkça dolan, modelin yanındaki halka."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кільце поруч із моделлю, що заповнюється, коли чат використовує контекстне вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng bên cạnh mô hình, đầy dần khi cuộc trò chuyện dùng cửa sổ ngữ cảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型旁的圆环，随聊天使用上下文窗口而填满。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型旁的圓環，隨聊天使用上下文視窗而填滿。"
           }
         }
       }

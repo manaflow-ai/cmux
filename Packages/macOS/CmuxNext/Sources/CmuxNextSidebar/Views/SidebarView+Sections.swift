@@ -41,8 +41,6 @@ extension SidebarView {
         // The band below keeps the same rule it had while it held the footer.
         footerRegion.allowsDrag = false
         belowRegion.allowsDrag = false
-        aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
-        belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)
         addSubview(belowFade)
         addSubview(footerRegion)
@@ -93,7 +91,7 @@ extension SidebarView {
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
-            preferences: DesignSettings.shared.sidebarSections, minimumList: Metrics.sidebarRowHeight * 3,
+            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: Metrics.sidebarRowHeight * 3,
             bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
@@ -119,7 +117,7 @@ extension SidebarView {
         var heights: [LayoutSectionID: CGFloat] = [:]
         for section in sections where section.content == .app {
             guard let contribution = section.contribution, provider.makeView(for: contribution) != nil else { continue }
-            heights[section.id] = max(provider.preferredHeight(for: contribution, width: width), Metrics.sidebarRowHeight)
+            heights[section.id] = SidebarAppHeights.height(provider, contribution, width: width, sidebarHeight: bounds.height)
         }
         return heights
     }
