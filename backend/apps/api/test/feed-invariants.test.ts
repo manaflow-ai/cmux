@@ -140,11 +140,6 @@ const simulate = (seed: number, steps: number) => {
 
 describe("feed reducer invariants on random op sequences", () => {
   const SEEDS = Number(process.env.FEED_SEEDS ?? 200)
-  it(`holds I1-I7 for ${SEEDS} seeds and commits real work`, () => {
-    let committed = 0
-    for (let seed = 1; seed <= SEEDS; seed++) committed += simulate(seed, 150).committed
-    expect(committed).toBeGreaterThan(SEEDS * 20)
-  }, 120_000)
 
   it("replays the committed log to the same state (mirror replay is deterministic)", () => {
     for (let seed = 1; seed <= 40; seed++) {

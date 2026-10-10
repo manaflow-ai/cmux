@@ -12,13 +12,14 @@ mod smart_viewer_exit;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;
-use super::super::sys::terminal_host_publication_lock_path;
+use super::super::sys::{HostLivenessLease, terminal_host_publication_lock_path};
 use super::session_cleanup;
 use super::*;
 use cmux_pty::{Child, PtyOpenError, PtySize};
 use ghostty_vt::Callbacks;
 use ghostty_vt::CursorShape;
 use host_fixture::{test_host_shared, test_host_shared_with};
+use std::os::unix::fs::PermissionsExt;
 use std::sync::TryLockError;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender};
 

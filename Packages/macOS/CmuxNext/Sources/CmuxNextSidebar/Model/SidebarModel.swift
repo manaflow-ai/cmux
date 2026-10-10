@@ -69,8 +69,6 @@ public final class SidebarModel {
     public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, announcements.
-    public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
@@ -79,8 +77,6 @@ public final class SidebarModel {
     public var noticeCard: SidebarNoticeCard?
     /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
     public var updatedCard: SidebarUpdatedCard?
-    /// A card's click, button or dismiss.
-    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
@@ -89,6 +85,8 @@ public final class SidebarModel {
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
+    /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
+    public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -142,6 +140,10 @@ public final class SidebarModel {
     public var filterMatches: Set<WorkspaceID>? { SidebarFilter.matches(filterText, in: sections) }
 
     public var isFiltering: Bool { filterMatches != nil }
+
+    /// Drag and keyboard reorder are off while the drawn order is not the
+    /// model's: filtering, or grouping by folder.
+    public var locksReorder: Bool { isFiltering || groupsByFolder }
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
@@ -290,7 +292,7 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !isFiltering else { return false }
+        guard !locksReorder else { return false }
         let ids = orderedSelection
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
@@ -302,6 +304,7 @@ public final class SidebarModel {
         showWorkspaceTabs = preferences.showWorkspaceTabs
         workspaceRow = preferences.workspaceRow
         hidesWorkspaces = !preferences.showProjects
+        groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
     }
 
@@ -320,6 +323,7 @@ public final class SidebarModel {
         o.flattensMachines = !groupsByComputer
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        o.groupsByFolder = groupsByFolder
         return o
     }
 

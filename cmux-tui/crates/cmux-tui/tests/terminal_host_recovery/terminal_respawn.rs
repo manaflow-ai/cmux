@@ -3,8 +3,7 @@
 //! under the same terminal id and a new incarnation. Its tab never reads
 //! dead, the new shell starts below the previous screen and one dim marker
 //! line, an agent session it ran is offered for resume on the prompt
-//! (typed, never run), and a real process end, a close, or a terminal that
-//! keeps losing its host stays ended.
+//! (typed, never run), and a real process end or a close stays ended.
 
 use std::io::Write as _;
 
@@ -257,11 +256,17 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
     kill_current_shell_and_host(&harness, &terminal_id);
     wait_for_respawn(&harness, &terminal_id, &incarnation);
     let surface = tab_named(&harness, "agent")["surface"].as_u64().expect("surface");
-    // The screen after the marker, unwrapped (an 80-column prompt wraps).
+    // The screen after the marker without whitespace. The prompt is the
+    // host user's (user@host:cwd), so the typed command can wrap at any
+    // column of the 80-column screen, also right at a space, which the
+    // screen text drops as trailing blank: with the blanks gone, every wrap
+    // position reads the same.
     let after_marker = |text: &str| {
-        text.rsplit_once(MARKER).map(|(_, tail)| tail.replace('\n', "")).unwrap_or_default()
+        text.rsplit_once(MARKER)
+            .map(|(_, tail)| tail.split_whitespace().collect::<String>())
+            .unwrap_or_default()
     };
-    let command = "claude --resume abc-123";
+    let command = "claude--resumeabc-123";
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while !after_marker(&screen(&harness, surface)).contains(command) {
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
@@ -312,27 +317,9 @@ fn a_shell_that_exits_is_not_respawned() {
     assert!(respawn_lines(&harness, &terminal_id).is_empty());
 }
 
-/// e. The crash-loop bound: a terminal that loses its host again right after
-/// a respawn stays ended.
-#[test]
-fn a_terminal_that_keeps_losing_its_host_stays_ended() {
-    let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("respawn-loop");
-    let (terminal_id, incarnation, _) = start_default_shell(&harness, "loop");
-    kill_current_shell_and_host(&harness, &terminal_id);
-    let respawned = wait_for_respawn(&harness, &terminal_id, &incarnation);
-    // Let the new shell come up, then lose it again inside the bound.
-    let surface = tab_named(&harness, "loop")["surface"].as_u64().expect("surface");
-    wait_for_screen(&harness.socket, surface, MARKER);
-    kill_current_shell_and_host(&harness, &terminal_id);
-    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
-    assert_eq!(resolved["terminal_incarnation"], respawned.as_str(), "{resolved}");
-    std::thread::sleep(Duration::from_secs(2));
-    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
-    assert_eq!(resolved["terminal_incarnation"], respawned.as_str(), "{resolved}");
-    assert_eq!(tab_named(&harness, "loop")["dead"], true);
-    assert_eq!(wait_for_respawn_lines(&harness, &terminal_id, 1).len(), 1);
-}
+// e. The crash-loop bound moved to host_supervisor.rs (cx-6so.49): a
+// terminal that keeps losing its host respawns after a backoff, then ends
+// as `restart_exhausted`.
 
 /// f. A close that lands after the host died and before the respawn starts
 /// wins: the terminal is never respawned.

@@ -192,11 +192,6 @@ impl StreamState {
         Self { target, last_seq: None, user: None, awaiting_snapshot: false }
     }
 
-    #[cfg(test)]
-    pub(crate) fn last_seq(&self) -> Option<u64> {
-        self.last_seq
-    }
-
     /// A new connection starts; the next `welcome` subscribes again.
     pub(crate) fn on_connect(&mut self) {
         self.awaiting_snapshot = false;

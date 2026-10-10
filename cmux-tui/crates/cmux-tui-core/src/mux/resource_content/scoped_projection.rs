@@ -420,7 +420,8 @@ fn projection_difference(
     full: &ResourceEffectProjection,
 ) -> anyhow::Result<Option<String>> {
     use crate::workspace_registry::resource_store::prune_unchanged_resource_changes;
-    let transaction = registry.connection.unchecked_transaction()?;
+    let db = registry.connection.get();
+    let transaction = db.unchecked_transaction()?;
     let scoped_rows = prune_unchanged_resource_changes(&transaction, &scoped.patch)?.changes;
     let full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
     drop(transaction);

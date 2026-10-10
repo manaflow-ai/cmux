@@ -99,6 +99,13 @@ impl Brain {
                     format!("effort {e} is not one of default, {}", EFFORTS.join(", ")),
                 );
             }
+            // acpmux probed only the harnesses the Chief used at its start
+            // (ACPMUX_PROBE_HARNESSES): a new turn harness is probed now.
+            let probe = harness
+                .as_deref()
+                .map(str::trim)
+                .filter(|h| !h.is_empty() && *h != "default")
+                .map(str::to_owned);
             apply(&mut choice.harness, harness);
             apply(&mut choice.model, model);
             apply(&mut choice.effort, effort);
@@ -111,6 +118,11 @@ impl Brain {
                 "engine set: {}",
                 serde_json::to_string(&choice).unwrap_or_default()
             ));
+            if let Some(h) = probe.as_deref()
+                && let Err(e) = self.agents.probe_models(h)
+            {
+                (self.log)(&format!("engine set: asking acpmux to probe {h}: {e}"));
+            }
         }
         self.engine_answer(&choice)
     }

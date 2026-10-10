@@ -52,7 +52,8 @@ impl WorkspaceRegistry {
         if let Some(history) = history {
             validate_frontend_browser_history(history)?;
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         anyhow::ensure!(
             read_frontend_browser(&tx, browser_id)?.is_some(),
             "browser {browser_id} is not frontend-rendered"
@@ -81,6 +82,7 @@ impl WorkspaceRegistry {
         validate_browser_public_id(browser_id)?;
         Ok(self
             .connection
+            .get()
             .query_row(
                 "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
                 [browser_id],
@@ -121,6 +123,7 @@ mod tests {
     fn journal_record_count(registry: &WorkspaceRegistry) -> i64 {
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get(0))
             .unwrap()
     }

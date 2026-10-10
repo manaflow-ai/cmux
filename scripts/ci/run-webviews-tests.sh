@@ -8,7 +8,13 @@
 # wall-clock timeout per file names a stuck file instead of hanging the job.
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120).
-# CMUX_WEB_TEST_JOBS: files run at once (default: the CPU count).
+# CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
+# worker granted the step, else the CPU count).
+#
+# Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
+# checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
+# current (scripts/ci/ensure-web-bundles.sh, which also provides the pinned bun), runs
+# `bun install --frozen-lockfile` in webviews/, and then tests webviews/ only.
 #
 # Runs the same way on Linux CI and on a Mac (cmux-lawrence-2, nx-remote jobs): a full
 # single-process `bun test` there fails about 630 tests after one slow test leaves a React
@@ -58,8 +64,29 @@ if [ "${1:-}" = --one ]; then
   exit 0
 fi
 
+self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+case "$(git rev-parse --show-prefix)" in
+  webviews/*) ;;
+  *)
+    cd "$(git rev-parse --show-toplevel)"
+    bash scripts/ci/ensure-web-bundles.sh
+    # ensure-web-bundles.sh puts the pinned bun on its own PATH only: use the same copy.
+    bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+    bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
+    if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ] && [ -x "$bun_dir/bun" ]; then
+      export PATH="$bun_dir:$PATH"
+    fi
+    cd webviews
+    bun install --frozen-lockfile
+    ;;
+esac
+
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
-jobs="${CMUX_WEB_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+default_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
+  default_jobs="$CMUX_CI_CPU_BUDGET"
+fi
+jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
 trap 'rm -rf "$results"' EXIT
 
@@ -73,7 +100,7 @@ if [ "$count" -eq 0 ]; then
 fi
 echo "running $count webviews test files, $jobs at a time, ${timeout_seconds}s each"
 : > "$results/summary"
-xargs -0 -P "$jobs" -I{} bash "$0" --one {} "$results" "$timeout_seconds" < "$results/files"
+xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/files"
 
 failed=0
 while read -r result file log; do

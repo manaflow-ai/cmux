@@ -7,8 +7,8 @@ extension AppOnboardingServices {
         FileManager.default.fileExists(atPath: ClassicSessionImporter().fileURL.path)
     }
 
-    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
-        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
+        try await owner.scanClassicSessions()
     }
 
     /// Recreates local workspace shells and terminal tabs. Classic commands,

@@ -40,8 +40,8 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
-        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
+        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), source: control.engineSource())
         super.init(frame: .zero)
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
@@ -72,6 +72,8 @@ final class HomeHostView: NSView {
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        // A Chief subagent's link: its workspace and chat tab, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
