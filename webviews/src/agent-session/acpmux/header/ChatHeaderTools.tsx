@@ -1,6 +1,6 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
-// folder and toggle, as in T3 Chat and ChatGPT); the summary (Sources) button, whose popover also
+// folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
 // opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -46,6 +46,9 @@ export type ChatMenuChild = { key: string; label: string; shortcutAction?: strin
 export function ChatHeaderTools({
   onTerminal,
   onBrowser,
+  sideTabs = false,
+  onSideTabs,
+  onPointerEnter,
   tabTools = true,
   summary,
   menu,
@@ -57,6 +60,11 @@ export function ChatHeaderTools({
   /// `toggle` closes the split this button opened when it is still there.
   onTerminal: (mode: QuickActionMode) => void;
   onBrowser: (mode: QuickActionMode) => void;
+  /// Whether the panes beside the chat show: [+] New tab reads Hide tabs, in the same spot.
+  sideTabs?: boolean;
+  onSideTabs?: () => void;
+  /// The pointer reached the tools: the App rereads the layout, so [+] reads right before a click.
+  onPointerEnter?: () => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
   summary: ReactNode;
@@ -73,10 +81,23 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const actions = useQuickActions();
   return (
-    <div className="acpmux-header-tools">
+    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {tabTools &&
         actions.map(({ id, mode }) =>
-          id === "terminal" ? (
+          id === "newTab" ? (
+            // One button whose label and icon change, so the next click lands on it again.
+            <button
+              key={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+              aria-pressed={sideTabs}
+              title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
+              onClick={onSideTabs}
+            >
+              <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
+            </button>
+          ) : id === "terminal" ? (
             <button
               key={id}
               type="button"
