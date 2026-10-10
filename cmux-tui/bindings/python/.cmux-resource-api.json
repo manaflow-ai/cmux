@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1f5a7a49d93f0059049b953c508fe8bf10a49fac18eb9919502a2c03cca11531",
+  "catalog_sha256": "52fb9b867a1ec8b8542f86368849601279ab1118a4e9551946356d1ef638e8a6",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -81,6 +81,9 @@
     },
     "client.sizing.set": {
       "class": "connection_control"
+    },
+    "closed.delete": {
+      "class": "mutation"
     },
     "closed.list": {
       "class": "read"
