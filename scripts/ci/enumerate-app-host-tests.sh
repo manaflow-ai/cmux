@@ -7,6 +7,28 @@ enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
 inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
 enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
 rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
+
+# Enumeration launches the same cmux DEV app host as a test batch. Carry the
+# receipt identity through Xcode's TEST_RUNNER_ channel so cleanup can prove
+# ownership if Xcode leaves a child alive after an assertion or failed launch.
+enumeration_runner_env=()
+if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
+  enumeration_runner_env+=(
+    "TEST_RUNNER_CMUX_TEST_PROCESS=1"
+    "TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED=1"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=${CMUX_APP_HOST_HOME:?}"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=${CMUX_APP_HOST_XDG_CONFIG_HOME:?}"
+    "TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=${CMUX_APP_HOST_RECEIPT_DIR:?}"
+    "TEST_RUNNER_CMUX_APP_HOST_KEY=${CMUX_APP_HOST_KEY:?}"
+    "TEST_RUNNER_HOME=${CMUX_APP_HOST_HOME:?}"
+    "TEST_RUNNER_CFFIXED_USER_HOME=${CMUX_APP_HOST_HOME:?}"
+    "TEST_RUNNER_XDG_CONFIG_HOME=${CMUX_APP_HOST_XDG_CONFIG_HOME:?}"
+    "TEST_RUNNER_SSH_AUTH_SOCK="
+  )
+  [ -z "${CI:-}" ] || enumeration_runner_env+=("TEST_RUNNER_CI=$CI")
+  [ -z "${GITHUB_ACTIONS:-}" ] || enumeration_runner_env+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
+fi
+
 runner_fault() {
   echo "::error title=App-host runner fault::${RUNNER_NAME:-this runner}: $1 Runner fault, not a test verdict; rerun the job." >&2
   exit 1
@@ -21,6 +43,7 @@ enumeration_status=0
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_APP_HOST_ENUMERATION_IDLE_TIMEOUT_SECONDS:-240}" \
   bash scripts/ci/run-and-capture.sh "$enumeration_log" \
   scripts/ci/run-in-console-session.sh \
+  env "${enumeration_runner_env[@]}" \
   python3 scripts/ci/app_host_test_lock.py "$app_host_lock_file" 3600 \
   python3 scripts/ci/xcodebuild_noninteractive.py \
   xcodebuild test-without-building \
