@@ -23,8 +23,9 @@ import Testing
         #expect(HomeAppLinks.isSubagentLink(try #require(URL(string: link))))
         #expect(MarkdownLinkPolicy.sanitize(link) == link)
         #expect(MDInlineParser.parse("[a1](\(link))").spans.compactMap(\.link) == [link])
-        p.apply(items: [Fixture2.item(1, Fixture2.them, "Started [a1](\(link)); not [this](cmux://open) or [that](cmux://tab/tab_1).")],
-                summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
+        // Its own message id: the measure cache keys by message id, not text (another test's msg_1).
+        p.apply(items: [Fixture2.item(917, Fixture2.them, "Started [a1](\(link)); not [this](cmux://open) or [that](cmux://tab/tab_1).")],
+                summary: Fixture2.summary(lastSeq: 917), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
         var found: CGPoint?
         var links = Set<String>()
