@@ -89,7 +89,7 @@ extension WebKitDriver {
     func clipboardKey(_ kind: String, _ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, session) = try target(params)
         _ = try await run(Self.recordKey, [:], nil, AgentWorld.hostWorld, tab)
-        _ = try await inputKey(params)
+        _ = try await inputKey(params, nativeCommand: false)
         let pasted: [Any] = kind == "paste" ? session.clipboard.map(\.foundationValue) : []
         let result = try await CallDeadline.run(.seconds(5), what: kind) { () throws(DriverError) in
             try await self.run(Self.runCommand, ["kind": kind, "items": pasted], nil, AgentWorld.hostWorld, tab)

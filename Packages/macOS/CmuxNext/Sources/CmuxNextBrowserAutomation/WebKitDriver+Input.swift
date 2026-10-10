@@ -47,7 +47,10 @@ extension WebKitDriver {
         return .null
     }
 
-    func inputKey(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
+    /// `nativeCommand: false` (a clipboard shortcut, WebKitDriver+Clipboard):
+    /// the page gets the key, but its editing command (`paste:`, which reads
+    /// the system pasteboard) does not run.
+    func inputKey(_ params: DriverParams, nativeCommand: Bool = true) async throws(DriverError) -> DriverJSON {
         let (tab, _) = try target(params)
         let webView = tab.webView
         let type = try params.string("type")
@@ -65,7 +68,10 @@ extension WebKitDriver {
             with: eventType, location: .zero,
             modifierFlags: type == "up" && stroke.isModifier ? KeyStroke.flags(named: try params.strings("modifiers")) : stroke.modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window?.windowNumber ?? 0, context: nil,
-            characters: stroke.characters, charactersIgnoringModifiers: stroke.charactersIgnoringModifiers,
+            // An Option chord types no text, as with a CDP key event (macOS
+            // would type its Option character, such as  for Option+Shift+K).
+            characters: stroke.modifierFlags.contains(.option) && !stroke.isModifier ? "" : stroke.characters,
+            charactersIgnoringModifiers: stroke.charactersIgnoringModifiers,
             isARepeat: try params.bool("autoRepeat"), keyCode: stroke.keyCode
         ) else {
             throw DriverError(.invalid, "input.key: could not create a key event for \(key)")
@@ -74,7 +80,7 @@ extension WebKitDriver {
         case .flagsChanged: webView.flagsChanged(with: event)
         case .keyDown:
             webView.keyDown(with: event)
-            if let command = stroke.editingCommand, webView.responds(to: NSSelectorFromString(command)) {
+            if nativeCommand, let command = stroke.editingCommand, webView.responds(to: NSSelectorFromString(command)) {
                 // Command keys are menu equivalents in AppKit; the editing
                 // command goes to the web view only, never up the responder
                 // chain to the user's window (its undo manager).
