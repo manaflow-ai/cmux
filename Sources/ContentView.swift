@@ -16383,7 +16383,8 @@ struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
+                        selectedBackground: selectedWorkspaceBackgroundNSColor,
+                        selectedForeground: selectedWorkspaceForegroundNSColor(opacity: 1),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
@@ -16870,27 +16871,21 @@ struct TabItemView: View, Equatable {
     }
 
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+        let fallback: NSColor
         if isActive {
-            switch level {
-            case .info:
-                return activeSecondaryColor(0.5)
-            case .progress:
-                return activeSecondaryColor(0.8)
-            case .success:
-                return activeSecondaryColor(0.9)
-            case .warning:
-                return activeSecondaryColor(0.9)
-            case .error:
-                return activeSecondaryColor(0.9)
-            }
+            let opacity: CGFloat = level == .info ? 0.5 : (level == .progress ? 0.8 : 0.9)
+            fallback = selectedWorkspaceForegroundNSColor(opacity: opacity)
+        } else {
+            fallback = SidebarAppearanceColorResolver().resolvedColor(.secondaryLabelColor, for: colorScheme)
         }
-        switch level {
-        case .info: return .secondary
-        case .progress: return settings.accentColor.color
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        }
+        return Color(nsColor: sidebarLogPresentationNSColor(
+            level: level,
+            isActive: isActive,
+            colorScheme: colorScheme,
+            accent: settings.accentColor,
+            selectedBackground: selectedWorkspaceBackgroundNSColor,
+            fallback: fallback
+        ))
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
@@ -17081,7 +17076,8 @@ extension String {
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedBackground: NSColor
+    let selectedForeground: NSColor
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
@@ -17095,7 +17091,8 @@ private struct SidebarMetadataRows: View {
                 SidebarMetadataEntryRow(
                     entry: entry,
                     isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
+                    selectedBackground: selectedBackground,
+                    selectedForeground: selectedForeground,
                     fontScale: fontScale,
                     onFocus: onFocus
                 )
@@ -17135,7 +17132,8 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedForeground: NSColor
+    let selectedBackground: NSColor
     let fontScale: CGFloat
     let onFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
@@ -17180,13 +17178,15 @@ private struct SidebarMetadataEntryRow: View {
 
     private var foregroundColor: Color {
         let explicit = cmuxAccent.statusEntryColor(hex: entry.color, isDark: colorScheme == .dark)
-        if isActive, explicit != nil {
-            return activeForegroundColor
-        }
-        if let explicit {
-            return Color(nsColor: explicit)
-        }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        let fallback = isActive
+            ? selectedForeground.withAlphaComponent(explicit == nil ? 0.95 * 0.84 : 1)
+            : NSColor.secondaryLabelColor
+        return Color(nsColor: sidebarStatusPresentationNSColor(
+            explicit: explicit,
+            isActive: isActive,
+            selectedBackground: selectedBackground,
+            fallback: fallback
+        ))
     }
 
     private var iconView: AnyView? {
