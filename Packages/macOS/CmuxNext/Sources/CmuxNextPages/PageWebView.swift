@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import CmuxNextCompat
 import Observation
 import os
 public import WebKit
@@ -237,7 +238,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
                 self.applyUIScale()
             }

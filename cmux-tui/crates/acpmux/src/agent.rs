@@ -183,6 +183,7 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
     crate::login_env::apply_tokio(&mut cmd);

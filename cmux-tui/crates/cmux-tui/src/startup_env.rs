@@ -19,6 +19,10 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 #[cfg(unix)]
 pub(crate) unsafe fn take_link_token_from_env() {
     remember_chief_tools_socket();
+    // The first-party app directory override is for this process only
+    // (cx-e0cs): no shell, agent or server the daemon spawns inherits it.
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { cmux_tui_core::first_party_dir::take_from_process_env() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { take_launch_credential() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
@@ -36,6 +40,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
 #[cfg(not(unix))]
 pub(crate) unsafe fn take_link_token_from_env() {
     remember_chief_tools_socket();
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { cmux_tui_core::first_party_dir::take_from_process_env() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { take_launch_credential() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
