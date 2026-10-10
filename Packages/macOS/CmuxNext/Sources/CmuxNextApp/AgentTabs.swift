@@ -206,9 +206,9 @@ final class AgentTabStore {
         canHostChat && localHost != nil && holdsTabs(daemon)
     }
 
-    /// The tab showing acpmux session `session` (`cmux://session/<id>`) of this Mac, if any.
-    func tab(showing session: String) -> String? {
-        let host = localHost
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
+    func tab(showing session: String, host: String? = nil) -> String? {
+        let host = host ?? localHost
         return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
     }
 

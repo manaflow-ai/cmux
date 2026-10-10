@@ -35,6 +35,9 @@ final class SidebarChatsHeader: NSView {
         return self
     }
 
+    /// The first click in an inactive window opens the section (as the rows open chats).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {}
 
     override func mouseUp(with event: NSEvent) {

@@ -66,7 +66,7 @@ impl Mux {
         )? {
             return Ok(replay);
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(
             &state,
             &registry,

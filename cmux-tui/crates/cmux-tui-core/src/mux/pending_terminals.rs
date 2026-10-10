@@ -84,13 +84,15 @@ impl Mux {
     /// Mark a terminal pending. Takes the registry lock briefly to resolve
     /// its public id; the caller must not hold the registry or state lock.
     #[cfg(unix)]
-    pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) {
+    /// Returns whether the marker was set (false: the public id is unknown).
+    pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) -> bool {
         let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
-        let Ok(Some(public_id)) = public_id else { return };
+        let Ok(Some(public_id)) = public_id else { return false };
         self.pending_terminals
             .lock()
             .unwrap()
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
+        true
     }
 
     /// Forget a pending marker. Returns whether one was present. A respawn's
@@ -183,6 +185,60 @@ impl Mux {
         }
     }
 
+    /// A live host refused every protocol this build offers on at least
+    /// [`NO_COMMON_PROTOCOL_REFUSALS`] adoptions over at least
+    /// [`NO_COMMON_PROTOCOL_MIN_SPAN`], with no other outcome between them:
+    /// retrying cannot adopt it. Keep the terminal visible as unadoptable
+    /// instead of adopting forever, watch its host, and push the change.
+    ///
+    /// A host of this build also closes an owner hello without HostHello
+    /// when it cannot start a client thread (descriptor or memory pressure)
+    /// or denies the owner token; the time span keeps such a passing refusal
+    /// from making a healthy terminal unadoptable. An unadoptable terminal is
+    /// not adopted again by this daemon; close still ends its host with proof.
+    ///
+    /// Returns whether the terminal is now unadoptable, so adoption must stop.
+    #[cfg(unix)]
+    pub(super) fn refused_all<T>(
+        self: &Arc<Self>,
+        streak: &mut RefusalStreak,
+        now: Instant,
+        adopted: &anyhow::Result<T>,
+        options: &SurfaceOptions,
+        record_path: &Path,
+        record: &crate::terminal_host_runtime::TerminalHostRecord,
+    ) -> bool {
+        let refused = matches!(
+            adopted,
+            Err(error) if crate::terminal_host_runtime::is_no_common_host_protocol(error)
+        );
+        if !streak.record(refused, now)
+            || terminal_host_record_liveness(record_path, record) != TerminalHostLiveness::Live
+        {
+            return false;
+        }
+        let record =
+            crate::terminal_host_runtime::UnadoptableTerminalHostRecord::with_no_common_protocol(
+                record_path,
+                record,
+            );
+        if !self.set_pending_terminal(
+            &record.terminal_id,
+            PendingTerminal::Unadoptable { record_version: record.record_version },
+        ) {
+            // Without a marker the tab would read exited: keep adopting.
+            return false;
+        }
+        eprintln!(
+            "cmux-tui: terminal {} has a live host this build cannot adopt \
+             (record_version {:?}): {}",
+            record.terminal_id, record.record_version, record.reason
+        );
+        self.watch_unadoptable_terminal_host(options.clone(), record);
+        self.emit(MuxEvent::TreeChanged);
+        true
+    }
+
     /// A record this build cannot read belongs to a host that may still run
     /// its shell (a newer record version after a rollback). Never report that
     /// terminal ended: keep it visible as unadoptable and watch its host.
@@ -230,6 +286,43 @@ impl Mux {
     }
 }
 
+/// Adoptions of a live host refused for want of a common protocol, in a row,
+/// before its terminal is unadoptable. One refusal could be a host that
+/// closed the connection while exiting; the live marker then frees and the
+/// watcher ends the terminal with the host's real status.
+#[cfg(unix)]
+pub(super) const NO_COMMON_PROTOCOL_REFUSALS: u32 = 3;
+
+/// The shortest time from the first to the last of those refusals: a host
+/// of this build that refuses a hello under passing pressure recovers
+/// within it (see [`Mux::refused_all`]).
+#[cfg(unix)]
+pub(super) const NO_COMMON_PROTOCOL_MIN_SPAN: Duration = Duration::from_secs(10);
+
+/// Refused adoptions in a row since the first of them.
+#[cfg(unix)]
+#[derive(Debug, Default)]
+pub(super) struct RefusalStreak {
+    count: u32,
+    since: Option<Instant>,
+}
+
+#[cfg(unix)]
+impl RefusalStreak {
+    /// Record one adoption outcome at `now`. Returns whether the streak is
+    /// long enough to call the host unadoptable.
+    pub(super) fn record(&mut self, refused: bool, now: Instant) -> bool {
+        if !refused {
+            *self = Self::default();
+            return false;
+        }
+        self.count += 1;
+        let since = *self.since.get_or_insert(now);
+        self.count >= NO_COMMON_PROTOCOL_REFUSALS
+            && now.saturating_duration_since(since) >= NO_COMMON_PROTOCOL_MIN_SPAN
+    }
+}
+
 /// End the hosts of `terminal_id`'s unreadable records under `root`, with
 /// proof only; without proof the host may still run and its record stays.
 #[cfg(unix)]
@@ -251,3 +344,32 @@ pub(super) fn terminate_unadoptable_hosts_in(root: &Path, terminal_id: &str) {
         }
     }
 }
+
+/// Adopt a host to send it Terminate. A host with no protocol in common
+/// cannot take Terminate: end it with proof that the recorded PID is its
+/// live host and return `None`; the caller's cleanup removes the record
+/// once the live marker frees.
+#[cfg(unix)]
+pub(super) fn adopt_host_to_terminate(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+) -> Option<crate::terminal_host_runtime::HostAttachment> {
+    match crate::terminal_host_runtime::adopt_terminal_host(record.clone(), record_path.clone()) {
+        Ok(host) => Some(host),
+        Err(error) => {
+            if crate::terminal_host_runtime::is_no_common_host_protocol(&error) {
+                let unadoptable =
+                    crate::terminal_host_runtime::UnadoptableTerminalHostRecord::with_no_common_protocol(
+                        &record_path,
+                        &record,
+                    );
+                let _ =
+                    crate::terminal_host_runtime::terminate_unadoptable_terminal_host(&unadoptable);
+            }
+            None
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests;

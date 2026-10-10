@@ -66,12 +66,18 @@ impl Hub {
 
     /// Probes every live-list harness at once; with `wait`, returns when all
     /// have answered or timed out. Runs beside the ACP probes.
-    pub(super) async fn probe_live_models(self: &Arc<Self>, wait: bool) {
+    pub(super) async fn probe_live_models(
+        self: &Arc<Self>,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
         let handles: Vec<_> = {
             let cfg = self.config.read().await;
             targets(&cfg.harnesses)
         }
         .into_iter()
+        .filter(|target| self.probes(&target.harness))
+        .filter(|target| only.as_ref().is_none_or(|o| o.contains(&target.harness)))
         .map(|target| {
             let hub = self.clone();
             tokio::spawn(async move { hub.probe_live(target).await })
