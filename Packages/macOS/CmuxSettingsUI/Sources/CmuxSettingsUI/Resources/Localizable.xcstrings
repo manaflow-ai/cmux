@@ -14988,6 +14988,72 @@
             "state": "translated",
             "value": "在遠端主機上新增工作區"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor na udaljenom hostu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde på den eksterne vært"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro sull’host remoto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មីលើម៉ាស៊ីនមេពីចម្ងាយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde på den eksterne verten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy na zdalnym hoście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho no host remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство на удалённом хосте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่บนโฮสต์ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak ana bilgisayarda yeni çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір на віддаленому хості"
+          }
         }
       }
     },
@@ -15046,6 +15112,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新增工作區 遠端主機 工作階段 本機"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor udaljeni host nova sesija tmux lokalni radni prostor mirror beta nestabilno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde ekstern vært nyt arbejdsområde fjern tmux-session lokal arbejdsområde spejl beta ustabil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro host remoto nuova sessione tmux spazio di lavoro locale mirror beta instabile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មី ម៉ាស៊ីនមេពីចម្ងាយ សម័យ tmux កន្លែងធ្វើការមូលដ្ឋាន កញ្ចក់ បេតា មិនស្ថិរភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde ekstern vert ny tmux-økt lokalt arbeidsområde speil beta ustabil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy zdalny host nowa sesja tmux lokalny obszar roboczy mirror beta niestabilne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho host remoto nova sessão tmux espaço de trabalho local espelho beta instável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство удалённый хост новая сессия tmux локальное рабочее пространство зеркало бета нестабильно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่ โฮสต์ระยะไกล เซสชัน tmux เวิร์กสเปซภายในเครื่อง มิเรอร์ เบตา ไม่เสถียร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı uzak ana bilgisayar yeni tmux oturumu yerel çalışma alanı yansıma beta kararsız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір віддалений хост новий сеанс tmux локальний робочий простір дзеркало бета нестабільно"
           }
         }
       }
@@ -15106,6 +15238,72 @@
             "state": "translated",
             "value": "即使選取了遠端 tmux 工作區，「新增工作區」也一律開啟本機工作區。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor uvijek otvara lokalni radni prostor, čak i kada je odabran udaljeni tmux radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde åbner altid et lokalt arbejdsområde, selv når et eksternt tmux-arbejdsområde er valgt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro apre sempre uno spazio di lavoro locale, anche quando è selezionato uno spazio di lavoro tmux remoto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មី តែងតែបើកកន្លែងធ្វើការមូលដ្ឋាន ទោះបីបានជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយក៏ដោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde åpner alltid et lokalt arbeidsområde, selv når et eksternt tmux-arbeidsområde er valgt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy zawsze otwiera lokalny obszar roboczy, nawet gdy wybrano zdalny obszar tmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho sempre abre um espaço de trabalho local, mesmo quando um espaço de trabalho tmux remoto está selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство всегда открывает локальное рабочее пространство, даже если выбрано удалённое рабочее пространство tmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซใหม่จะเปิดเวิร์กสเปซภายในเครื่องเสมอ แม้เลือกเวิร์กสเปซ tmux ระยะไกลไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı, uzak bir tmux çalışma alanı seçili olsa bile her zaman yerel bir çalışma alanı açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір завжди відкриває локальний робочий простір, навіть коли вибрано віддалений простір tmux."
+          }
         }
       }
     },
@@ -15164,6 +15362,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "選取遠端 tmux 工作區時，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。「新增本機工作區」則開啟本機工作區。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je odabran udaljeni tmux radni prostor, Novi radni prostor pokreće tmux sesiju na hostu tog prostora. Novi lokalni radni prostor otvara lokalni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når et eksternt tmux-arbejdsområde er valgt, starter Nyt arbejdsområde en tmux-session på arbejdsområdets vært. Nyt lokalt arbejdsområde åbner et lokalt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con uno spazio di lavoro tmux remoto selezionato, Nuovo spazio di lavoro avvia una sessione tmux sull’host di quello spazio. Nuovo spazio di lavoro locale ne apre uno locale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបានជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយ កន្លែងធ្វើការថ្មីនឹងចាប់ផ្ដើមសម័យ tmux លើម៉ាស៊ីនមេរបស់កន្លែងធ្វើការនោះ។ កន្លែងធ្វើការមូលដ្ឋានថ្មីនឹងបើកកន្លែងធ្វើការមូលដ្ឋាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når et eksternt tmux-arbeidsområde er valgt, starter Nytt arbeidsområde en tmux-økt på arbeidsområdets vert. Nytt lokalt arbeidsområde åpner et lokalt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wybraniu zdalnego obszaru tmux Nowy obszar roboczy uruchamia sesję tmux na hoście tego obszaru. Nowy lokalny obszar roboczy otwiera lokalny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com um espaço de trabalho tmux remoto selecionado, Novo espaço de trabalho inicia uma sessão tmux no host desse espaço. Novo espaço de trabalho local abre um local."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выбрано удалённое рабочее пространство tmux, новое рабочее пространство запускает сессию tmux на его хосте. Новое локальное рабочее пространство открывает локальное."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเลือกเวิร์กสเปซ tmux ระยะไกล เวิร์กสเปซใหม่จะเริ่มเซสชัน tmux บนโฮสต์ของเวิร์กสเปซนั้น เวิร์กสเปซภายในเครื่องใหม่จะเปิดเวิร์กสเปซภายในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak bir tmux çalışma alanı seçiliyken Yeni çalışma alanı, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır. Yeni yerel çalışma alanı yerel bir tane açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли вибрано віддалений простір tmux, новий робочий простір запускає сеанс tmux на його хості. Новий локальний робочий простір відкриває локальний."
           }
         }
       }

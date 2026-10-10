@@ -8943,7 +8943,7 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewLocalWorkspaceAction(
+            AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
