@@ -175,8 +175,9 @@ struct HostEditorView: View {
             HostEditorNavigationItem(title: model.isNew ? SSHText.add : SSHText.save,
                                      isEnabled: model.canSave) {
                 Task {
-                    await model.save()
-                    model.dismiss?()
+                    if await model.save() {
+                        model.dismiss?()
+                    }
                 }
             }
                 .frame(width: 0, height: 0)

@@ -109,8 +109,9 @@ final class HostEditorModel {
         }
     }
 
-    func save() async {
-        guard let draft = makeDraft() else { return }
+    func save() async -> Bool {
+        guard let draft = makeDraft() else { return false }
+        var didSave = false
         await work {
             let receipt: IntentReceipt
             switch self.mode {
@@ -122,8 +123,9 @@ final class HostEditorModel {
                 return
             }
             try await self.saveLogin()
-            self.dismiss?()
+            didSave = true
         }
+        return didSave
     }
 
     /// Appends the selected key to the server's authorized_keys with a
