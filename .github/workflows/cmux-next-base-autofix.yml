@@ -10,7 +10,7 @@ name: cmux-next base autofix
 # action catalog export (web/scripts/export-docs-shortcuts.ts), the namespace
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
-# and cargo fmt
+# webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
 # in cmux-tui. Each
 # runs only when its inputs changed since the last successful run (actions:
 # read lists it); a repair that cannot land fails the run. A frozen path
@@ -43,6 +43,7 @@ on:
       - Packages/**
       - webviews/src/**
       - webviews/scripts/pages/**
+      - webviews/test/**
       - plans/cmux-next/action-surfaces.json
       - web/scripts/export-docs-shortcuts.ts
       - ios/cmux/**
@@ -69,9 +70,53 @@ on:
 permissions: {}
 
 jobs:
+  # `vp fmt` needs webviews' installed packages, so it runs here with a
+  # read-only token (installed without lifecycle scripts) and hands its diff to
+  # the autofix job as a patch, which applies only webviews paths.
+  webviews-fmt:
+    name: webviews vp fmt
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # `vp` runs on Node and needs ^22.18 or ^24.11.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: vp fmt
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          node_modules/.bin/vp fmt
+          git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
+          git diff --stat -- . | tail -1
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt.patch
+          if-no-files-found: error
+          retention-days: 1
+
   autofix:
     name: autofix feat-cmux-next
-    if: github.repository == 'manaflow-ai/cmux'
+    # The other repairs still run when the webviews formatting job fails.
+    needs: webviews-fmt
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
     # A newer push supersedes this run's repairs (the next run diffs from the
     # last successful one).
     concurrency:
@@ -147,6 +192,13 @@ jobs:
         if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Download the webviews formatting patch
+        if: needs.webviews-fmt.result == 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt
+
       - name: Repair
         env:
           GRAPH: ${{ steps.areas.outputs.graph }}
@@ -165,6 +217,8 @@ jobs:
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          patch="$RUNNER_TEMP/webviews-fmt/webviews-fmt.patch"
+          [[ -s "$patch" ]] && args+=(--webviews-fmt-patch "$patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
