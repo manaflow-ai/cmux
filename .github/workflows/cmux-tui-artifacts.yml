@@ -147,10 +147,10 @@ concurrency:
   # The shared group came from #18175's 67-run queue on 2026-10-07, when the
   # macOS targets built on macOS; they now build on Linux
   # (scripts/ci/cmux-tui-darwin-builder), and a run whose key is published
-  # stops after the 3 min tree-preflight. The expensive jobs (build, daemon
-  # tests, tree publish) are grouped by the tree key that tree-preflight
-  # computes: pushes with an unchanged key share one build, and a push that
-  # changes the key gets its own, which no other key cancels or delays.
+  # stops after the 3 min tree-preflight. The build job of a feat-cmux-next
+  # push is grouped by the tree key that tree-preflight computes: pushes with
+  # an unchanged key share one build, and a push that changes the key gets its
+  # own, which no other key cancels or delays.
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
   group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
@@ -467,13 +467,18 @@ jobs:
           needs.tree-owner-wait.outputs.takeover == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, tree-owner-wait]
-    # One group per tree key (cx-73f2): runs of the same key share it, so at
-    # most one builds a key at a time, and a key never waits behind or is
-    # cancelled by another key. GitHub may replace a pending same-key job with
-    # a newer one; that job builds the same key, so nothing is stranded.
-    # tree-owner-wait still skips a run whose key another run is publishing.
+    # feat-cmux-next pushes build in one group per tree key (cx-73f2): at most
+    # one builds a key at a time, and a key never waits behind or is cancelled
+    # by another key. GitHub may replace a pending same-key job with a newer
+    # one, which is another feat-cmux-next push of the same key that also
+    # publishes it, so nothing is stranded. Only this job is grouped by key:
+    # the run that holds the build slot keeps its own daemon tests and publish
+    # (per run below). Every other run (main, PR, dispatch, pin) keeps a group
+    # of its own, so it can never replace a feat-cmux-next publisher, nor main
+    # lose its commit-addressed publish. tree-owner-wait still skips a run
+    # whose key another run is publishing.
     concurrency:
-      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}
+      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && format('-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -536,7 +541,7 @@ jobs:
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, tree-owner-wait]
     concurrency:
-      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}
+      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       # Keep every publisher alive, including a queued run. The complete-key
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
@@ -1485,11 +1490,11 @@ jobs:
     needs: [build, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
-    # One publisher per tree key at a time (cx-73f2). A pending same-key
-    # publisher that GitHub replaces is replaced by one that publishes the same
-    # key; the write-once uploader makes a rare election race safe.
+    # Ownership is elected before expensive work and the build is grouped by
+    # key; publication stays per run, so a run that built always publishes,
+    # and the write-once uploader makes a rare election race safe.
     concurrency:
-      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
+      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
       # actions: write dispatches cmux-next's same-tree mode and removes the
@@ -1868,7 +1873,9 @@ jobs:
   notify-unpublished-tree:
     name: report an unpublished cmux-tui tree to cmux-next
     needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    # A feat-cmux-next build that a newer same-key push replaced in the key
+    # group is not a failure: that push builds and publishes the key.
+    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'cancelled') && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
