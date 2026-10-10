@@ -76,12 +76,12 @@ def run_case(
 
 def main() -> int:
     passthrough_args = (
-        ("install", "--help"),
-        ("remove", "--help"),
-        ("uninstall", "--help"),
+        ("install", "npm:@termdraw/pi", "--local"),
+        ("remove", "npm:@termdraw/pi", "--local"),
+        ("uninstall", "npm:@termdraw/pi", "--local"),
         ("update", "--extensions"),
         ("list", "--help"),
-        ("config", "--help"),
+        ("config", "--local"),
         ("auth", "check", "--help"),
         ("mcp", "list", "--help"),
         ("--help",),
@@ -95,10 +95,19 @@ def main() -> int:
             if result["args"] != list(args) or result["extension_exists"]:
                 raise AssertionError(f"Pi subcommand was changed by extension injection: {result}")
 
-    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
-        prompted = run_case(Path(directory), args=("--print", "update"))
-        if "-e" not in prompted["args"] or prompted["args"][-2:] != ["--print", "update"]:
-            raise AssertionError(f"Pi prompt matching a subcommand lost extension injection: {prompted}")
+    interactive_args = (
+        (),
+        ("hello",),
+        ("--print", "update"),
+        ("--model", "provider/model", "hello"),
+    )
+    for args in interactive_args:
+        with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
+            root = Path(directory)
+            prompted = run_case(root, args=args)
+            expected = ["-e", str(root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts"), *args]
+            if prompted["args"] != expected or not prompted["extension_exists"]:
+                raise AssertionError(f"Pi interactive invocation lost extension injection: {prompted}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-") as directory:
         root = Path(directory)

@@ -885,7 +885,7 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewWorkspaceAction(
+                        appDelegate.performNewLocalWorkspaceAction(
                             tabManager: activeTabManager,
                             debugSource: "menu.newWorkspace"
                         )
@@ -1294,6 +1294,10 @@ struct cmuxApp: App {
 
             splitCommandButton(title: String(localized: "menu.view.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
                 AppDelegate.shared?.jumpToLatestUnread()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.jumpToLastPrompt", defaultValue: "Jump to Last Prompt"), shortcut: menuShortcut(for: .jumpToLastPrompt)) {
+                AppDelegate.shared?.jumpToLastPromptFromUserCommand()
             }
 
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {

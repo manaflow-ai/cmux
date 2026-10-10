@@ -28,6 +28,9 @@ struct BrowserReplRenderHostTests {
         )
     }
 
+    /// A key window with a pane anchor. The render host returns a shown tab
+    /// only to a key pane window (#18479), and a test host app may not be
+    /// active, so the window reports key status itself.
     private func makeWindow() throws -> (KeyStatusWindow, NSView) {
         let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),

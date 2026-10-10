@@ -449,6 +449,79 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test("Explicit local file URLs use cmux preview when supported-file routing is enabled")
+    @MainActor
+    func explicitLocalFileURLRoutesToCmuxPreview() throws {
+        let defaults = makeDefaults()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-url-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("notes with spaces-文.txt")
+        try "preview me\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let container = LocalLinkContainer()
+        let fileOpener = RecordingFileOpener()
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: fileURL.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: UUID(),
+            workingDirectory: directory.path
+        )))
+        #expect(container.deferredFilePaths == [fileURL.path])
+        #expect(fileOpener.opened.isEmpty)
+        #expect(externallyOpened.isEmpty)
+    }
+
+    @Test("Explicit local file URLs stay external when supported-file routing is disabled")
+    @MainActor
+    func explicitLocalFileURLRespectsDisabledCmuxRouting() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-url-external-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("notes with spaces-文.txt")
+        try "open externally\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let container = LocalLinkContainer()
+        let fileOpener = RecordingFileOpener()
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: fileURL.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: UUID(),
+            workingDirectory: directory.path
+        )))
+        #expect(container.deferredFilePaths.isEmpty)
+        #expect(fileOpener.opened == [fileURL])
+        #expect(externallyOpened.isEmpty)
+    }
+
     @Test("Web URLs still open through the raw system opener with a preferred editor configured")
     @MainActor
     func webURLExternalOpenIgnoresPreferredEditor() throws {

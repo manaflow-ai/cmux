@@ -11,7 +11,7 @@ import {
 
 import { randomBytes } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
-import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
+import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -22,6 +22,7 @@ import {
   ProviderError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
+  ProviderTlsRuleLimitError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -59,7 +60,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
-import { devboxForkDaemonReadyCommand } from "../images/remoteState";
+import { devboxForkDaemonReadyCommand, devboxForkReadinessStage } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -1163,6 +1164,17 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.tls_deleted": result.tlsDeleted,
           });
         } catch (err) {
+          if (isFreestyleTlsRuleLimit(err)) {
+            span.setAttribute("cmux.vm.network.tls_rule_limit", true);
+            if (err instanceof FreestyleTlsRuleLimitRestoreError) {
+              span.setAttribute("cmux.vm.network.tls_restored", err.restored);
+              span.setAttribute("cmux.vm.network.tls_unrestored", err.unrestored.length);
+              if (err.unrestored.length > 0) {
+                console.error("[freestyle] TLS rule limit: retired rules not restored", JSON.stringify({ vmId, unrestored: err.unrestored }));
+              }
+            }
+            throw new ProviderTlsRuleLimitError("freestyle", `applyNetworkPolicy(${vmId}): account TLS rule limit reached`, err);
+          }
           throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },
@@ -1712,9 +1724,11 @@ export class FreestyleProvider implements VMProvider {
       (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
     );
     if (!ready || ready.exitCode !== 0) {
-      const diagnostic = (ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500);
-      console.error("[freestyle] fork daemon readiness failed", diagnostic);
-      throw new ProviderError("freestyle", "forked machine daemon did not become ready");
+      // Only the classified stage is logged and stored: the guest's own
+      // output is user-controlled text and never leaves this function.
+      const stage = ready ? devboxForkReadinessStage(ready.stderr) : "stage=exec-unavailable";
+      console.error("[freestyle] fork daemon readiness failed", stage);
+      throw new ProviderError("freestyle", `forked machine daemon did not become ready (${stage})`);
     }
   }
 

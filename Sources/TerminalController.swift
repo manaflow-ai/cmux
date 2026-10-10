@@ -391,7 +391,7 @@ class TerminalController {
         "workspace.last",
         "workspace.group.focus",
         "workspace.cloud_vm_open",
-        "surface.focus",
+        "surface.focus", "surface.jump_to_last_prompt",
         "pane.focus",
         "pane.last",
         "file.open", "workspace.todo.open",
@@ -2008,6 +2008,15 @@ class TerminalController {
                 "screenshot_id": parts[0],
                 "path": parts[1],
             ])
+        case "debug.global_search.query":
+            // The socket connection's async dispatcher owns this command so a
+            // long transcript refresh never parks a worker thread behind a
+            // semaphore. Keep the synchronous compatibility lane explicit.
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: "debug.global_search.query requires asynchronous socket dispatch"
+            )
         case "debug.mobile.transport.disconnect":
             let selectedConnectionID: UUID?
             if let rawConnectionID = request.params["connection_id"] {
@@ -2115,6 +2124,7 @@ class TerminalController {
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.global_search.query"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
                 || request.method == "debug.cloudtree.gallery" {
@@ -6095,6 +6105,29 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         guard terminalPanel != nil || terminalTarget != nil else { return nil }
+
+        // Session persistence already caps the capture by rows and characters.
+        // Use Ghostty's bounded formatter so quit does not format an
+        // unbounded history and discard most of it afterward. Keep the export
+        // path as a compatibility fallback for runtimes that reject the
+        // bounded request.
+        if let lineLimit,
+           lineLimit > 0,
+           let surface = terminalPanel?.surface ?? terminalTarget?.surface,
+           let boundedOutput = surface.readBoundedScreenTailVT(
+               maxRows: lineLimit,
+               maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+           ) {
+#if DEBUG
+            cmuxDebugLog(
+                "session.scrollbackCapture bounded=1 rows=\(lineLimit)"
+            )
+#endif
+            return normalizeLineEndings
+                ? Self.normalizedMobileVTExportText(boundedOutput)
+                : boundedOutput
+        }
+
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             let ok = terminalTarget?.performInternalBindingAction(bindingAction)

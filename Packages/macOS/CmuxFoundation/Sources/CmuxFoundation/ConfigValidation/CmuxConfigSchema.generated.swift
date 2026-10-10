@@ -740,6 +740,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "goToWorkspaceOrder": {
+          "type": "string",
+          "enum": ["sidebar", "recent"],
+          "default": "sidebar",
+          "description": "Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces."
+        },
         "forkConversationDefaultDestination": {
           "type": "string",
           "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
@@ -1665,6 +1671,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show the workspace working directory."
         },
+        "showCloudDeviceIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
+          "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,
@@ -2493,6 +2505,7 @@ enum CmuxEmbeddedConfigSchema {
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "jumpToLastPrompt",
               "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",
