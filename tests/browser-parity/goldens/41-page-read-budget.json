@@ -64,6 +64,7 @@
     "tabs-content-cut": {
       "short": true,
       "note": true
-    }
+    },
+    "frame-click-deep-shadow": "clicked"
   }
 }

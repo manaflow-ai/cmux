@@ -157,3 +157,26 @@ await page.evaluate(() => localStorage.clear());
 emitCmux("storage-state-cut", storage);
 const rows = await tabs.content([`${PRIMARY}/stress/stress.html?kind=text&n=3000000`], { format: "text" });
 emitCmux("tabs-content-cut", { short: rows[0].content.length <= 2000001, note: /tabs\.content stopped after/.test(rows[0].truncated || "") });
+
+// ---- cell session=budget cmux-only
+// An action in a child frame finds the frame's <iframe> by the frame's
+// place in window.frames, never by a walk of the parent's whole DOM (here
+// 20,000 nested shadow roots, deeper than a recursive walk's stack).
+await page.evaluate(() => {
+  document.body.innerHTML = '<iframe srcdoc="<button onclick=&quot;this.textContent=\'clicked\'&quot;>Inner</button>"></iframe><div id="deep"></div>';
+  let host = document.getElementById("deep");
+  for (let i = 0; i < 20000; i++) {
+    const inner = document.createElement("div");
+    host.attachShadow({ mode: "open" }).appendChild(inner);
+    host = inner;
+  }
+});
+await page.frameLocator("iframe").getByRole("button").waitFor();
+let frameClick;
+try {
+  await page.frameLocator("iframe").getByRole("button").click({ timeout: 10000 });
+  frameClick = await page.frameLocator("iframe").getByRole("button").textContent();
+} catch (e) {
+  frameClick = String(e.message).slice(0, 160);
+}
+emitCmux("frame-click-deep-shadow", frameClick);
