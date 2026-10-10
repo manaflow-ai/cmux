@@ -131,7 +131,7 @@ impl Mux {
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(None);
         };
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         if guard == TerminalCloseGuard::UnplacedAndNotKept {
             // The registry lock serializes placement commits and the creation
             // fence excludes a creation between runtime and placement, so
@@ -489,7 +489,7 @@ impl Mux {
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let slots = resolve_slots(&state)?;
         if let Some(workspace) = workspace {
             anyhow::ensure!(

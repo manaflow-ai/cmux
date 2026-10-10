@@ -244,9 +244,7 @@ fn event_loop_renders_paint_before_following_pointer_input() {
     // below is intentionally a paint-only stimulus for this contract.
     app.graphics_supported = false;
     app.sync_layout((100, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &mutation_events);
     let (events, receiver) = crossbeam_channel::unbounded();
     events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
     events
@@ -323,9 +321,7 @@ fn focus_loss_purges_pointer_press_waiting_for_a_paint() {
     let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
     app.sidebar_visible = false;
     app.sync_layout((100, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &mutation_events);
     let content = app.pane_areas[0].content;
     let (events, receiver) = crossbeam_channel::unbounded();
     events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
@@ -560,9 +556,7 @@ fn visible_state_direct_keyboard_requests_draw_after_selection_clear() {
     let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
     app.sidebar_visible = false;
     app.sync_layout((100, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &events);
     app.status_message = Some("old failure".to_string());
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
     app.render_action(&mut terminal, RenderAction::Paint).unwrap();
@@ -620,9 +614,7 @@ fn visible_state_paste_requests_draw_after_status_clear() {
     let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
     app.sidebar_visible = false;
     app.sync_layout((100, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &events);
     app.status_message = Some("old failure".to_string());
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
     app.render_action(&mut terminal, RenderAction::Paint).unwrap();
@@ -691,9 +683,7 @@ fn visible_state_keyboard_requests_draw_after_selection_clear_on_other_surface()
     app.sidebar_visible = false;
     app.replace_tree(app.session.tree());
     app.sync_layout((80, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &events);
     assert_eq!(app.active_surface(), Some(second.id));
 
     app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
@@ -728,9 +718,7 @@ fn visible_state_browser_input_requests_draw_after_selection_clear_on_pty_surfac
     app.sidebar_visible = false;
     app.replace_tree(app.session.tree());
     app.sync_layout((80, 12));
-    while app.session.has_pending_mutations() {
-        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &events);
     assert_eq!(app.active_surface(), Some(browser.id));
 
     app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
@@ -890,9 +878,7 @@ fn right_button_capture_cannot_cross_a_new_pairing_dialog() {
     let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
     app.sidebar_visible = false;
     app.sync_layout((100, 20));
-    while app.session.has_pending_mutations() {
-        app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &mutation_events);
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     app.render_action(&mut terminal, RenderAction::Draw).unwrap();
     let content = app.pane_areas[0].content;
@@ -941,9 +927,7 @@ fn pairing_dialog_captures_live_non_left_pointer_input() {
     let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
     app.sidebar_visible = false;
     app.sync_layout((100, 20));
-    while app.session.has_pending_mutations() {
-        app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &mutation_events);
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge))).unwrap();
     app.render_action(&mut terminal, action).unwrap();
@@ -1090,9 +1074,7 @@ fn retained_right_button_capture_crosses_the_menu_frame_it_opens() {
     let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
     app.sidebar_visible = false;
     app.sync_layout((100, 40));
-    while app.session.has_pending_mutations() {
-        app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &mutation_events);
     let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
     app.render_action(&mut terminal, RenderAction::Draw).unwrap();
     while app.session.has_pending_mutations() {
@@ -1152,9 +1134,7 @@ fn right_menu_capture_cannot_close_a_replacement_active_tab() {
     app.replace_tree(app.session.tree());
     app.sidebar_visible = false;
     app.sync_layout((100, 20));
-    while app.session.has_pending_mutations() {
-        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
-    }
+    settle_pending_mutations(&mut app, &events);
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     app.render_action(&mut terminal, RenderAction::Draw).unwrap();
     let content = app.pane_areas[0].content;

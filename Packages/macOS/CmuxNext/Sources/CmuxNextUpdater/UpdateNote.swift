@@ -10,8 +10,8 @@ nonisolated public enum UpdateNote: Equatable, Sendable {
     /// A development build's read-only probe found `version`; such a build
     /// never installs updates.
     case found(version: String)
-    /// A newer build exists but needs macOS `required`.
-    case needsNewerMacOS(required: String)
+    /// A newer build `version` exists but needs macOS `required`.
+    case needsNewerMacOS(version: String, required: String)
 
     public var isError: Bool { self == .checkFailed }
 
@@ -21,7 +21,7 @@ nonisolated public enum UpdateNote: Equatable, Sendable {
         case .upToDate: UpdaterStrings.upToDate
         case .checkFailed: UpdaterStrings.checkFailed
         case .found(let version): UpdaterStrings.available(version)
-        case .needsNewerMacOS(let required): UpdaterStrings.needsNewerMacOS(required)
+        case .needsNewerMacOS(_, let required): UpdaterStrings.needsNewerMacOS(required)
         }
     }
 }

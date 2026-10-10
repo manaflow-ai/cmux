@@ -110,6 +110,11 @@ pub trait TabSource: Send + Sync {
     fn policy_log(&self, _id: u64, _sink: PolicyLogSink) {}
     /// The tabs of one engine, as `tabs.list` rows.
     fn tab_rows(&self, engine: &str) -> Vec<TabRow>;
+    /// Every tab of every engine (`tabs.list {all: true}` on a provider
+    /// session, for claims); a single-engine source lists its own.
+    fn all_tab_rows(&self) -> Vec<TabRow> {
+        self.tab_rows("")
+    }
     /// The engine of a tab, `None` when the tab is unknown.
     fn tab_engine(&self, target_id: &str) -> Option<String>;
     /// A refusal for `method` on the tab (browser pages, extension tabs).
@@ -140,6 +145,13 @@ pub trait TabSource: Send + Sync {
     fn opened(&self, _session: u64, _target_id: &str) {}
     /// The session kept `target_id` (`tab.keep`): it is the person's now.
     fn kept(&self, _session: u64, _target_id: &str) {}
+    /// Remembers that an agent session kept `target_id` (a deliverable),
+    /// beyond that session: later agent sessions list it as their own.
+    fn remember_kept(&self, _target_id: &str) {}
+    /// The tabs agent sessions kept (`remember_kept`).
+    fn kept_tabs(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Installs (or with `None` removes) a session's request filter; false
     /// when the engine cannot filter (the gate then fails closed).
     fn set_request_filter(&self, session: u64, engine: &str, filter: Option<RequestFilter>)

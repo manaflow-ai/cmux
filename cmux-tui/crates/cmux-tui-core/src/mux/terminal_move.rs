@@ -29,7 +29,7 @@ impl Mux {
             // canonical commit through projection prevents move B / move C
             // from projecting C and then stale B, and serializes moves with a
             // concurrent workspace close.
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             if let Some(replay) = registry.replay_terminal(mutation, &fingerprint)? {
                 let terminal = registry
                     .terminal_record(terminal_id)?

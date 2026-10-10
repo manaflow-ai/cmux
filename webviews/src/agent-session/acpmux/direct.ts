@@ -32,8 +32,8 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
-  /** A tab a `cmux://session/<id>` link opened: `sessionId` must exist. When the daemon has no such
-   * session the pane says so rather than falling back to the most recent one, and marks nothing seen. */
+  /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it
+   * goes away, the pane says so rather than showing another chat, and marks nothing seen. */
   sessionMustExist?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
@@ -799,9 +799,11 @@ export class AcpmuxDirectClient {
     else this.emit("session changed");
   }
 
-  /// The selected session is gone: show the most recent remaining one, or none.
+  /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
+  /// any other pane shows the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
-    this.selectedSessionId = this.sessions[0]?.sessionId;
+    if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+    this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.resetSessionState();

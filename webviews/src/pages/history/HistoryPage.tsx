@@ -25,7 +25,7 @@ import {
 import type { HistoryStore } from "./store";
 import { HISTORY_RANGES, type HistoryEntry } from "./types";
 
-type OpenMenu = { x: number; y: number; items: PageMenuItem[] };
+type OpenMenu = { x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
 
 // Stable callback refs: React calls them only when the node mounts (or the ref is attached).
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
@@ -89,12 +89,17 @@ export function HistoryPage({
         else void store.remove(entry);
       },
     }));
-    setMenu({ x: event.clientX, y: event.clientY, items });
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items,
+      returnFocus: event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
+    });
   };
 
   const headerMenu = (event: MouseEvent<HTMLButtonElement>, items: PageMenuItem[]) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setMenu({ x: rect.left, y: rect.bottom + 4, items });
+    setMenu({ x: rect.left, y: rect.bottom + 4, items, returnFocus: event.currentTarget });
   };
 
   const groupingItems = (): PageMenuItem[] =>
@@ -188,7 +193,15 @@ export function HistoryPage({
           ))}
         </div>
       )}
-      {menu && <PageMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {menu && (
+        <PageMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.items}
+          returnFocus={menu.returnFocus}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }

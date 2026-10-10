@@ -808,6 +808,83 @@
         }
       ],
       "note": "two picks for a whole query lift over the whole-title match"
+    },
+    {
+      "query": "",
+      "expect": ["workspace:w3"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "chat",
+          "pick": "workspace:w3",
+          "daysAgo": 0
+        }
+      ],
+      "note": "Recent of any row kind: a workspace the user switched to shows first on the empty query"
+    },
+    {
+      "query": "split",
+      "expect": [],
+      "absent": "action:splitDown",
+      "group": "replay",
+      "replay": [
+        {
+          "hide": "action:splitDown"
+        }
+      ],
+      "note": "a hidden row leaves the results"
+    },
+    {
+      "query": "split down",
+      "expect": ["action:splitDown"],
+      "group": "replay",
+      "replay": [
+        {
+          "hide": "action:splitDown"
+        }
+      ],
+      "note": "a whole-title query still finds a hidden row, so it can be shown again"
+    },
+    {
+      "query": "split",
+      "expect": ["action:splitRight", "action:splitDown"],
+      "group": "replay",
+      "replay": [
+        {
+          "hide": "action:splitDown"
+        },
+        {
+          "unhide": "action:splitDown"
+        }
+      ],
+      "note": "a shown-again row is back"
+    },
+    {
+      "query": "sp",
+      "expect": [],
+      "notFirst": "action:splitBrowserRight",
+      "group": "replay",
+      "replay": [
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 3
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 2
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 1
+        },
+        {
+          "forget": "action:splitBrowserRight"
+        }
+      ],
+      "note": "Reset Ranking forgets a row's uses and learned picks"
     }
   ]
 }

@@ -73,6 +73,9 @@ public struct DaemonCapabilities: Sendable {
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
     /// `new-pane-right`; `cwd`/`env` on the last two (cmux-tui PR 15600).
     public let terminalPlacementEnv = "terminal-placement-env-v1"
+    /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
+    /// retries (plans/cmux-next/remote-state-ownership.md S1).
+    public let splitClientKeys = "split-client-keys-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).

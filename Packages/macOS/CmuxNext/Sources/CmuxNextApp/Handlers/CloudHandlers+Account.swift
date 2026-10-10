@@ -10,7 +10,7 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             // The new machine's progress shows in the window at once; its
             // first workspace opens there when its daemon is ready.
-            creationFlow(context).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
             let target = try? machine(invocation, context)
@@ -19,7 +19,7 @@ extension CloudHandlers {
                 // A new machine, or one still on its way: show its progress
                 // now. An ended app link connects again on this gesture.
                 if let target, target.appLink != nil { target.connect(origin: connectOrigin(for: invocation)) }
-                creationFlow(context).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user).start(in: window, existing: target)
                 return
             }
             run("new cloud workspace", context) {
@@ -29,12 +29,15 @@ extension CloudHandlers {
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
-    static func creationFlow(_ context: AppActionContext) -> CloudCreationFlow {
+    /// `startedByPerson`: true only for an action invoked with origin user;
+    /// any other create (a Retry or Dismiss button of the progress view,
+    /// which carries no gesture origin) asks the person first.
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
-            create: { creation in try await cloud.createMachine(name: nil, creation: creation) },
+            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson) },
             open: { session in try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"

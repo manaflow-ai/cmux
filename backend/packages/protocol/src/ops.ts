@@ -13,6 +13,7 @@ import {
   PublicJwk,
   TeamId,
   TeamMember,
+  TeamRole,
   UserProfile
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
@@ -30,6 +31,7 @@ import { serverOps } from "./server-ops.ts"
 import { usageOps } from "./usage.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
+import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
@@ -166,8 +168,9 @@ export const TeamMembersList = def({
   risk: "read",
   target: "team",
   principals: ["session", "install"],
-  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams, role: Schema.optionalKey(Schema.Literals(["owner", "admin", "member"])) }),
-  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams, role: Schema.optionalKey(TeamRole) }),
+  /** seat_count: members that use a paid seat (every role but guest, spec H12). no_owner: Stack left the team without an owner; a Stack team admin must promote one. */
+  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, seat_count: Schema.optionalKey(Schema.Number), no_owner: Schema.optionalKey(Schema.Boolean), next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.",
   cli: { path: "team members", visible: true },
@@ -245,6 +248,7 @@ export const cloudOps = [
   ...ssoOps,
   ...serverOps,
   ...teamVmOps,
+  ...teamMemberOps,
   ...teamSshOps,
   ...cloudMachineOps,
   ...cloudVmOps,

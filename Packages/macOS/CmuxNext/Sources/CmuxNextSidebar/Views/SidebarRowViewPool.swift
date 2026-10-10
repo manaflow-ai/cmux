@@ -33,6 +33,7 @@ struct SidebarRowViewPool {
         case .group: GroupHeaderRowView.self
         case .section: SectionHeaderRowView.self
         case .emptySection: EmptySectionRowView.self
+        case .folder: FolderHeaderRowView.self
         }
     }
 }

@@ -74,9 +74,9 @@ def main() -> int:
         calls = log.read_text() if log.exists() else ""
         if r.returncode != 0:
             failures.append(f"suite run failed ({r.returncode}): {r.stdout}{r.stderr}")
-        if "swift build --build-tests -c debug --package-path Packages/macOS/Pkg" not in calls:
+        if "swift build --build-tests -c debug -debug-info-format none --package-path Packages/macOS/Pkg" not in calls:
             failures.append(f"no build of the package: {calls!r}")
-        if "swift test -c debug --package-path Packages/macOS/Pkg --skip-build --filter FooTests" not in calls:
+        if "swift test -c debug -debug-info-format none --package-path Packages/macOS/Pkg --skip-build --filter FooTests" not in calls:
             failures.append(f"no filtered test run: {calls!r}")
         # swift build copies String Catalogs uncompiled; the lane compiles them into
         # <lang>.lproj tables before the tests, as cmux-next.yml does
@@ -129,13 +129,18 @@ def main() -> int:
         if "1 of 3 suites failed" not in r.stdout:
             failures.append(f"no failure count in the summary: {r.stdout!r}")
 
-        # CMUX_SWIFT_TEST_DEBUG_INFO=none: the build and every suite run pass
-        # -debug-info-format none (no dsymutil of the test bundle); the same flags on
-        # both, or `swift test` would not find its build. dwarf is SwiftPM's default
-        # and adds no flag.
-        for value, want in (("none", " -debug-info-format none "), ("dwarf", None)):
+        # CMUX_SWIFT_TEST_DEBUG_INFO=none (the default): the build and every suite run
+        # pass -debug-info-format none (no dsymutil of the test bundle); the same flags
+        # on both, or `swift test` would not find its build. dwarf is SwiftPM's default
+        # and adds no flag; a sanitizer run defaults to dwarf (its reports need lines).
+        for extra, want in (({"CMUX_SWIFT_TEST_DEBUG_INFO": "none"}, " -debug-info-format none "),
+                            ({}, " -debug-info-format none "),
+                            ({"CMUX_SWIFT_TEST_DEBUG_INFO": "dwarf"}, None),
+                            ({"CMUX_SWIFT_SANITIZE": "address"}, None),
+                            ({"CMUX_SWIFT_SANITIZE": "address", "CMUX_SWIFT_TEST_DEBUG_INFO": "none"}, " -debug-info-format none ")):
+            value = extra
             log.write_text("")
-            r = run(repo, {**env, "CMUX_SWIFT_TEST_DEBUG_INFO": value}, "suite", "Packages/macOS/Pkg", "ATests,BTests")
+            r = run(repo, {**env, **extra}, "suite", "Packages/macOS/Pkg", "ATests,BTests")
             calls = log.read_text().splitlines()
             if r.returncode != 0:
                 failures.append(f"debug info {value}: run failed ({r.returncode}): {r.stdout}{r.stderr}")
