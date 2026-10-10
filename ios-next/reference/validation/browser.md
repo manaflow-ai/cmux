@@ -163,3 +163,53 @@ frame arrives. That link attaches to the active tab, as a second phone would.
 `displaced.png` shows two screenshots. On the left is the banner over the
 dimmed last frame. On the right is the page after "View here": the stream is
 live again, and scrolling collapses the toolbar.
+
+## Tab zoom, card close and the new-tab origin (device recording)
+
+The reference is a real iPhone 17 Pro Max recording,
+`~/nxios-ref/safari/user/tab-zoom-device.mp4` (440 × 956 pt, 60 fps, dark
+mode). I extracted its frames at 440 px wide, so 1 px = 1 pt. The
+implementation was recorded on the 402 pt iPhone 17 Pro simulator in dark
+mode. Widths are normalized as progress from card width to screen width
+(196 → 440 on the device, 177 → 402 on the simulator). In both recordings, the
+zooming rect is the bounding box of bright page pixels on the dark overview.
+
+**What Safari does:** the zooming rect is the tab's window. The page,
+including its status strip, is laid out at full screen size, scaled to the
+rect's width, top-aligned and clipped by the rect. The rect's corner radius
+interpolates between the screen radius and the card radius. Content never
+cross-fades.
+
+`ScaledPage` now draws the card, the zooming tab and the swipe cards the same
+way, for both live frames and the start page. The zooming tab starts from the
+image that the card shows.
+
+| Item | Device | Implementation | Result |
+|---|---|---|---|
+| Card | 196 × 276 at x 16 / 228, y 122 (safe top 62) | (W − 48) / 2 wide, aspect 1.408, top = safe top + 60, radius 18 × width / 177 | pass |
+| Card close | 22 pt circle, 4 pt from the top and right edges, 9.5 pt light cross, fill #F2F2F7 (light) / white 8 % (dark) | Same (`card-close-ref-vs-impl.png`: reference on the left, implementation on the right, 8 px/pt) | pass |
+| Open: page to card | Spring fit 0.330 / 0.91, settles in 16 frames, no overshoot | Spring 0.33 / 0.91. Measured fits 0.315 / 0.95 (run 1) and an identical curve in run 2; every frame within ±1 frame except recorder duplicates; settles in 17 frames | pass |
+| Close: card to page | Fit 0.335 / 1.00, settles in 23 frames, no overshoot | Spring 0.335 / 1.0. Run 2 fit 0.335 / 1.00, settles in 21 frames. Frames 1–3 trail by about 0.5 frame. Run 1 had one dropped frame at onset (fit 0.44 / 0.89). The last 5 pt no longer jump at the end: the overlay now waits for `completionCriteria: .removed` | pass |
+| Card title and close button | Fade out at the start of a close; fade in late on open (by about 16 frames) | Fade out over 0.1 s; fade in over 0.15 s after a 0.22 s delay | pass (visual) |
+
+`zoom-device-vs-sim.png` shows these rows, top to bottom:
+
+1. Device close
+2. Implementation close
+3. Device open
+4. Implementation open
+5. Implementation (+) new tab
+
+**New tab (+):** the recording contains no (+) taps. Both tabs (Gmail and
+Start Page) exist from its first frame. Every transition in it is a page ↔
+card zoom: open at frames 192, 640 and 882; close at 432, 733 and 1101.
+
+The implementation follows the rule from the request. The new start page
+grows from the grid slot its card will take (index = tab count; column =
+index % 2, row = index / 2). If that slot is off-screen, the grid first
+scrolls so it is visible, using the same reveal rule as the active card. The
+zoom uses the close spring. Row 5 of the sheet shows tab 4 (right column,
+second row) growing from its slot.
+
+I did not validate this rule against Safari. It needs a recording with (+)
+taps at different tab counts.

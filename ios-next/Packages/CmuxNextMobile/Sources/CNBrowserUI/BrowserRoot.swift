@@ -223,7 +223,7 @@ struct BrowserScreen: View {
                 swipeCards(current: frame, topColor: topColor)
             }
         }
-        .cnStatusBarStyle(showsStartPage ? nil : frame.map { CNStatusBarStyle(over: $0.topColor) })
+        .cnStatusBarStyle(showsStartPage || chrome.overview ? nil : frame.map { CNStatusBarStyle(over: $0.topColor) })
     }
 
     @ViewBuilder private func swipeCards(current: PageFrame?, topColor: Color) -> some View {
@@ -403,7 +403,7 @@ struct BrowserScreen: View {
         }
         chrome.overview = true
         let card = layout.card(index).offsetBy(dx: 0, dy: -offset)
-        withAnimation(motion.resolve(motion.overviewOpen)) {
+        withAnimation(motion.resolve(motion.overviewOpen), completionCriteria: .removed) {
             zoom?.rect = card
             zoom?.radius = layout.cardRadius
             zoom?.strip = 0
@@ -434,7 +434,7 @@ struct BrowserScreen: View {
                            topColor: Color(uiColor: frame?.topColor ?? .white),
                            startPage: model.showsStartPage(tabId), rect: card, radius: overviewLayout.cardRadius, strip: 0)
         withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
-        withAnimation(motion.resolve(motion.overviewClose)) {
+        withAnimation(motion.resolve(motion.overviewClose), completionCriteria: .removed) {
             zoom?.rect = fullRect
             zoom?.radius = style.metrics.screenRadius
             zoom?.strip = safeTop
@@ -462,7 +462,7 @@ struct BrowserScreen: View {
         zoom = ZoomOverlay(tabId: "", image: nil, topColor: style.colors.startBackground, startPage: true,
                            rect: slot, radius: next.cardRadius, strip: 0)
         withAnimation(.easeOut(duration: 0.1)) { overviewDetails = 0 }
-        withAnimation(motion.resolve(motion.overviewClose)) {
+        withAnimation(motion.resolve(motion.overviewClose), completionCriteria: .removed) {
             zoom?.rect = fullRect
             zoom?.radius = style.metrics.screenRadius
             zoom?.strip = safeTop
