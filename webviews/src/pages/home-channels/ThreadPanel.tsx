@@ -14,7 +14,7 @@ export interface ThreadPanelProps {
   strings: Strings;
   canSend: boolean;
   onClose(): void;
-  onSend(text: string): void;
+  onSend(text: string): Promise<boolean>;
   onReact(message: HomeMessage, value: string): void;
 }
 

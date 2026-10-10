@@ -113,6 +113,7 @@ final class HomeChannelsPageProvider: PageProvider {
         }
         return PageSubscription { [weak self] in
             task.cancel()
+            pump.cancel()
             self?.pumps.removeValue(forKey: id)
         }
     }

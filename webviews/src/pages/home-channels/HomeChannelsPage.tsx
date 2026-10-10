@@ -31,9 +31,11 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     move: (delta, unreadOnly) => {
       const { channels, direct } = railSections(snap.conversations.values());
       const order = [...channels, ...direct];
+      const n = order.length;
       const start = order.findIndex((c) => c.id === snap.selected);
-      for (let step = 1; step <= order.length; step += 1) {
-        const next = order[(start + delta * step + order.length * step) % order.length];
+      const base = start < 0 ? (delta > 0 ? -1 : n) : start;
+      for (let step = 1; step <= n; step += 1) {
+        const next = order[(((base + delta * step) % n) + n) % n];
         if (next && (!unreadOnly || next.unread > 0)) {
           void store.select(next.id);
           return;
@@ -106,7 +108,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
             placeholder={format("composer.placeholder", open.kind === "group" ? `#${name}` : name)}
             label={format("composer.placeholder", name)}
             disabled={!online}
-            onSend={(text) => void store.send(text)}
+            onSend={(text) => store.send(text)}
           />
         )}
       </section>
@@ -118,9 +120,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           people={people}
           me={me}
           strings={strings}
-          canSend={online}
+          canSend={false}
           onClose={() => store.openThread(undefined)}
-          onSend={(text) => void store.send(text, snap.thread)}
+          onSend={(text) => store.send(text, snap.thread)}
           onReact={(message, value) => void store.react(message, value)}
         />
       )}

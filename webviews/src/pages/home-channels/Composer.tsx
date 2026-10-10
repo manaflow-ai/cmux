@@ -7,7 +7,8 @@ export interface ComposerProps {
   placeholder: string;
   label: string;
   disabled?: boolean;
-  onSend(text: string): void;
+  /** Resolves true when the owner took the message; the text clears only then. */
+  onSend(text: string): Promise<boolean>;
   /** Lets the page focus the field from a key (Escape from the thread, the switcher). */
   editorRef?: React.RefObject<PromptEditorHandle | null>;
 }
@@ -18,8 +19,9 @@ export function Composer({ placeholder, label, disabled, onSend, editorRef }: Co
   const ref = editorRef ?? local;
   const submit = (markdown: string) => {
     if (disabled || !markdown.trim()) return;
-    onSend(markdown);
-    setValue("");
+    void onSend(markdown).then((sent) => {
+      if (sent) setValue((current) => (current === markdown ? "" : current));
+    });
   };
   return (
     <div className={`hc-composer${disabled ? " disabled" : ""}`}>

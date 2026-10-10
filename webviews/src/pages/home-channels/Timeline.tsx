@@ -51,46 +51,49 @@ export function Timeline({
     getItemKey: (index) => rows[index]?.key ?? index,
     overscan: 8,
   });
-  const stick = useStickToBottom(virtualizer, scroller, conversation, rows.length, rows[0]?.key);
+  const firstMessage = rows.find((row) => row.kind === "message")?.key;
+  const stick = useStickToBottom(virtualizer, scroller, conversation, rows.length, firstMessage);
   const onScroll = () => {
     if (stick.onScroll()) onLoadOlder();
   };
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{strings.t("timeline.empty")}</div>;
   return (
-    <div ref={scroller} className={`hc-timeline ${className ?? ""}`} onScroll={onScroll} role="log" aria-live="polite">
+    <div className={`hc-timeline-frame ${className ?? ""}`}>
       {loadingOlder && <div className="hc-older">{strings.t("timeline.loadingOlder")}</div>}
-      <div className="hc-timeline-space" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((item) => {
-          const row = rows[item.index]!;
-          return (
-            <div
-              key={item.key}
-              data-index={item.index}
-              ref={virtualizer.measureElement}
-              className="hc-timeline-row"
-              style={{ transform: `translateY(${item.start}px)` }}
-            >
-              {row.kind === "day" ? (
-                <div className="hc-day" role="separator">
-                  <span>{dayLabel(row.at, strings, dayFormat)}</span>
-                </div>
-              ) : (
-                <MessageRow
-                  message={row.message}
-                  head={row.head}
-                  thread={row.thread}
-                  author={people.get(row.message.author)}
-                  me={me}
-                  strings={strings}
-                  timeFormat={timeFormat}
-                  onOpenThread={onOpenThread}
-                  onReact={onReact}
-                />
-              )}
-            </div>
-          );
-        })}
+      <div ref={scroller} className="hc-timeline" onScroll={onScroll} role="log" aria-live="polite">
+        <div className="hc-timeline-space" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((item) => {
+            const row = rows[item.index]!;
+            return (
+              <div
+                key={item.key}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="hc-timeline-row"
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                {row.kind === "day" ? (
+                  <div className="hc-day" role="separator">
+                    <span>{dayLabel(row.at, strings, dayFormat)}</span>
+                  </div>
+                ) : (
+                  <MessageRow
+                    message={row.message}
+                    head={row.head}
+                    thread={row.thread}
+                    author={people.get(row.message.author)}
+                    me={me}
+                    strings={strings}
+                    timeFormat={timeFormat}
+                    onOpenThread={onOpenThread}
+                    onReact={onReact}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

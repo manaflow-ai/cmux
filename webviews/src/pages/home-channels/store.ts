@@ -47,6 +47,8 @@ export class HomeChannelsStore {
   private starting?: Promise<void>;
   private generation = 0;
   private nextKey = 0;
+  /** The read cursor this page last sent per conversation (one read per new seq). */
+  private readonly readSeq = new Map<string, number>();
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = {
@@ -131,9 +133,16 @@ export class HomeChannelsStore {
       const page = await this.client.call<HomePage>(HomeOps.page, { conversation: id, tail: PAGE });
       if (generation !== this.generation || this.snapshot.selected !== id) return;
       const conversations = new Map(this.snapshot.conversations).set(id, page.conversation);
-      const messages = mergeMessages([], page.messages, WINDOW);
+      // Keep what events merged while the page was in flight (and older pages already read);
+      // the snapshot wins for a message both have unless the event copy was edited later.
+      const kept = this.snapshot.messages.filter((m) => m.conversation === id);
+      const fresh = page.messages.map((m) => {
+        const event = kept.find((k) => k.seq === m.seq);
+        return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
+      });
+      const messages = mergeMessages(kept, fresh, WINDOW);
       this.set({ conversations, messages, hasOlder: (messages[0]?.seq ?? 1) > 1 });
-      this.markRead(page.conversation);
+      this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
     }
@@ -166,10 +175,10 @@ export class HomeChannelsStore {
   }
 
   /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
-  async send(text: string, thread?: string): Promise<void> {
+  async send(text: string, thread?: string): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
-    if (!this.client || !conversation || !trimmed) return;
+    if (!this.client || !conversation || !trimmed) return false;
     try {
       await this.client.call(HomeOps.send, {
         conversation,
@@ -177,8 +186,10 @@ export class HomeChannelsStore {
         threadRoot: thread,
         idempotencyKey: this.key("send"),
       });
+      return true;
     } catch (error) {
       this.set({ error: describe(error) });
+      return false;
     }
   }
 
@@ -201,21 +212,23 @@ export class HomeChannelsStore {
     this.set({ error: undefined });
   }
 
-  private markRead(conversation: HomeConversation): void {
-    if (!this.client || conversation.unread === 0) return;
+  /** Moves my read cursor to the newest seq I have seen, once per new seq. */
+  private markRead(conversation: HomeConversation, seen: number): void {
+    const seq = Math.max(conversation.lastSeq, seen);
+    const cursor = Math.max(conversation.lastSeq - conversation.unread, this.readSeq.get(conversation.id) ?? 0);
+    if (!this.client || seq <= cursor) return;
+    this.readSeq.set(conversation.id, seq);
     void this.client
-      .call(HomeOps.read, {
-        conversation: conversation.id,
-        seq: conversation.lastSeq,
-        idempotencyKey: this.key("read"),
-      })
-      .catch(() => undefined);
+      .call(HomeOps.read, { conversation: conversation.id, seq, idempotencyKey: this.key("read") })
+      .catch(() => this.readSeq.delete(conversation.id));
   }
 
   /** Applies one coalesced host batch. */
   private apply(batch: HomeEventBatch): void {
     const patch: Partial<HomeSnapshot> = {};
     if (batch.connection) patch.connection = batch.connection;
+    // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
+    if (batch.connection || batch.inboxStale) patch.typing = [];
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
@@ -240,7 +253,9 @@ export class HomeChannelsStore {
     }
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
-    if (open && incoming.length > 0 && document.visibilityState === "visible") this.markRead(open);
+    if (open && incoming.length > 0 && document.visibilityState === "visible") {
+      this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+    }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
   }

@@ -222,8 +222,13 @@ body,
   text-decoration: underline;
 }
 
-.hc-timeline {
+.hc-timeline-frame {
   position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.hc-timeline {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -246,8 +251,10 @@ body,
   color: var(--page-text-3);
 }
 .hc-older {
-  position: sticky;
-  top: 0;
+  position: absolute;
+  top: 4px;
+  inset-inline: 0;
+  pointer-events: none;
   z-index: var(--layer-sticky);
   text-align: center;
   color: var(--page-text-3);

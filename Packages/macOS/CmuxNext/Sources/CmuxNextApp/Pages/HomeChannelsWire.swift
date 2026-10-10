@@ -186,6 +186,12 @@ nonisolated final class HomeChannelsEventPump: Sendable {
     }
 
     private let state = Mutex(Pending())
+    private let cancelled = Mutex(false)
+
+    /// The subscription ended: a delivery already scheduled hands the page nothing.
+    func cancel() {
+        cancelled.withLock { $0 = true }
+    }
     private let me: Mutex<ParticipantID>
 
     init(me: ParticipantID) {
@@ -244,6 +250,7 @@ nonisolated final class HomeChannelsEventPump: Sendable {
 
     /// Takes the pending batch (nil when empty) and lets the next event schedule again.
     func take() -> JSONValue? {
+        guard !cancelled.withLock({ $0 }) else { return nil }
         let pending = state.withLock { pending in
             let taken = pending
             pending = Pending()

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 
 /// One window's top pages: one view per route, made on first show and kept
 /// for the window's life, so a page keeps its state (scroll, search, the
@@ -66,6 +67,9 @@ final class TopPageHost {
     func teardown() {
         for (route, view) in views {
             view.removeFromSuperview()
+            // The channels Home is a web page outside the internal page providers: close it so
+            // its event subscription ends with the window.
+            if route == .home, let page = (view as? InternalPageView)?.content as? PageWebView { page.close() }
             if case .page(let id) = route, let key = keys[route] { services?.pages.provider(id)?.tabClosed(key) }
         }
         views.removeAll()
