@@ -9,7 +9,8 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state,
+                                                 registry: services.registry, transfer: services.sessionTransfer)
     }
 }
 
@@ -28,21 +29,25 @@ enum SidebarCardFeed {
     static let useRealFeedActionID = "use-real-feed"
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
+    static let continuityCardID = "session-continuity"
+    static let continuityActionID = "move"
 
     /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
     /// one task, so the bridge cancels both together. `registry` gives the
     /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
-        let cards = start(model: model, updater: updater, registry: registry)
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+                      transfer: SessionTransferService? = nil) -> Task<Void, Never> {
+        let cards = start(model: model, updater: updater, registry: registry, transfer: transfer)
         guard window != nil else { return cards }
         let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
-    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil,
+                      transfer: SessionTransferService? = nil) -> Task<Void, Never> {
         Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), noticeCard(updater, registry: registry))
+                (updateCard(updater), updatedCard(updater), noticeCard(updater, registry: registry, transfer: transfer))
             }) {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }
@@ -62,8 +67,9 @@ enum SidebarCardFeed {
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .noticeAction(let card, let action):
-            noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
-        case .dismissNotice(let card): dismissNotice(card, updater: services.updater)
+            noticeAction(card, action, updater: services.updater, transfer: services.sessionTransfer,
+                         registry: services.registry, open: { openUpdateLink($0, services: services) })
+        case .dismissNotice(let card): dismissNotice(card, updater: services.updater, transfer: services.sessionTransfer)
         case .openWhatsNew, .shareCmux, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         default: break
         }
@@ -105,7 +111,8 @@ enum SidebarCardFeed {
     /// A notice button: the update status's actions (Release Notes is a
     /// link `open` shows like a popover link), Use Real Feed, an
     /// announcement's allow-listed Try It, a tip's Try It.
-    static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
+    static func noticeAction(_ card: String, _ action: String, updater: UpdaterService,
+                             transfer: SessionTransferService, registry: ActionRegistry, open: (URL) -> Void) {
         if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
             if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
                 open(url)
@@ -114,6 +121,8 @@ enum SidebarCardFeed {
             }
         } else if card == testFeedCardID, action == useRealFeedActionID {
             try? updater.useTestFeed(nil, pinned: false)
+        } else if card == continuityCardID, action == continuityActionID {
+            _ = registry.perform("session.moveHere", invocation: ActionInvocation(origin: .user))
         } else if card.hasPrefix(announcementPrefix), PageDescriptor.changelogTryItActions.contains(action) {
             updater.runAllowListedAction?(action)
         } else if card.hasPrefix(tipPrefix), action == tryActionID {
@@ -123,9 +132,11 @@ enum SidebarCardFeed {
 
     /// A notice's x: the update status hides; an announcement or a tip never
     /// shows again. The test-feed notice has no x.
-    static func dismissNotice(_ card: String, updater: UpdaterService) {
+    static func dismissNotice(_ card: String, updater: UpdaterService, transfer: SessionTransferService) {
         if card == updateCardID {
             updater.dismissCard()
+        } else if card == continuityCardID {
+            transfer.dismissOffer()
         } else if card.hasPrefix(announcementPrefix) {
             updater.dismissAnnouncement(String(card.dropFirst(announcementPrefix.count)))
         } else if card.hasPrefix(tipPrefix) {
@@ -138,7 +149,7 @@ enum SidebarCardFeed {
     /// then the active test feed, then the newest announcement, then today's
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
-    static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
+    static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?, transfer: SessionTransferService? = nil) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
         if let shown = updater.cardPresentation { return notice(shown) }
         if let text = updater.testFeedCardText {
@@ -146,6 +157,13 @@ enum SidebarCardFeed {
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])
         }
         guard !updater.whatsNew.showsUpdatedCard else { return nil }
+        if let offer = transfer?.offer {
+            let detail = "\(offer.itemCount) session\(offer.itemCount == 1 ? "" : "s") are open in another cmux build."
+            return SidebarNoticeCard(id: continuityCardID, symbol: "arrow.down.to.line", title: "Move my sessions here",
+                                     detail: detail,
+                                     actions: [SidebarNoticeCard.Action(id: continuityActionID, title: "Move Sessions")],
+                                     dismissLabel: UpdaterService.cardDismissLabel)
+        }
         if let item = updater.announcements.first {
             let actions = item.action.flatMap { id in
                 PageDescriptor.changelogTryItActions.contains(id) ? [SidebarNoticeCard.Action(id: id, title: UpdaterService.announcementActionTitle)] : nil
