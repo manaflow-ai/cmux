@@ -12,10 +12,8 @@ import Testing
 
 extension AgentNotificationRegressionTests {
     /// A reused PID must fail closed when the cached start-time key changes.
-    @Test("Socket PID evidence is revalidated after the MainActor hop")
+    @Test("Socket PID evidence rejects a changed birth-time key")
     func staleSocketPIDEvidenceIsRejected() throws {
-        let fixture = try makeFixture()
-        defer { fixture.restore() }
         let identity = try #require(agentLiveProcessIdentity(pid: Darwin.getpid()))
         let staleKey = CmuxTopProcessScopeCacheKey(
             pid: identity.scopeCacheKey.pid,
@@ -24,17 +22,18 @@ extension AgentNotificationRegressionTests {
         )
         let evidence = AgentDeliveryProcessEvidence(
             isLive: true,
+            identityValidated: true,
             ttyDevice: identity.ttyDevice,
             scope: nil,
             scopeCacheKey: staleKey
         )
 
         #expect(
-            fixture.appDelegate.liveAgentDeliveryTarget(
-                for: evidence,
-                resolution: .controllingTTY
-            ) == nil,
-            "A PID reused while the socket request waited must fail closed"
+            !agentDeliveryEvidenceMatchesProcess(
+                evidence,
+                currentScopeCacheKey: identity.scopeCacheKey
+            ),
+            "A PID reused while the socket request waited must fail the birth-time check"
         )
     }
 
@@ -51,6 +50,7 @@ extension AgentNotificationRegressionTests {
         )
         let staleEvidence = AgentDeliveryProcessEvidence(
             isLive: true,
+            identityValidated: true,
             ttyDevice: identity.ttyDevice,
             scope: nil,
             scopeCacheKey: staleKey
@@ -67,6 +67,38 @@ extension AgentNotificationRegressionTests {
         let encoded = try await TerminalController.shared.socketAgentResolveDeliveryTargetResponseAsync(
             request,
             precomputedProcessEvidence: staleEvidence
+        )
+        let response = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(encoded.utf8),
+                options: []
+            ) as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == false)
+        #expect((response["error"] as? [String: Any])?["code"] as? String == "not_found")
+    }
+
+    /// The public socket dispatcher must use the worker-backed delivery path
+    /// and fail closed for a live PID that has no owned surface. This keeps the
+    /// regression coverage on the same V2 envelope path used by clients,
+    /// rather than only exercising the injected-evidence helper overload.
+    @Test("V2 socket delivery dispatch fails closed for an unowned PID")
+    func v2SocketDispatchFailsClosedForUnownedPID() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        let request: [String: Any] = [
+            "id": "unowned-pid",
+            "method": "agent.resolve_delivery_target",
+            "params": [
+                "pid": 1,
+                "pid_resolution": AgentProcessBindingResolution.controllingTTY.rawValue,
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let line = try #require(String(data: data, encoding: .utf8))
+        let encoded = try #require(
+            await TerminalController.shared.processCommandUsingSocketExecutionPolicyAsync(line)
         )
         let response = try #require(
             JSONSerialization.jsonObject(

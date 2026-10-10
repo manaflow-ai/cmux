@@ -102,6 +102,34 @@ extension TerminalController {
             self.scheduleSocketReadSnapshotRefresh()
             return response
         }
+
+        // The main-actor hop can wait behind a long UI turn. Re-read the
+        // process birth-time key on the blocking worker after that wait so a
+        // reused PID cannot make the actor resolve a stale TTY or scope as if
+        // it were still live. Keep this probe off MainActor; the actor only
+        // owns workspace and surface state.
+        guard let evidence = precomputedProcessEvidence,
+              let pidValue = request.params["pid"]?.foundationObject,
+              let pid = Self.strictPositivePID(pidValue) else {
+            return response
+        }
+        let currentIdentity = await runSocketWorkerBlockingBody {
+            agentLiveProcessIdentity(pid: pid)
+        }
+        guard let currentIdentity,
+              agentDeliveryEvidenceMatchesProcess(
+                  evidence,
+                  currentScopeCacheKey: currentIdentity.scopeCacheKey
+              ) else {
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "not_found",
+                message: String(
+                    localized: "agent.deliveryTarget.error.notFound",
+                    defaultValue: "No live delivery target"
+                )
+            )
+        }
         return response
     }
 

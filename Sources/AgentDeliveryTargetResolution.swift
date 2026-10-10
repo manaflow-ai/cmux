@@ -277,11 +277,16 @@ extension AppDelegate {
         for evidence: AgentDeliveryProcessEvidence,
         resolution: AgentProcessBindingResolution
     ) -> AgentDeliveryTargetCandidate? {
-        guard let scopeCacheKey = evidence.scopeCacheKey,
-              agentDeliveryEvidenceMatchesProcess(
-                evidence,
-                currentScopeCacheKey: scopeCacheKey
-              ) else { return nil }
+        // The socket path validates the process birth-time key on its worker
+        // lane immediately after the MainActor ownership hop. Do not compare
+        // the evidence key with itself here: that would make the freshness
+        // check tautological and allow a reused PID to borrow stale routing
+        // facts. Synchronous in-process callers receive evidence whose
+        // inspector has already revalidated the key before this ownership
+        // lookup.
+        guard evidence.isLive,
+              evidence.identityValidated,
+              evidence.scopeCacheKey != nil else { return nil }
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = evidence.ttyDevice {
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(
