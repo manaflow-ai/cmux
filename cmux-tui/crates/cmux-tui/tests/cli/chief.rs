@@ -579,6 +579,26 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
         stderr(&output)
     );
 
+    // A command this build does not know is a dead end too (live run on
+    // cmux-lawrence-2: an unknown-action hint used to end it first).
+    let unknown_dir = dir.join("unknown");
+    fs::create_dir_all(&unknown_dir).unwrap();
+    let output = Command::new(&cli)
+        .arg("--socket")
+        .arg(skew_daemon(&unknown_dir, &good))
+        .args(["nosuchscope", "nosuchverb"])
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC")
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        out.contains("REEXECED skew-test-other-build --socket"),
+        "unknown command: stdout {out} stderr {}",
+        stderr(&output)
+    );
+
     // Each refusal: nothing runs, the reason and the fix command are named.
     let writable = target("cmux DEV skewgw.app");
     fake_daemon_cli(&writable, 0o775);
