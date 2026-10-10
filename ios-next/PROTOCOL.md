@@ -73,7 +73,7 @@ All params and results use camelCase JSON. Timestamps are ms since epoch.
 
 ### host
 - `host.hello {client:{name,version,platform}, protocol:1}` -> `{hostId, hostName, os, version, protocol:1, capabilities:[string]}`
-  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`, `agent.mirror.v1`.
+  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`, `agent.mirror.v1`, `layout.v1`.
   `term.mirror.v1`: the terminals belong to the Mac (the host bridges the
   cmux-next app); see "terminals" for the sizing rules.
   `agent.mirror.v1`: the agent sessions belong to the Mac's cmux-next app
@@ -139,6 +139,31 @@ With `term.mirror.v1` (terminals mirrored from the Mac):
   carrying the Mac's grid.
 - `term.create` rejects `cwd` with `unsupported`; new terminals run the user's
   default shell where the Mac decides.
+
+### layout (`layout.v1`)
+The Mac's window as panes, for the phone's pane canvas. Each workspace is the
+active screen of a cmux-next workspace (or, without the cmux-next app, one
+synthesized workspace: a terminals pane on the left and a browser pane on the right).
+```jsonc
+Layout     {workspaces:[Workspace]}                 // Mac sidebar order
+Workspace  {id, title, color?, active, activePaneId?, panes:[Pane]}
+Pane       {id, rect:{x,y,w,h}, tabs:[LayoutTab], focusedTabId?, active}
+LayoutTab  {id, kind:"terminal"|"browser"|"agent"|"conversation"|"other",
+            title, refId?, streamable, url?, focused}
+```
+- `rect` is normalized to the workspace (0..1, origin top-left); panes tile the
+  workspace. Panes are listed top-to-bottom, then left-to-right.
+- `refId`: terminal tabs carry the `terminalId` for `term.*`; agent tabs the
+  `sessionId` for `agent.*`; standalone browser tabs the `tabId` for `browser.*`.
+- `streamable:false`: the phone cannot open a live view; show a placeholder card
+  (title, `url`). cmux-next browser panes are always `streamable:false`; so are
+  agent tabs of another machine and conversation tabs.
+- `active` (pane): the Mac's focused pane, only in the active workspace.
+- `layout.get {}` -> `{layout}`
+- `layout.focusTab {paneId, tabId}` -> `{}`: selects the tab in its pane and focuses
+  that pane (and its workspace) on the Mac. `not_found` if the tab is not in the pane.
+- events: `layout.changed {layout}` (full snapshot, sent when anything above changes,
+  including focus changes made on the Mac).
 
 ### files
 Uploads stream on the bulk lane so a large file never blocks control replies.

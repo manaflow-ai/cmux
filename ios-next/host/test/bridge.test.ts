@@ -62,7 +62,10 @@ async function fakeDaemon() {
     { surface: 5, kind: "browser", title: "about:blank", size: { cols: 80, rows: 24 } },
   ];
   let nextSurface = 10;
-  const tree = () => ({ workspaces: [{ id: "w1", screens: [{ panes: [{ tabs }] }] }] });
+  const state = { activeTab: 0 };
+  const tree = () => ({
+    workspaces: [{ id: 1, name: "Home", active: true, screens: [{ id: 4, active: true, active_pane: 3, layout: { type: "leaf", pane: 3 }, panes: [{ id: 3, active_tab: state.activeTab, tabs }] }] }],
+  });
   const srv = await ndjsonServer(path, (m, conn) => {
     commands.push(m);
     const ok = (data: unknown = {}) => conn.send({ id: m.id, ok: true, data });
@@ -73,7 +76,13 @@ async function fakeDaemon() {
       case "subscribe":
       case "set-size-counts":
       case "detach-attached-view":
+      case "focus-pane":
         return ok();
+      case "select-tab":
+        state.activeTab = m.index;
+        ok();
+        srv.broadcast({ event: "tree-changed" });
+        return;
       case "list-workspaces":
         return ok(tree());
       case "attach-surface":
@@ -94,7 +103,7 @@ async function fakeDaemon() {
         return conn.send({ id: m.id, ok: false, error: `unknown command ${m.cmd}` });
     }
   });
-  return { path, commands, tabs, srv };
+  return { path, commands, tabs, srv, state };
 }
 
 describe("bridge policy", () => {
@@ -143,6 +152,38 @@ describe("bridge policy", () => {
       expect(() => checkAcpmuxCall(method, params as Record<string, unknown>), method).toThrow(PolicyError);
     }
     expect(() => checkAcpmuxCall("session/new", { cwd: "/Users/me", mcpServers: [], _meta: { acpmux: { harness: "codex", model: "gpt" } } })).not.toThrow();
+  });
+});
+
+describe("daemon layout bridge", () => {
+  it("serves the Mac layout and focuses a tab on the Mac", async () => {
+    const d = await fakeDaemon();
+    cleanups.push(() => d.srv.close());
+    const { DaemonLayout } = await import("../src/layout/index.ts");
+    const layout = new DaemonLayout(() => d.path);
+    const { core, client } = await connectedCore({ bridge: { layout } });
+    cleanups.push(() => core.shutdown());
+    const { layout: l } = await client.request("layout.get");
+    expect(l.workspaces[0]).toMatchObject({ id: "w1", title: "Home", active: true, activePaneId: "p3" });
+    expect(l.workspaces[0].panes[0]).toMatchObject({
+      id: "p3",
+      rect: { x: 0, y: 0, w: 1, h: 1 },
+      focusedTabId: "t2",
+      tabs: [
+        { id: "t2", kind: "terminal", refId: "s2", streamable: true, focused: true },
+        { id: "t5", kind: "browser", streamable: false, focused: false },
+      ],
+    });
+    const changed: any[] = [];
+    client.peer.on("event", (t, p) => t === "layout.changed" && changed.push(p.layout));
+    await client.request("layout.focusTab", { paneId: "p3", tabId: "t5" });
+    expect(d.commands.filter((c) => ["focus-pane", "select-tab"].includes(c.cmd)).map((c) => ({ ...c, id: 0 }))).toEqual([
+      { id: 0, cmd: "focus-pane", pane: 3 },
+      { id: 0, cmd: "select-tab", pane: 3, index: 1 },
+    ]);
+    await waitFor(() => changed.some((x) => x.workspaces[0].panes[0].focusedTabId === "t5"));
+    await expect(client.request("layout.focusTab", { paneId: "p3", tabId: "t99" })).rejects.toMatchObject({ code: "not_found" });
+    await expect(client.request("layout.focusTab", { paneId: "p77", tabId: "t2" })).rejects.toMatchObject({ code: "not_found" });
   });
 });
 

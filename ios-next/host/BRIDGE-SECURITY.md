@@ -44,6 +44,9 @@ Daemon (`DAEMON_ALLOW`), with the only fields each may carry:
 | `detach-attached-view` | `surface`, `lease` | end a mirror |
 | `new-tab` | none | a new tab running the user's default shell |
 | `close-surface`, `rename-surface` | `surface` (+ `name`) | phone terminal list actions |
+| `select-workspace`, `select-screen` | `index` | `layout.focusTab`: bring the pane's workspace/screen forward |
+| `focus-pane` | `pane` (numeric) | `layout.focusTab` |
+| `select-tab` | `pane` (numeric), `index` | `layout.focusTab` |
 
 acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
 `_acpmux/watch`, `_acpmux/sessions`, `_acpmux/harnesses`, `_acpmux/models`,
@@ -88,6 +91,15 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
   tabs are frontend-rendered and the daemon cannot stream them. The host
   keeps its own Chrome provider for `browser.*`.
 
+- **Layout and focus (`layout.get`, `layout.focusTab`).** Read-only tree
+  plus selection: `select-workspace/screen/tab` and `focus-pane` move the
+  Mac's shared focus to a tab the phone picked (requested behaviour: phone
+  and Mac stay in step). They execute nothing and create, close, split,
+  move or resize nothing. `delta` selectors and every layout mutation
+  (`split`, `close-pane`, `move-tab`, `set-split-ratio`, ...) stay denied.
+  The pane and tab must exist in the current tree (`not_found` otherwise),
+  and only numeric ids are accepted.
+
 ### Can it mutate or destroy objects it does not own?
 
 The daemon and acpmux run as this macOS user and hold only this user's
@@ -131,6 +143,10 @@ The phone renders at the Mac's grid.
 - **acpmux policy:** denies peers, import/export, policy/rules/defaults and
   shutdown. Also denies `session/new` with MCP servers or extra `_meta`
   fields, `resource` prompt blocks, and non-empty client capabilities.
+- **Layout** (`test/layout.test.ts`, `test/bridge.test.ts`): split-tree
+  rects, tab mapping, focus commands allowed only with numeric ids, and layout
+  mutations (`split`, `close-pane`, `move-tab`, `set-split-ratio`, `delta`
+  selection) denied.
 - **Bridges against fake daemon and acpmux sockets:** owned-target allow
   cases, refusal of browser and malformed terminal ids, `cwd` refusal,
   no resize on the wire, and transcript mapping.

@@ -125,3 +125,42 @@ export interface Tab {
   faviconUrl?: string;
   active: boolean;
 }
+
+// --- layout (PROTOCOL.md §4 layout) ---
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export type LayoutTabKind = "terminal" | "browser" | "agent" | "conversation" | "other";
+export interface LayoutTab {
+  id: string;
+  kind: LayoutTabKind;
+  title: string;
+  /** terminalId (terminal), browser tab id (browser), agent sessionId (agent). */
+  refId?: string;
+  /** False when the phone cannot open a live view of this tab (show a placeholder). */
+  streamable: boolean;
+  url?: string;
+  focused: boolean;
+}
+export interface LayoutPane {
+  id: string;
+  /** Normalized rect within its workspace, 0..1. */
+  rect: Rect;
+  tabs: LayoutTab[];
+  focusedTabId?: string;
+  active: boolean;
+}
+export interface LayoutWorkspace {
+  id: string;
+  title: string;
+  color?: string;
+  active: boolean;
+  activePaneId?: string;
+  panes: LayoutPane[];
+}
+export interface Layout {
+  workspaces: LayoutWorkspace[];
+}

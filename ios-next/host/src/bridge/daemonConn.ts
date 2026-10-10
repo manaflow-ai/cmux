@@ -37,7 +37,7 @@ export class DaemonConn extends EventEmitter<DaemonConnEvents> {
   }
 
   /** Connects, identifies and registers as a frontend client of the bridge. */
-  static async open(path: string, name = "cmux-next-host (phone bridge)"): Promise<DaemonConn> {
+  static async open(path: string, name = "cmux-next-host (phone bridge)", extraCapabilities: string[] = []): Promise<DaemonConn> {
     const sock = await new Promise<net.Socket>((resolve, reject) => {
       const s = net.createConnection(path);
       const timer = setTimeout(() => {
@@ -55,7 +55,7 @@ export class DaemonConn extends EventEmitter<DaemonConnEvents> {
     });
     const conn = new DaemonConn(sock);
     conn.identity = await conn.request("identify");
-    await conn.request("set-client-info", { name, kind: "frontend", capabilities: ["shared-sizing-v1", "view-attachment-lease-v1"], device_kind: "phone" });
+    await conn.request("set-client-info", { name, kind: "frontend", capabilities: ["shared-sizing-v1", "view-attachment-lease-v1", ...extraCapabilities], device_kind: "phone" });
     return conn;
   }
 

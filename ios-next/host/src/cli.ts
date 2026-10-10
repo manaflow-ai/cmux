@@ -11,6 +11,7 @@ import { HostCore } from "./host.ts";
 import { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { discoverTargets } from "./bridge/discover.ts";
+import { DaemonLayout } from "./layout/index.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
 import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
@@ -185,6 +186,7 @@ async function setupBridge(opts: RunOptions, log: (m: string) => void) {
   return {
     terminals: targets.daemonSocket ? new DaemonTerminals(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
     agents: targets.acpmuxSocket ? new AcpmuxAgents(() => targets.acpmuxSocket, { log: makeLogger("bridge") }) : undefined,
+    layout: targets.daemonSocket ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
   };
 }
 

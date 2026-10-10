@@ -12,6 +12,7 @@ import { TerminalProvider, type TerminalOptions } from "./providers/terminal.ts"
 import { VERSION, type Logger } from "./util.ts";
 import type { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import type { DaemonTerminals } from "./bridge/daemonTerminals.ts";
+import { registerLayout, StandaloneLayout, type LayoutSource } from "./layout/index.ts";
 
 export interface HostCoreOptions {
   hostId?: string;
@@ -27,7 +28,7 @@ export interface HostCoreOptions {
    * are served from its daemon and acpmux instead of the host's own PTYs and
    * agents (Chief keeps using the host's agents for its own session).
    */
-  bridge?: { terminals?: DaemonTerminals; agents?: AcpmuxAgents };
+  bridge?: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource };
 }
 
 export class HostCore {
@@ -37,7 +38,8 @@ export class HostCore {
   readonly chief: ChiefProvider;
   readonly browser: BrowserProvider;
   readonly files: FilesProvider;
-  readonly bridge: { terminals?: DaemonTerminals; agents?: AcpmuxAgents };
+  readonly bridge: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource };
+  readonly layout: LayoutSource;
   hostId: string;
   readonly hostName: string;
 
@@ -56,13 +58,36 @@ export class HostCore {
     else this.terminals.register(this.server);
     if (this.bridge.agents) this.bridge.agents.register(this.server);
     else this.agents.register(this.server);
+    if (this.bridge.layout) this.layout = this.bridge.layout;
+    else {
+      const standalone = new StandaloneLayout(
+        {
+          terminals: () => this.terminals.list(),
+          tabs: async () => (this.browser.connected ? (await this.browser.list()).map((t) => ({ id: t.id, title: t.title, url: t.url })) : []),
+        },
+        this.hostName,
+      );
+      let pending: NodeJS.Timeout | null = null;
+      const changed = (topic: string) => {
+        if (!/^(term\.(updated|exited)|browser\.(tab|closed))$/.test(topic) || pending) return;
+        pending = setTimeout(() => {
+          pending = null;
+          void standalone.changed().catch(() => {});
+        }, 150);
+        pending.unref?.();
+      };
+      this.terminals.on("event", changed);
+      this.browser.on("event", changed);
+      this.layout = standalone;
+    }
+    registerLayout(this.server, this.layout);
     this.chief.register(this.server);
     this.browser.register(this.server);
     this.files.register(this.server);
   }
 
   info(): HostInfo {
-    const capabilities = ["term.v1", "agent.v1", "conv.v1", "fs.v1"];
+    const capabilities = ["term.v1", "agent.v1", "conv.v1", "fs.v1", "layout.v1"];
     if (this.browser.capable) capabilities.push("browser.v1");
     // Terminals belong to the Mac (cmux-next app): the phone must not resize them.
     if (this.bridge.terminals) capabilities.push("term.mirror.v1");
@@ -86,6 +111,7 @@ export class HostCore {
     this.agents.shutdown();
     this.bridge.terminals?.shutdown();
     this.bridge.agents?.shutdown();
+    this.layout.shutdown();
     this.chief.flush();
     this.browser.close();
     this.files.close();

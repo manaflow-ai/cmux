@@ -12,6 +12,7 @@ export class PolicyError extends Error {
 type FieldRule = (value: unknown) => boolean;
 
 const isSurface: FieldRule = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const isIndex: FieldRule = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 10_000;
 const isString = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max;
 const isBase64 = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max && /^[A-Za-z0-9+/=]*$/.test(v);
 const isStringArray: FieldRule = (v) => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length <= 128);
@@ -41,6 +42,12 @@ export const DAEMON_ALLOW: Record<string, Record<string, FieldRule>> = {
   "new-tab": {},
   "close-surface": { surface: isSurface },
   "rename-surface": { surface: isSurface, name: isString(256) },
+  // layout.focusTab: select the tab on the Mac and focus its pane (shared
+  // focus, by design). Only numeric ids and indexes; no layout changes.
+  "select-workspace": { index: isIndex },
+  "select-screen": { index: isIndex },
+  "focus-pane": { pane: isSurface },
+  "select-tab": { pane: isSurface, index: isIndex },
 };
 
 /** acpmux JSON-RPC methods the bridge may call, with their allowed params. */
