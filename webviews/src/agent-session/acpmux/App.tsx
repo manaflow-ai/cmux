@@ -2521,6 +2521,15 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
+  // Whether the panes beside the chat show ([+] New tab reads Hide tabs): the App's answer to the
+  // click, and the tab state it reports.
+  const [sideTabs, setSideTabs] = useState(false);
+  const toggleSideTabs = () =>
+    ignoreFailure(
+      callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
+        setSideTabs(result?.shown === true),
+      ),
+    );
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
@@ -2531,9 +2540,15 @@ function AcpmuxPane() {
     t,
   );
   const readTabState = () =>
-    callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
+    callNative<{ pinned?: boolean; sideTabs?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
+      setSideTabs(state?.sideTabs === true);
     });
+  // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
+  useEffect(() => {
+    if (!quick) void readTabState().catch(() => undefined);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
+  }, [quick, snapshot.sessionId]);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -3150,6 +3165,8 @@ function AcpmuxPane() {
                       tabTools={!quick}
                       onTerminal={(mode) => runHeaderAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onBrowser={(mode) => runHeaderAction(HEADER_ACTIONS.browser, undefined, mode)}
+                      sideTabs={sideTabs}
+                      onSideTabs={toggleSideTabs}
                       summary={
                         <SummaryButton
                           // Another chat closes its summary and gallery, as it does the image viewer.

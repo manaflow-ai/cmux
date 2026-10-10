@@ -19,8 +19,16 @@ extension AgentTabStore {
         }, tabState: { [weak self] in
             guard let self else { return [:] }
             let key = resolve(provisional)
-            return ["pinned": lookup(key)?.store.tab(id: key)?.pinned ?? false]
-        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) })
+            let store = lookup(key)?.store
+            return ["pinned": store?.tab(id: key)?.pinned ?? false,
+                    "sideTabs": store.flatMap { AgentChatSplitToggles.sideTabs(of: key, in: $0) } == .shown]
+        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) }, sideTabs: { [weak self] in
+            guard let self else { return nil }
+            let chat = resolve(provisional)
+            return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
+                self?.openNewTabColumn(beside: provisional)
+            }
+        })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
@@ -28,8 +36,20 @@ extension AgentTabStore {
     /// A tab on `session` in the chat's pane, then moved to a new split on its right
     /// (`tab.moveToNewSplit`), so the chat stays where it is.
     private func openSide(_ session: String, beside provisional: String) {
+        openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, session: session) }
+    }
+
+    /// [+] New tab's column: a New Tab page in the chat's folder, moved to a new split on its right
+    /// as New side chat's tab is. The page's choices replace it in whichever pane it is in then.
+    private func openNewTabColumn(beside provisional: String) {
+        let chat = resolve(provisional)
+        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd) else { return }
+        openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
+    }
+
+    private func openBeside(_ provisional: String, open: (PaneID, DaemonService) throws -> AgentTabPending) {
         guard let (pane, daemon) = locate(resolve(provisional)),
-              let pending = try? open(in: pane, of: daemon, session: session) else { return }
+              let pending = try? open(pane, daemon) else { return }
         // task-owner: one tab creation, then one move of that tab
         Task { [weak self] in
             guard let created = try? await pending.value() else { return }
