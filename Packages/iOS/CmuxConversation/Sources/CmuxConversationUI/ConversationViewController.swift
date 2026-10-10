@@ -482,6 +482,11 @@ public final class ConversationViewController: UIViewController {
             return
         case .draft:
             return
+        case .older where store.older != .exhausted && store.hasLoadedNewest && rows.first == .loadingOlder:
+            // A page request starting, retrying or failing changes no row
+            // (the spinner row shows for any state short of exhausted), and
+            // it starts inside a scroll frame: skip the full rebuild.
+            return
         default:
             rebuild(change: change)
         }
