@@ -58,6 +58,12 @@ teams without a selected/requested team, create fails before providers or billin
 
 The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
 
+The proposed replacement for machine-home credentials is documented in
+[`docs/cloud-credential-leases.md`](../../../docs/cloud-credential-leases.md):
+environment-scoped, short-lived leases with brokered GitHub and SSH
+materialization. No Cloud route currently issues those leases, so this
+implementation does not claim per-workspace or per-user credential isolation.
+
 ## State model
 
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.

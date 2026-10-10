@@ -100,7 +100,8 @@ remains the low-level materialization primitive during migration.
 3. Add one-time capability requests and reusable approvals, with reconnect and
    retry handling.
 4. Move GitHub/Git and model credentials behind environment-scoped leases and
-   show provenance/rotation state.
+   show provenance/rotation state. See [cloud-credential-leases.md](cloud-credential-leases.md)
+   for the lease, broker, and revocation contract. Until that contract ships,
+   `gh` and SSH remain machine/target-home scoped.
 5. Add machine-pool binding, service recipes, and environment cloning for
    fan-out.
-
