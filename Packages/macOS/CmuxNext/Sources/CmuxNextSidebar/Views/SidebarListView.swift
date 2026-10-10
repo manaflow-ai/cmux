@@ -203,6 +203,7 @@ final class SidebarListView: NSView {
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { animate && now - $0.value < Motion.duration(MotionSpring.move) }
         let reopened = Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key))
+        if animate { for row in layout.rows where old.row(for: row.key) == nil || reopened.contains(row.key) { openingRows[row.key] = now } }
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
@@ -212,7 +213,7 @@ final class SidebarListView: NSView {
             let view = existing ?? dequeue(row.key)
             view.targetSize = target.size
             configure(view, row: row, animated: animate)
-            let opens = animate && (existing == nil ? old.row(for: row.key) == nil : reopened.contains(row.key))
+            let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
@@ -237,7 +238,6 @@ final class SidebarListView: NSView {
                 view.alphaValue = 0
             } else if opens {
                 appearing.append((view, target))
-                openingRows[row.key] = now
                 (view as? GroupHeaderRowView)?.playAppear()
             } else {
                 targets.append((view, target))
