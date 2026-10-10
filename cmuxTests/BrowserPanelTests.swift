@@ -10,6 +10,7 @@ import Darwin
 import Testing
 import CMUXMobileCore
 import CmuxBrowser
+import CmuxCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -774,6 +775,39 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    /// #18249: a managed SSH workspace has no workspace proxy, so public pages
+    /// load from this Mac instead of waiting forever for one.
+    func testSSHTuiWorkspaceLoadsPublicPagesWithoutRemoteProxy() throws {
+        for raw in ["https://example.com/", "http://10.0.0.5:8080/", "about:blank"] {
+            let url = try XCTUnwrap(URL(string: raw))
+            XCTAssertTrue(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: true), raw)
+            XCTAssertFalse(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: false), raw)
+        }
+    }
+
+    /// Loopback URLs in a managed SSH workspace must reach the SSH host, never a
+    /// same-port service on this Mac, so they keep waiting for the machine's route.
+    func testSSHTuiWorkspaceKeepsLoopbackOffThisMac() throws {
+        for raw in ["http://localhost:3000/", "http://127.0.0.1:3000/", "http://[::1]:3000/", "http://0.0.0.0:3000/"] {
+            let url = try XCTUnwrap(URL(string: raw))
+            XCTAssertFalse(BrowserPanel.loadsWithoutRemoteWorkspaceProxy(url, routesThroughSSHTui: true), raw)
+        }
+    }
+
+    /// SSH machines advertise 127.0.0.1; `localhost` and `::1` name the same
+    /// service and must route to the machine that owns the browser.
+    func testLoopbackSpellingsRouteToTheOwningSSHMachine() {
+        let selector = PrivateAddressRouteSelector<String>()
+        let addresses = ["ssh:a": "127.0.0.1", "ssh:b": "127.0.0.1", "vm": "10.8.0.5"]
+        for host in ["localhost", "LOCALHOST", "127.0.0.1", "::1", "0.0.0.0"] {
+            let routeHost = BrowserPanel.privateAddressRouteHost(host)
+            XCTAssertEqual(selector.machine(forHost: routeHost, owner: "ssh:b", addresses: addresses), "ssh:b", host)
+            XCTAssertNil(selector.machine(forHost: routeHost, owner: nil, addresses: addresses), host)
+            XCTAssertNil(selector.machine(forHost: routeHost, owner: "vm", addresses: addresses), host)
+        }
+        XCTAssertEqual(BrowserPanel.privateAddressRouteHost("10.8.0.5"), "10.8.0.5")
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
