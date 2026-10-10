@@ -68,10 +68,24 @@ describe("layout mapping", () => {
     expect(p12).toMatchObject({ id: "p12", active: true, tabs: [{ title: "build", refId: "s8" }] });
   });
 
-  it("marks remote agent tabs and other kinds unstreamable", () => {
-    expect(layoutTab({ surface: 1, kind: "conversation", conversation: { agent_session: { host: "mini2", session: "x" } } }, false)).toMatchObject({ kind: "agent", streamable: false });
-    expect(layoutTab({ surface: 1, kind: "conversation", conversation: { conversation: "c" } }, false)).toMatchObject({ kind: "conversation", streamable: false });
-    expect(layoutTab({ surface: 1, kind: "diff" }, false)).toMatchObject({ kind: "other", streamable: false });
+  it("marks remote agent tabs and other kinds unstreamable, always with a reason", () => {
+    expect(layoutTab({ surface: 1, kind: "conversation", conversation: { agent_session: { host: "mini2", session: "x" } } }, false)).toMatchObject({ kind: "agent", streamable: false, reason: "This agent runs on mini2" });
+    // The Home conversation tab (rendered by the app's web view) stays a conversation.
+    expect(layoutTab({ surface: 1, kind: "conversation", browser_renderer: "frontend", url: "about:blank", conversation: { conversation: "c" } } as any, false)).toMatchObject({ kind: "conversation", streamable: false, reason: expect.any(String) });
+    expect(layoutTab({ surface: 1, kind: "diff" }, false)).toMatchObject({ kind: "other", streamable: false, reason: expect.any(String) });
+  });
+
+  it("classifies every cmux-next browser pane shape as a browser tab", () => {
+    const shapes = [
+      { surface: 1, kind: "browser", url: "https://a/" },
+      { surface: 2, kind: "conversation", conversation: { page: { url: "https://b/" } }, url: "https://b/" },
+      { surface: 3, kind: "frontend-browser", browser_renderer: "frontend", url: "https://c/" },
+      { surface: 4, kind: "web", url: "https://d/" },
+    ];
+    for (const t of shapes) {
+      const tab = layoutTab(t as any, true);
+      expect(tab, JSON.stringify(t)).toMatchObject({ kind: "browser", streamable: false, reason: expect.any(String) });
+    }
   });
 
   it("allows only the focus commands, with numeric ids", () => {

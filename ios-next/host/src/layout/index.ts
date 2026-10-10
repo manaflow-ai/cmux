@@ -40,7 +40,7 @@ interface DTab {
   title?: string | null;
   url?: string | null;
   browser_renderer?: string | null;
-  conversation?: { agent_session?: { host?: string | null; session?: string | null } | null; conversation?: string } | null;
+  conversation?: { agent_session?: { host?: string | null; session?: string | null } | null; conversation?: string; page?: unknown } | null;
 }
 interface DPane {
   id: number;
@@ -80,7 +80,12 @@ export type BrowserResolver = (tab: DTab) => BrowserRef;
 export function layoutTab(t: DTab, focused: boolean, visibleOnMac = focused, resolveBrowser?: BrowserResolver): LayoutTab {
   const title = (t.name || t.title || "").trim();
   const base = { id: tabIdOf(t.surface), focused };
-  switch (t.kind) {
+  // cmux-next browser panes: kind "browser", or a page-sourced tab, or any
+  // non-terminal tab the daemon renders as a browser (browser_renderer).
+  const isAgentOrConversation = t.kind === "conversation" && Boolean(t.conversation?.agent_session?.session || t.conversation?.conversation);
+  const kind =
+    t.kind === "pty" ? "pty" : t.kind === "browser" || (!isAgentOrConversation && (t.conversation?.page !== undefined || Boolean(t.browser_renderer) || Boolean(t.url))) ? "browser" : t.kind;
+  switch (kind) {
     case "pty":
       return { ...base, kind: "terminal", title: title || "Terminal", refId: terminalId(t.surface), streamable: true };
     case "browser": {
@@ -96,12 +101,14 @@ export function layoutTab(t: DTab, focused: boolean, visibleOnMac = focused, res
       const a = t.conversation?.agent_session;
       if (a && a.session) {
         const local = !a.host || a.host === "local";
-        return { ...base, kind: "agent", title: title || "Agent", refId: a.session, streamable: local };
+        return local
+          ? { ...base, kind: "agent", title: title || "Agent", refId: a.session, streamable: true }
+          : { ...base, kind: "agent", title: title || "Agent", refId: a.session, streamable: false, reason: `This agent runs on ${a.host}` };
       }
-      return { ...base, kind: "conversation", title: title || "Conversation", streamable: false };
+      return { ...base, kind: "conversation", title: title || "Conversation", streamable: false, reason: "Open this conversation on the Mac" };
     }
     default:
-      return { ...base, kind: "other", title: title || t.kind, streamable: false };
+      return { ...base, kind: "other", title: title || t.kind, streamable: false, reason: "This kind of tab can only be viewed on the Mac" };
   }
 }
 
