@@ -152,7 +152,7 @@ def launch():
 
 def quit_app():
     if app and app.poll() is None:
-        rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+        rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
         try:
             app.wait(20)
         except subprocess.TimeoutExpired:

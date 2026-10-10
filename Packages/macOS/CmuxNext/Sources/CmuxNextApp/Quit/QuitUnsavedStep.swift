@@ -61,7 +61,8 @@ enum QuitUnsavedStep {
         }
         return CmuxDialogSpec(
             title: QuitStrings.unsavedTitle, lines: lines,
-            buttons: [CmuxDialogButton(id: dontSaveID, title: QuitStrings.unsavedDontSave, role: .destructive, key: "d"),
+            // Don't Save discards the documents: only the person picks it (cx-zk9t).
+            buttons: [CmuxDialogButton(id: dontSaveID, title: QuitStrings.unsavedDontSave, role: .destructive, key: "d", confirmKind: .destructive),
                       .cancel(ConfirmationStrings.cancel),
                       CmuxDialogButton(id: saveID, title: QuitStrings.unsavedSave, role: .default)],
             identifier: "cmux.dialog.quitUnsaved")

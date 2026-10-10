@@ -43,7 +43,8 @@ enum CLIInstallHandlers {
                 return
             }
             var buttons: [CmuxDialogButton] = [.cancel(CLIInstallStrings.cancel),
-                                               CmuxDialogButton(id: "replace", title: CLIInstallStrings.replace, role: .destructive)]
+                                               CmuxDialogButton(id: "replace", title: CLIInstallStrings.replace, role: .destructive,
+                                                                confirmKind: .destructive)]
             if name != .cmuxNext {
                 buttons.append(CmuxDialogButton(id: "cmux-next", title: CLIInstallStrings.installAsCmuxNext, role: .default))
             }

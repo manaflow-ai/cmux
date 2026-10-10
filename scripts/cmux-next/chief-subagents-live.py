@@ -19,7 +19,7 @@ starts when one finishes); chief.stop (every subagent stops: session state
 and processes); a Chief host restart mid-run (each report once); subagents on
 the Chief's harness (claude and codex).
 
-On exit it quits the app with quitEndSessions, shuts down the tag's acpmux
+On exit it quits the app with debug.quit fixture_quit end-sessions, shuts down the tag's acpmux
 daemon and stops the tag's cmux-tui session; leftovers of this tag's bundle
 are ended by exact PID.
 
@@ -696,7 +696,7 @@ def cloud_chief():
     # The cloud flow needs the app signed in (staging pairing). The local flows ran signed out on purpose,
     # so the Home composer never reached a real account's Chief; this flow never uses the composer.
     if opts.creds:
-        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+        rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
         try:
             app.wait(timeout=60)
         except subprocess.TimeoutExpired:
@@ -883,7 +883,7 @@ def cleanup():
     STOP_RECORDING.set()
     if opts.keep:
         return
-    rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+    rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if app:
         try:
             app.wait(timeout=20)
