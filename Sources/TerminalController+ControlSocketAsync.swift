@@ -143,6 +143,17 @@ extension TerminalController {
                 if Self.isBrowserReplMethod(authorizedRequest.method) {
                     return await self.v2BrowserReplResponse(request: authorizedRequest)
                 }
+                // Agent hook completions arrive in bursts. Process identity
+                // and argv/environment probes are synchronous kernel work, so
+                // collect them on the socket task before the narrow live
+                // ownership check hops to MainActor. Keeping this method on
+                // its existing main-actor policy also preserves the
+                // synchronous in-process command contract.
+                if authorizedRequest.method == "agent.resolve_delivery_target" {
+                    return try await self.socketAgentResolveDeliveryTargetResponseAsync(
+                        authorizedRequest
+                    )
+                }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {
                     return try await self.v2MainAsync {
                         self.v2Result(

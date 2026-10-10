@@ -922,7 +922,15 @@ jobs:
               tail -n 80 "$scheme_log" || true
             done < <(find "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" -type f -name '*-build.log' -print 2>/dev/null | sort)
           fi
-          if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory" "$compile_log"; then
+          retry_compile=0
+          disable_explicit_modules=0
+          if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|[Uu]nable to resolve module dependency" "$compile_log"; then
+            retry_compile=1
+            if grep -Eq "[Uu]nable to resolve module dependency" "$compile_log"; then
+              disable_explicit_modules=1
+            fi
+          fi
+          if [ "$retry_compile" -eq 1 ]; then
             # An adopted DerivedData tree can retain an incomplete Swift
             # dependency graph or compile CAS entry after a cancelled or
             # interrupted compile. Xcode then fails late with no source
@@ -952,7 +960,8 @@ jobs:
               return 1
             }
             wait_seconds=0
-            while [ "$wait_seconds" -lt 60 ] && compile_workers_running; do
+            worker_wait_limit="${CMUX_CI_COMPILE_WORKER_WAIT_SECONDS:-60}"
+            while [ "$wait_seconds" -lt "$worker_wait_limit" ] && compile_workers_running; do
               wait_seconds=$((wait_seconds + 1))
               sleep 1
             done
@@ -964,6 +973,12 @@ jobs:
             if scripts/ci/compile-app-host-test-product.sh canonical-resolve \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
               "$PWD/.ci-source-packages"; then
+              if [ "$disable_explicit_modules" -eq 1 ]; then
+                export CMUX_CI_DISABLE_EXPLICIT_MODULES=1
+                export CMUX_CI_DISABLE_COMPILATION_CACHE=1
+                echo "::warning::module dependency resolution remained broken after cleanup; retrying with explicit modules disabled"
+                echo "::warning::module dependency recovery is uncached to rebuild package modules from source"
+              fi
               if compile_once; then
                 status=0
               else

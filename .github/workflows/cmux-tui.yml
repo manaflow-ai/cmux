@@ -163,7 +163,11 @@ jobs:
           - os: macos
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            # The full Linux test gate is compile- and process-heavy. Keep the
+            # fork path on the public 4-vCPU fallback, while trusted repository
+            # runs use the available 32-vCPU Blacksmith lane. Honor a repository
+            # override only when it names another 32-vCPU lane.
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -484,11 +488,38 @@ jobs:
       # Keep cargo's registry and cmux-tui/target between runs. Without it every
       # Linux test run compiled the whole workspace (test (linux) about 921 s).
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
-      # the same branch builds incrementally; branch caches never reach main's scope.
+      # the same branch builds incrementally; the shared Linux key also preserves
+      # unchanged crate outputs across trusted branches.
       - name: Cache cargo build
+        id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
+          # Share the workspace target cache across trusted branches. Cargo's
+          # fingerprints still invalidate changed crates. Only main saves this
+          # key; PRs restore the default-branch cache and cannot seed one for
+          # another PR.
+          shared-key: cmux-tui-${{ matrix.os }}
+          # Workspace crate outputs are only restored for the exact workspace
+          # source tree; Cargo's environment hash alone does not include .rs
+          # contents.
+          key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
+          cache-all-crates: true
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Report cargo cache hit rate
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+          CACHE_SCOPE: ${{ matrix.os }}
+        run: |
+          {
+            echo "### Rust compile cache"
+            echo
+            echo "- scope: \`$CACHE_SCOPE\`"
+            echo "- exact cache hit: \`$CACHE_HIT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
@@ -544,14 +575,20 @@ jobs:
       - name: cargo test
         working-directory: cmux-tui
         env:
+          CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            # Process-heavy CLI tests can exceed the runner's child-process
-            # limit even on the 4-core and 6-core matrix runners.
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
+            # The trusted Linux lane has 32 vCPUs, so let independent test
+            # processes and the Cargo build use that capacity. The macOS
+            # fallback keeps its conservative test parallelism.
+            test_threads=2
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              test_threads=32
+            fi
+            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads="$test_threads"
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl

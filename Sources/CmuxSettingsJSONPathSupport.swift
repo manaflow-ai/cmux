@@ -38,6 +38,7 @@ enum SidebarWorkspaceDetailDefaults {
     private static let sidebar = SidebarCatalogSection()
 
     static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
+    static let showCloudDeviceIconsKey = sidebar.showCloudDeviceIcons.userDefaultsKey
     static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
     static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
     static let showSSHKey = sidebar.showSSH.userDefaultsKey
@@ -50,6 +51,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
+    static let showCloudDeviceIcons = sidebar.showCloudDeviceIcons.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
     static let watchGitStatus = sidebar.watchGitStatus.defaultValue
     static let showSSH = sidebar.showSSH.defaultValue
@@ -399,6 +401,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showBranchDirectory",
             defaultsKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
+        ),
+        .init(
+            jsonKey: "showCloudDeviceIcons",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showCloudDeviceIconsKey
         ),
         .init(
             jsonKey: "showPullRequests",

@@ -827,10 +827,18 @@ export function deletePublication(input: {
         publicationId: disabling.id,
         now,
       });
-      // Sweep by exact hostname, not just the persisted id. Reconcile may have
-      // created a rule immediately before a process died, and retries can leave
-      // duplicate exact-host rules that no local row names yet.
-      yield* provider.deleteTlsRulesForHostname(target.publication.hostname);
+      // The persisted id, plus (for a claimed hostname) crash-window
+      // duplicates on this publication's own VM that no local row names yet.
+      // Never every rule for the hostname: an unclaimed row shares it with
+      // the claimed owner's live rule.
+      // Ownership comes from the row locked by beginDisable, not the pre-lease
+      // read: a provision that finished in between recorded its rule there.
+      yield* provider.deletePublicationTlsRules([{
+        hostname: disabling.hostname,
+        providerVmId: target.vm.providerVmId,
+        providerTlsRuleId: disabling.providerTlsRuleId,
+        hostnameClaimed: disabling.hostnameClaimedAt !== null,
+      }]);
       yield* repository.finishDisablePublication({ id: disabling.id, now });
       return { deleted: true as const, id: disabling.id };
     }));

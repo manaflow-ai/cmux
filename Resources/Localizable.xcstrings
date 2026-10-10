@@ -303773,7 +303773,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض فروع git ومعلومات أجهزة Cloud وأدلة العمل."
+            "value": "عرض فروع git وأدلة العمل."
           }
         },
         "bs": {
@@ -303791,25 +303791,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Git-Branches, Infos zu Cloud-Maschinen und Arbeitsverzeichnisse anzeigen."
+            "value": "Git-Branches und Arbeitsverzeichnisse anzeigen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display git branches, Cloud machine info, and working directories."
+            "value": "Display git branches and working directories."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra las ramas git, la información de las máquinas de Cloud y los directorios de trabajo."
+            "value": "Mostrar ramas de Git y directorios de trabajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les branches git, les informations des machines Cloud et les répertoires de travail."
+            "value": "Afficher les branches git et les répertoires de travail."
           }
         },
         "it": {
@@ -303821,13 +303821,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "git ブランチ、Cloud マシン情報、作業ディレクトリを表示します。"
+            "value": "git ブランチと作業ディレクトリを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "git 브랜치, Cloud 머신 정보, 작업 디렉터리를 표시합니다."
+            "value": "git 브랜치와 작업 디렉터리를 표시합니다."
           }
         },
         "nb": {
@@ -303875,13 +303875,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示 Git 分支、Cloud 机器信息和工作目录。"
+            "value": "显示 Git 分支和工作目录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示 git 分支、Cloud 機器資訊及工作目錄。"
+            "value": "顯示 git 分支和工作目錄。"
           }
         }
       }
@@ -538856,131 +538856,6 @@
         }
       }
     },
-    "machines.workspace.noMachines": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create a machine with New Cloud Machine, then try again."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erstelle mit „Neue Cloud-Maschine“ eine Maschine und versuche es erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Créez une machine avec « Nouvelle machine cloud », puis réessayez."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أنشئ جهازًا باستخدام «جهاز سحابي جديد»، ثم حاول مرة أخرى."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crea una máquina con «Nueva máquina en la nube» y vuelve a intentarlo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請使用「新增雲端機器」建立機器，然後再試一次。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请使用“新建云端机器”创建机器，然后重试。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 클라우드 머신으로 머신을 만든 후 다시 시도하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「新しいクラウドマシン」でマシンを作成してから、もう一度お試しください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Napravite mašinu pomoću opcije New Cloud Machine, pa pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opret en maskine med New Cloud Machine, og prøv igen."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crea una macchina con New Cloud Machine, quindi riprova."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្កើតម៉ាស៊ីនដោយប្រើ New Cloud Machine រួចព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opprett en maskin med New Cloud Machine, og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utwórz maszynę za pomocą New Cloud Machine, a następnie spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crie uma máquina com New Cloud Machine e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Создайте машину с помощью New Cloud Machine и повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สร้างเครื่องด้วย New Cloud Machine แล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Cloud Machine ile bir makine oluşturun ve tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Створіть машину за допомогою New Cloud Machine і повторіть спробу."
-          }
-        }
-      }
-    },
     "cloud.display.connectTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -647121,6 +646996,160 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペインとして開く"
+          }
+        }
+      }
+    },
+    "settings.app.showCloudDeviceIcons": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud- und Gerätesymbole in der Seitenleiste anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les icônes Cloud et des appareils dans la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أيقونات Cloud والأجهزة في الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar iconos de Cloud y dispositivos en la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示 Cloud 和裝置圖示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示 Cloud 和设备图标"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Cloud 및 기기 아이콘 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに Cloud とデバイスのアイコンを表示"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Cloud i ikone uređaja u bočnoj traci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le icone Cloud e dei dispositivi nella barra laterale"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud- og enhetsikoner i sidepanelet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud and Device Icons in Sidebar"
+          }
+        }
+      }
+    },
+    "settings.app.showCloudDeviceIcons.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Cloud-Computer- oder Gerätesymbol unabhängig von Git-Branch- und Verzeichnisdetails anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’icône de l’ordinateur Cloud ou de l’appareil indépendamment des détails de branche Git et de répertoire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أيقونة كمبيوتر Cloud أو الجهاز بشكل مستقل عن تفاصيل فرع Git والدليل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el icono del equipo de Cloud o del dispositivo independientemente de los detalles de la rama de Git y del directorio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "獨立於 Git 分支和目錄詳細資訊，顯示 Cloud 電腦或裝置圖示。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "独立于 Git 分支和目录详细信息显示 Cloud 电脑或设备图标。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git 브랜치 및 디렉터리 세부 정보와 관계없이 Cloud 컴퓨터 또는 기기 아이콘을 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git ブランチやディレクトリの詳細とは別に、Cloud コンピュータまたはデバイスのアイコンを表示します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ikonu Cloud računara ili uređaja nezavisno od detalja Git grane i direktorija."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’icona del computer Cloud o del dispositivo indipendentemente dai dettagli del branch Git e della directory."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskin- eller enhetsikonet uavhengig av detaljer om Git-gren og katalog."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the cloud machine or device icon independently of Git branch and directory details."
           }
         }
       }

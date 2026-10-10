@@ -548,6 +548,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     machineActions.create.showFailure(operation.id)
                 }
             case .workspace(let machine, let workspace, _, _, let openIn):
+                // A row click is itself the latest Cloud context, even while
+                // opening its local projection is still awaiting the provider.
+                nodeActions.recordCloudWorkspaceSelection(machine)
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.

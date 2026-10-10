@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -120,6 +121,47 @@ struct CloudTreeHeaderActionsTests {
     func coderouterGuideShowsAtRest() {
         let coderouter = CloudTreeNode.Kind.coderouterSection(count: 0, refresh: CloudTreeSectionRefresh())
         #expect(CloudTreeRowHoverButtons.showsAtRest(for: coderouter))
+    }
+
+    @Test("Cloud sidebar accessory symbols use the resolved AppKit renderer")
+    func accessoryIconsUseResolvedRenderer() throws {
+        let (refreshWindow, refreshHost) = try Self.refreshHeaderHost()
+        defer { refreshWindow.contentView = nil }
+        #expect(!Self.resolvedIconViews(in: refreshHost).isEmpty,
+                "The section refresh glyph must use the resolved AppKit renderer")
+
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380)
+        let devicesHeader = try tree.cell(for: tree.devicesSection)
+        devicesHeader.setHovered(true)
+        let menuHost = try Self.controls(in: devicesHeader)
+        menuHost.layoutSubtreeIfNeeded()
+        #expect(!Self.resolvedIconViews(in: menuHost).isEmpty,
+                "The My Devices menu glyph must use the resolved AppKit renderer")
+
+        let emptyFixture = CloudSidebarOrderingFixture()
+        defer { emptyFixture.close() }
+        let emptyHost = NSHostingView(
+            rootView: CloudTreeDevicesEmptyView(
+                section: CloudTreeDevicesSection(count: 0, discoveryEnabled: true),
+                actions: emptyFixture.coordinator.nodeActions,
+                style: .compact
+            )
+        )
+        let emptyWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        emptyWindow.contentView = emptyHost
+        defer { emptyWindow.contentView = nil }
+        emptyHost.needsLayout = true
+        emptyHost.layoutSubtreeIfNeeded()
+        emptyWindow.displayIfNeeded()
+        #expect(Self.resolvedIconViews(in: emptyHost).count >= 3,
+                "The enabled device preference's checkmark must use the resolved AppKit renderer")
     }
 
     /// The header renders while Cloud Machines is off too; there it has nothing
@@ -262,6 +304,37 @@ struct CloudTreeHeaderActionsTests {
 
     static func controls(in cell: CloudTreeCellView) throws -> NSView {
         try #require(cell.subviews.first { $0 is CloudTreeRowControlsHostingView })
+    }
+
+    static func refreshHeaderHost() throws -> (NSWindow, NSHostingView<CloudTreeSectionRefreshHeader>) {
+        let host = NSHostingView(
+            rootView: CloudTreeSectionRefreshHeader(
+                title: "Cloud Machines",
+                count: CloudTreeGroupCount(1),
+                style: .compact,
+                refresh: CloudTreeSectionRefresh(),
+                label: "Refresh",
+                action: {},
+                onInteractiveFrame: { _ in }
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 28),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        return (window, host)
+    }
+
+    static func resolvedIconViews(in root: NSView) -> [CmuxResolvedIconImageView] {
+        root.subviews.flatMap { view in
+            [view as? CmuxResolvedIconImageView].compactMap { $0 } + resolvedIconViews(in: view)
+        }
     }
 
     static func display(in cell: CloudTreeCellView) throws -> NSView {
