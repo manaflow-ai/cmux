@@ -26,6 +26,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .menu], cliName: "home show",
                 mainMenu: .file
             ),
+            // The native Home as a pane tab (HomePageTab): it splits next to any other tab
+            // (the channels Home among them) over the same Home data. Each run opens one more.
+            ActionDescriptor(
+                id: "home.tab", title: t("action.home.tab", "Open Home in Tab"),
+                keywords: ["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
+                category: .window, symbol: "house", surfaces: [.palette, .menu], cliName: "home tab",
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
