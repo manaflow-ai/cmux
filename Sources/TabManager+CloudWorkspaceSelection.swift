@@ -4,6 +4,14 @@ import CmuxSurfaceCatalogModel
 /// Adapts the authoritative per-window workspace selection to Cloud targeting.
 extension TabManager {
     func recordCloudWorkspaceSelection() {
+        // A Cloud row can be clicked before its local projection is admitted.
+        // Preserve that explicit machine context while Cmd-Y refreshes the
+        // current selection; the eventual concrete selection replaces it.
+        if let provisional = cloudWorkspaceSelection.lastCloudSelection,
+           provisional.workspaceID == nil,
+           provisional.machineID != selectedWorkspace?.cloudVMID {
+            return
+        }
         cloudWorkspaceSelection.select(workspaceID: selectedTabId, machineID: selectedWorkspace?.cloudVMID)
     }
 

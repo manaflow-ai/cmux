@@ -35,6 +35,10 @@ public final class CloudWorkspaceSelectionState {
     /// local selection upgrades this context with its concrete workspace ID.
     public func selectCloudMachine(machineID: String) {
         guard !machineID.isEmpty, let scopeID = scopeProvider(), !scopeID.isEmpty else { return }
+        // A row click is a navigation intent even before a local workspace
+        // exists. Advance the same fence used by concrete selections so older
+        // Cloud creates cannot focus over the newly clicked row.
+        revision &+= 1
         lastCloudSelection = CloudWorkspaceSelection(scopeID: scopeID, machineID: machineID)
     }
 }

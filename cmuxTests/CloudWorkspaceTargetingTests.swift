@@ -151,6 +151,20 @@ struct CloudWorkspaceTargetingTests {
         #expect(fixture.manager.rememberedCloudWorkspaceSelection?.workspaceID == nil)
     }
 
+    @Test("Cmd-Y preserves a clicked Cloud machine while its row is still opening")
+    func shortcutUsesClickedMachineBeforeProjection() async throws {
+        let fixture = CloudWorkspaceTargetingFixture()
+        defer { fixture.close() }
+        let local = try #require(fixture.manager.selectedWorkspace)
+        let first = try fixture.workspace(machineID: "a")
+        fixture.manager.selectWorkspace(first)
+        fixture.manager.selectWorkspace(local)
+        fixture.manager.recordCloudWorkspaceSelection(machineID: .cloud("b"))
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(fixture.requests.map(\.machineID) == ["b"])
+    }
+
     @Test("Command-Y dispatches the configured action to the last selected Cloud machine")
     func actualShortcut() async throws {
 #if DEBUG
