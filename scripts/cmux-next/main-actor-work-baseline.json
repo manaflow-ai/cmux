@@ -17,9 +17,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentTurnStateFeed.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/ChatsFeed.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
