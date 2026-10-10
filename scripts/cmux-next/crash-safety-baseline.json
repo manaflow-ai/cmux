@@ -16,8 +16,10 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-core": 286,
+   "cmux-tui-core": 284,
    "cmux-tui-platform": 1,
+   "cmux-tui-remote-access": 1,
+   "cmux-tui-util": 1,
    "cmux-wg": 15
   },
   "panic_macro": {
@@ -33,8 +35,11 @@
    "cmux-remote": 30,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
-   "cmux-tui-core": 1626,
-   "cmux-tui-platform": 17
+   "cmux-tui-core": 1587,
+   "cmux-tui-image-paste": 22,
+   "cmux-tui-platform": 17,
+   "cmux-tui-remote-access": 5,
+   "cmux-tui-util": 12
   }
  },
  "swift": {
