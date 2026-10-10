@@ -37,14 +37,16 @@ impl Hub {
         turn_id: &str,
     ) -> Arc<Notify> {
         let withdraw = Arc::new(Notify::new());
-        session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(QueuedPrompt {
-            prompt_id: prompt_id.to_owned(),
-            turn_id: turn_id.to_owned(),
-            client: client.to_owned(),
-            preview: short_text(text, 200),
-            queued_at: now_ms(),
-            withdraw: withdraw.clone(),
-        });
+        session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(
+            QueuedPrompt {
+                prompt_id: prompt_id.to_owned(),
+                turn_id: turn_id.to_owned(),
+                client: client.to_owned(),
+                preview: short_text(text, 200),
+                queued_at: now_ms(),
+                withdraw: withdraw.clone(),
+            },
+        );
         self.append(
             session,
             "mux",
