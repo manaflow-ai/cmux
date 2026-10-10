@@ -984,6 +984,7 @@ async fn dispatch_request(
             }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
+                crate::hub::person::harness_forward_check(conn.is_person(), other)?;
                 return hub.forward(&s, other, params).await;
             }
             Err(RpcError::method_not_found(other))

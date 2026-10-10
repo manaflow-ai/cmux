@@ -71,6 +71,13 @@ nonisolated enum AcpmuxDaemonLauncher {
         guard Darwin.pipe(&keyPipe) == 0 else {
             throw Failure.spawnFailed(String(cString: strerror(errno)))
         }
+        // Close-on-exec at once: a child another part of this app spawns meanwhile never
+        // inherits either end. The spawn's dup2 to the daemon's descriptor clears it there.
+        guard fcntl(keyPipe[0], F_SETFD, FD_CLOEXEC) == 0, fcntl(keyPipe[1], F_SETFD, FD_CLOEXEC) == 0 else {
+            Darwin.close(keyPipe[0])
+            Darwin.close(keyPipe[1])
+            throw Failure.spawnFailed(String(cString: strerror(errno)))
+        }
         defer {
             if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
             if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
@@ -120,6 +127,9 @@ nonisolated enum AcpmuxDaemonLauncher {
                 }
             }
         }
+        // The shell holds its own copy of the key's read end now (or the spawn failed).
+        Darwin.close(keyPipe[0])
+        keyPipe[0] = -1
         guard spawnStatus == 0 else {
             logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(String(cString: strerror(spawnStatus)), privacy: .public) executable=/bin/sh")
             throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))

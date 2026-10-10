@@ -106,8 +106,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
-            // A reconnect only looks: it never stops or starts a daemon.
-            guard startsDaemon else { return try status.endpoint() }
+            // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
+            // this launch's person key (a signed daemon takes it by this app's signature), so
+            // the reconnected pane's allows keep working.
+            guard startsDaemon else {
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+                return try status.endpoint()
+            }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
             // that cannot take the key is handed off and ours starts with it.
             let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)

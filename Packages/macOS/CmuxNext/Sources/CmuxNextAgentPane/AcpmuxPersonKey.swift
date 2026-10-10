@@ -32,12 +32,18 @@ nonisolated enum AcpmuxPersonKey {
 
     /// Gives the running daemon this launch's key. Returns true when it stopped that daemon (an
     /// unsigned one with another key), so the caller starts a new one with ``current``.
-    static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    /// `mayHandOff` false (a reconnect): never stops a daemon; a DEV daemon with another key keeps
+    /// refusing this launch's allows until a pane that may start a daemon hands it off.
+    static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true) async -> Bool {
         do {
             _ = try await AcpmuxStatusClient.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
                                                   params: ["key": current], deadline: .seconds(5), detailed: true)
             return false
         } catch let error as AcpmuxRPCError where error.name == enrollUnavailable {
+            guard mayHandOff else {
+                logger.error("acpmux \(status.pid ?? -1) has another person key; a reconnect does not hand it off")
+                return false
+            }
             guard status.agentHosts, let pid = status.pid else {
                 // Its agents would end with it: keep it; allows stay refused until it restarts.
                 logger.error("acpmux \(status.pid ?? -1) has another person key and no agent hosts; allow stays refused")
