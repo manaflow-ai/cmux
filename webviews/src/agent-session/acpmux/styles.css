@@ -105,6 +105,18 @@
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
+/* The T3 picker is wider than the shared menu and keeps its own inset and corner radius. */
+.acpmux-menu.acpmux-mp-t3{width:min(520px,calc(100vw - 24px));min-width:0;max-width:min(520px,calc(100vw - 24px));padding:8px;border-radius:10px}
+/* A docked pane can be narrower than the desktop two-column minimum. Stack the
+   harness and model lists instead of letting the grid's intrinsic minimum clip
+   the model rows off the right edge. */
+@media (max-width:407px){
+  .acpmux-menu.acpmux-mp-t3{width:calc(100vw - 16px);max-width:calc(100vw - 16px)}
+  .acpmux-mp-columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,148px) minmax(0,1fr);max-height:min(420px,50vh);overflow:hidden}
+  .acpmux-mp-harnesses{min-height:0;max-height:148px;overflow:hidden}
+  .acpmux-mp-harness-list-inner{min-height:0;justify-content:flex-start}
+  .acpmux-mp-models{min-height:0;max-height:240px}
+}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
