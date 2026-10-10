@@ -291,6 +291,9 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // With the keyboard up Messages insets the composer by the system
+        // layout margin (16 pt, 20 pt on Plus/Max-width iPhones).
+        composer.keyboardSideInset = systemMinimumLayoutMargins.leading
         followKeyboardProgress()
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under

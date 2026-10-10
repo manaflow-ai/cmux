@@ -78,7 +78,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
         translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(self)
         let gap: CGFloat = 8
-        let side = ConversationTheme.composerSideInset - 12
+        let side: CGFloat = 15
         let height = textView.heightAnchor.constraint(equalToConstant: fieldHeight(width: host.bounds.width - 2 * (side + Self.buttonSize + gap)))
         heightConstraint = height
         let atBubble = field.bottomAnchor.constraint(equalTo: topAnchor, constant: sourceFrame.maxY)

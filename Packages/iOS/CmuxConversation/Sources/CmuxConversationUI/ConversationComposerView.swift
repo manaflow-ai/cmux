@@ -69,16 +69,20 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     var isEditMode = false {
         didSet {
             let symbol = isEditMode ? "checkmark" : "arrow.up"
-            sendButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)), for: .normal)
+            sendButton.setImage(UIImage(systemName: symbol, withConfiguration: Self.sendSymbolConfiguration), for: .normal)
             sendButton.accessibilityLabel = isEditMode
                 ? String(localized: "conversation.composer.saveEdit", defaultValue: "Save Edit", bundle: .module)
                 : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
         }
     }
 
-    /// Edge inset of the + button and field. Messages pulls both to 16 pt
-    /// while the Photos drawer is open (27 pt otherwise).
-    var sideInset: CGFloat = ConversationTheme.composerSideInset { didSet { setNeedsLayout() } }
+    /// Edge inset of the + button and field with no keyboard: Messages'
+    /// 28 pt concentric padding, or the keyboard inset while the Photos
+    /// drawer stands in for the keyboard.
+    var sideInset: CGFloat = ComposerBarGeometry.restSideInset { didSet { setNeedsLayout() } }
+    /// Edge inset with the keyboard up: the system layout margin (16 pt on
+    /// a 402 pt iPhone, 20 pt on a 440 pt one), set by the controller.
+    var keyboardSideInset: CGFloat = 16 { didSet { if oldValue != keyboardSideInset { setNeedsLayout() } } }
     /// Send Later: the time chip at the top of the field, and its time.
     let sendLaterChip = SendLaterChipView()
     private(set) var sendLaterDate: Date?
@@ -94,15 +98,33 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentGap: CGFloat = 6
     private var attachmentBand: CGFloat { attachmentInset + attachmentHeight + 7 }
     /// How far the keyboard has risen (0 hidden, 1 fully shown). Messages
-    /// widens the composer as the keyboard rises: both side insets shrink by
-    /// 12 pt, in step with the keyboard (measured on iOS 26 Messages).
+    /// widens the composer as the keyboard rises: both side insets move from
+    /// `sideInset` to `keyboardSideInset`, in step with the keyboard.
     var keyboardProgress: CGFloat = 0 {
         didSet { if oldValue != keyboardProgress { setNeedsLayout() } }
     }
-    static let keyboardSideInsetReduction: CGFloat = 12
     private let verticalPadding = ConversationTheme.composerTextPadding
-    private let fieldTextInset: CGFloat = 14.5
-    private let sendSize = CGSize(width: 37, height: 28)
+    private let fieldTextInset = ComposerBarGeometry.textLeadingInset
+    private let sendSize = ComposerBarGeometry.sendSize
+    static var isIOS27: Bool {
+        if #available(iOS 27, *) { return true }
+        return false
+    }
+
+    /// Messages' send blue: system blue for the appearance and contrast
+    /// alone (0,145,255 dark, 0,136,255 light). The composer's scroll edge
+    /// element container adapts other traits for legibility, under which
+    /// plain system blue drew 16,138,255 in dark mode.
+    static let sendBlue = UIColor { traits in
+        UIColor.systemBlue.resolvedColor(with: UITraitCollection(traitsFrom: [
+            UITraitCollection(userInterfaceStyle: traits.userInterfaceStyle),
+            UITraitCollection(accessibilityContrast: traits.accessibilityContrast),
+        ]))
+    }
+    /// Messages' "+" glyph (see `ComposerBarGeometry.plusSymbolPointSize`).
+    static let plusSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: ComposerBarGeometry.plusSymbolPointSize, weight: .regular, scale: .medium)
+    /// Messages' send arrow: `arrow.up`, bold, 13 by 16 pt of ink.
+    static let sendSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: ComposerBarGeometry.sendSymbolPointSize, weight: .bold, scale: .medium)
 
     var text: String {
         get { textView.text ?? "" }
@@ -135,7 +157,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         super.init(frame: frame)
         addSubview(plusGlass)
         plusGlass.contentView.addSubview(plusButton)
-        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .medium)), for: .normal)
+        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration), for: .normal)
         plusButton.tintColor = .label
         plusButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
@@ -146,8 +168,12 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         plusButton.accessibilityIdentifier = "conversation.composer.plus"
 
         addSubview(fieldGlass)
-        fieldGlass.layer.borderWidth = 0.5
-        fieldGlass.layer.borderColor = UIColor.separator.cgColor
+        // Liquid Glass draws its own rim; Messages' field has no stroke
+        // (ChatKit `entryFieldBorderWidth` 0). The blur fallback needs one.
+        if #unavailable(iOS 26.0) {
+            fieldGlass.layer.borderWidth = 0.5
+            fieldGlass.layer.borderColor = UIColor.separator.cgColor
+        }
         fieldGlass.contentView.addSubview(attachmentStrip)
         fieldGlass.contentView.addSubview(attachmentSeparator)
         fieldGlass.contentView.addSubview(linkPreview.container)
@@ -188,8 +214,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         fieldGlass.contentView.addSubview(placeholder)
         updatePlaceholder()
 
-        sendButton.backgroundColor = .systemBlue
-        sendButton.setImage(UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)), for: .normal)
+        sendButton.backgroundColor = Self.sendBlue
+        sendButton.setImage(UIImage(systemName: "arrow.up", withConfiguration: Self.sendSymbolConfiguration), for: .normal)
         sendButton.tintColor = .white
         sendButton.layer.cornerRadius = sendSize.height / 2
         sendButton.layer.cornerCurve = .continuous
@@ -204,7 +230,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         sendButton.addGestureRecognizer(effectPress)
         sendButton.alpha = 0
         sendButton.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
-        fieldGlass.contentView.addSubview(sendButton)
+        // Over the field rather than in the glass's content view, where the
+        // capsule read 13,158,255 (iOS 26) and 19,164,255 (27) in dark mode
+        // against Messages' 0,145,255.
+        addSubview(sendButton)
 
         micButton.setImage(UIImage(systemName: "mic", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
         micButton.tintColor = .secondaryLabel
@@ -247,13 +276,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         let t = ConversationTheme.self
-        let plusSize = t.plusButtonSize
-        // The Photos drawer's inset, less Messages' widening as the keyboard rises.
-        let sideInset = self.sideInset - Self.keyboardSideInsetReduction * keyboardProgress
-        plusGlass.frame = CGRect(x: sideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
-        plusButton.frame = plusGlass.bounds
-        let fieldX = plusGlass.frame.maxX + t.composerFieldGap
-        fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - sideInset + 1, height: fieldHeight)
+        let sideInset = ComposerBarGeometry.sideInset(keyboardProgress: keyboardProgress, restInset: self.sideInset, keyboardInset: keyboardSideInset)
+        let row = ComposerBarGeometry.layout(
+            width: bounds.width, fieldBottom: bounds.height - 4, fieldHeight: fieldHeight,
+            oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale
+        )
+        plusGlass.frame = row.plus
+        plusButton.frame = plusGlass.bounds.offsetBy(dx: 0, dy: ComposerBarGeometry.plusGlyphOffsetY(iOS27: Self.isIOS27))
+        fieldGlass.frame = row.field
         let field = fieldGlass.bounds
         var textTop: CGFloat = sendLaterHeight
         if sendLaterDate != nil {
@@ -278,7 +308,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
-        sendButton.center = CGPoint(x: field.width - 4 - sendSize.width / 2, y: field.height - t.composerMinHeight / 2)
+        sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
         micButton.frame = CGRect(x: field.width - 40, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
         fieldGlass.layer.cornerRadius = min(fieldHeight, t.composerMinHeight) / 2
     }
