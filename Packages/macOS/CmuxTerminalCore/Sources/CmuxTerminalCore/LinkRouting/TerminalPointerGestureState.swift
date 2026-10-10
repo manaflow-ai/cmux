@@ -18,10 +18,13 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
     ///   - clickCount: AppKit's click count for the release event.
     /// - Returns: The bounded callback count, or zero for a plain click.
     public static func clipboardWriteCount(isDrag: Bool, clickCount: Int) -> Int {
-        if isDrag { return 1 }
-        guard clickCount > 1 else { return 0 }
+        guard isDrag || clickCount > 1 else { return 0 }
+        guard clickCount > 1 else { return 1 }
         return min(max(clickCount - 1, 1), 3)
     }
+
+    /// Minimum pointer displacement that commits a drag selection.
+    private static let dragThresholdSquared = 9.0
 
     /// The press-time authorization captured for a matched release.
     public typealias Completion = (
@@ -37,6 +40,8 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
             timestamp: TimeInterval,
             modifierFlagsRawValue: UInt,
             permitsLinkActivation: Bool,
+            pressPointX: Double,
+            pressPointY: Double,
             isDrag: Bool
         )
     }
@@ -54,13 +59,13 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
 
     /// Whether the current gesture has moved far enough to be a selection drag.
     public var isDrag: Bool {
-        if case let .pressed(_, _, _, _, isDrag) = phase { return isDrag }
+        if case let .pressed(_, _, _, _, _, _, isDrag) = phase { return isDrag }
         return false
     }
 
     /// The modifier flags captured by the pending press, if one exists.
     public var pendingModifierFlagsRawValue: UInt? {
-        guard case let .pressed(_, _, modifierFlagsRawValue, _, _) = phase else { return nil }
+        guard case let .pressed(_, _, modifierFlagsRawValue, _, _, _, _) = phase else { return nil }
         return modifierFlagsRawValue
     }
 
@@ -71,42 +76,63 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
     ///   - timestamp: The press event timestamp.
     ///   - modifierFlagsRawValue: Modifiers captured at press time.
     ///   - permitsLinkActivation: Whether the press may authorize a link.
+    ///   - pressPointX: The press location in the terminal view's x-axis.
+    ///   - pressPointY: The press location in the terminal view's y-axis.
     public mutating func begin(
         windowNumber: Int,
         timestamp: TimeInterval,
         modifierFlagsRawValue: UInt,
-        permitsLinkActivation: Bool
+        permitsLinkActivation: Bool,
+        pressPointX: Double = 0,
+        pressPointY: Double = 0
     ) {
         phase = .pressed(
             windowNumber: windowNumber,
             timestamp: timestamp,
             modifierFlagsRawValue: modifierFlagsRawValue,
             permitsLinkActivation: permitsLinkActivation,
+            pressPointX: pressPointX,
+            pressPointY: pressPointY,
             isDrag: false
         )
     }
 
-    /// Records pointer motion during the active gesture.
-    public mutating func markDragged() {
+    /// Records pointer motion after it crosses the drag-selection threshold.
+    public mutating func markDragged(atX x: Double, y: Double) {
         guard case let .pressed(
             windowNumber,
             timestamp,
             modifierFlagsRawValue,
             permitsLinkActivation,
-            _
+            pressPointX,
+            pressPointY,
+            isDrag
         ) = phase else { return }
+        guard !isDrag,
+              (x - pressPointX) * (x - pressPointX)
+                + (y - pressPointY) * (y - pressPointY) >= Self.dragThresholdSquared else { return }
         phase = .pressed(
             windowNumber: windowNumber,
             timestamp: timestamp,
             modifierFlagsRawValue: modifierFlagsRawValue,
             permitsLinkActivation: permitsLinkActivation,
+            pressPointX: pressPointX,
+            pressPointY: pressPointY,
             isDrag: true
         )
     }
 
     /// Revokes link authorization while retaining the balancing terminal release.
     public mutating func invalidateLinkActivation() {
-        guard case let .pressed(windowNumber, timestamp, modifierFlagsRawValue, _, isDrag) = phase else {
+        guard case let .pressed(
+            windowNumber,
+            timestamp,
+            modifierFlagsRawValue,
+            _,
+            pressPointX,
+            pressPointY,
+            isDrag
+        ) = phase else {
             return
         }
         phase = .pressed(
@@ -114,6 +140,8 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
             timestamp: timestamp,
             modifierFlagsRawValue: modifierFlagsRawValue,
             permitsLinkActivation: false,
+            pressPointX: pressPointX,
+            pressPointY: pressPointY,
             isDrag: isDrag
         )
     }
@@ -130,6 +158,8 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
             pressTimestamp,
             modifierFlagsRawValue,
             permitsLinkActivation,
+            _,
+            _,
             isDrag
         ) = phase else {
             return nil

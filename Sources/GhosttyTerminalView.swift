@@ -8528,7 +8528,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
             modifierFlagsRawValue: pressFlags.rawValue,
-            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint)
+            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint),
+            pressPointX: eventPoint.x,
+            pressPointY: eventPoint.y
         )
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
@@ -8563,11 +8565,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                   for: .left,
                   on: currentGhosttyMouseSurfaceIdentity
               ) else { return false }
-        if event.type == .leftMouseDragged {
-            terminalPointerGesture.markDragged()
-        }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: eventPoint.x, y: eventPoint.y)
+        }
         trackMousePointIfUsable(eventPoint)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         return true
@@ -8619,7 +8621,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 isDrag: completion.isDrag,
                 clickCount: event.clickCount
             )
-            if callbackCount > 0 {
+            let dragSelectionCommitted = !completion.isDrag || ghostty_surface_has_selection(surface)
+            if callbackCount > 0, dragSelectionCommitted {
                 terminalSurface.permitClipboardWriteForUserGesture(writeCount: callbackCount)
             }
         }
@@ -9845,10 +9848,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pressedCodexActionCommand = nil
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
-        if event.type == .leftMouseDragged {
-            terminalPointerGesture.markDragged()
-        }
         let mouseState = rememberGhosttyMouseState(from: event)
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: mouseState.localPoint.x, y: mouseState.localPoint.y)
+        }
         copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
