@@ -46,10 +46,11 @@ final class ShellHostingController: UIHostingController<AppRoot> {
 @objc(CmuxNextSceneDelegate)
 public final class CmuxNextSceneDelegate: UIResponder, UIWindowSceneDelegate {
     public var window: UIWindow?
-    private var model: AppModel?
+    fileprivate(set) var model: AppModel?
 
     public func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
+        appShellLog.info("scene willConnect (adopted=\(self.window != nil, privacy: .public)) urls=\(connectionOptions.urlContexts.count, privacy: .public)")
         install(in: windowScene)
         for context in connectionOptions.urlContexts { model?.handleOpenURL(context.url) }
     }
@@ -71,6 +72,7 @@ public final class CmuxNextSceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// the shell's window instead.
     @MainActor
     public static func adoptScenesWithForeignDelegates() {
+        routeRestoredSwiftUIScenes()
         recoveryObserver = NotificationCenter.default.addObserver(
             forName: UIScene.willConnectNotification, object: nil, queue: .main
         ) { note in
@@ -86,12 +88,33 @@ public final class CmuxNextSceneDelegate: UIResponder, UIWindowSceneDelegate {
     @MainActor private static var recoveryObserver: (any NSObjectProtocol)?
 
     @MainActor
-    static func adopt(_ scene: UIWindowScene) {
+    static func adopt(_ scene: UIWindowScene, urlContexts: Set<UIOpenURLContext> = []) {
         guard !(scene.delegate is CmuxNextSceneDelegate) else { return }
         let delegate = CmuxNextSceneDelegate()
         scene.delegate = delegate
         delegate.install(in: scene)
+        for context in urlContexts { delegate.model?.handleOpenURL(context.url) }
         if scene.activationState == .foregroundActive { delegate.sceneDidBecomeActive(scene) }
+    }
+
+    /// The restored session's delegate is SwiftUI's `AppSceneDelegate`, and
+    /// its `scene(_:willConnectTo:options:)` is the only place the cold-launch
+    /// `urlContexts` arrive. Route that one call to `adopt` so a deep link on
+    /// the upgrade launch is not dropped. (The notification above remains the
+    /// fallback if the class is absent.)
+    @MainActor
+    private static func routeRestoredSwiftUIScenes() {
+        guard let foreign = NSClassFromString("SwiftUI.AppSceneDelegate") else { return }
+        let selector = #selector(UIWindowSceneDelegate.scene(_:willConnectTo:options:))
+        let block: @convention(block) (AnyObject, UIScene, UISceneSession, UIScene.ConnectionOptions) -> Void = { _, scene, _, options in
+            nonisolated(unsafe) let scene = scene
+            nonisolated(unsafe) let contexts = options.urlContexts
+            MainActor.assumeIsolated {
+                guard let windowScene = scene as? UIWindowScene else { return }
+                adopt(windowScene, urlContexts: contexts)
+            }
+        }
+        class_replaceMethod(foreign, selector, imp_implementationWithBlock(block), "v@:@@@")
     }
 
     public func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {

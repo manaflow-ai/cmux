@@ -9,10 +9,13 @@ import CNTransport
 import CNTransportWebRTC
 import Foundation
 import Observation
+import OSLog
 import Synchronization
 
 /// Root app state: which shell to show, the backend session, the paired Macs,
 /// and the connection to the selected one.
+let appShellLog = Logger(subsystem: "dev.cmux.next", category: "shell")
+
 @MainActor
 @Observable
 public final class AppModel {
@@ -221,7 +224,8 @@ public final class AppModel {
     /// reconnect; clear the local session and return to sign-in.
     func sessionRevoked() async {
         guard auth.state.user != nil else { return }
-        signInNotice = "Signed out on this device."
+        signInNotice = String(localized: "auth.revoked.notice", defaultValue: "Signed out on this device.",
+                              comment: "Sign-in screen notice after the server revoked this device's session")
         connection.disconnect()
         await auth.backend.discardSession()
     }
@@ -242,6 +246,7 @@ public final class AppModel {
     }
 
     func handleOpenURL(_ url: URL) {
+        appShellLog.info("open url scheme=\(url.scheme ?? "", privacy: .public) host=\(url.host() ?? "", privacy: .public)")
         // OAuth callbacks (`<bundle id>://oauth/callback`, Stack's
         // `stack-auth-mobile-oauth-url://`) are delivered to the
         // ASWebAuthenticationSession that started them; nothing else routes

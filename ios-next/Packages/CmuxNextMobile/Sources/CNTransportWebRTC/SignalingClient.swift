@@ -277,6 +277,8 @@ public actor SignalingClient {
 final class WebSocketCloseRecorder: NSObject, URLSessionWebSocketDelegate, Sendable {
     private struct State {
         var recorded: Int?
+        /// The wait expired; later registrations resume at once with nil.
+        var timedOut = false
         var waiters: [CheckedContinuation<Int?, Never>] = []
     }
     private let state = Mutex(State())
@@ -304,17 +306,19 @@ final class WebSocketCloseRecorder: NSObject, URLSessionWebSocketDelegate, Senda
         }
         defer { timer.cancel() }
         return await withCheckedContinuation { (c: CheckedContinuation<Int?, Never>) in
-            let code = state.withLock { s -> Int? in
-                if let recorded = s.recorded { return recorded }
+            let immediate = state.withLock { s -> Int?? in
+                if let recorded = s.recorded { return .some(recorded) }
+                if s.timedOut { return .some(nil) }
                 s.waiters.append(c)
-                return nil
+                return .none
             }
-            if let code { c.resume(returning: code) }
+            if let value = immediate { c.resume(returning: value) }
         }
     }
 
     private func expireWaiters() {
         let pending = state.withLock { s -> [CheckedContinuation<Int?, Never>] in
+            s.timedOut = true
             defer { s.waiters.removeAll() }
             return s.waiters
         }
