@@ -1,11 +1,9 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+// RemoteTmuxInvocation.swift compiles into this target, so it needs no app import. An app
+// import here makes cmuxCLITests resolve the app's modules (Sparkle, Iroh, ...), which it
+// does not link, and the target fails to build.
 
 /// Focused coverage for the `ssh-tmux` list/attach argument contract.
 @Suite struct RemoteTmuxInvocationTests {
