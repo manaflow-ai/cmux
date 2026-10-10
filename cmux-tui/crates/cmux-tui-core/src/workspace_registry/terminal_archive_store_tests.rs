@@ -29,6 +29,7 @@ fn close_group(registry: &WorkspaceRegistry, closed_id: &str, terminals: &[Strin
     let record = serde_json::json!({"kind": "tab", "screens": [{"tabs": tabs}]});
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO closed_groups(closed_id, kind, closed_at_ms, record_json)
              VALUES(?1, 'tab', 1, ?2)",
@@ -56,6 +57,7 @@ fn archive(registry: &mut WorkspaceRegistry, terminal_id: &str, at: u64) {
 fn count(registry: &WorkspaceRegistry) -> usize {
     registry
         .connection
+        .get()
         .query_row("SELECT COUNT(*) FROM terminal_archives", [], |row| row.get::<_, i64>(0))
         .map(|count| usize::try_from(count).unwrap())
         .unwrap()
@@ -103,6 +105,7 @@ fn an_archive_goes_with_its_closed_group() {
     registry
         .registry
         .connection
+        .get()
         .execute(
             "UPDATE closed_groups SET record_json = ?1 WHERE closed_id = 'closed_a'",
             [serde_json::to_string(&kept).unwrap()],
@@ -114,6 +117,7 @@ fn an_archive_goes_with_its_closed_group() {
     registry
         .registry
         .connection
+        .get()
         .execute("DELETE FROM closed_groups WHERE closed_id = 'closed_a'", [])
         .unwrap();
     assert_eq!(count(&registry.registry), 0);
@@ -176,6 +180,7 @@ fn the_group_index_is_filled_from_older_groups() {
         let registry = WorkspaceRegistry::open(&root, "archive").expect("open the registry");
         registry
             .connection
+            .get()
             .execute_batch(
                 "DROP TRIGGER closed_groups_insert_names_terminals_v1;
                  DROP TRIGGER closed_groups_update_names_terminals_v1;

@@ -21,6 +21,18 @@ import Testing
         func prepare() {
             prepared += 1
         }
+
+        var canHideRows = true
+        var hiddenCalls: [(key: String, hidden: Bool)] = []
+        var forgotten: [String] = []
+
+        func setHidden(key: String, hidden: Bool) {
+            hiddenCalls.append((key, hidden))
+        }
+
+        func forget(key: String) {
+            forgotten.append(key)
+        }
     }
 
     @Test func aRunSendsItsKeyAndQueryAndAStoreChangeReachesTheRanker() {

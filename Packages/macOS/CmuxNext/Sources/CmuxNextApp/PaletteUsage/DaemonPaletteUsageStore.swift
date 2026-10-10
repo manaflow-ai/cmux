@@ -24,9 +24,16 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private var revision: UInt64 = 0
     private var fetching: Task<Void, Never>?
     private var fetchAgain = false
-    /// Runs waiting to be recorded, oldest first, and the one task that
-    /// records them in order (cancelled with the store).
-    private var pendingRuns: [(key: String, query: String, idempotencyKey: String)] = []
+    /// One write to the daemon's history.
+    private enum Write {
+        case record(key: String, query: String)
+        case hide(key: String, hidden: Bool)
+        case forget(key: String)
+    }
+
+    /// Writes waiting to be sent, oldest first, and the one task that sends
+    /// them in order (cancelled with the store).
+    private var pendingRuns: [(write: Write, idempotencyKey: String)] = []
     private var recorder: Task<Void, Never>?
     private(set) var history: FrecencyStore
     var onChange: (@MainActor () -> Void)?
@@ -117,17 +124,43 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         case .away:
             Self.logger.info("palette usage: daemon away, one run not recorded")
         case .daemon:
-            pendingRuns.append((key, query, "palette-usage:\(UUID().uuidString)"))
-            guard recorder == nil else { return }
-            recorder = Task { [weak self] in
-                await self?.recordPending()
-                self?.recorder = nil
-            }
+            enqueue(.record(key: key, query: query))
         }
     }
 
-    /// Records the waiting runs in order, then rereads the history once. A
-    /// run whose daemon went away is dropped (never written elsewhere).
+    var canHideRows: Bool {
+        if case .daemon = owner { return true }
+        return false
+    }
+
+    func setHidden(key: String, hidden: Bool) {
+        guard case .daemon = owner else { return }
+        enqueue(.hide(key: key, hidden: hidden))
+    }
+
+    func forget(key: String) {
+        switch owner {
+        case .local:
+            local.forget(key: key)
+            history = local.history
+        case .away:
+            Self.logger.info("palette usage: daemon away, Reset Ranking not sent")
+        case .daemon:
+            enqueue(.forget(key: key))
+        }
+    }
+
+    private func enqueue(_ write: Write) {
+        pendingRuns.append((write, "palette-usage:\(UUID().uuidString)"))
+        guard recorder == nil else { return }
+        recorder = Task { [weak self] in
+            await self?.recordPending()
+            self?.recorder = nil
+        }
+    }
+
+    /// Sends the waiting writes in order, then rereads the history once. A
+    /// write whose daemon went away is dropped (never written elsewhere).
     private func recordPending() async {
         while !pendingRuns.isEmpty, !Task.isCancelled {
             let run = pendingRuns.removeFirst()
@@ -136,7 +169,14 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
                 return
             }
             do {
-                _ = try await client.record(key: run.key, query: run.query, idempotencyKey: run.idempotencyKey)
+                switch run.write {
+                case .record(let key, let query):
+                    _ = try await client.record(key: key, query: query, idempotencyKey: run.idempotencyKey)
+                case .hide(let key, let hidden):
+                    _ = try await client.hide(key: key, hidden: hidden, idempotencyKey: run.idempotencyKey)
+                case .forget(let key):
+                    _ = try await client.forget(key: key, idempotencyKey: run.idempotencyKey)
+                }
             } catch {
                 Self.logger.error("palette usage record failed: \(String(describing: error), privacy: .public)")
             }

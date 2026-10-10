@@ -187,13 +187,14 @@ impl Mux {
         );
         let mux = Arc::new(Mux {
             launch_identity,
+            registry_connection: registry.connection.clone(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
             resource_projection_stats,
             started_at: Instant::now(),
-            state: Mutex::new(state),
+            state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),

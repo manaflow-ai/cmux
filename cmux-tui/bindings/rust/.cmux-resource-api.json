@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "dbeb61f181312b871372dc456a6bc0cbd4d1dc7f62bf28b8fd3981916973d841",
+  "catalog_sha256": "3c2e0fcec6ead6e3b7c7a7520b6ca53f2d911393887792412dc67a9fd721ff34",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -81,6 +81,9 @@
     },
     "client.sizing.set": {
       "class": "connection_control"
+    },
+    "closed.delete": {
+      "class": "mutation"
     },
     "closed.list": {
       "class": "read"
@@ -184,8 +187,14 @@
     "pairing_request.resolve": {
       "class": "mutation"
     },
+    "palette_usage.forget": {
+      "class": "mutation"
+    },
     "palette_usage.get": {
       "class": "read"
+    },
+    "palette_usage.hide": {
+      "class": "mutation"
     },
     "palette_usage.import": {
       "class": "mutation"

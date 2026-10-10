@@ -6320,6 +6320,34 @@
       },
       "extra": false
     },
+    "ClosedDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "Groups that left the history."
+        },
+        "updated": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "Groups that lost some members and stay."
+        }
+      },
+      "extra": false
+    },
     "ClosedReopenResult": {
       "kind": "object",
       "fields": {
@@ -8323,6 +8351,17 @@
             }
           },
           "description": "Sources already imported (palette_usage.import)."
+        },
+        "hidden": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Usage keys of the rows the user hid from the palette (palette_usage.hide)."
         }
       },
       "extra": false
@@ -11611,6 +11650,92 @@
         "validation.invalid"
       ]
     },
+    "closed.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "closed",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "closed": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The group to delete. Name exactly one of closed or all."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the group's members to delete; the rest stay. Needs closed."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Delete every group (Clear Recently Closed)."
+          },
+          "since_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "With all: delete only groups closed at or after this Unix time in milliseconds."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Deletion is permanent: a deleted group cannot be reopened and its terminal archives are removed; the resource and session journals keep what they already recorded until their own retention."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ClosedDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "closed.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -13937,6 +14062,57 @@
         "validation.invalid"
       ]
     },
+    "palette_usage.forget": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reset Ranking: forgets every use and learned pick of the row; a row with no history commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "palette_usage.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -13958,6 +14134,66 @@
         "name": "PaletteUsageSnapshot"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.hide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          },
+          "hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "True hides the row from the palette (it shows only for a query that is its whole title); false shows it again. Default true."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Hiding a hidden row or showing a shown one commits no change.",
+          "At most 2048 rows are hidden at once; a hide beyond that commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "resource.not_found",

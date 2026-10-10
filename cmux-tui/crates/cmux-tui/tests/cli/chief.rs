@@ -1,4 +1,3 @@
-#![cfg(unix)]
 //! `cmux chief` against a real headless daemon: the CLI, a stand-in for the
 //! Chief's brain (bound as `agent_mux`) and a stand-in for Home (a second
 //! `user_local` client) share one conversation in the daemon.

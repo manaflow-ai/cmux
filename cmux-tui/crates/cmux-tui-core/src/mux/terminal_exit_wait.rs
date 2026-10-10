@@ -85,6 +85,9 @@ impl Mux {
             .filter(|surface| surface.kind() == SurfaceKind::Pty);
         let (stream, snapshot, spec_geometry) = {
             let registry = self.workspace_registry.lock().unwrap();
+            // One connection hold: no writer append lands between the stream
+            // end and the exit snapshot reads.
+            let _connection = registry.connection.get();
             let stream = registry.terminal_stream_latest(terminal_id.as_str())?;
             let snapshot = registry.terminal_exit_snapshot(terminal_id.as_str())?;
             let spec_geometry = registry

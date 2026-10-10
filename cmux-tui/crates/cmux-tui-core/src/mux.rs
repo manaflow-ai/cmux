@@ -127,7 +127,6 @@ pub use results::TerminalMoveResult;
 pub use results::TerminalPlacementResult;
 use results::TerminalReservationRequest;
 pub use results::TerminalResolution;
-pub use results::TerminalSpawnOptions;
 use results::TreeCloseTarget;
 use results::WorkspaceMutationAuthority;
 pub use results::WorkspaceMutationResult;
@@ -154,6 +153,7 @@ mod browser_tab_create;
 mod closed_workspace_replay;
 #[cfg(test)]
 mod legacy_actor_test_wrappers;
+mod spawn_options;
 #[cfg(test)]
 mod test_actor_wrappers;
 mod test_hooks;
@@ -163,6 +163,8 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
+pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -460,9 +462,9 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
 type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 
 pub struct Mux {
-    /// Serializes durable workspace commits, their in-memory projection, and
-    /// publication of revisioned workspace deltas. Lock order is always
-    /// registry, then state.
+    /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
+    pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
@@ -473,7 +475,7 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
-    pub(crate) state: Mutex<State>,
+    pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,

@@ -63,26 +63,6 @@ impl Surface {
         )
     }
 
-    pub(crate) fn spawn_with_terminal_id_at_cell_pixels(
-        id: SurfaceId,
-        opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
-        cell_pixels: (u16, u16),
-        seed: &[u8],
-    ) -> anyhow::Result<Arc<Surface>> {
-        let identity = Some(TabResourceIdentity::terminal(None)?);
-        Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
-            id,
-            opts,
-            mux,
-            (terminal_id, seed),
-            identity,
-            PtyLifetime::SessionOwned,
-            cell_pixels,
-        )
-    }
-
     #[allow(dead_code)]
     pub(crate) fn spawn_with_resource_identity(
         id: SurfaceId,
@@ -187,7 +167,7 @@ impl Surface {
     /// `launch` is the reserved terminal id, and the VT replay its host
     /// applies before the child's first byte (a hosted launch with an id
     /// only; empty: none).
-    pub(super) fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+    pub(crate) fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
