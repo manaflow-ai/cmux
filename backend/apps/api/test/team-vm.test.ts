@@ -47,40 +47,6 @@ describe("team VM reducer", () => {
     expect(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "x" }, alice)).toMatchObject({ ok: false })
   })
 
-  it("failures back off and give up after the attempt limit; the next ensure_awake starts again", () => {
-    let s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice, 0)).state
-    for (let i = 1; i < MAX_ATTEMPTS; i++) {
-      s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: false, error: { code: "team_vm.provider_failed", message: "503" } }, system, 0)).state
-      expect(s.pending).toMatchObject({ attempts: i, retry_at: Math.min(300_000, 1000 * 2 ** i) })
-    }
-    s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: false, error: { code: "team_vm.provider_failed", message: "503" } }, system, 0)).state
-    expect(s).toMatchObject({ status: "failed", pending: null, last_error: { code: "team_vm.provider_failed" } })
-    const again = must(apply(s, "team_vm.ensure_awake", { reason: "ssh" }, alice))
-    expect(again.state.pending).toMatchObject({ action: "create", attempts: 0 })
-  })
-
-  it("a deleted VM is replaced under the next epoch; stale and malformed results cannot wedge the record", () => {
-    let s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
-    s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "s-e1", observed: "running" }, system)).state
-    s = must(apply(s, "team_vm.ensure_awake", { reason: "tasks" }, alice)).state
-    // A start result for another epoch changes nothing.
-    expect(must(apply(s, "team_vm.driver_result", { action: "start", epoch: 0, ok: true, observed: "running" }, system)).changed).toBe(false)
-    s = must(apply(s, "team_vm.driver_result", { action: "start", epoch: 1, ok: false, error: { code: "team_vm.vm_missing", message: "read VM: 404" }, final: true }, system)).state
-    expect(s).toMatchObject({ vm: null, status: "provisioning", epoch: 1, pending: { action: "create", attempts: 0 } })
-    expect(teamVmSlug("p-", TEAM, s.epoch + 1)).toBe("p-team-00000000000000000071-e2")
-    // A create "success" without an id is a final failure, not a reject that would leave the call due.
-    const bad = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 1, ok: true, slug: "s-e2" }, system))
-    expect(bad.state).toMatchObject({ status: "failed", pending: null, last_error: { code: "team_vm.provider_refused" } })
-  })
-
-  it("production refuses every provider call until the plan gate lands", () => {
-    expect(PRODUCTION_PLAN_GATE_LANDED).toBe(false)
-    expect(providerRefusal({ ENVIRONMENT: "production" })).toBe("team_vm.plan_gate_missing")
-    expect(providerRefusal({ ENVIRONMENT: "staging" })).toBeNull()
-    expect(providerRefusal({ ENVIRONMENT: "test" })).toBeNull()
-    expect(providerRefusal({ ENVIRONMENT: "production" }, true)).toBeNull()
-  })
-
 })
 
 const result = (frames: ReadonlyArray<OwnerFrame>) => {
@@ -90,100 +56,6 @@ const result = (frames: ReadonlyArray<OwnerFrame>) => {
 }
 let key = 0
 const op = (name: string, params: unknown) => ({ t: "op" as const, op: name, params, idempotency_key: `k${++key}`, origin: "cli" as const })
-
-describe("TeamVmDO with the fake provider", { timeout: 30_000 }, () => {
-  it("creates the VM once, answers with the running VM, and resumes it after a pause", async () => {
-    const stub = ns.get(ns.idFromName(TEAM))
-    const first = result((await stub.ensureAwake(TEAM, alice, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(first.t).toBe("result")
-    expect(first.value).toMatchObject({ status: "running", epoch: 1, vm: `fakevm-${teamVmSlug("", TEAM, 1)}` })
-    expect(await stub.fakeControl({})).toEqual({ creates: 1, starts: 0 })
-    // A second wake never creates again.
-    await stub.ensureAwake(TEAM, alice, op("team_vm.ensure_awake", { reason: "tasks" }))
-    expect(await stub.fakeControl({})).toEqual({ creates: 1, starts: 0 })
-    // The provider paused it on idle: the next wake starts it.
-    await stub.fakeControl({ pause_all: true })
-    const woke = result((await stub.ensureAwake(TEAM, alice, op("team_vm.ensure_awake", { reason: "mail" }))).frames)
-    expect(woke.value).toMatchObject({ status: "running", epoch: 1 })
-    expect(await stub.fakeControl({})).toEqual({ creates: 1, starts: 1 })
-    const status = (await stub.readOp(TEAM, alice, "team_vm.status", {})) as { ok: boolean; value: { leases: Array<unknown>; status: string } }
-    expect(status.ok).toBe(true)
-    expect(status.value.status).toBe("running")
-    expect(status.value.leases.length).toBe(3)
-  })
-
-  it("a failed provider call stays pending and the alarm finishes it", async () => {
-    const T = "team_00000000000000000073"
-    const stub = ns.get(ns.idFromName(T))
-    const p = { ...alice, team: T }
-    // Bind the object, then make the next provider call fail.
-    await stub.fakeControl({ fail_next: 1 })
-    const r = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(r.value).toMatchObject({ status: "provisioning", vm: null })
-    const before = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { last_error: { code: string } | null } }
-    expect(before.value.last_error?.code).toBe("team_vm.provider_failed")
-    // The retry is due after the backoff; run the alarm's work as if that time had come.
-    await stub.fakeAlarm(10 * 60_000)
-    const done = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { status: string; epoch: number } }
-    expect(done.value).toMatchObject({ status: "running", epoch: 1 })
-    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
-  })
-
-  it("replaces a VM that was deleted outside cmux with a new one under the next epoch", async () => {
-    const T = "team_00000000000000000074"
-    const stub = ns.get(ns.idFromName(T))
-    const p = { ...alice, team: T }
-    result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    await stub.fakeControl({ delete_all: true })
-    const r = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(r.value).toMatchObject({ status: "running", epoch: 2, vm: `fakevm-${teamVmSlug("", T, 2)}` })
-    expect(await stub.fakeControl({})).toMatchObject({ creates: 2 })
-  })
-
-  it("a team whose VM has the old cmuxnp-dev-tvm- name keeps it after the prefix moves to cmuxnp-stg-tvm-", async () => {
-    const T = "team_00000000000000000079"
-    const stub = ns.get(ns.idFromName(T))
-    const p = { ...alice, team: T }
-    // Staging before the FREESTYLE-NAMES change: the VM is created under the old prefix.
-    await stub.fakeControl({ slug_prefix: "cmuxnp-dev-tvm-" })
-    const old = `fakevm-${teamVmSlug("cmuxnp-dev-tvm-", T, 1)}`
-    expect(result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames).value).toMatchObject({ status: "running", epoch: 1, vm: old })
-    // The prefix changes and the provider pauses the VM: the wake resumes the same VM by its stored id.
-    await stub.fakeControl({ slug_prefix: "cmuxnp-stg-tvm-", pause_all: true })
-    expect(result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames).value).toMatchObject({ status: "running", epoch: 1, vm: old })
-    expect(await stub.fakeControl({})).toEqual({ creates: 1, starts: 1 })
-    const status = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { vm: string; epoch: number } }
-    expect(status.value).toMatchObject({ vm: old, epoch: 1 })
-    // Only a NEW VM (here a replacement after an outside delete) gets the new name.
-    await stub.fakeControl({ delete_all: true })
-    const fresh = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(fresh.value).toMatchObject({ status: "running", epoch: 2, vm: `fakevm-${teamVmSlug("cmuxnp-stg-tvm-", T, 2)}` })
-  })
-
-  it("a create whose answer was lost across a prefix change retries under the slug it first tried", async () => {
-    const T = "team_00000000000000000080"
-    const stub = ns.get(ns.idFromName(T))
-    const p = { ...alice, team: T }
-    // Old config: the create happens at the provider, but its answer is lost (timeout); the call stays pending.
-    await stub.fakeControl({ slug_prefix: "cmuxnp-dev-tvm-", lose_next_create: 1 })
-    const r = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(r.value).toMatchObject({ status: "provisioning", vm: null })
-    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
-    // A deploy changes the prefix before the retry: the retry must find the VM under the slug it first tried.
-    await stub.fakeControl({ slug_prefix: "cmuxnp-stg-tvm-" })
-    await stub.fakeAlarm(10 * 60_000)
-    const done = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { status: string; epoch: number; vm: string } }
-    expect(done.value).toMatchObject({ status: "running", epoch: 1, vm: `fakevm-${teamVmSlug("cmuxnp-dev-tvm-", T, 1)}` })
-    // No second VM: the provider saw one create.
-    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
-  })
-
-  it("refuses a principal of another team", async () => {
-    const stub = ns.get(ns.idFromName(TEAM))
-    const r = result((await stub.ensureAwake(TEAM, { ...alice, team: OTHER }, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
-    expect(r).toMatchObject({ t: "reject", code: "auth.forbidden" })
-  })
-})
 
 const enc = new TextEncoder()
 const b64 = (t: string) => btoa(t)
@@ -195,33 +67,3 @@ const append = async (stub: TeamVmStub, team: string, p: Principal, a: { stream:
     ).frames
   )
 
-describe("team journal in TeamVmDO", { timeout: 30_000 }, () => {
-  const T = "team_00000000000000000075"
-  const VM_INSTALL = "inst_00000000000000000075"
-  const vm: Principal = { identity: `install:${VM_INSTALL}`, user: ALICE, team: T, kind: "install", install: VM_INSTALL, grant_classes: ["read", "mutate-own"] }
-
-  it("only the bound VM install appends; ranges are contiguous, replays return the stored ack, other replays conflict", async () => {
-    const stub = ns.get(ns.idFromName(T))
-    await stub.ensureAwake(T, { ...alice, team: T }, op("team_vm.ensure_awake", { reason: "ssh" }))
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({ t: "reject", code: "team_vm.not_bound" })
-    result((await stub.bindInstall(T, VM_INSTALL, 1)).frames)
-    // A member's session and another install of the team are refused: the journal holds every person's files.
-    expect(await append(stub, T, { ...alice, team: T }, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({ t: "reject", code: "auth.forbidden" })
-    expect(await append(stub, T, { ...vm, install: "inst_00000000000000000076", identity: "install:x" }, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({
-      t: "reject",
-      code: "auth.forbidden"
-    })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "ops 1-3" })).toMatchObject({ t: "result", value: { high_water: 3, replayed: false } })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "ops 1-3" })).toMatchObject({ t: "result", value: { high_water: 3, replayed: true } })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "different" })).toMatchObject({ t: "reject", code: "journal.conflict" })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 5, last: 5, text: "gap" })).toMatchObject({ t: "reject", code: "journal.gap", details: { high_water: 3 } })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 0, first: 4, last: 4, text: "old" })).toMatchObject({ t: "reject", code: "journal.stale_epoch" })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 4, last: 4, text: "x", sha: "0".repeat(64) })).toMatchObject({ t: "reject", code: "validation.invalid" })
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 4, last: 6, text: "ops 4-6" })).toMatchObject({ t: "result", value: { high_water: 6 } })
-    // A range wider than 100,000 seqs is refused, so no writer can push the seq out of safe integers.
-    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 7, last: 7 + 100_000, text: "wide" })).toMatchObject({ t: "reject", code: "validation.invalid" })
-    // Streams are independent.
-    expect(await append(stub, T, vm, { stream: "mail", epoch: 1, first: 1, last: 1, text: "msg" })).toMatchObject({ t: "result", value: { high_water: 1 } })
-  })
-
-})

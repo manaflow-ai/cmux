@@ -108,7 +108,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -688,6 +688,22 @@ async fn dispatch_request(
                     // Checked against the profile the preset resolves to now.
                     let profile =
                         cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    // A built-in Chief preset without a client env gets its
+                    // env from the definition (`config/chief_builtins.rs`),
+                    // whoever installs it; a client env is the person's
+                    // (`hub/person.rs` refused it from anyone else).
+                    if let Some(builtin) = crate::config::chief_builtins::parse(&name)
+                        && obj.get("env").is_none()
+                    {
+                        let family =
+                            crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
+                        p.env = crate::config::chief_builtins::env(
+                            &builtin,
+                            &family,
+                            &crate::config::chief_builtins::Context::current(),
+                        )
+                        .map_err(RpcError::invalid_params)?;
+                    }
                     let kind = cfg.harnesses[&profile].kind;
                     crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
