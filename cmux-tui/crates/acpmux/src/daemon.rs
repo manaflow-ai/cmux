@@ -405,6 +405,7 @@ async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
 
 /// Read the person key (one line, at most 128 bytes) from an inherited
 /// descriptor and close it. The key is never logged.
+#[cfg(unix)]
 fn read_person_key(fd: i32) -> Option<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
@@ -427,6 +428,14 @@ fn read_person_key(fd: i32) -> Option<String> {
         tracing::warn!("--person-key-fd {fd}: not a person key");
         None
     }
+}
+
+/// Windows: no inherited descriptors yet (the CreateProcess handle list
+/// lands with the daemon start); no person key is read.
+#[cfg(not(unix))]
+fn read_person_key(fd: i32) -> Option<String> {
+    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
+    None
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
