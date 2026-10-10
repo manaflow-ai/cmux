@@ -181,6 +181,26 @@ extension CmuxTuiSurfaceProvider {
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
+        if machine.isSSH, let sshLinks = links as? SSHTuiLinkManager {
+            // WebKit never sends loopback hosts through a proxy, so an SSH
+            // service is served from a local listener forwarded over SSH.
+            return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
+                CloudPortAccessModel(
+                    target: target,
+                    coordinator: nil,
+                    wake: { [weak self] in
+                        guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
+                    },
+                    startForward: { [machineID] target in
+                        try await sshLinks.loopbackForward(machineID: machineID, port: target.port)
+                    },
+                    stopForward: { [machineID] in
+                        await sshLinks.closeLoopbackForward(machineID: machineID, port: port)
+                    },
+                    route: .loopback
+                )
+            }
+        }
         return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
             CloudPortAccessModel(
                 target: target,

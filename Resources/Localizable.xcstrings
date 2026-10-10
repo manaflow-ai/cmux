@@ -549647,6 +549647,65 @@
         }
       }
     },
+    "ssh.tui.browserForward.ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port forward ended before it was ready. Reload to reconnect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت إعادة توجيه منفذ SSH قبل أن تصبح جاهزة. أعد التحميل لإعادة الاتصال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Portweiterleitung wurde beendet, bevor sie bereit war. Neu laden, um die Verbindung wiederherzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío de puerto SSH terminó antes de estar listo. Recarga para volver a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection de port SSH s’est arrêtée avant d’être prête. Rechargez pour vous reconnecter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポート転送が準備完了前に終了しました。再読み込みして再接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 포트 포워딩이 준비되기 전에 종료되었습니다. 다시 연결하려면 새로고침하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 端口转发在就绪前已结束。请重新加载以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連接埠轉送在就緒前已結束。請重新載入以重新連線。"
+          }
+        }
+      }
+    },
     "ssh.tui.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {
