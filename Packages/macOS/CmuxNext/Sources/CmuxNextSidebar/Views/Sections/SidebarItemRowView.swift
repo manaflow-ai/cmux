@@ -391,7 +391,7 @@ class SidebarItemRowView: NSView {
     /// With Full Keyboard Access on (System Settings > Keyboard > Keyboard
     /// navigation), Tab reaches the item and Space or Return presses it; the
     /// system focus ring follows its pill.
-    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled || SidebarArrowWalk.isMovingFocus }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
     /// The item has keyboard focus (its glyph draws at full strength).
     private(set) var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
