@@ -391,9 +391,10 @@ The example reaches the host with the settings in your own ssh configuration. A
 session that was opened with a port, an identity file or `-o` options hands them
 to the command as `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE` and
 `CMUX_UPLOAD_SSH_OPTIONS`, and a command for such a host has to pass them to
-both `ssh` and `scp`. `scp` copies over SFTP by default, and an SFTP server
-older than OpenSSH 8.7 does not expand the leading `~`. Use `scp -O` there,
-which copies over the legacy protocol and lets the remote shell expand it.
+both `ssh` and `scp`. `scp` copies over SFTP by default. Use `scp -O` if the
+server does not support the `expand-path@openssh.com` extension (OpenSSH
+`sftp-server` added it in 8.7). It copies over the legacy protocol and lets the
+remote shell expand the leading `~`.
 
 Cleaning up old files there is also the command's job. A command that stores
 the file somewhere else can ignore the path and print where it put the file.
