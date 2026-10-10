@@ -154,9 +154,12 @@ jobs:
           fi
 
           pin="cmux-tui-pin-${COMMIT:0:12}"
-          if ! gh api -X POST "repos/$REPOSITORY/git/refs" -f "ref=refs/heads/$pin" -f "sha=$COMMIT" >/dev/null 2>&1; then
+          if ! created="$(gh api -X POST "repos/$REPOSITORY/git/refs" -f "ref=refs/heads/$pin" -f "sha=$COMMIT" 2>&1)"; then
             existing="$(gh api "repos/$REPOSITORY/git/ref/heads/$pin" --jq .object.sha 2>/dev/null || true)"
-            [[ "$existing" == "$COMMIT" ]] || { echo "::error::could not point $pin at $COMMIT (it is at '${existing:-nothing}')"; exit 1; }
+            [[ "$existing" == "$COMMIT" ]] || {
+              echo "::error::could not point $pin at $COMMIT: $created"
+              exit 1
+            }
           fi
           # 30 s of slack for clock skew; an older dispatch run of this commit would
           # name the same publisher anyway.
