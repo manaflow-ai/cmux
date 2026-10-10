@@ -32,7 +32,8 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
-              "tabs.cmdWClosesPinnedTabs"
+              "tabs.cmdWClosesPinnedTabs",
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -1770,6 +1771,55 @@
       "title" : {
         "key" : "settings.tabs.cmdWClosesPinnedTabs",
         "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.swapCmdTAndCmdN.help",
+        "text" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.swapCmdTAndCmdN",
+      "keywords" : [
+        "cmd-t",
+        "cmd-n",
+        "swap",
+        "new tab",
+        "new workspace",
+        "shortcut",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "swapCmdTAndCmdN"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.swapCmdTAndCmdN",
+        "text" : "Swap Cmd-T and Cmd-N"
       },
       "validation" : "portable"
     },
@@ -17597,7 +17647,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e05deae950161b11b95375c5c81fad6ec29585dc9f8d89897ed46e7e67ca1065",
+  "schema_hash" : "bc160c5ca1ab67697d1e3b2b6888fb8b6131cb3f9601eb26adea46754956fdea",
   "sections" : [
     {
       "id" : "general",
