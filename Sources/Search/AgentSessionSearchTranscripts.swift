@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import Dispatch
 import Foundation
 
 /// A live agent session as Global Search indexes it.
@@ -39,7 +40,7 @@ protocol AgentSessionTranscriptStore: Sendable {
 /// Owns one incremental transcript reader per indexed agent session.
 ///
 /// The actor only bookkeeps readers and revisions. The blocking file reads
-/// and parsing run in detached utility tasks, never on the main actor.
+/// and parsing run on a dedicated utility queue, never on the main actor.
 actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     private var readers: [String: AgentSessionSearchTranscript] = [:]
     private var revisions: [String: Int] = [:]
@@ -51,6 +52,12 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     private var readerGenerations: [String: UInt64] = [:]
     private var nextRevision = 1
     private let codexRolloutPaths = CodexRolloutPathIndex()
+    /// Blocking JSONL reads use a utility queue because detached tasks share
+    /// Swift's cooperative pool with unrelated app work.
+    private let readQueue = DispatchQueue(
+        label: "com.cmux.global-search.agent-transcript-reads",
+        qos: .utility
+    )
 
     /// Finds the session's transcript and reads its new bytes off-actor.
     ///
@@ -68,16 +75,9 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
 
         let existing = readers[sessionID]
         let generation = readerGenerations[sessionID, default: 0]
-        let codexRolloutPaths = self.codexRolloutPaths
         let task = Task { [weak self] () -> Int? in
-            let read = await Task.detached(priority: .utility) {
-                await Self.readTranscript(
-                    source,
-                    existing: existing,
-                    codexRolloutPaths: codexRolloutPaths
-                )
-            }.value
             guard let self else { return nil }
+            let read = await self.readTranscript(source, existing: existing)
             return await self.finishRead(
                 read,
                 sessionID: sessionID,
@@ -116,23 +116,39 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
         let changed: Bool
     }
 
-    /// Resolves the transcript and reads what it gained in a detached utility
-    /// task. The actor never performs blocking file I/O.
-    private static func readTranscript(
+    /// Resolves the transcript on the actor, then performs blocking file I/O
+    /// on the dedicated utility queue.
+    private func readTranscript(
         _ source: AgentSessionSearchSource,
-        existing: AgentSessionSearchTranscript?,
-        codexRolloutPaths: CodexRolloutPathIndex
+        existing: AgentSessionSearchTranscript?
     ) async -> Read? {
         guard let path = await transcriptPath(
             for: source,
             cachedPath: existing?.path,
             codexRolloutPaths: codexRolloutPaths
         ) else { return nil }
+        let readQueue = self.readQueue
+        return await withCheckedContinuation { continuation in
+            readQueue.async {
+                continuation.resume(returning: Self.readTranscript(
+                    path: path,
+                    agentKind: source.agentKind,
+                    existing: existing
+                ))
+            }
+        }
+    }
+
+    private static func readTranscript(
+        path: String,
+        agentKind: ChatAgentKind,
+        existing: AgentSessionSearchTranscript?
+    ) -> Read? {
         var reusable = existing
-        if reusable?.path != path || reusable?.agentKind != source.agentKind {
+        if reusable?.path != path || reusable?.agentKind != agentKind {
             reusable = nil
         }
-        var reader = reusable ?? AgentSessionSearchTranscript(path: path, agentKind: source.agentKind)
+        var reader = reusable ?? AgentSessionSearchTranscript(path: path, agentKind: agentKind)
         let changed = reader.refresh()
         return Read(reader: reader, changed: changed || reusable == nil)
     }
@@ -150,10 +166,13 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
             }
             return lookup.livePath()
         case .lookup(let lookup):
+            if let path = lookup.path() {
+                return path
+            }
             if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
                 return cachedPath
             }
-            return lookup.path()
+            return nil
         }
     }
 
@@ -162,16 +181,25 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
         cachedPath: String?,
         codexRolloutPaths: CodexRolloutPathIndex
     ) async -> String? {
-        if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
-            return cachedPath
-        }
         switch source.transcript {
         case .path(let path):
             return path
         case .codexRollout(let lookup):
+            if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
+                return cachedPath
+            }
             return await codexRolloutPaths.path(for: lookup)
         case .lookup(let lookup):
-            return await codexRolloutPaths.path(for: lookup)
+            // Re-resolve the record first so a hook or resume that points at a
+            // new transcript switches readers immediately. A cached path is
+            // only the fallback for Codex's path-less rollout lookup.
+            if let path = await codexRolloutPaths.path(for: lookup) {
+                return path
+            }
+            if let cachedPath, FileManager.default.fileExists(atPath: cachedPath) {
+                return cachedPath
+            }
+            return nil
         }
     }
 

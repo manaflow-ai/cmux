@@ -185,6 +185,64 @@ struct AgentSessionSearchTranscriptTests {
     }
 
     @Test
+    func aNewlyRecordedTranscriptReplacesTheCachedPath() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-search-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldURL = directory.appendingPathComponent("old.jsonl")
+        let newURL = directory.appendingPathComponent("new.jsonl")
+        try (Self.userLine(uuid: "old", content: "the old transcript") + "\n")
+            .write(to: oldURL, atomically: true, encoding: .utf8)
+        try (Self.userLine(uuid: "new", content: "the newly recorded transcript") + "\n")
+            .write(to: newURL, atomically: true, encoding: .utf8)
+
+        let oldRecord = AgentChatSessionRecord(
+            sessionID: "s-1",
+            agentKind: .claude,
+            transcriptPath: oldURL.path,
+            state: .idle,
+            lastActivityAt: Date()
+        )
+        let newRecord = AgentChatSessionRecord(
+            sessionID: oldRecord.sessionID,
+            agentKind: oldRecord.agentKind,
+            transcriptPath: newURL.path,
+            state: .idle,
+            lastActivityAt: Date()
+        )
+        let resolver = AgentChatTranscriptResolver(homeDirectory: directory, environment: [:])
+        let oldSource = AgentSessionSearchSource(
+            sessionID: oldRecord.sessionID,
+            agentKind: oldRecord.agentKind,
+            transcript: .lookup(
+                AgentSessionTranscriptLookup(
+                    record: oldRecord,
+                    resolver: resolver
+                )
+            )
+        )
+        let newSource = AgentSessionSearchSource(
+            sessionID: newRecord.sessionID,
+            agentKind: newRecord.agentKind,
+            transcript: .lookup(
+                AgentSessionTranscriptLookup(record: newRecord, resolver: resolver)
+            )
+        )
+
+        let transcripts = AgentSessionSearchTranscripts()
+        #expect(await transcripts.refreshedRevision(for: oldSource) != nil)
+        #expect(await transcripts.refreshedRevision(for: newSource) != nil)
+        let text = await transcripts.text(forSessionID: newRecord.sessionID)
+        #expect(text?.contains("the newly recorded transcript") == true)
+        #expect(text?.contains("the old transcript") == false)
+
+        #expect(
+            AgentSessionSearchTranscripts.transcriptPath(for: newSource, cachedPath: oldURL.path) == newURL.path
+        )
+    }
+
+    @Test
     func aFoundCodexRolloutIsReadAgainWithoutLookingItUp() async throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-home-\(UUID().uuidString)", isDirectory: true)

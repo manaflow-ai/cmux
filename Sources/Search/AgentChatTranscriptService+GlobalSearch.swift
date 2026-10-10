@@ -53,7 +53,7 @@ extension ChatAgentKind {
     var globalSearchDisplayName: String {
         switch self {
         case .claude:
-            return String(localized: "agentSession.provider.claude", defaultValue: "Claude")
+            return String(localized: "globalSearch.agent.claude", defaultValue: "Claude")
         case .codex:
             return String(localized: "agentSession.provider.codex", defaultValue: "Codex")
         case .other:
