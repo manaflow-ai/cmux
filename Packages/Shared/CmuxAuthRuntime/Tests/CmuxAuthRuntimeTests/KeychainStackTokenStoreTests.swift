@@ -8,6 +8,87 @@ import Testing
 @Suite(.serialized)
 struct KeychainStackTokenStoreTests {
     #if canImport(Security)
+    private final class FailureRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [KeychainStackTokenStoreFailure] = []
+
+        func append(_ value: KeychainStackTokenStoreFailure) {
+            lock.lock()
+            values.append(value)
+            lock.unlock()
+        }
+
+        func snapshot() -> [KeychainStackTokenStoreFailure] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
+
+    @Test func readableEmptyKeychainReportsAvailable() async {
+        let recorder = FailureRecorder()
+        let store = KeychainStackTokenStore(
+            service: "cmux-test-availability-\(UUID().uuidString)",
+            onFailure: { recorder.append($0) }
+        )
+
+        #expect(await store.isStorageAvailable())
+        #expect(recorder.snapshot().isEmpty)
+    }
+
+    @Test func missingKeychainEntitlementReportsUnavailable() async {
+        let store = KeychainStackTokenStore(
+            service: "cmux-test-unavailable-\(UUID().uuidString)",
+            accessGroup: "com.cmux.invalid.\(UUID().uuidString)"
+        )
+
+        #expect(await store.isStorageAvailable() == false)
+    }
+
+    @Test func unusualKeychainStatusesAreReportedOncePerSignature() async {
+        let recorder = FailureRecorder()
+        let store = KeychainStackTokenStore(
+            service: "cmux-test-diagnostics-\(UUID().uuidString)",
+            accessGroup: "com.cmux.invalid.\(UUID().uuidString)",
+            onFailure: { recorder.append($0) },
+            now: { Date(timeIntervalSince1970: 100) },
+            failureReportInterval: 300
+        )
+
+        #expect(await store.isStorageAvailable() == false)
+        #expect(await store.isStorageAvailable() == false)
+
+        let failures = recorder.snapshot()
+        #expect(failures.count == 2)
+        #expect(failures.allSatisfy { $0.operation == .availabilityRead })
+        #expect(Set(failures.map(\.accountRole)) == [.access, .refresh])
+        #expect(failures.allSatisfy { $0.hasAccessGroup })
+        #expect(failures.allSatisfy { $0.status != 0 })
+    }
+
+    @Test func writeStatusesAreReportedWithoutCredentialContents() async {
+        let recorder = FailureRecorder()
+        let store = KeychainStackTokenStore(
+            service: "cmux-test-write-diagnostics-\(UUID().uuidString)",
+            accessGroup: "com.cmux.invalid.\(UUID().uuidString)",
+            onFailure: { recorder.append($0) },
+            now: { Date(timeIntervalSince1970: 100) },
+            failureReportInterval: 300
+        )
+
+        #expect(await store.trySetTokens(
+            accessToken: "access-secret-that-must-not-be-reported",
+            refreshToken: "refresh-secret-that-must-not-be-reported"
+        ) == false)
+
+        let failures = recorder.snapshot()
+        #expect(failures.count == 4)
+        #expect(failures.contains { $0.operation == .update && $0.accountRole == .access })
+        #expect(failures.contains { $0.operation == .add && $0.accountRole == .access })
+        #expect(failures.contains { $0.operation == .update && $0.accountRole == .refresh })
+        #expect(failures.contains { $0.operation == .add && $0.accountRole == .refresh })
+    }
+
     @Test func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {
         let projectID = UUID().uuidString
         let account = "stack-auth-access-\(projectID)"

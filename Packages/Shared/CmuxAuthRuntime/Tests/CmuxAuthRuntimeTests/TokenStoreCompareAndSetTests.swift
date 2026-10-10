@@ -3,6 +3,49 @@ import Testing
 @testable import CmuxAuthRuntime
 
 @Suite struct TokenStoreCompareAndSetTests {
+    @Test func fileStoreReportsUnreadableCredentialDocument() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("credentials.json")
+        try Data("not-json".utf8).write(to: fileURL)
+
+        let store = FileStackTokenStore(directory: directory)
+
+        #expect(await store.isStorageAvailable() == false)
+    }
+
+    #if canImport(Security)
+    @Test func fallbackStoreUsesReadableFileWhenKeychainIsUnavailable() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let keychain = KeychainStackTokenStore(
+            service: "cmux-test-fallback-\(UUID().uuidString)",
+            accessGroup: "com.cmux.invalid.\(UUID().uuidString)"
+        )
+        let file = FileStackTokenStore(directory: directory)
+        await file.setTokens(accessToken: "access-1", refreshToken: "refresh-1")
+        let store = FallbackTokenStore(primary: keychain, fallback: file)
+
+        #expect(await store.isStorageAvailable())
+        #expect(await store.getStoredRefreshToken() == "refresh-1")
+    }
+
+    @Test func fallbackStoreCannotDeclareEmptyFallbackDefinitiveWhenKeychainIsUnavailable() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let keychain = KeychainStackTokenStore(
+            service: "cmux-test-empty-fallback-\(UUID().uuidString)",
+            accessGroup: "com.cmux.invalid.\(UUID().uuidString)"
+        )
+        let file = FileStackTokenStore(directory: directory)
+        let store = FallbackTokenStore(primary: keychain, fallback: file)
+
+        #expect(await store.isStorageAvailable() == false)
+    }
+    #endif
+
     @Test func fileStoreDoubleNilCompareAndSetClearsMatchingTokens() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

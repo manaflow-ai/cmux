@@ -4,6 +4,7 @@ import CmuxAuthRuntime
 import AppKit
 import Foundation
 import Network
+import Sentry
 import StackAuth
 
 /// The macOS auth composition root.
@@ -54,9 +55,26 @@ struct MacAuthComposition {
             environment: environment,
             isDebugBuild: Self.isDebugBuild
         )
+        let buildIdentity = Self.sentryBuildIdentity(bundleIdentifier: bundleIdentifier)
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
-                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier)
+                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
+                onFailure: { failure in
+                    guard SentrySDK.isEnabled else { return }
+                    SentrySDK.logger.error(
+                        "auth.keychain.failure",
+                        attributes: [
+                            "auth.keychain.operation": failure.operation.rawValue,
+                            "auth.keychain.status_code": Int(failure.status),
+                            "auth.keychain.account_role": failure.accountRole.rawValue,
+                            "auth.keychain.access_group_present": failure.hasAccessGroup,
+                            "app.bundle_identifier": buildIdentity.bundleIdentifier,
+                            "app.build_configuration": buildIdentity.configuration,
+                            "app.version": buildIdentity.version,
+                            "app.build": buildIdentity.build,
+                        ]
+                    )
+                }
             ),
             fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
         )
@@ -146,6 +164,9 @@ struct MacAuthComposition {
             anchor: anchor,
             config: config,
             launch: launch,
+            isTokenStorageAvailable: {
+                await tokenStore.isStorageAvailable()
+            },
             onSessionWillTransition: {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
@@ -252,6 +273,23 @@ struct MacAuthComposition {
         #else
         false
         #endif
+    }
+
+    private struct SentryBuildIdentity: Sendable {
+        let bundleIdentifier: String
+        let configuration: String
+        let version: String
+        let build: String
+    }
+
+    private static func sentryBuildIdentity(bundleIdentifier: String?) -> SentryBuildIdentity {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return SentryBuildIdentity(
+            bundleIdentifier: bundleIdentifier ?? "unknown",
+            configuration: isDebugBuild ? "debug" : "release",
+            version: (info["CFBundleShortVersionString"] as? String) ?? "unknown",
+            build: (info["CFBundleVersion"] as? String) ?? "unknown"
+        )
     }
 
     /// DEBUG UI tests can serve fixture team membership around the live client.

@@ -131,7 +131,7 @@ actor TokenStorageAvailabilityProbe {
     private func makeCoordinator(
         client: LockedStorageAuthClient,
         cachedUser: CMUXAuthUser,
-        availability: TokenStorageAvailabilityProbe
+        availability: @escaping @Sendable () async -> Bool
     ) throws -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
@@ -146,7 +146,7 @@ actor TokenStorageAvailabilityProbe {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            isTokenStorageAvailable: { await availability.isAvailable() }
+            isTokenStorageAvailable: availability
         )
         return (coordinator, store)
     }
@@ -164,7 +164,7 @@ actor TokenStorageAvailabilityProbe {
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
-            availability: availability
+            availability: { await availability.isAvailable() }
         )
 
         coordinator.start()
@@ -197,7 +197,7 @@ actor TokenStorageAvailabilityProbe {
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
-            availability: availability
+            availability: { await availability.isAvailable() }
         )
 
         coordinator.start()
@@ -216,7 +216,7 @@ actor TokenStorageAvailabilityProbe {
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
-            availability: availability
+            availability: { await availability.isAvailable() }
         )
 
         coordinator.start()
@@ -234,7 +234,7 @@ actor TokenStorageAvailabilityProbe {
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
-            availability: availability
+            availability: { await availability.isAvailable() }
         )
 
         await #expect(throws: AuthError.networkError) {
@@ -248,4 +248,39 @@ actor TokenStorageAvailabilityProbe {
             _ = try await coordinator.accessToken()
         }
     }
+
+    #if canImport(Security)
+    @Test func unavailableMacFallbackStorePreservesCachedSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CmuxAuthRuntimeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tokenStore = FallbackTokenStore(
+            primary: KeychainStackTokenStore(
+                service: "cmux-test-coordinator-\(UUID().uuidString)",
+                accessGroup: "com.cmux.invalid.\(UUID().uuidString)"
+            ),
+            fallback: FileStackTokenStore(directory: directory)
+        )
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: cachedUser,
+            locked: true
+        )
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: { await tokenStore.isStorageAvailable() }
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.clearLocalSessionCallCount == 0)
+    }
+    #endif
 }

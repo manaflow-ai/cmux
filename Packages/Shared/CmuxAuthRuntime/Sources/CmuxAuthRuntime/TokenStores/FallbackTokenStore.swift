@@ -21,6 +21,26 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         self.file = file
     }
 
+    /// Reports whether an empty token read is trustworthy.
+    ///
+    /// A readable Keychain is authoritative, including when it is empty. While
+    /// the primary store has not yet been ruled out, the file fallback is
+    /// authoritative only when it contains a usable token; an empty fallback
+    /// cannot prove that the protected Keychain is empty. Once this instance
+    /// has switched to file fallback, the file store is authoritative.
+    public func isStorageAvailable() async -> Bool {
+        if keychainWorks {
+            if await keychain.isStorageAvailable() {
+                return true
+            }
+            guard await file.isStorageAvailable() else { return false }
+            let accessToken = await file.getStoredAccessToken()
+            let refreshToken = await file.getStoredRefreshToken()
+            return accessToken?.isEmpty == false || refreshToken?.isEmpty == false
+        }
+        return await file.isStorageAvailable()
+    }
+
     public func getStoredAccessToken() async -> String? {
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value

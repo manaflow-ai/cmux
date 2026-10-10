@@ -10,6 +10,14 @@ public import StackAuth
 /// `StackClientApp` was built over, and clears them with a compare-style guard
 /// so a racing sign-in's fresh tokens are never wiped by a stale sign-out.
 public protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
+    /// Reports whether the store can currently read its persisted state.
+    ///
+    /// A `false` result means that a `nil` token read is inconclusive: the
+    /// caller must preserve the cached session and retry after storage becomes
+    /// readable. Stores without an external availability boundary use the
+    /// default `true` implementation below.
+    func isStorageAvailable() async -> Bool
+
     /// Store a freshly delivered token pair.
     func seed(accessToken: String, refreshToken: String) async
     /// Clear both tokens unconditionally.
@@ -25,6 +33,12 @@ public protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
 }
 
 extension StackAuthTokenStoreProtocol {
+    /// In-memory and other always-readable stores have no protected-storage
+    /// transition to report.
+    public func isStorageAvailable() async -> Bool {
+        true
+    }
+
     public func seed(accessToken: String, refreshToken: String) async {
         await setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
