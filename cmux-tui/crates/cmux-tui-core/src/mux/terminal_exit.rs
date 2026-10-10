@@ -198,6 +198,19 @@ impl Mux {
         // the retained terminal.output records.
         let exit_replay = incarnation
             .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
+        // The host's loss breadcrumbs are read before the commit, so the
+        // exit and its cause become visible in the same locked section
+        // (a client never reads a host_lost end without its cause).
+        #[cfg(unix)]
+        let host_loss =
+            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
+                crate::terminal_loss_log::HostLoss::read(
+                    &root.join(format!("{terminal_id}.json")),
+                    terminal_id,
+                    incarnation,
+                    end,
+                )
+            });
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -292,6 +305,12 @@ impl Mux {
             .commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot, topology)?;
         let mut detach_effects = None;
         if !replayed {
+            #[cfg(unix)]
+            if let Some(cause) = host_loss.as_ref().and_then(|loss| loss.cause())
+                && let Some(public_id) = public_terminal_id.as_ref()
+            {
+                self.record_terminal_loss_cause(public_id.as_str(), cause.clone());
+            }
             if let Some(projection) = detach_projection {
                 detach_effects =
                     Some(projection.install(&mut state, resource_revision, workspace_revision));
@@ -325,20 +344,16 @@ impl Mux {
                 }
             }
             // A host loss is logged once, with the signals its host recorded
-            // (cx-6so.49); best effort, after the exit latch.
+            // (cx-6so.49); best effort, after the exit latch. Its cause is
+            // on the tab already (recorded with the commit above).
             #[cfg(unix)]
             {
-                let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-                if let Some(root) = root
-                    && let Some(cause) = crate::terminal_loss_log::record_host_loss(
-                        &root.join(format!("{terminal_id}.json")),
-                        terminal_id,
-                        incarnation,
-                        end,
-                    )
-                    && let Some(public_id) = public_terminal_id.as_ref()
-                {
-                    self.record_terminal_loss_cause(public_id.as_str(), cause);
+                #[cfg(debug_assertions)]
+                if matches!(end, TerminalEnd::HostLost(_)) {
+                    host_loss_log_test_delay();
+                }
+                if let Some(loss) = host_loss {
+                    loss.record();
                 }
             }
             // cx-6so.49 L2: a placed terminal whose shell was lost with its
@@ -513,5 +528,19 @@ impl Mux {
         self.publish_resource_event();
         self.finish_terminal_exit_detach(effects);
         Ok(true)
+    }
+}
+
+/// Debug builds only: `CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS` holds the
+/// owner between a host loss's exit commit and its loss log, so integration
+/// tests can read the tab in that window. Bounded so a stray setting cannot
+/// wedge an owner; release builds have no seam.
+#[cfg(all(unix, debug_assertions))]
+fn host_loss_log_test_delay() {
+    if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS")
+        && let Ok(delay) = delay.parse::<u64>()
+        && delay > 0
+    {
+        std::thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
 }
