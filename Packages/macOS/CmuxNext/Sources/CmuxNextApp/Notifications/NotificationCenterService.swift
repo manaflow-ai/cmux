@@ -30,8 +30,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
-    /// Mirrors arrivals into the feed (feed.md section 9, step 1); nil without a feed.
-    @ObservationIgnored var feedBridge: FeedNotificationBridge?
+    /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
+    @ObservationIgnored var feedDriver: FeedHandoffDriver?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -52,7 +52,19 @@ final class NotificationCenterService {
         self.services = services
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
-        feedBridge = Self.makeFeedBridge(services.feed)
+        let feed = services.feed
+        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
+        let driver = makeFeedDriver(services, principal: principal)
+        feedDriver = driver
+        // The install id comes with the first install token: at launch and at each sign-in.
+        tasks.append(Task { [weak feed] in
+            for await signedIn in Observations({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
+        })
+        // At activation (launch, sign-in, the first install token, a daemon
+        // that starts serving the capability) one pass rebuilds the queue (B3).
+        tasks.append(Task {
+            for await active in Observations({ driver.isActive }) where active { driver.run() }
+        })
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -158,9 +170,13 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
-        feedBridge?.read(tab: tab.id)
         let surface = tab.surface
-        services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+        let driver = feedDriver
+        services?.daemon.send("ack-tab-notifications") { connection in
+            let reply = try await connection.acknowledgeNotifications(of: surface)
+            // Items that already moved are read in the cloud (B5).
+            if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
+        }
     }
 
     // MARK: Arrival
@@ -191,6 +207,7 @@ final class NotificationCenterService {
             return
         }
         guard let located else {
+            feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             return
         }
@@ -218,9 +235,11 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
-        // The feed (and the iPhone push) gets only what would alert on this Mac: muted
-        // workspaces, quiet hours and banners turned off are not mirrored.
-        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
+        // The feed (and the iPhone push) gets only what would alert on this Mac: the
+        // driver's pass applies the policy to the daemon's item, and a notice that did
+        // not alert here (pane in view, app active, banners off) stays local.
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.desktop)
+        feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
                  subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
