@@ -499,7 +499,7 @@ private final class InputBox {
 }
 
 /// Keeps an object alive across a queue hop.
-private struct Retained: @unchecked Sendable {
+struct Retained: @unchecked Sendable {
     let object: AnyObject
     init(_ object: AnyObject) { self.object = object }
 }
