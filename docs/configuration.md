@@ -392,11 +392,26 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
+## New tab, workspace and window shortcuts
+
+| Shortcut | Action | `shortcuts.bindings` key |
+| --- | --- | --- |
+| Cmd+T | New Tab | `newTab.sameKind` |
+| Cmd+N | New Workspace | `newTab` |
+| Cmd+Shift+N | New Window | `newWindow` |
+| Cmd+Option+Shift+N | New Incognito Window | `newIncognitoWindow` |
+
+The menu bar, the command palette, the CLI (`cmux tab new`, `cmux workspace new`, `cmux app new-window`, `cmux app new-incognito-window`) and MCP run the same actions. Cmd+Shift+N and Cmd+Option+Shift+N also work while a web page has the keyboard. Rebind or unbind each one from Settings > Keyboard Shortcuts or in `cmux.json`; a saved file applies at once:
+
+```json
+{ "shortcuts": { "bindings": { "newWindow": "cmd+shift+m", "newIncognitoWindow": null } } }
+```
+
 ## New Cloud Workspace shortcut and the plus-button menu
 
 Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
 
-When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Ctrl+Backtick), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## Search Tabs shortcut
 
