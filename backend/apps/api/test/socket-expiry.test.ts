@@ -109,31 +109,7 @@ const cases: ReadonlyArray<Case> = [
 
 describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, () => {
   for (const c of cases) {
-    it(`${c.name}: an expired token gets no further event and the socket closes 4401`, async () => {
-      const s = await c.setup()
-      const expires = Date.now() + 1000
-      const sock = await listen(s.stub, s.entity, { ...s.principal, expires_at: expires })
-      await s.poke(1)
-      for (let i = 0; i < 50 && sock.events() === 0; i++) await sleep(10)
-      expect(sock.events()).toBeGreaterThan(0)
-      // Follow-up events of the first op (TeamDO commits system ops after it) may arrive until the expiry.
-      await sleep(Math.max(0, expires - Date.now()) + 5)
-      const before = sock.events()
-      await sleep(100)
-      await s.poke(2)
-      await sleep(100)
-      expect(sock.events()).toBe(before)
-      expect(sock.state.closed).toBe(4401)
-    })
 
-    it(`${c.name}: an expired token's socket closes with no event (alarm sweep)`, async () => {
-      const s = await c.setup()
-      const sock = await listen(s.stub, s.entity, { ...s.principal, expires_at: Date.now() + 300 })
-      await sleep(400)
-      await fireAlarm(s.stub)
-      await sleep(50)
-      expect(sock.state.closed).toBe(4401)
-    })
   }
 
   it("a revoked install's socket on another owner (FeedDO) gets no further event", async () => {

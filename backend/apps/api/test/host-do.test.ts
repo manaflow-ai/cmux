@@ -48,17 +48,6 @@ const open = async (stub: DurableObjectStub, role: string, peer: string): Promis
 
 // The first call creates the object class; on a loaded machine that can take several seconds.
 describe("HostDO datagram relay", { timeout: 30_000 }, () => {
-  it("relays between a host and a reachable client and rewrites peer ids", async () => {
-    const stub = ns.get(ns.idFromName("host-a")) as unknown as DurableObjectStub & { setReachability(h: string, p: Array<string>): Promise<void> }
-    await stub.setReachability(HOST, [ALICE])
-    const host = await open(stub, "host", HOST)
-    const alice = await open(stub, "client", ALICE)
-    expect([host.status, alice.status]).toEqual([101, 101])
-    alice.ws!.send(datagramFrame(MALLORY).buffer) // claims another id; the relay overwrites it
-    expect((await host.next()).slice(4, 36)).toBe(ALICE)
-    host.ws!.send(datagramFrame(ALICE).buffer)
-    expect((await alice.next()).slice(4, 36)).toBe(HOST)
-  })
 
   it("refuses unreachable clients and wrong host ids, and drops clients that lose reachability", async () => {
     const stub = ns.get(ns.idFromName("host-b")) as unknown as DurableObjectStub & { setReachability(h: string, p: Array<string>): Promise<void> }

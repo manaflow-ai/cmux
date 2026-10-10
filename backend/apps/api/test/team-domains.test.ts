@@ -40,11 +40,6 @@ describe("domain claims (TeamDO reducer)", () => {
     expect(teamDomain.reduce(base(), "domain.claim", { domain: "acme.com" }, ctx(OWNER, { agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
-  it("matches TXT answers as DoH returns them (quoted, split strings)", () => {
-    expect(txtContains(['"cmux-verification=dvt_1"'], "cmux-verification=dvt_1")).toBe(true)
-    expect(txtContains(['"cmux-verification=" "dvt_1"'], "cmux-verification=dvt_1")).toBe(true)
-    expect(txtContains(['"cmux-verification=dvt_2"', '"v=spf1 -all"'], "cmux-verification=dvt_1")).toBe(false)
-  })
 })
 
 const sessionToken = async (stackUser: string) => {

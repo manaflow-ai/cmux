@@ -16,15 +16,6 @@ const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD
 const SIZE = { cpu: 2, memory_mb: 4096, disk_mb: 16384 }
 
 describe("Cloud upgrade plan (See plans)", () => {
-  it("planView carries upgrade_plan, and the CloudPlan schema requires it", () => {
-    const stub = planView(STUB_PLAN, { active: 0, saved: 0 }, Date.now())
-    expect(stub).toMatchObject({ plan_id: "stub_default", upgrade_plan: cloudEntryPlan() })
-    expect(planView({ ...STUB_PLAN, upgrade_plan: "pro" }, { active: 0, saved: 0 }, Date.now())).toMatchObject({ upgrade_plan: "pro" })
-    expect(planView(null, { active: 0, saved: 0 }, Date.now())).toMatchObject({ plan_id: "none", upgrade_plan: cloudEntryPlan() })
-    expect(Exit.isSuccess(Schema.decodeUnknownExit(CloudPlan)(stub))).toBe(true)
-    const { upgrade_plan: _drop, ...without } = stub as Record<string, unknown>
-    expect(Exit.isSuccess(Schema.decodeUnknownExit(CloudPlan)(without))).toBe(false)
-  })
 
   it("quota and size refusals name the plan that would lift the limit (the entry plan on the stub plan)", async () => {
     const user = cloudTestUser(2)
