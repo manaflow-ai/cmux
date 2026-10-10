@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Resources/AppKitNative.xcstrings
 +++ b/Sources/MessagesLabHome/Resources/AppKitNative.xcstrings
-@@ -5,594 +5,4584 @@
+@@ -5,594 +5,4715 @@
      "custom.demo.answered": {
        "extractionState": "manual",
        "localizations": {
@@ -5170,6 +5170,137 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "服務"
++          }
++        }
++      }
++    },
++    "compose.stop": {
++      "extractionState": "manual",
++      "localizations": {
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "Stop"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "停止"
++          }
++        },
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "إيقاف"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Zaustavi"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Stop"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Stoppen"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detener"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Arrêter"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Interrompi"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "បញ្ឈប់"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "중지"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Stopp"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Zatrzymaj"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Parar"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Остановить"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "หยุด"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Durdur"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Зупинити"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Dừng"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "停止"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "停止"
            }
          }
        }
