@@ -624358,6 +624358,65 @@
         }
       }
     },
+    "cli.browser.repl.error.otherUser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser REPL accepts only clients that run as the same macOS user as cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل REPL المتصفح إلا العملاء الذين يعملون بمستخدم macOS نفسه الذي يعمل به cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Browser-REPL akzeptiert nur Clients, die unter demselben macOS-Benutzer wie cmux laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El REPL del navegador solo acepta clientes que se ejecutan con el mismo usuario de macOS que cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le REPL du navigateur n’accepte que les clients exécutés sous le même utilisateur macOS que cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ REPL は cmux と同じ macOS ユーザーで実行されているクライアントのみを受け付けます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 REPL은 cmux와 같은 macOS 사용자로 실행되는 클라이언트만 허용합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器 REPL 只接受以与 cmux 相同的 macOS 用户身份运行的客户端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器 REPL 只接受以與 cmux 相同的 macOS 使用者身分執行的用戶端"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.sessionName": {
       "extractionState": "manual",
       "localizations": {

@@ -141,6 +141,16 @@ extension TerminalController {
                 // the REPL thread and main-actor driver without holding a
                 // socket worker thread.
                 if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    // In every socket access mode, also allowAll.
+                    guard SocketClientAuthorization().admitsMethod(
+                        authorizedRequest.method,
+                        peerHasSameUID: SocketCommandTaskPolicy.peerHasSameUID
+                    ) else {
+                        return self.v2Result(
+                            id: authorizedRequest.id?.foundationObject,
+                            .err(code: "access_denied", message: Self.browserReplOtherUserMessage, data: nil)
+                        )
+                    }
                     return await self.v2BrowserReplResponse(request: authorizedRequest)
                 }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {

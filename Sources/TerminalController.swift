@@ -2314,11 +2314,13 @@ class TerminalController {
 
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
                 await SocketCommandTaskPolicy.$peerProcessID.withValue(pid) {
-                    await processSocketLineAsync(
-                        trimmed,
-                        passwordAuthorization: passwordAuthorization,
-                        rateLimiter: rateLimiter
-                    )
+                    await SocketCommandTaskPolicy.$peerHasSameUID.withValue(peerHasSameUID) {
+                        await processSocketLineAsync(
+                            trimmed,
+                            passwordAuthorization: passwordAuthorization,
+                            rateLimiter: rateLimiter
+                        )
+                    }
                 }
             }
             passwordAuthorization = result.passwordAuthorization

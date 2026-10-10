@@ -21,6 +21,9 @@ enum SocketCommandTaskPolicy {
     /// peer (`LOCAL_PEERPID`), or nil for an in-process call or a peer the
     /// transport could not identify. The caller cannot set it.
     @TaskLocal static var peerProcessID: pid_t?
+    /// Whether the connection's peer runs as the same user as cmux, or nil
+    /// for an in-process call. The caller cannot set it.
+    @TaskLocal static var peerHasSameUID: Bool?
 }
 
 /// The two execution lanes a socket connection task may hop onto, each kept

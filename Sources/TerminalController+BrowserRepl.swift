@@ -88,6 +88,13 @@ extension TerminalController {
         return v2Result(id: request.id?.foundationObject, result)
     }
 
+    nonisolated static var browserReplOtherUserMessage: String {
+        String(
+            localized: "cli.browser.repl.error.otherUser",
+            defaultValue: "The browser REPL accepts only clients that run as the same macOS user as cmux"
+        )
+    }
+
     private nonisolated static var browserReplMissingSessionMessage: String {
         String(localized: "cli.browser.repl.error.sessionRequired", defaultValue: "A session name is required")
     }

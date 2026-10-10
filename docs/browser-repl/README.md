@@ -428,6 +428,11 @@ rest. Measurements: [performance.md](performance.md).
 
 ## Sessions and tabs
 
+- Only a client that runs as the same macOS user as cmux reaches
+  `browser.repl.eval`, `browser.repl.reset` and `browser.repl.list`, in every
+  socket access mode: `allowAll` admits other local users to the socket, but
+  their REPL calls fail with `access_denied`. Workspace scoping and private
+  session owner tokens apply in every mode too.
 - Named sessions (`--session NAME`) keep variables and tabs until
   `cmux browser repl reset NAME` or 30 minutes idle. A run without `--session`
   is one-shot: its tabs close at the end unless `page.keep()` was called.

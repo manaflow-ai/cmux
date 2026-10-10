@@ -97,12 +97,25 @@ public struct SocketClientAuthorization {
 
     /// Whether a peer the socket access mode admitted may call `method`.
     ///
+    /// The access mode decides who may connect; it does not widen what a
+    /// caller reaches. The browser REPL methods (``sameUserOnlyMethods``)
+    /// drive the user's browser profile and files, so a peer of another
+    /// user is refused in every mode, also `allowAll`, which admits other
+    /// local users to the socket.
+    ///
     /// - Parameters:
     ///   - method: The v2 method the request names.
     ///   - peerHasSameUID: Whether the peer runs as the same user as cmux,
     ///     or nil for an in-process call that has no socket peer.
     public func admitsMethod(_ method: String, peerHasSameUID: Bool?) -> Bool {
-        true
+        peerHasSameUID != false || !Self.sameUserOnlyMethods.contains(method)
     }
+
+    /// Methods only a peer of the same user may call, in every access mode.
+    public static let sameUserOnlyMethods: Set<String> = [
+        "browser.repl.eval",
+        "browser.repl.reset",
+        "browser.repl.list",
+    ]
 }
 
