@@ -11,9 +11,9 @@ extension NotificationCenterService {
         return Task { [weak self, weak feed] in
             for await on in ObservationStream({ [weak self] in self?.preferences.feedMirror.agentPermissionPrompts ?? false }) {
                 guard let self else { return }
-                if on, self.permissionBridge == nil, let socket = QuitAgents.environment(services)?.socketPath {
+                if on, self.permissionBridge == nil, let environment = QuitAgents.environment(services) {
                     let bridge = AcpmuxPermissionFeedBridge(
-                        socketPath: socket,
+                        environment: environment,
                         owner: { path, body in try await principal.call(path, body) },
                         isSignedIn: { feed?.isSignedIn ?? false },
                         ownInstall: { await principal.installID },

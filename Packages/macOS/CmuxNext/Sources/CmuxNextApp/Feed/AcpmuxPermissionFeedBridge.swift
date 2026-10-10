@@ -47,6 +47,8 @@ final class AcpmuxPermissionFeedBridge {
         /// sha256 of the shown text this Mac posted (FeedApproveShownText):
         /// what the phone's proof must cover.
         let shown: String
+        /// The Mac cut what it posted: an allow from the phone is refused.
+        let truncated: Bool
     }
 
     /// This Mac's context and the owner's presence keys, read fresh for each
@@ -57,7 +59,9 @@ final class AcpmuxPermissionFeedBridge {
     /// One feed call to the API Worker as the signed-in person.
     typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
 
-    private let socket: String
+    /// The acpmux this app runs: its socket, and the executable its server peer must be.
+    private let environment: AcpmuxEnvironment
+    private var socket: String { environment.socketPath }
     private let owner: Owner
     private let isSignedIn: @MainActor () -> Bool
     /// This Mac's own install id (the `inst` claim of its install token).
@@ -79,10 +83,10 @@ final class AcpmuxPermissionFeedBridge {
     private var postedPermissions: Set<String> = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "acpmux.feed-bridge")
 
-    init(socketPath: String, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
+    init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
          presenceKeys: @escaping PresenceKeys) {
-        socket = socketPath
+        self.environment = environment
         self.owner = owner
         self.isSignedIn = isSignedIn
         self.ownInstall = ownInstall
@@ -102,31 +106,49 @@ final class AcpmuxPermissionFeedBridge {
 
     // MARK: acpmux
 
+    /// Connects once the socket's server peer is the acpmux this app runs (cx-fcaq): a squatter on
+    /// the path never gets this connection, and so never a proof.
     private func connect() {
         reconnect = nil
         guard FileManager.default.fileExists(atPath: socket) else { return scheduleReconnect() }
-        let line = AgentActivityLineConnection(path: socket)
-        connection = line
-        line.start(send: Self.hello,
-                   onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
-                   onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
+        // task-owner: AcpmuxPermissionFeedBridge.reconnect: one peer check before one connect.
+        reconnect = Task { [weak self, environment] in
+            let ours = await environment.serverIsOurs()
+            guard let self, !Task.isCancelled else { return }
+            reconnect = nil
+            guard ours else {
+                logger.error("feed bridge: the acpmux socket's server is not the acpmux this app runs; not connecting")
+                return scheduleReconnect()
+            }
+            let line = AgentActivityLineConnection(path: socket)
+            connection = line
+            line.start(send: Self.frame(id: 1, method: "initialize", params: [
+                "protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
+                "clientCapabilities": [String: Any](),
+            ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
+               onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
+        }
     }
 
-    /// `initialize` with this launch's person key (the connection's first
-    /// request), then `_acpmux/watch` over every session.
-    static var hello: Data {
-        let initialize = AcpmuxEnvironment.withPersonKey([
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
-                       "clientCapabilities": [String: Any]()],
-        ])
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
-        var payload = Data()
-        for request in [initialize, watch] {
-            payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
-            payload.append(0x0A)
+    /// One JSON-RPC request line.
+    static func frame(id: Int, method: String, params: [String: Any]) -> Data {
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
+        var data = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
+        data.append(0x0A)
+        return data
+    }
+
+    /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
+    /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
+    private func initialized(_ result: [String: Any]?, on line: AgentActivityLineConnection) {
+        let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
+        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
+           let proof = environment.unixPersonProof(nonce: nonce, connection: id) {
+            line.send(Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
+        } else {
+            logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        return payload
+        line.send(Self.frame(id: 3, method: "_acpmux/watch", params: ["enabled": true]))
     }
 
     private func lost(_ line: AgentActivityLineConnection) {
@@ -168,10 +190,11 @@ final class AcpmuxPermissionFeedBridge {
         guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
-                let person = ((message["result"] as? [String: Any])?["_meta"] as? [String: Any])
-                    .flatMap { ($0["acpmux"] as? [String: Any])?["person"] as? Bool } ?? false
-                if !person { logger.error("feed bridge: acpmux did not accept this launch's person key; phone answers stay refused") }
-            } else if id == 2, let result = message["result"] as? [String: Any] {
+                if let connection { initialized(message["result"] as? [String: Any], on: connection) }
+            } else if id == 2 {
+                let person = (message["result"] as? [String: Any])?["person"] as? Bool ?? false
+                if !person { logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused") }
+            } else if id == 3, let result = message["result"] as? [String: Any] {
                 backoff.reset()
                 // Prompts that were pending before this connection.
                 for summary in result["sessions"] as? [[String: Any]] ?? []
@@ -229,13 +252,18 @@ final class AcpmuxPermissionFeedBridge {
         let kind = call["kind"] as? String ?? ""
         let input = call["rawInput"] as? [String: Any] ?? [:]
         let command = (input["command"] as? String).map(FeedSecretScrubber.scrub)
+        let summary = command == nil ? inputSummary(input) : nil
+        // Anything cut or dropped: the phone shows it shortened and never allows it (cx-aocz).
+        let truncated = (command?.count ?? 0) > 8000 || title.count > 500 || kind.count > 200
+            || (summary?.truncated ?? false)
         var action: [String: Any] = [
             "type": kind == "execute" ? "command" : kind == "edit" || kind == "delete" || kind == "move" ? "edit" : "tool",
             "summary": cut(title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title, 500),
         ]
         if !kind.isEmpty { action["tool"] = cut(kind, 200) }
         if let command, !command.isEmpty { action["command"] = cut(command, 8000) }
-        if let summary = inputSummary(input), command == nil { action["input"] = summary }
+        if let summary { action["input"] = summary.fields }
+        if truncated { action["truncated"] = true }
         let key = "acpmux:\(permission)"
         let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \(cut(title.isEmpty ? kind : title, 120))?", bundle: .module)
         var params: [String: Any] = [
@@ -253,12 +281,18 @@ final class AcpmuxPermissionFeedBridge {
 
     /// A short, scrubbed summary of a tool input without a command: field names
     /// with short string values (paths, patterns); nothing that looks like env.
-    nonisolated static func inputSummary(_ input: [String: Any]) -> [String: String]? {
+    /// `truncated`: a field beyond the first 8, a long name, or a long value was cut.
+    nonisolated static func inputSummary(_ input: [String: Any]) -> (fields: [String: String], truncated: Bool)? {
         var out: [String: String] = [:]
-        for (key, value) in input.sorted(by: { $0.key < $1.key }).prefix(8) where key.lowercased() != "env" {
-            if let text = value as? String { out[cut(key, 40)] = cut(FeedSecretScrubber.scrub(text), 200) }
+        let shown = input.filter { $0.key.lowercased() != "env" && $0.value is String }.sorted(by: { $0.key < $1.key })
+        var truncated = shown.count > 8
+        for (key, value) in shown.prefix(8) {
+            guard let text = value as? String else { continue }
+            let scrubbed = FeedSecretScrubber.scrub(text)
+            if key.count > 40 || scrubbed.count > 200 { truncated = true }
+            out[cut(key, 40)] = cut(scrubbed, 200)
         }
-        return out.isEmpty ? nil : out
+        return out.isEmpty ? nil : (out, truncated)
     }
 
     private func post(session: String, permission: String, request: [String: Any]) async {
@@ -272,7 +306,8 @@ final class AcpmuxPermissionFeedBridge {
             }
             let action = ((body["params"] as? [String: Any])?["prompt"] as? [String: Any])?["action"] as? [String: Any] ?? [:]
             posted[id] = Posted(session: session, permission: permission, digest: Self.digest(request),
-                                shown: FeedApproveProofCheck.shownSHA256(action: action))
+                                shown: FeedApproveProofCheck.shownSHA256(action: action),
+                                truncated: action["truncated"] as? Bool ?? false)
             logger.info("feed bridge: posted \(id, privacy: .public) for \(permission, privacy: .public)")
         } catch {
             postedPermissions.remove(permission)
@@ -356,6 +391,9 @@ final class AcpmuxPermissionFeedBridge {
         case .success(let id): option = id
         case .failure(let refusal):
             return logger.error("feed bridge: \(item, privacy: .public): \(String(describing: refusal), privacy: .public); nothing answered")
+        }
+        if decision.outcome == .allow, entry.truncated {
+            return logger.error("feed bridge: \(item, privacy: .public): the request was shortened for the phone; an allow from the phone is refused (approve on this Mac)")
         }
         if decision.outcome == .allow {
             let presence: (context: FeedApproveProofCheck.Context, keys: [String: FeedApproveProofCheck.Key])

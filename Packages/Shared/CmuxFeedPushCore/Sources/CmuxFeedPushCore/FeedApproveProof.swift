@@ -1,36 +1,52 @@
 import CryptoKit
 import Foundation
 
-/// What the person saw on an agent's permission request (cx-aocz): the tool,
-/// the summary and the exact command, as the phone renders them from the feed
-/// item's `prompt.action`. The phone signs the sha256 of this canonical form;
-/// the Mac that posted the item computes it over the text it posted and refuses
-/// a mismatch, so a changed item text cannot turn a seen `ls` into an approved
-/// `rm`. One definition, used by both sides.
+/// What the person saw on an agent's permission request (cx-aocz): the tool, the summary, the
+/// exact command, the input summary of a tool without a command (paths, patterns), and whether
+/// the Mac shortened any of it, as the phone renders them from the feed item's `prompt.action`.
+/// The phone signs the sha256 of this canonical form; the Mac that posted the item computes it
+/// over the text it posted and refuses a mismatch, so a changed item text cannot turn a seen
+/// `ls` into an approved `rm`. A shortened request is never allowed from the phone (the person
+/// did not see all of it). One definition, used by both sides.
 public struct FeedApproveShownText: Hashable, Sendable {
     public var tool: String
     public var summary: String
     public var command: String
+    /// A tool input without a command: field name to its shown value.
+    public var input: [String: String]
+    /// The Mac cut the command, an input value, a field name, or dropped fields.
+    public var truncated: Bool
 
-    public init(tool: String?, summary: String?, command: String?) {
+    public init(tool: String?, summary: String?, command: String?, input: [String: String] = [:],
+                truncated: Bool = false) {
         self.tool = tool ?? ""
         self.summary = summary ?? ""
         self.command = command ?? ""
+        self.input = input
+        self.truncated = truncated
     }
 
-    /// `prompt.action` of a feed item (`tool`, `summary`, `command`).
+    /// `prompt.action` of a feed item (`tool`, `summary`, `command`, `input`, `truncated`).
+    /// `truncated` counts only as the JSON boolean true.
     public init(action: [String: Any]) {
+        let truncated = (action["truncated"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue }
         self.init(tool: action["tool"] as? String, summary: action["summary"] as? String,
-                  command: action["command"] as? String)
+                  command: action["command"] as? String,
+                  input: (action["input"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:],
+                  truncated: truncated ?? false)
     }
 
-    /// Unambiguous: a version line, then each field as `<name>:<UTF-8 byte
-    /// count>:<value>` on its own line (a value may hold newlines).
+    /// Unambiguous: a version line, then each field as `<name>:<UTF-8 byte count>:<value>` on its
+    /// own line (a value may hold newlines), the input fields by name, then `truncated:0|1`.
     public var canonical: Data {
-        var text = "cmux-feed-shown-v1\n"
+        var text = "cmux-feed-shown-v2\n"
         for (name, value) in [("tool", tool), ("summary", summary), ("command", command)] {
             text += "\(name):\(value.utf8.count):\(value)\n"
         }
+        for (key, value) in input.sorted(by: { $0.key < $1.key }) {
+            text += "input:\(key.utf8.count):\(key):\(value.utf8.count):\(value)\n"
+        }
+        text += "truncated:\(truncated ? 1 : 0)\n"
         return Data(text.utf8)
     }
 

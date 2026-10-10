@@ -111,6 +111,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return endpoint
     }
 
+    /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
+    /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
+    /// pane at another daemon's WebSocket. (The pane also checks the port's listener and the
+    /// accepted end before its first frame.)
+    private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
+        let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
+                                                     params: [:], executable: environment.executable,
+                                                     deadline: .seconds(2))
+        return try AcpmuxStatus(result).endpoint()
+    }
+
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
@@ -121,13 +132,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // the reconnected pane's allows keep working.
             guard startsDaemon else {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                return try status.endpoint()
+                return try await Self.verifiedEndpoint(environment)
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
             // that cannot take the key is handed off and ours starts with it.
             let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
-            guard stopped else { return try status.endpoint() }
+            guard stopped else { return try await Self.verifiedEndpoint(environment) }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
@@ -155,7 +166,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // Another client may have started the daemon first; the loser
             // exits because the socket is taken. Ask the winner.
             do {
-                return try await AcpmuxStatusClient.endpoint(socketPath: environment.socketPath)
+                return try await Self.verifiedEndpoint(environment)
             } catch {
                 throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
             }

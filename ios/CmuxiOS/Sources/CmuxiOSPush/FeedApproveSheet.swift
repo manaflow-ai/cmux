@@ -68,7 +68,7 @@ public final class FeedApproveModel {
 
     /// Sends the answer: an allow after user presence, signed; a deny plain.
     public func answer(allow: Bool) async {
-        if allow, phase != .ready { return }
+        if allow, phase != .ready || request.shown.truncated { return }
         phase = .sending
         do {
             let answer: FeedAnswer = allow
@@ -120,8 +120,19 @@ public struct FeedApproveSheet: View {
                             Text(model.request.shown.command).font(.body.monospaced()).textSelection(.enabled)
                         }
                     }
+                    // A tool without a command: what it reads or writes (paths, patterns).
+                    ForEach(model.request.shown.input.sorted(by: { $0.key < $1.key }), id: \.key) { field in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(verbatim: field.key).font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: field.value).font(.body.monospaced()).textSelection(.enabled)
+                        }
+                    }
                 } footer: {
-                    Text("approve.signedFooter", bundle: .module)
+                    if model.request.shown.truncated {
+                        Text("approve.truncated", bundle: .module)
+                    } else {
+                        Text("approve.signedFooter", bundle: .module)
+                    }
                 }
                 if model.request.scopes.count > 1 {
                     Section {
@@ -157,7 +168,10 @@ public struct FeedApproveSheet: View {
         case .coolingDown:
             denyButton
         case .ready:
-            Button { Task { await model.answer(allow: true) } } label: { Text("approve.allow", bundle: .module) }
+            // A shortened request is allowed only on the Mac (the person did not see all of it).
+            if !model.request.shown.truncated {
+                Button { Task { await model.answer(allow: true) } } label: { Text("approve.allow", bundle: .module) }
+            }
             denyButton
         case .sent(let allow):
             allow ? Text("approve.sentAllow", bundle: .module) : Text("approve.sentDeny", bundle: .module)

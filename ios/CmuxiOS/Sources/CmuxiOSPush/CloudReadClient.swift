@@ -58,8 +58,9 @@ public struct CloudReadClient: FeedItemReading {
     public func presenceKeyState(install: String, now: Date = Date()) async throws -> FeedApproveKeyState {
         let value = try await read("user.text_confirm.get", params: [:])
         guard let key = (value["presence_keys"] as? [String: Any])?[install] as? [String: Any],
-              key["revoked_at"] == nil || key["revoked_at"] is NSNull else { return .missing }
-        guard let usableFrom = (key["usable_from"] as? NSNumber)?.doubleValue else { return .ready }
+              key["revoked_at"] is NSNull else { return .missing }
+        // Fail closed: no usable_from is no usable key.
+        guard let usableFrom = (key["usable_from"] as? NSNumber)?.doubleValue else { return .missing }
         let until = Date(timeIntervalSince1970: usableFrom / 1000)
         return until > now ? .coolingDown(until: until) : .ready
     }

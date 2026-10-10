@@ -83,6 +83,11 @@ nonisolated enum AcpmuxServerPeer {
         return judge(owners, executable: executable, what: "listener on port \(port)")
     }
 
+    /// Watch item (cx-fcaq review P3-2): `tcpSockets()` reads every socket of every process of
+    /// this user (proc_pidinfo per process, proc_pidfdinfo per socket) twice per pane connect.
+    /// Measured cost is not known yet; if pane connects show it, scan only processes whose
+    /// executable is the acpmux this app runs, plus this process.
+    ///
     /// After the pane connected (cx-fcaq): the process that holds the accepted end of each of
     /// this process's connections to `port` (local port `port`, remote port = ours) is the
     /// acpmux this app runs, so the scan before connecting and the connect are not separated.

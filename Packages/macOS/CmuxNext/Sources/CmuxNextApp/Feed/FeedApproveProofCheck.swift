@@ -20,6 +20,12 @@ import Foundation
 /// A process on this Mac with the user's session can register an install of
 /// kind ios, but it cannot make an App Attest attestation for a key, and the
 /// key never leaves the phone's Secure Enclave.
+///
+/// Residual risks: the Mac trusts the backend's `attested` flag (it does not
+/// check the App Attest attestation itself); an agent that writes cmux.json
+/// can turn `feed.agentPermissionPrompts` on (that sends prompt summaries to
+/// the person's own feed; it grants nothing, as an allow still needs the
+/// phone's signed proof).
 enum FeedApproveProofCheck {
     /// One entry of `user.presence_key.list`.
     struct Key: Equatable {
@@ -63,13 +69,16 @@ enum FeedApproveProofCheck {
                   let jwk = entry["jwk"] as? [String: Any],
                   let x = (jwk["x"] as? String).flatMap(base64URL), x.count == 32,
                   let y = (jwk["y"] as? String).flatMap(base64URL), y.count == 32 else { continue }
+            // Fail closed: a missing usable_from drops the key, a missing revoked_at counts as
+            // revoked, and the flags count only as JSON booleans.
+            guard let usableFrom = (entry["usable_from"] as? NSNumber).flatMap({ isBoolean($0) ? nil : $0 }) else { continue }
             out[install] = Key(
                 platform: entry["platform"] as? String ?? "",
                 publicKey: Data([0x04]) + x + y,
-                attested: entry["attested"] as? Bool ?? false,
-                usableFrom: (entry["usable_from"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) },
-                revoked: !(entry["revoked_at"] == nil || entry["revoked_at"] is NSNull),
-                installActive: entry["install_active"] as? Bool ?? false)
+                attested: jsonTrue(entry["attested"]),
+                usableFrom: Date(timeIntervalSince1970: usableFrom.doubleValue / 1000),
+                revoked: !(entry["revoked_at"] is NSNull),
+                installActive: jsonTrue(entry["install_active"]))
         }
         return out
     }
@@ -118,6 +127,14 @@ enum FeedApproveProofCheck {
     /// The sha256 the phone signs for the action this Mac posted.
     static func shownSHA256(action: [String: Any]) -> String {
         FeedApproveShownText(action: action).sha256
+    }
+
+    private static func isBoolean(_ number: NSNumber) -> Bool { CFGetTypeID(number) == CFBooleanGetTypeID() }
+
+    /// True only for the JSON boolean `true` (not 1, not "true").
+    private static func jsonTrue(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber, isBoolean(number) else { return false }
+        return number.boolValue
     }
 
     static func base64URL(_ text: String) -> Data? {

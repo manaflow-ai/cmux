@@ -2752,6 +2752,137 @@
         }
       }
     },
+    "approve.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Mac hat diese Anfrage gekürzt. Gib sie auf dem Mac frei."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Mac acortó esta solicitud. Apruébala en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Mac a raccourci cette demande. Approuvez-la sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Mac ha abbreviato questa richiesta. Approvala sul Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac がこのリクエストを短縮しました。Mac で承認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 이 요청을 줄였습니다. Mac에서 승인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Mac encurtou esta solicitação. Aprove-a no seu Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac сократил этот запрос. Подтвердите его на Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac shortened this request. Approve it on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 缩短了此请求。请在 Mac 上批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 縮短了此請求。請在 Mac 上核准。"
+          }
+        }
+      }
+    },
     "push.action.allow": {
       "extractionState": "manual",
       "localizations": {

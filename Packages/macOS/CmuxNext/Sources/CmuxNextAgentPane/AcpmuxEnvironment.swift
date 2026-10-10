@@ -78,19 +78,18 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
     }
 
-    /// An `initialize` request with this launch's person key in `_meta.acpmux`, for the app's
-    /// own acpmux connections outside a pane (the agent permission feed bridge, cx-aocz). The
-    /// key stays in this process: the request goes only to the local acpmux socket.
-    public static func withPersonKey(_ object: [String: Any]) -> [String: Any] {
-        var object = object
-        var params = object["params"] as? [String: Any] ?? [:]
-        var meta = params["_meta"] as? [String: Any] ?? [:]
-        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-        acpmux["personKey"] = AcpmuxPersonKey.current
-        meta["acpmux"] = acpmux
-        params["_meta"] = meta
-        object["params"] = params
-        return object
+    /// The person proof for one challenge of this daemon on a unix socket connection (acpmux
+    /// `hub/person.rs`, cx-fcaq), for the app's own connections outside a pane (the agent
+    /// permission feed bridge, cx-aocz). Nil when this app holds no key for this daemon. The key
+    /// itself never leaves this process.
+    public func unixPersonProof(nonce: String, connection: String) -> String? {
+        AcpmuxPersonKey.proof(socketPath: socketPath, transport: .unix, nonce: nonce, connection: connection)
+    }
+
+    /// Whether the server on ``socketPath`` is the acpmux this app runs (``AcpmuxServerPeer``),
+    /// checked before a connection proves the person there.
+    public func serverIsOurs() async -> Bool {
+        await AcpmuxServerPeer.verify(socketPath: socketPath, executable: executable)
     }
 
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
