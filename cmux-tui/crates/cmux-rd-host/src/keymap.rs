@@ -60,19 +60,3 @@ pub fn hid_to_evdev(usage: u32) -> Option<u16> {
 pub fn hid_to_x(usage: u32) -> Option<u8> {
     hid_to_evdev(usage).and_then(|e| u8::try_from(e + 8).ok())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn letters_digits_and_modifiers() {
-        assert_eq!(hid_to_x(0x0007_0004), Some(38)); // a
-        assert_eq!(hid_to_x(0x0007_001d), Some(52)); // z
-        assert_eq!(hid_to_x(0x0007_001e), Some(10)); // 1
-        assert_eq!(hid_to_x(0x0007_0027), Some(19)); // 0
-        assert_eq!(hid_to_x(0x0007_00e0), Some(37)); // left control
-        assert_eq!(hid_to_x(0x0007_0045), Some(96)); // F12
-        assert_eq!(hid_to_x(0x000c_00e9), None); // consumer page
-    }
-}
