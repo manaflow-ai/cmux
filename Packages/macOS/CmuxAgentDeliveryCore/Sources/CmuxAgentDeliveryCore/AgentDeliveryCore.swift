@@ -52,6 +52,9 @@ public struct CmuxTopProcessScopeCacheKey: Hashable, Sendable {
 public struct AgentDeliveryProcessEvidence: Sendable, Equatable {
     /// Whether the process was alive when it was inspected.
     public let isLive: Bool
+    /// Whether the worker revalidated the same PID birth-time key immediately
+    /// before handing this value to the MainActor ownership resolver.
+    public let identityValidated: Bool
     /// The process's controlling-terminal device, when one was available.
     public let ttyDevice: Int64?
     /// Scope claims recovered from the process's environment or arguments.
@@ -62,11 +65,13 @@ public struct AgentDeliveryProcessEvidence: Sendable, Equatable {
     /// Creates immutable evidence for a later actor-boundary handoff.
     public init(
         isLive: Bool,
+        identityValidated: Bool = false,
         ttyDevice: Int64?,
         scope: CmuxTopProcessScope?,
         scopeCacheKey: CmuxTopProcessScopeCacheKey?
     ) {
         self.isLive = isLive
+        self.identityValidated = identityValidated
         self.ttyDevice = ttyDevice
         self.scope = scope
         self.scopeCacheKey = scopeCacheKey
@@ -126,5 +131,8 @@ public func agentDeliveryEvidenceMatchesProcess(
     _ evidence: AgentDeliveryProcessEvidence,
     currentScopeCacheKey: CmuxTopProcessScopeCacheKey?
 ) -> Bool {
-    evidence.isLive && evidence.scopeCacheKey != nil && evidence.scopeCacheKey == currentScopeCacheKey
+    evidence.isLive
+        && evidence.identityValidated
+        && evidence.scopeCacheKey != nil
+        && evidence.scopeCacheKey == currentScopeCacheKey
 }

@@ -54,8 +54,18 @@ private struct LiveAgentDeliveryProcessInspector: AgentDeliveryProcessInspector 
             )
         }
         guard resolution == .corroborated else {
+            guard let revalidatedIdentity = agentLiveProcessIdentity(pid: pid),
+                  revalidatedIdentity.scopeCacheKey == identity.scopeCacheKey else {
+                return AgentDeliveryProcessEvidence(
+                    isLive: false,
+                    ttyDevice: nil,
+                    scope: nil,
+                    scopeCacheKey: nil
+                )
+            }
             return AgentDeliveryProcessEvidence(
                 isLive: true,
+                identityValidated: true,
                 ttyDevice: identity.ttyDevice,
                 scope: nil,
                 scopeCacheKey: identity.scopeCacheKey
@@ -69,8 +79,18 @@ private struct LiveAgentDeliveryProcessInspector: AgentDeliveryProcessInspector 
         case .resolved(let resolvedScope): scope = resolvedScope
         case .unavailable: scope = nil
         }
+        guard let revalidatedIdentity = agentLiveProcessIdentity(pid: pid),
+              revalidatedIdentity.scopeCacheKey == identity.scopeCacheKey else {
+            return AgentDeliveryProcessEvidence(
+                isLive: false,
+                ttyDevice: nil,
+                scope: nil,
+                scopeCacheKey: nil
+            )
+        }
         return AgentDeliveryProcessEvidence(
             isLive: true,
+            identityValidated: true,
             ttyDevice: identity.ttyDevice,
             scope: scope,
             scopeCacheKey: identity.scopeCacheKey
@@ -258,10 +278,9 @@ extension AppDelegate {
         resolution: AgentProcessBindingResolution
     ) -> AgentDeliveryTargetCandidate? {
         guard let scopeCacheKey = evidence.scopeCacheKey,
-              let currentIdentity = agentLiveProcessIdentity(pid: pid_t(scopeCacheKey.pid)),
               agentDeliveryEvidenceMatchesProcess(
                 evidence,
-                currentScopeCacheKey: currentIdentity.scopeCacheKey
+                currentScopeCacheKey: scopeCacheKey
               ) else { return nil }
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = evidence.ttyDevice {

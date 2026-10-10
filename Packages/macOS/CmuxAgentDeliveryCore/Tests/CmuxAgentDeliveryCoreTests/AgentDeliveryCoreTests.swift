@@ -41,6 +41,7 @@ struct AgentDeliveryCoreTests {
         let key = CmuxTopProcessScopeCacheKey(pid: 123, startSeconds: 10, startMicroseconds: 20)
         let evidence = AgentDeliveryProcessEvidence(
             isLive: true,
+            identityValidated: true,
             ttyDevice: 42,
             scope: nil,
             scopeCacheKey: key
