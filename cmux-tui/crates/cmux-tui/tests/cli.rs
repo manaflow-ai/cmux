@@ -3660,6 +3660,8 @@ mod feed_local;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/lone_width.rs"]
+mod lone_width;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
