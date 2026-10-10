@@ -159,7 +159,9 @@ public struct ThemeTokens: Hashable, Sendable {
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
             stripBackground: surface,
             sidebarStep: fg.withAlpha(0.04),
-            stripStep: ThemeRGB.black.withAlpha(0),
+            // design-tokens.json theme.stripStep. Strips paint stripBackground (the window ground), not
+            // this step; the sidebar's space marks soften toward it (ProfileBarView.markColor).
+            stripStep: ThemeRGB.black.withAlpha(isDark ? 0.22 : 0.05),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
