@@ -70,7 +70,7 @@ import Testing
         defer { window.close() }
         let (_, point) = try cell(c, ref)
         let menu = try #require(c.menu(at: point))
-        let titles = menu.items.map { (item: NSMenuItem) in item.title }
+        let titles = menu.items.map { (item: NSMenuItem) in (item as? MenuAction)?.label ?? item.title }
         #expect(titles.contains("Play Video"))
         #expect(titles.contains("Open in Default App"))
         #expect(p.videoState(ref) == .poster, "the menu itself plays nothing")

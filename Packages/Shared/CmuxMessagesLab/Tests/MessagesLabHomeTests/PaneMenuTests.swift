@@ -21,7 +21,7 @@ import Testing
         return (c.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)), c)
     }
 
-    private func titles(_ m: NSMenu?) -> [String] { (m?.items ?? []).filter { !$0.isSeparatorItem && $0.submenu == nil }.map(\.title) }
+    private func titles(_ m: NSMenu?) -> [String] { (m?.items ?? []).filter { !$0.isSeparatorItem && $0.submenu == nil }.map { ($0 as? MenuAction)?.label ?? $0.title } }
 
     @Test func offersTheRealMenuWithoutEntriesHomeCannotHonour() throws {
         let (m, _) = menu()
