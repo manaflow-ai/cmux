@@ -187,6 +187,18 @@ export class HarnessSwitch {
   };
   readonly view = (): SwitchView => this.current;
 
+  /// Drops a live config pick once the host echoes the selected value. Keeping this in the
+  /// switch store prevents a late or reconnect snapshot from being masked by an old optimistic
+  /// value.
+  reconcile(snapshot: AcpmuxSnapshot): void {
+    const pick = this.configPick;
+    if (!pick || snapshot.sessionId !== pick.sessionId) return;
+    const option = snapshot.summary?.configOptions?.find((item) => item.id === pick.configId);
+    if (option?.currentValue !== pick.value) return;
+    this.configPick = undefined;
+    this.changed();
+  }
+
   /// What the pane does with prompts handed back, opened sessions and refused picks.
   setHandlers(handlers: SwitchHandlers): void {
     this.handlers = handlers;

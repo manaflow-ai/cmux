@@ -1926,6 +1926,7 @@ function AcpmuxPane() {
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
+        harnessSwitch.reconcile(next);
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
         snapshotRef.current = next;
@@ -2120,6 +2121,7 @@ function AcpmuxPane() {
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
+            harnessSwitch.reconcile(next);
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
