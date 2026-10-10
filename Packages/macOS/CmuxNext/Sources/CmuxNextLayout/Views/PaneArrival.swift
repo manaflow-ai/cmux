@@ -18,7 +18,10 @@ struct PaneArrival: Equatable {
     static func of(target: CGRect, previous: [PaneID: CGRect], next: [PaneID: CGRect]) -> PaneArrival? {
         let slack: CGFloat = 1
         for (pane, before) in previous {
-            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(target) else { continue }
+            // The pane that gave up the space shrank inside its old frame (a
+            // column inserted mid-strip pushes its neighbor along instead).
+            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(target),
+                  before.insetBy(dx: -slack, dy: -slack).contains(after), after.width * after.height < before.width * before.height - 1 else { continue }
             if target.minX >= after.maxX - slack {
                 // Split right: the new pane comes in from the old right edge.
                 return PaneArrival(seed: CGRect(x: target.maxX, y: target.minY, width: 0, height: target.height),
@@ -38,5 +41,13 @@ struct PaneArrival: Equatable {
             }
         }
         return nil
+    }
+
+    /// Where an arriving pane's host sits while its frame springs from the
+    /// seed: at its target size, moved with the edge that moves, so its
+    /// content slides in from that edge without being laid out again.
+    static func presentation(shown: CGRect, target: CGRect) -> CGRect {
+        target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
+                        dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
     }
 }

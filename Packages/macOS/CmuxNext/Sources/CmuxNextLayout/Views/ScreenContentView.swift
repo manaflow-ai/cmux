@@ -17,6 +17,10 @@ final class ScreenContentView: NSView {
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
+    /// Panes growing in from a split's edge: laid out at their target size
+    /// (one terminal resize) and slid in with the edge, masked to the frame
+    /// their spring shows (`PaneArrival.presentation`).
+    private var arriving: Set<PaneID> = []
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
@@ -113,6 +117,7 @@ final class ScreenContentView: NSView {
         // structural changes (close, move, a new strip column) land in one frame.
         let arrivals = animate && structural ? Self.arrivals(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
         let animateFrames = animate && (!structural || !arrivals.isEmpty)
+        if structural { arriving = Set(arrivals.keys) }
 
         // Panes.
         let style = context.style
@@ -238,10 +243,14 @@ final class ScreenContentView: NSView {
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
-            host.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
+            let shift = CGVector(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
+            if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
+            let shown = frame.rect.offsetBy(dx: shift.dx, dy: shift.dy)
+            let revealing = arriving.contains(pane) ? shown : nil
+            host.frame = revealing == nil ? shown : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect).offsetBy(dx: shift.dx, dy: shift.dy)
             host.alphaValue = frame.alpha.value
             host.isDocked = !scrolls
-            clipToStrip(host, scrolls: scrolls, uncovered: uncovered)
+            clipToStrip(host, scrolls: scrolls, uncovered: uncovered, revealing: revealing)
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
