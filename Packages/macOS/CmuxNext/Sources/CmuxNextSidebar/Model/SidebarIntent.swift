@@ -55,6 +55,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").
     case newProfile
+    /// Show agent history: every chat on this device (the bar's History dot, cx-zlnl).
+    case openHistory
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
     /// Run an item of a pinned section (a built-in's action, a pinned
