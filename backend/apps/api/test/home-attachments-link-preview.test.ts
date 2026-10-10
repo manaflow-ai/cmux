@@ -34,6 +34,9 @@ describe("Home attachments: link preview images", { timeout: 120_000 }, () => {
     }
     // The text part at index 0 holds no such hash.
     expect((await urlFor(bob, g.id, sha(JPEG), { message_id: sent.json.value.message_id, part_index: 0 })).status).toBe(404)
+    // Titles and sites count code points, as the owners do: 200 emoji fit in 300.
+    expect((await send(bob, [{ ...linkPart(), title: "\u{1F600}".repeat(200), site: "\u{1F600}".repeat(200) }], "b2")).json.ok).toBe(true)
+    expect((await send(bob, [{ ...linkPart(), title: "\u{1F600}".repeat(301) }], "b3")).json.error.code).toBe("invalid_parts")
     // A preview without an image needs no upload.
     expect((await send(bob, [linkPart()], "b1")).json.ok).toBe(true)
   })

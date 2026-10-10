@@ -160,3 +160,25 @@ fn a_link_preview_of_the_wrong_shape_is_refused_before_any_record() {
         assert_eq!(refused(&answer), "invalid_parts", "{part}");
     }
 }
+
+#[test]
+fn the_daemon_advertises_link_preview_parts() {
+    let server = HeadlessServer::start("link-preview-capability");
+    let mut home = Conn::open(&server.socket);
+    let identity = home.request("identify", json!({}));
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(capabilities.iter().any(|value| value == "link-preview-v1"), "{capabilities:?}");
+}
+
+#[test]
+fn a_part_of_an_unknown_type_is_refused_as_invalid_parts_not_as_a_bad_request() {
+    let server = HeadlessServer::start("link-preview-unknown-part");
+    let (mut home, _chief, conversation) = home_and_chief(&server);
+    let parts =
+        json!([{"type": "text", "text": "hi"}, {"type": "future_part", "anything": [1, 2]}]);
+    let answer = send(&mut home, &conversation, "u0", parts);
+    assert_eq!(refused(&answer), "invalid_parts");
+    // The conversation goes on: a known part list still commits.
+    let sent = send(&mut home, &conversation, "u1", json!([{"type": "text", "text": "hi"}]));
+    assert_eq!(sent["ok"], true, "{sent}");
+}

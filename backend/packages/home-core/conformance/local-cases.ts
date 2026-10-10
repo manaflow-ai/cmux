@@ -161,6 +161,18 @@ export const localCases = (c: Corpus): void => {
   c.op(links, "link preview: an image over 512000 bytes", ALICE, "l0", send("l0", [link({ image: { ...image, byte_count: 512_001 } })]), "invalid_parts")
   c.op(links, "link preview: every field", ALICE, "l1", send("l1", [text("look"), link({ url: "HTTPS://Example.com/a?b#c", title: "é".repeat(300), site: "example.com", image })]), "commit")
   c.op(links, "link preview: only the URL", ALICE, "l2", send("l2", [link({})]), "commit")
+  c.op(links, "link preview: a title of 200 emoji (300 code points at most, not UTF-16 units)", ALICE, "l3", send("l3", [link({ title: "\u{1F600}".repeat(200), site: "\u{1F600}".repeat(200) })]), "commit")
+  c.op(links, "link preview: null title, site and image are absent", ALICE, "l4", send("l4", [link({ title: null, site: null, image: null })]), "commit")
+  c.op(links, "an unknown part type is refused", ALICE, "l5", send("l5", [text("x"), { type: "future_part", anything: [1, 2] } as never]), "invalid_parts")
+  // A link preview is an agent turn like text: link-only messages cannot bypass the loop guard.
+  const linkTurns = new CoreHost()
+  linkTurns.send(ALICE, "h1", "go")
+  for (let turn = 0; turn < 4; turn++) {
+    linkTurns.advance(10_000)
+    c.op(linkTurns, `loop guard: agent link preview ${turn + 1} of 4`, MUX, `p${turn}`, send(`p${turn}`, [link({ url: `https://example.com/${turn}` })]), "commit")
+  }
+  linkTurns.advance(10_000)
+  c.op(linkTurns, "loop guard: a fifth agent link preview is refused", MUX, "p9", send("p9", [link({})]), "agent_budget")
 
   questionCases(c)
 }
