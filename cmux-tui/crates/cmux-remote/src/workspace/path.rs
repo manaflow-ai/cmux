@@ -906,12 +906,10 @@ mod tests {
     async fn rejects_tilde_path_before_workspace_filesystem_operation() {
         let directory = tempdir().unwrap();
         tokio::fs::create_dir(directory.path().join("~")).await.unwrap();
-        let root = WorkspaceRoot::open(
-            WorkspaceId("tilde".into()),
-            directory.path().to_str().unwrap(),
-        )
-        .await
-        .unwrap();
+        let root =
+            WorkspaceRoot::open(WorkspaceId("tilde".into()), directory.path().to_str().unwrap())
+                .await
+                .unwrap();
 
         let error = root.resolve_existing("~").await.unwrap_err();
         assert_eq!(error.code, "invalid-path");
