@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import Observation
+import os
 
 /// The adapter between HomeStore (the single writer of the transcript,
 /// plans/cmux-next/home-mac.md section 2) and the vendored MessagesLab
@@ -244,13 +245,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// silently). Else why nothing was sent; the text stays in the field.
     @discardableResult
     func send() -> String? {
-        guard let store = controller.store else { return "transcript_not_ready" }
+        guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
-        guard !text.isEmpty || !attachments.isEmpty else { return "empty_draft" }
+        guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
+        // The paths that used to drop a send without a word (cx-ebm.55), one line each,
+        // so a lost send in dogfood says which one it took.
+        if !homeStore.isOnline { _ = noteSend("queued: the store is offline") }
+        if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
+        if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
@@ -286,6 +292,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         return nil
     }
+
+    /// Logs one send outcome with the store's state; returns `outcome` (a refusal's reason).
+    private func noteSend(_ outcome: String) -> String {
+        Self.log.notice("home send \(outcome, privacy: .public): conversation \(self.conversation.rawValue, privacy: .public), store_online \(self.homeStore.isOnline), listed \(self.homeStore.summary(self.conversation) != nil)")
+        return outcome
+    }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// Refused before it reached the log (offline, nothing queues, or an
     /// attachment the owner would refuse): the local message goes and the
