@@ -30,7 +30,7 @@ extension ComputerUseRuntimeService {
                 return .unavailable
             }
             guard let helperURL = self.helperAppURL,
-                  let helperIdentity = ComputerUseHelperIdentity(bundleURL: helperURL).read()
+                  let helperIdentity = await Self.readHelperIdentity(at: helperURL)
             else {
                 return .unavailable
             }

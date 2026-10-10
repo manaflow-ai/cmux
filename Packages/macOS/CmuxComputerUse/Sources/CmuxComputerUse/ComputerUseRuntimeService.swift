@@ -244,6 +244,14 @@ public final class ComputerUseRuntimeService {
     /// Whether organization policy disables Computer Use for this host.
     public var computerUseDisabledByPolicy: Bool { isDisabledByPolicy() }
 
+    /// Reads helper identity away from the main actor because an ad-hoc
+    /// fallback hashes the installed executable.
+    nonisolated static func readHelperIdentity(at helperURL: URL) async -> String? {
+        await Task.detached(priority: .utility) {
+            ComputerUseHelperIdentity(bundleURL: helperURL).read()
+        }.value
+    }
+
     /// Whether durable setup completion and both daemon publications are ready.
     public var onboardingIsComplete: Bool {
         onboarding.completionCommitted && desiredEnabled && onboarding.phase.isReady
@@ -1017,21 +1025,23 @@ public final class ComputerUseRuntimeService {
     }
 
     func startIfNeededWithinLifecycle() async {
+        let generation = helperLifecycleGeneration
+        guard helperLaunchIsCurrent(generation) else { return }
         guard !isDisabledByPolicy() else { return }
-        guard acceptsNewLaunches, !Task.isCancelled,
+        guard helperLaunchIsCurrent(generation),
               helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
         var ready = false
         defer {
-            if !Task.isCancelled, acceptsNewLaunches {
+            if helperLaunchIsCurrent(generation) {
                 if ready { helperLaunchRetry.reset() }
                 else { helperLaunchRetry.recordFailure(at: uptime()) }
             }
         }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        guard helperLaunchIsCurrent(generation) else { return }
         // Rehydrate identity-scoped completion before either daemon receives
         // its first readiness publication after a host restart.
-        if let helperIdentity = ComputerUseHelperIdentity(bundleURL: helperURL).read() {
+        if let helperIdentity = await Self.readHelperIdentity(at: helperURL) {
             onboarding.restore(for: helperIdentity)
         }
         let nativeListening = await Self.isDaemonListening(
@@ -1062,17 +1072,21 @@ public final class ComputerUseRuntimeService {
             ready = true
             return
         }
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        guard helperLaunchIsCurrent(generation) else { return }
         // A failed probe does not prove that an older helper exited. Stop and
         // verify the exact installed helper before launching a replacement, or a
         // wedged process can retain TCC privileges beside the new daemon.
-        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
+        guard await stopDaemon(), helperLaunchIsCurrent(generation) else { return }
         for profile in ComputerUseDaemonProfile.allCases {
-            guard await launchHelper(at: helperURL, profile: profile) else {
+            guard await launchHelper(
+                at: helperURL,
+                profile: profile,
+                generation: generation
+            ) else {
                 _ = await stopDaemon()
                 return
             }
-            guard acceptsNewLaunches, !Task.isCancelled else {
+            guard helperLaunchIsCurrent(generation) else {
                 _ = await stopDaemon()
                 return
             }
@@ -1088,7 +1102,8 @@ public final class ComputerUseRuntimeService {
                 _ = await stopDaemon()
                 return
             }
-            guard await configureHostAuthority(for: profile) else {
+            guard helperLaunchIsCurrent(generation),
+                  await configureHostAuthority(for: profile) else {
                 _ = await stopDaemon()
                 return
             }
@@ -1097,7 +1112,8 @@ public final class ComputerUseRuntimeService {
         // launched. Revalidate both profiles together before opening either
         // daemon's functional admission.
         for profile in ComputerUseDaemonProfile.allCases {
-            guard await configureHostAuthority(for: profile) else {
+            guard helperLaunchIsCurrent(generation),
+                  await configureHostAuthority(for: profile) else {
                 _ = await stopDaemon()
                 return
             }
@@ -1194,9 +1210,10 @@ public final class ComputerUseRuntimeService {
 
     private func launchHelper(
         at helperURL: URL,
-        profile: ComputerUseDaemonProfile
+        profile: ComputerUseDaemonProfile,
+        generation: Int
     ) async -> Bool {
-        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return false }
+        guard helperLaunchIsCurrent(generation), prepareRuntimeForLaunch() else { return false }
         guard daemonReadiness(for: profile, timeout: .seconds(5)).prepare()
         else {
             return false
@@ -1211,6 +1228,7 @@ public final class ComputerUseRuntimeService {
         guard let configuration = launch.workspaceConfiguration(helperURL: helperURL) else {
             return false
         }
+        guard helperLaunchIsCurrent(generation) else { return false }
         let launchedProcessIdentifier: pid_t? = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
@@ -1232,11 +1250,18 @@ public final class ComputerUseRuntimeService {
             return false
         }
         runningHelperProcesses[profile] = launchedProcessIdentity
-        guard acceptsNewLaunches, !Task.isCancelled else {
+        guard helperLaunchIsCurrent(generation) else {
             terminateRunningHelper(at: helperURL)
             return false
         }
         return true
+    }
+
+    private func helperLaunchIsCurrent(_ generation: Int) -> Bool {
+        acceptsNewLaunches
+            && desiredEnabled
+            && generation == helperLifecycleGeneration
+            && !Task.isCancelled
     }
 
     private func configureStateAuthentication(
