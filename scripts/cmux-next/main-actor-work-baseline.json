@@ -18,13 +18,20 @@
   "process launch": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentTurnStateFeed.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 1,
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/ChatsFeed.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkResolver.swift": {
   "regular expression": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChatSettingsPush.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPane.swift": {
   "JSON / property-list decode": 3
@@ -122,11 +129,17 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Gallery/GalleryReviewStore.swift": {
   "JSON / property-list decode": 2
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageHostPool+Build.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FrecencyPersistence.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": {
   "process launch": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyKeyClaims.swift": {
   "line split of a whole input": 1
