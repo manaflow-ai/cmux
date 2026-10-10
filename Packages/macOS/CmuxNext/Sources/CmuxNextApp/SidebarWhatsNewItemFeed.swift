@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -10,7 +11,7 @@ enum SidebarWhatsNewItemFeed {
     static func start(model: SidebarModel, center: WhatsNewCenter) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task {
-            for await item in Observations({ WhatsNewPage.sidebarItem(center: center) }) {
+            for await item in ObservationStream({ WhatsNewPage.sidebarItem(center: center) }) {
                 let items = item.map { [$0] } ?? []
                 if model.transientTopItems != items { model.transientTopItems = items }
             }

@@ -80,11 +80,19 @@ enum TerminalHosts {
 
     /// The subset of `pids` still running (zombies awaiting reaping count as gone).
     static func alive(_ pids: Set<Int32>) -> Set<Int32> {
-        pids.filter { pid in
-            guard kill(pid, 0) == 0 else { return false }
-            var info = proc_bsdinfo()
-            let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-            return size <= 0 || info.pbi_status != UInt32(SZOMB)
-        }
+        pids.filter(isRunning)
+    }
+
+    /// Whether `pid` is a process that has not exited. An exited host stays
+    /// a zombie until the daemon reaps it, and the daemon reaps on its own
+    /// schedule (later under load). `proc_pidinfo(PROC_PIDTBSDINFO)` fails
+    /// with ESRCH for a zombie, so it cannot tell a zombie from a live
+    /// process; `sysctl(KERN_PROC_PID)` still returns a zombie's `p_stat`.
+    static func isRunning(_ pid: Int32) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return kill(pid, 0) == 0 }
+        return size > 0 && Int32(info.kp_proc.p_stat) != SZOMB
     }
 }

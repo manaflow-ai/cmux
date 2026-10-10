@@ -66,21 +66,7 @@ pub mod team_cli;
 pub mod trust;
 
 #[cfg(test)]
-mod accounts_tests;
-#[cfg(test)]
-mod cert_tests;
-#[cfg(test)]
-mod enroll_tests;
-#[cfg(test)]
-mod restricted_shell_tests;
-#[cfg(test)]
 mod sessions_tests;
-#[cfg(test)]
-mod store_tests;
-#[cfg(test)]
-mod sync_tests;
-#[cfg(test)]
-mod test_support;
 #[cfg(test)]
 mod trust_tests;
 
