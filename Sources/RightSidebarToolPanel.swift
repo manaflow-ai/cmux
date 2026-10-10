@@ -10,6 +10,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
+    /// Keeps CodeRouter state and its serialized CLI lane alive across
+    /// SwiftUI remounts of this tool-panel surface.
+    let coderouterStore: CoderouterAccountStore
 
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -26,6 +29,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
+        self.coderouterStore = CoderouterAccountStore()
         reattach(to: workspace)
     }
 
@@ -273,7 +277,8 @@ struct RightSidebarToolPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager,
                     activationCoordinator: AppDelegate.shared?.cloudActivationCoordinator
-                        ?? CloudActivationCoordinator.unconfigured()
+                        ?? CloudActivationCoordinator.unconfigured(),
+                    coderouterStore: panel.coderouterStore
                 )
             }
         case .feed, .dock, .customSidebar:

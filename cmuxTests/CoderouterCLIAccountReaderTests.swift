@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import Foundation
 import Testing
@@ -623,6 +624,29 @@ struct CoderouterAccountStateTests {
         )
         #expect(state.accounts.isEmpty)
         #expect(state.pendingRemovalIDs == ["a2"])
+    }
+}
+
+@MainActor
+@Suite("CodeRouter sidebar store")
+struct CoderouterAccountStoreTests {
+    @Test("Remounted machine panels reuse the CodeRouter state owner")
+    func remountedPanelsKeepStore() {
+        let store = CoderouterAccountStore()
+        let activationCoordinator = CloudActivationCoordinator.unconfigured()
+        let firstPanel = MachinesPanelView(
+            chromeBackgroundColor: .windowBackgroundColor,
+            activationCoordinator: activationCoordinator,
+            coderouterStore: store
+        )
+        let remountedPanel = MachinesPanelView(
+            chromeBackgroundColor: .windowBackgroundColor,
+            activationCoordinator: activationCoordinator,
+            coderouterStore: store
+        )
+
+        #expect(firstPanel.coderouterStore === remountedPanel.coderouterStore)
+        #expect(firstPanel.coderouterStore.lane === remountedPanel.coderouterStore.lane)
     }
 }
 
