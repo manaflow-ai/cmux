@@ -7,7 +7,7 @@
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
    its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
    the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
-   no-preference, as the transcript's do (conversation/motion.test.ts). */
+   no-preference, as the transcript's do. */
 :root {
   --agent-motion-hover: 80ms;
   --agent-motion-focus: 100ms;

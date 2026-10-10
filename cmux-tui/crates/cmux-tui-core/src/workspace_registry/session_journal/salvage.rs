@@ -45,7 +45,7 @@ impl WorkspaceRegistry {
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<SalvagedJournalPage> {
-        salvage_session_journal_after(&self.connection, sequence, limit)
+        salvage_session_journal_after(&self.connection.get(), sequence, limit)
     }
 }
 
@@ -59,7 +59,8 @@ impl WorkspaceRegistry {
         start: u64,
         end: u64,
     ) -> anyhow::Result<Vec<String>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT DISTINCT id FROM journal_subject_index
              WHERE kind = ?1 AND sequence >= ?2 AND sequence <= ?3",
         )?;
@@ -353,7 +354,8 @@ mod tests {
         let producer = JournalProducer { kind: "test".into(), id: "salvage".into() };
         let subjects = [JournalSubject { kind: "session".into(), id: "salvage".into() }];
         let event_id = format!("event_salvage_probe_{index}");
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         let sequence = append_journal_record(
             &tx,
             &JournalAppend {
@@ -418,6 +420,7 @@ mod tests {
         let bad = sequences[2];
         registry
             .connection
+            .get()
             .execute_batch(
                 "PRAGMA ignore_check_constraints=ON;
                  DROP TRIGGER IF EXISTS session_journal_reject_update;",
@@ -425,6 +428,7 @@ mod tests {
             .unwrap();
         registry
             .connection
+            .get()
             .execute(
                 "UPDATE session_journal SET class = 'unknown' WHERE sequence = ?1",
                 params![i64::try_from(bad).unwrap()],

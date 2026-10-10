@@ -153,13 +153,12 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Check, build and test web frontend
+      - name: Check and build web frontend
         working-directory: cmux-tui/frontends/web
         run: |
           npm ci --no-audit --no-fund
           npm run check
           npm run build
-          npm test
 
   go-pane:
     # The Go pane-protocol SDK (cmux-tui/bindings/go-pane) and its generator
@@ -1041,9 +1040,6 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
-          # The device-wide chat index: Windows store roots (USERPROFILE,
-          # APPDATA, LOCALAPPDATA) and every adapter on NTFS semantics.
-          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-chat-index
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

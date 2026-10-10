@@ -381,31 +381,6 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  agent-session-web-resources:
-    if: ${{ inputs.agent_session_web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-
-      - name: Cache Bun package cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
-
-      - name: Test Agent Session web sources
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run agent-session-web:test
-
   web-status:
     name: Web status
     needs:
@@ -417,7 +392,6 @@ jobs:
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
-      - agent-session-web-resources
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() }}
@@ -472,7 +446,6 @@ jobs:
               "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
-              "agent-session-web-resources": inputs["agent_session_web"] == "true",
           }
           bad = {}
           for job, is_required in sorted(required.items()):

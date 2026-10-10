@@ -8,12 +8,12 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run-swift-testing-suites.sh"
+RUNNER_DEADLINE_SECONDS = 180
 
 
 def run_runner(
@@ -31,15 +31,52 @@ def run_runner(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
-    deadline = time.monotonic() + 30
-    while process.poll() is None:
-        if time.monotonic() >= deadline:
-            process.kill()
-            output, _ = process.communicate()
-            raise AssertionError(f"runner failed to exit within test deadline\n{output}")
-        time.sleep(0.05)
-    output, _ = process.communicate()
+    # communicate() reads while it waits: a runner that prints more than a pipe
+    # buffer (a hang report) must not block on its own output. The deadline only
+    # stops a broken runner from hanging the test run; it measures nothing, so it
+    # is generous for a loaded host (cmux-lawrence-2 runs at load 50-400).
+    try:
+        output, _ = process.communicate(timeout=RUNNER_DEADLINE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        output, _ = process.communicate()
+        raise AssertionError(f"runner failed to exit within {RUNNER_DEADLINE_SECONDS}s\n{output}")
     return subprocess.CompletedProcess(process.args, process.returncode, output)
+
+
+def same_path(recorded: str, expected: pathlib.Path) -> bool:
+    # $PWD keeps the path as given; macOS temp folders are /var -> /private/var.
+    return os.path.realpath(recorded) == os.path.realpath(expected)
+
+
+def install_stub_sampler(bin_dir: pathlib.Path) -> None:
+    """A `sample` first on PATH for hung_test_watchdog.py: the real one takes
+    3 s per process and 30 s or more on a loaded host. It writes a one-line
+    report, so a test can see that the watchdog sampled the hung suite."""
+    sampler = bin_dir / "sample"
+    sampler.write_text(
+        "#!/bin/sh\n"
+        "# sample PID SECONDS -file REPORT\n"
+        "printf 'stub sample of %s\\n' \"$1\" > \"$4\"\n",
+        encoding="utf-8",
+    )
+    sampler.chmod(0o755)
+
+
+# Upper bound for one wait on another fake process (event order, not a clock).
+# time.monotonic() is per process on some macOS Pythons (every process starts
+# near 0 on cmux-lawrence-2), so fakes never compare timestamps across processes.
+WAIT_FOR_EVENT_SECONDS = 30
+
+
+def overlapped_in_order(lines: list[str], first: str, second: str) -> bool:
+    """Whether two "start NAME" / "end NAME" spans in one event log overlap:
+    each one started before the other ended."""
+    keys = [tuple(line.split()[:2]) for line in lines]
+    return (
+        keys.index(("start", first)) < keys.index(("end", second))
+        and keys.index(("start", second)) < keys.index(("end", first))
+    )
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
@@ -184,10 +221,12 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 "  echo 'ExampleTests.HangingSuite/testNeverFinishes()'\n"
                 "  exit 0\n"
                 "fi\n"
-                "sleep 30\n",
+                # Longer than the test's runner deadline: only the watchdog ends it.
+                "sleep 600\n",
                 encoding="utf-8",
             )
             fake_swift.chmod(0o755)
+            install_stub_sampler(temp)
             package = temp / "ExampleTests"
             package.mkdir()
             env = os.environ.copy()
@@ -199,6 +238,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 124, completed.stdout)
             self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
             self.assertIn("retrying ^ExampleTests\\.HangingSuite/ once", completed.stdout)
+            self.assertIn("stub sample of", completed.stdout)
 
 
     def test_a_failing_suite_does_not_stop_the_suites_after_it(self) -> None:
@@ -220,12 +260,13 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 "  exit 17\n"
                 "fi\n"
                 "if [[ \"$*\" == *BHangingSuite* ]]; then\n"
-                "  sleep 30\n"
+                "  sleep 600\n"
                 "fi\n"
                 "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
                 encoding="utf-8",
             )
             fake_swift.chmod(0o755)
+            install_stub_sampler(temp)
             package = temp / "ExampleTests"
             package.mkdir()
             env = os.environ.copy()
@@ -280,7 +321,8 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             completed = run_runner(next_package, env)
             self.assertEqual(completed.returncode, 0, completed.stdout)
             invocations = calls.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(invocations[0], f"ensure {ROOT}", invocations)
+            self.assertTrue(invocations[0].startswith("ensure "), invocations)
+            self.assertTrue(same_path(invocations[0][len("ensure "):], ROOT), invocations)
             self.assertIn("test list", invocations[1])
 
             calls.write_text("", encoding="utf-8")
@@ -294,7 +336,9 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["FAKE_ENSURE_STATUS"] = "3"
             completed = run_runner(next_package, env)
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
-            self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), [f"ensure {ROOT}"])
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(invocations), 1, invocations)
+            self.assertTrue(same_path(invocations[0][len("ensure "):], ROOT), invocations)
 
     def test_string_catalogs_compile_after_the_build_and_before_the_suites(self) -> None:
         """cx-v2k: swift build copies String Catalogs uncompiled, so QuitAlertContent,
@@ -332,7 +376,8 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stdout)
             invocations = calls.read_text(encoding="utf-8").splitlines()
             self.assertIn("test list", invocations[0])
-            self.assertEqual(invocations[1], f"compile {package.resolve()}", invocations)
+            self.assertTrue(invocations[1].startswith("compile "), invocations)
+            self.assertTrue(same_path(invocations[1][len("compile "):], package), invocations)
             self.assertIn("--skip-build", invocations[2])
 
             calls.write_text("", encoding="utf-8")
@@ -342,8 +387,10 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertFalse([line for line in calls.read_text(encoding="utf-8").splitlines() if "--skip-build" in line])
 
     def _write_fake_swift(self, temp: pathlib.Path, body: str) -> None:
-        # Every call appends "start <suite> <t>" and "end <suite> <t>" lines to
-        # $CMUX_SWIFT_TEST_EVENTS, so a test can tell whether suites overlapped.
+        # Every call appends "start <suite>" and "end <suite>" lines to
+        # $CMUX_SWIFT_TEST_EVENTS; the order of the lines (each one O_APPEND
+        # write) tells whether suites overlapped. A body can wait_for('start',
+        # 'OtherSuite') to make an overlap certain instead of likely.
         fake_swift = temp / "swift"
         fake_swift.write_text(
             "#!/usr/bin/env python3\n"
@@ -360,7 +407,15 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             "suite = next(s for s in suites if s in selected)\n"
             "def event(kind):\n"
             "    with open(os.environ['CMUX_SWIFT_TEST_EVENTS'], 'a') as events:\n"
-            "        events.write(f'{kind} {suite} {time.monotonic()}\\n')\n"
+            "        events.write(f'{kind} {suite}\\n')\n"
+            f"def wait_for(kind, name, limit={WAIT_FOR_EVENT_SECONDS}):\n"
+            "    deadline = time.monotonic() + limit\n"
+            "    while time.monotonic() < deadline:\n"
+            "        with open(os.environ['CMUX_SWIFT_TEST_EVENTS']) as events:\n"
+            "            if any(line.split()[:2] == [kind, name] for line in events):\n"
+            "                return True\n"
+            "        time.sleep(0.02)\n"
+            "    return False\n"
             "event('start')\n"
             + body
             + "event('end')\n",
@@ -379,11 +434,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
 
     @staticmethod
     def _overlapped(events_path: pathlib.Path, first: str, second: str) -> bool:
-        spans: dict[str, list[float]] = {}
-        for line in events_path.read_text(encoding="utf-8").splitlines():
-            kind, suite, at = line.split()
-            spans.setdefault(suite, [0.0, 0.0])[0 if kind == "start" else 1] = float(at)
-        return spans[first][0] < spans[second][1] and spans[second][0] < spans[first][1]
+        return overlapped_in_order(events_path.read_text(encoding="utf-8").splitlines(), first, second)
 
     def test_concurrent_suites_print_whole_blocks_under_their_own_header(self) -> None:
         """CMUX_SWIFT_TEST_SUITE_JOBS runs suites at once; each suite's output stays
@@ -393,9 +444,12 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             suites = ["AlphaSuite", "BetaSuite"]
             self._write_fake_swift(
                 temp,
+                # Both suites print only once both have started, so their lines
+                # are written at the same time.
+                "wait_for('start', 'BetaSuite' if suite == 'AlphaSuite' else 'AlphaSuite')\n"
                 "for index in range(5):\n"
                 "    print(f'{suite} line {index}', flush=True)\n"
-                "    time.sleep(0.2)\n"
+                "    time.sleep(0.1)\n"
                 "print('Test run with 1 test passed after 0.001 seconds.', flush=True)\n",
             )
             package = temp / "ExampleTests"
@@ -427,17 +481,18 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             suites = ["APassingSuite", "BSlowFailingSuite", "CFastFailingSuite", "DPassingSuite"]
             self._write_fake_swift(
                 temp,
+                # C fails while B runs, and B fails only after C ended.
                 "if suite == 'BSlowFailingSuite':\n"
-                "    time.sleep(1)\n"
+                "    wait_for('end', 'CFastFailingSuite')\n"
                 "    print('Test run with 1 test failed after 1 seconds.')\n"
                 "    event('end')\n"
                 "    raise SystemExit(17)\n"
                 "if suite == 'CFastFailingSuite':\n"
+                "    wait_for('start', 'BSlowFailingSuite')\n"
                 "    print('Test run with 1 test failed after 0.001 seconds.')\n"
                 "    event('end')\n"
                 "    raise SystemExit(23)\n"
-                "time.sleep(0.5)\n"
-                "print('Test run with 1 test passed after 0.5 seconds.')\n",
+                "print('Test run with 1 test passed after 0.001 seconds.')\n",
             )
             package = temp / "ExampleTests"
             package.mkdir()
@@ -447,7 +502,9 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
 
             # C fails first in time; B is first in suite order and decides the status.
             self.assertEqual(completed.returncode, 17, completed.stdout)
-            self.assertTrue(self._overlapped(temp / "events.txt", "BSlowFailingSuite", "CFastFailingSuite"))
+            events = (temp / "events.txt").read_text(encoding="utf-8").splitlines()
+            self.assertTrue(overlapped_in_order(events, "BSlowFailingSuite", "CFastFailingSuite"), events)
+            self.assertLess(events.index("end CFastFailingSuite"), events.index("end BSlowFailingSuite"), events)
             summary = completed.stdout[completed.stdout.index("Swift test suites:"):].splitlines()
             self.assertEqual(summary[0], "Swift test suites: 2 passed, 2 failed", completed.stdout)
             self.assertEqual(
@@ -492,7 +549,10 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             suites = ["AlphaSuite", "BetaSuite"]
             self._write_fake_swift(
                 temp,
-                "time.sleep(0.3)\n"
+                # A parallel run would start BetaSuite while AlphaSuite waits
+                # here; a serial run never does, and Alpha goes on after 3 s.
+                "if suite == 'AlphaSuite':\n"
+                "    wait_for('start', 'BetaSuite', limit=3)\n"
                 "print('Test run with 1 test passed after 0.3 seconds.')\n",
             )
             package = temp / "ExampleTests"
@@ -612,12 +672,18 @@ swift_tests = os.environ["FAKE_SWIFT_TESTS"].split()
 if args[:2] == ["test", "list"]:
     listed = xctests if "--disable-swift-testing" in args else sorted(xctests + swift_tests)
     if "--disable-swift-testing" in args and os.environ.get("FAKE_EVENTS"):
+        # The list ends only after the catalog compile started (event order).
         import time
         with open(os.environ["FAKE_EVENTS"], "a") as events:
-            events.write(f"start xctest-list {time.monotonic()}\n")
-        time.sleep(float(os.environ.get("FAKE_LIST_SECONDS", "0")))
+            events.write("start xctest-list\n")
+        deadline = time.monotonic() + float(os.environ["FAKE_WAIT_SECONDS"])
+        while time.monotonic() < deadline:
+            with open(os.environ["FAKE_EVENTS"]) as events:
+                if any(line.split()[:2] == ["start", "catalogs"] for line in events):
+                    break
+            time.sleep(0.02)
         with open(os.environ["FAKE_EVENTS"], "a") as events:
-            events.write(f"end xctest-list {time.monotonic()}\n")
+            events.write("end xctest-list\n")
     print("\n".join(listed))
     raise SystemExit(0)
 if args[:1] == ["build"] and "--show-bin-path" in args:
@@ -669,7 +735,7 @@ else:
     action = act(selected)
     print("Test run started.", flush=True)
 if action == "hang":
-    time.sleep(30)
+    time.sleep(600)
 if action == "crash":
     os.kill(os.getpid(), signal.SIGTRAP)
 if action == "empty":
@@ -704,6 +770,11 @@ class DirectBundleSuiteTests(unittest.TestCase):
         for name, body in (("swift", FAKE_DIRECT_SWIFT), ("xcrun", FAKE_DIRECT_XCRUN)):
             (bin_dir / name).write_text(body, encoding="utf-8")
             (bin_dir / name).chmod(0o755)
+        # The runner's `python3` is this interpreter. /usr/bin/python3 on macOS
+        # is an xcrun shim that exports the real SDK's SDKROOT, which the
+        # runner then keeps over the fake xcrun's SDK (cmux-lawrence-2).
+        (bin_dir / "python3").symlink_to(sys.executable)
+        install_stub_sampler(bin_dir)
         tools = temp / "tools"
         for relative in ("Developer/usr/bin/xctest", "Toolchain/usr/libexec/swift/pm/swiftpm-testing-helper"):
             path = tools / relative
@@ -809,30 +880,30 @@ class DirectBundleSuiteTests(unittest.TestCase):
                 "#!/usr/bin/env python3\n"
                 "import os, time\n"
                 "with open(os.environ['FAKE_EVENTS'], 'a') as e:\n"
-                "    e.write(f\"start catalogs {time.monotonic()} {os.environ.get('CMUX_SWIFT_BIN_PATH', '-')}\\n\")\n"
-                "time.sleep(1.5)\n"
+                "    e.write(f\"start catalogs {os.environ.get('CMUX_SWIFT_BIN_PATH', '-')}\\n\")\n"
+                "# The compile ends only after the XCTest list started (event order).\n"
+                "deadline = time.monotonic() + float(os.environ['FAKE_WAIT_SECONDS'])\n"
+                "while time.monotonic() < deadline:\n"
+                "    with open(os.environ['FAKE_EVENTS']) as e:\n"
+                "        if any(line.split()[:2] == ['start', 'xctest-list'] for line in e):\n"
+                "            break\n"
+                "    time.sleep(0.02)\n"
                 "with open(os.environ['FAKE_EVENTS'], 'a') as e:\n"
-                "    e.write(f'end catalogs {time.monotonic()}\\n')\n",
+                "    e.write('end catalogs\\n')\n",
                 encoding="utf-8",
             )
             compile_catalogs.chmod(0o755)
             env["CMUX_COMPILE_STRING_CATALOGS"] = str(compile_catalogs)
             env["FAKE_EVENTS"] = str(events)
-            env["FAKE_LIST_SECONDS"] = "1.5"
+            env["FAKE_WAIT_SECONDS"] = str(WAIT_FOR_EVENT_SECONDS)
 
             completed = run_runner(package, env)
 
             self.assertEqual(completed.returncode, 0, completed.stdout)
-            spans: dict[str, list[float]] = {}
-            bin_path = ""
-            for line in events.read_text(encoding="utf-8").splitlines():
-                kind, name, at, *rest = line.split()
-                spans.setdefault(name, [0.0, 0.0])[0 if kind == "start" else 1] = float(at)
-                if name == "catalogs" and kind == "start":
-                    bin_path = rest[0]
+            lines = events.read_text(encoding="utf-8").splitlines()
+            bin_path = next(line.split()[2] for line in lines if line.split()[:2] == ["start", "catalogs"])
             self.assertEqual(bin_path, env["FAKE_BIN_PATH"])
-            catalogs, listing = spans["catalogs"], spans["xctest-list"]
-            self.assertTrue(catalogs[0] < listing[1] and listing[0] < catalogs[1], spans)
+            self.assertTrue(overlapped_in_order(lines, "catalogs", "xctest-list"), lines)
             self.assertIn("Swift test suites: 3 passed, 0 failed", completed.stdout)
 
     def test_a_failed_catalog_compile_or_xctest_list_fails_before_the_suites(self) -> None:
@@ -902,6 +973,7 @@ class DirectBundleSuiteTests(unittest.TestCase):
             self.assertIn("retrying ^Example\\.StSuite/ once", completed.stdout)
             self.assertEqual(len(self._direct_calls(temp)), 2)
             self.assertIn("FAIL (timed out) ^Example\\.StSuite/", completed.stdout)
+            self.assertIn("stub sample of", completed.stdout)
 
     def test_shards_split_suites_in_direct_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -960,13 +1032,16 @@ class DirectBundleSuiteTests(unittest.TestCase):
         """aws-m4pro-8, Xcode 26.6 (2026-10-09): dsymutil of the 444 MB CmuxNext
         test bundle took 8.1 s of every test build. CMUX_SWIFT_TEST_DEBUG_INFO=none
         passes -debug-info-format none to the list build and to every later swift
-        call (with other flags they would plan a different build); dwarf adds none."""
-        for value, want in (("none", True), ("dwarf", False)):
+        call (with other flags they would plan a different build); dwarf adds none.
+        none is the default."""
+        for value, want in (("none", True), ("dwarf", False), (None, True)):
             for direct in ("1", "0"):
                 with self.subTest(value=value, direct=direct), tempfile.TemporaryDirectory() as temp_dir:
                     temp = pathlib.Path(temp_dir).resolve()
                     package, env = self._setup(temp)
-                    env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
+                    env.pop("CMUX_SWIFT_TEST_DEBUG_INFO", None)
+                    if value is not None:
+                        env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
                     env["CMUX_SWIFT_TEST_DIRECT"] = direct
                     if direct == "0":
                         # The fallback runs the suites through the fake swift.

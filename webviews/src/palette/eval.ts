@@ -50,9 +50,13 @@ export interface EvalCase {
   /** A guard case: its row must stay in the top 3 (palette-eval.test.ts fails otherwise). */
   guard?: boolean;
   /** Learning: these runs happen first (oldest first), each `daysAgo` before the query. */
-  replay?: Array<{ query: string; pick: string; daysAgo?: number }>;
+  replay?: Array<
+    { query: string; pick: string; daysAgo?: number } | { hide: string } | { unhide: string } | { forget: string }
+  >;
   /** Learning: this row must NOT be first (an old pick that should have faded). */
   notFirst?: string;
+  /** Learning: this row must not be among the results at all (a hidden row). */
+  absent?: string;
 }
 
 export interface EvalCases {
@@ -97,10 +101,25 @@ const pickHalfLife = 7 * day;
  */
 export function replayHistory(replay: NonNullable<EvalCase["replay"]>, base: PaletteFrecency = {}): PaletteFrecency {
   const entries = { ...base.entries };
-  const picks: PaletteLearnedPick[] = [...(base.picks ?? [])];
+  let picks: PaletteLearnedPick[] = [...(base.picks ?? [])];
+  const hidden = new Set(base.hidden ?? []);
   const decay = (score: number, from: number, to: number, life: number) =>
     score * 2 ** (-Math.max(0, to - from) / life);
   for (const event of replay) {
+    // Row controls (the daemon's palette_usage.hide and palette_usage.forget).
+    if ("hide" in event) {
+      hidden.add(event.hide);
+      continue;
+    }
+    if ("unhide" in event) {
+      hidden.delete(event.unhide);
+      continue;
+    }
+    if ("forget" in event) {
+      delete entries[event.forget];
+      picks = picks.filter((pick) => pick.key !== event.forget);
+      continue;
+    }
     const at = evalNow - (event.daysAgo ?? 0) * day;
     const entry = entries[event.pick];
     entries[event.pick] = { score: (entry ? decay(entry.score, entry.lastUsed, at, halfLife) : 0) + 1, lastUsed: at };
@@ -120,7 +139,7 @@ export function replayHistory(replay: NonNullable<EvalCase["replay"]>, base: Pal
       } else picks.push({ prefix, key: event.pick, score: 1, lastUsed: at, last: true });
     }
   }
-  return { entries, picks, halfLife, pickHalfLife };
+  return { entries, picks, halfLife, pickHalfLife, hidden: [...hidden] };
 }
 
 /** The fixture's entries plus the overlay rows, with section indexes resolved. */
@@ -182,11 +201,15 @@ export function scoreCases(
     const profile = evalCase.profile ? cases.profiles?.[evalCase.profile] : undefined;
     const frecency = evalCase.replay ? replayHistory(evalCase.replay, frecencyFor(profile)) : frecencyFor(profile);
     const ids = ranked(evalCase.query, frecency, evalCase).slice(0, 50);
-    const position = evalCase.notFirst
-      ? ids[0] !== evalCase.notFirst
-        ? 0
-        : -1
-      : ids.findIndex((id) => evalCase.expect.includes(id));
+    const position = evalCase.absent
+      ? ids.includes(evalCase.absent)
+        ? -1
+        : 0
+      : evalCase.notFirst
+        ? ids[0] !== evalCase.notFirst
+          ? 0
+          : -1
+        : ids.findIndex((id) => evalCase.expect.includes(id));
     return {
       query: evalCase.query,
       group: evalCase.group,

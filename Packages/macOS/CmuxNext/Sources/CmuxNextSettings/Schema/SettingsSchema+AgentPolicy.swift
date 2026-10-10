@@ -36,6 +36,7 @@ extension SettingsSchema {
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -116,7 +117,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.showProjects",
+        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

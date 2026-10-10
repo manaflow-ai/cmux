@@ -380,8 +380,18 @@ def type_in_pane(text):
         clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
             rpc("debug.agent_pane", {"action": "click", "text": "Trust"}) or {"error": "none"}), 30)
         print("trust:", json.dumps(clicked)[:200], flush=True)
-        sent = {"first": sent, "trusted": clicked}
+        # The refused prompt never went (acpmux trust_gate: it goes back to the composer), so
+        # the user sends it again after Trust, as the proof does.
+        again = wait(lambda: (lambda r: r if "trust.pending" not in json.dumps(r) else None)(
+            rpc("debug.agent_pane", {"action": "send_prompt", "text": text})), 30)
+        sent = {"first": sent, "trusted": clicked, "again": again}
     return sent
+
+
+def pane_text(state):
+    """The chat text the shown agent pane renders (chat_state `transcript`), one string."""
+    rows = (state or {}).get("transcript") if isinstance(state, dict) else None
+    return "\n".join(f"{r.get('kind')}: {r.get('text')}" for r in rows or [])
 
 
 def engine(**fields):
@@ -431,25 +441,27 @@ def parallel_three():
         row("3 workspaces with live agent panes", "the Chief spawns 3 subagents", f"no Chief turn: {reply}", False)
         return
     spawned = wait(lambda: [i for i, s in subs().items() if s.get("session_id")] if len(subs()) >= 3 else None, 120) or []
-    new = wait(lambda: [w for w in workspaces() if w.get("id") not in start and re.match(r"a\d+ · ", ws_name(w))]
-               if len([w for w in workspaces() if re.match(r"a\d+ · ", ws_name(w))]) >= 3 else None, 120) or []
-    tabs = [w for w in new if agent_tab(w.get("id"))]
-    # Each pane must show its subagent's own chat (the task it was given), not "This chat isn't available".
-    shown = []
-    for w in new[:3]:
-        focus_workspace(w.get("id"), f"workspace-{ws_name(w).split(' ')[0]}")
-        state = json.dumps(wait(lambda: (lambda st: st if "lines of" in json.dumps(st) else None)(
-            rpc("debug.agent_pane", {"action": "chat_state"})), 60) or rpc("debug.agent_pane", {"action": "chat_state"}))
-        shown.append("lines of" in state and "isn't available" not in state)
-    show_home()
-    row("3 workspaces with live agent panes", "3 subagent workspaces; each pane shows that subagent's transcript",
-        f"subagents {sorted(spawned)}, workspaces {[ws_name(w) for w in new]}, with agent tab {len(tabs)}, transcript shown {shown}",
-        len(new) >= 3 and len(tabs) >= 3 and len(shown) == 3 and all(shown))
-    # The Chief answers a user message while they run.
-    running = [i for i, s in subs().items() if s.get("status") == "running"]
+    # The Chief answers a user message while they run: asked first, inside their `sleep 90`
+    # (the pane checks below take minutes, so asked after them nothing ran any more).
+    running = wait(lambda: [i for i, s in subs().items() if s.get("status") == "running"] or None, 120) or []
     starts = len(turn_starts())
     answer = ask("While they work: what is 17 times 3? Answer with only the number.")
     still = [i for i, s in subs().items() if s.get("status") == "running"]
+    new = wait(lambda: [w for w in workspaces() if w.get("id") not in start and re.match(r"a\d+ · ", ws_name(w))]
+               if len([w for w in workspaces() if re.match(r"a\d+ · ", ws_name(w))]) >= 3 else None, 120) or []
+    tabs = [w for w in new if agent_tab(w.get("id"))]
+    # Each pane must show its subagent's own chat: the chat text the pane renders names its file.
+    shown = []
+    for w in new[:3]:
+        focus_workspace(w.get("id"), f"workspace-{ws_name(w).split(' ')[0]}")
+        file = next((f for f in ("alpha", "beta", "gamma") if f in ws_name(w)), "lines of")
+        state = wait(lambda: (lambda st: st if file in pane_text(st) else None)(
+            rpc("debug.agent_pane", {"action": "chat_state"})), 60) or rpc("debug.agent_pane", {"action": "chat_state"})
+        shown.append(file in pane_text(state) and not (state or {}).get("missingSession"))
+    show_home()
+    row("3 workspaces with live agent panes", "3 subagent workspaces; each pane's chat text names its own file",
+        f"subagents {sorted(spawned)}, workspaces {[ws_name(w) for w in new]}, with agent tab {len(tabs)}, own transcript shown {shown}",
+        len(new) >= 3 and len(tabs) >= 3 and len(shown) == 3 and all(shown))
     row("Chief answers while subagents run", "51 while at least one subagent is running",
         f"reply {answer[:40]!r}; running before {running}, after {still}", "51" in answer and bool(running))
     at_work = [e.get("layout", {}).get("at_work") for e in turn_starts()[starts:]]
@@ -584,6 +596,58 @@ def restart_mid_run():
     counts = {i: sum(1 for x, _ in got if x == i) for i in ids}
     row("host restart mid-run", "the host comes back; each report once",
         f"host {pid} -> back={bool(back)}; report counts {counts}", bool(back) and all(v == 1 for v in counts.values()))
+
+
+@flow
+def stale_tab_never_shows_another_session():
+    """P1 2026-10-09: a subagent tab whose session is gone, while the Chief home's acpmux has a
+    new session of the same name, says "This chat isn't available" and never shows that session:
+    live (the session is deleted while its tab shows) and after an app restart (the handshake)."""
+    answer = spawn(["Reply with only the word stale-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    sub = subs().get(ids[0], {}) if ids else {}
+    old = sub.get("session_id")
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not (old and ws):
+        row("stale subagent tab", "a subagent with a session and a workspace", f"session {old}; ws {ws}", False)
+        return
+    focus_workspace(ws.get("id"), f"stale-{ids[0]}-before")
+    before = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    # The recreated home: the old session goes, a new one takes its name (a compactor's in the bug).
+    name = next((r.get("name") for r in (acpmux_rpc("_acpmux/sessions", {}) or {}).get("sessions", [])
+                 if r.get("sessionId") == old), f"optchat-sub-x-{ids[0]}")
+    deleted = acpmux_rpc("session/delete", {"sessionId": old})
+    made = acpmux_rpc("session/new", {"cwd": WORK, "mcpServers": [],
+                                      "_meta": {"acpmux": {"name": name, "harness": os.environ.get("MUX_HARNESS", "claude-sr")}}})
+    new = (made or {}).get("sessionId")
+    live = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    snapshot(f"stale-{ids[0]}-live")
+    row("stale subagent tab, live", "the pane says the chat is gone; it never attaches the new same-named session",
+        f"old {old} ({'stale-probe' in pane_text(before)}); name {name}; delete {json.dumps(deleted)[:60]}; new {new}; "
+        f"pane session {live.get('sessionId')}, missing {live.get('missingSession')}",
+        live.get("missingSession") == old and live.get("sessionId") in (None, old) and new is not None
+        and live.get("sessionId") != new and "stale-probe" in pane_text(before))
+    rpc("action.run", {"action": "quitKeepSessions"}, timeout=10)
+    try:
+        app.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+    launch_app()
+    show_home()
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    if ws:
+        focus_workspace(ws.get("id"), f"stale-{ids[0]}-restored")
+    restored = wait(lambda: (lambda st: st if st.get("missingSession") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 60) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    row("stale subagent tab, after restart", "the restored tab says the chat is gone; never the new same-named session",
+        f"ws {ws_name(ws or {})!r}; pane session {restored.get('sessionId')}, missing {restored.get('missingSession')}; "
+        f"text {pane_text(restored)[:60]!r}",
+        bool(ws) and restored.get("missingSession") == old and restored.get("sessionId") != new and not pane_text(restored))
+    if new:
+        acpmux_rpc("session/delete", {"sessionId": new})
+    show_home()
 
 
 @flow
@@ -786,9 +850,10 @@ def cli_shown(sub):
     ws = wait(chief_row_ws, 180)
     if ws:
         focus_workspace(ws.get("id"), f"cli-{sub}-pane")
-    state = json.dumps(wait(lambda: (lambda st: st if "cli.txt" in json.dumps(st) else None)(
+    state = pane_text(wait(lambda: (lambda st: st if "cli.txt" in pane_text(st) else None)(
         rpc("debug.agent_pane", {"action": "chat_state"})), 90) or rpc("debug.agent_pane", {"action": "chat_state"}))
-    tool = "wc" in state or "Bash" in state
+    # The tool call shows as a tool line in zoom; the pane's assistant text names the count.
+    tool = "|tool: " in tools({"tool": "zoom", "id": sub}).get("text", "")
     sent = type_in_pane("Reply with only the word cli-typed.")
     typed = wait(lambda: [t for i, t in reports({sub}) if "cli-typed" in t.lower()], 300, step=3)
     if ws:
@@ -865,6 +930,12 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900",
            # Model traffic only through the team subrouter (claude-sr).
            "MUX_HARNESS": os.environ.get("MUX_HARNESS", "claude-sr")}
+    # The subrouter route of this host's login shell (run the script under `zsh -lic`), so the
+    # app's Chief and its compactor sign in; values pass through, never printed.
+    for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "SUBROUTER_URL"):
+        if os.environ.get(name):
+            env[name] = os.environ[name]
+    print("route env:", sorted(k for k in env if k.startswith(("ANTHROPIC_", "SUBROUTER_"))), flush=True)
     APP_ENV.update(env)
     cli_sub = cli_first() if opts.cli_first else None
     if opts.cli_first and not cli_sub:

@@ -2,10 +2,10 @@
 // used by the entry view and matrix runner. It is intentionally a view of the registry rather
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { browseFrameHref, filterBrowseItems, browseItems, nextBrowseVariant, type BrowseKind } from "./browseModel";
+import { browseFrameHref, filterBrowseItems, nextBrowseVariant, type BrowseKind } from "./browseModel";
 import { Stage } from "./Stage";
 
 export function BrowseView({
@@ -21,30 +21,30 @@ export function BrowseView({
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
-  const items = browseItems(entries);
-  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("");
   const [kind, setKind] = useState<BrowseKind>("all");
   const [cycle, setCycle] = useState(false);
-  const visible = filterBrowseItems(items, query, kind);
+  const items = useMemo(() => filterBrowseItems(entries, filter, kind), [entries, filter, kind]);
+  const allCount = useMemo(() => filterBrowseItems(entries, "").length, [entries]);
   return (
     <section className="gallery-browse" aria-labelledby="gallery-browse-title">
       <header className="gallery-browse-header">
         <div>
           <h1 id="gallery-browse-title">Browse gallery</h1>
           <p>
-            {visible.length} of {items.length} entries, each rendered by its real host. Scan the contact sheet, switch
+            {items.length} of {allCount} live previews, each rendered by its real host. Scan the contact sheet, switch
             variants, or cycle multi-state previews before opening a full view.
           </p>
         </div>
         <div className="gallery-browse-tools">
-          <label>
-            <span>Filter previews</span>
+          <label className="gallery-browse-filter">
+            Filter previews
             <input
               type="search"
-              aria-label="Filter previews"
-              value={query}
-              placeholder="Search title or surface"
-              onChange={(event) => setQuery(event.target.value)}
+              value={filter}
+              placeholder={`Filter ${allCount} previews`}
+              aria-label="Filter gallery previews"
+              onChange={(event) => setFilter(event.target.value)}
             />
           </label>
           <fieldset className="gallery-browse-kind-filter">
@@ -78,9 +78,9 @@ export function BrowseView({
           </label>
         </div>
       </header>
-      {visible.length ? (
+      {items.length ? (
         <div className="gallery-browse-grid">
-          {visible.map(({ entry, variant }) => (
+          {items.map(({ entry, variant }) => (
             <BrowseCard
               key={entry.id}
               entry={entry}
@@ -94,7 +94,14 @@ export function BrowseView({
           ))}
         </div>
       ) : (
-        <p className="gallery-empty">No ready entries to preview yet.</p>
+        <div className="gallery-empty">
+          <p>{filter.trim() ? `No previews match “${filter.trim()}”.` : "No ready entries to preview yet."}</p>
+          {filter.trim() && (
+            <button type="button" onClick={() => setFilter("")}>
+              Clear filter
+            </button>
+          )}
+        </div>
       )}
     </section>
   );
@@ -119,14 +126,16 @@ function BrowseCard({
 }) {
   const [variant, setVariant] = useState(initialVariant);
   const [width, setWidth] = useState(420);
-  const previewRef = useCallback((node: HTMLElement | null) => {
-    if (!node) return;
-    const measure = () => setWidth(node.clientWidth);
+  const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!previewNode) return;
+    const measure = () => setWidth(previewNode.clientWidth);
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(node);
+    observer.observe(previewNode);
     return () => observer.disconnect();
-  }, []);
+  }, [previewNode]);
   const variants = useMemo(() => Object.keys(entry.variants), [entry]);
   const fixture = entry.variants[variant];
   useEffect(() => {
@@ -163,7 +172,7 @@ function BrowseCard({
           <span className="gallery-browse-cycle-note">{cycle && !env.reducedMotion ? "cycling" : "multi-state"}</span>
         )}
       </fieldset>
-      <div ref={previewRef} className="gallery-browse-preview">
+      <div ref={setPreviewNode} className="gallery-browse-preview">
         <Stage
           key={variant}
           entry={entry}

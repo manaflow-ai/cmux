@@ -20,17 +20,6 @@ export function nextBrowseVariant(current: string, variants: readonly string[]):
   return variants[(index + 1 + variants.length) % variants.length] ?? variants[0];
 }
 
-/** Filter contact-sheet cards by their stable title/id/area text and available motion. */
-export function filterBrowseItems(items: readonly BrowseItem[], query: string, kind: BrowseKind): BrowseItem[] {
-  const needle = query.trim().toLowerCase();
-  return items.filter(({ entry }) => {
-    const text = `${entry.area} ${entry.title} ${entry.id}`.toLowerCase();
-    const matchesText = !needle || text.includes(needle);
-    const matchesKind = kind === "all" || (kind === "motion" ? browseHasMotion(entry) : !browseHasMotion(entry));
-    return matchesText && matchesKind;
-  });
-}
-
 /** The variant a contact-sheet card starts on: the recorded recommendation, otherwise the first. */
 export function browseVariant(entry: GalleryEntry): string | undefined {
   const variants = Object.keys(entry.variants);
@@ -45,6 +34,28 @@ export function browseItems(entries: readonly GalleryEntry[]): BrowseItem[] {
     const variant = browseVariant(entry);
     return variant ? [{ entry, variant }] : [];
   });
+}
+
+/** Match the contact sheet's human-facing entry and variant labels. */
+export function browseMatches(item: BrowseItem, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const variants = Object.keys(item.entry.variants).join(" ");
+  return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants}`.toLowerCase().includes(needle);
+}
+
+/** Filter contact-sheet cards by text and available motion, without changing the stable
+ * recommended variant for each entry. */
+export function filterBrowseItems(
+  entries: readonly GalleryEntry[],
+  query: string,
+  kind: BrowseKind = "all",
+): BrowseItem[] {
+  return browseItems(entries).filter(
+    (item) =>
+      browseMatches(item, query) &&
+      (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
+  );
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */

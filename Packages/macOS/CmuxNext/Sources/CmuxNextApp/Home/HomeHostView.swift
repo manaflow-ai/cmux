@@ -72,6 +72,8 @@ final class HomeHostView: NSView {
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        // A Chief subagent's link: its workspace and chat tab, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
