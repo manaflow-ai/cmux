@@ -123,7 +123,7 @@ pub(super) fn after_host_death(
     {
         return DeadHost::Replaced(Box::new(attachment));
     }
-    let end = sidecar.map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit)).unwrap_or_else(|| {
+    let end = sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
         TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
     });
     *pty.exit.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);

@@ -103,6 +103,19 @@ impl TerminalEnd {
 
     /// Classify a persisted terminal exit receipt (`RegistryTerminal::exit`).
     /// A missing or unreadable receipt is a host loss.
+    /// The end a host reported (its live `Exit` frame or its durable exit
+    /// sidecar): a process end, except a host that ended its terminal
+    /// because its owner was gone ([`EXIT_OWNER_GONE`]), which is a host
+    /// loss, so its tabs stay (cx-3ryj).
+    pub(crate) fn from_host_exit(exit: TerminalExit) -> Self {
+        match &exit.outcome {
+            TerminalExitOutcome::Unknown { reason } if reason == EXIT_OWNER_GONE => {
+                Self::HostLost(exit)
+            }
+            _ => Self::ProcessEnded(exit),
+        }
+    }
+
     pub(crate) fn from_receipt(receipt: Option<&Value>) -> Self {
         let outcome = receipt.and_then(|receipt| receipt.get("outcome")).and_then(|outcome| {
             serde_json::from_value::<TerminalExitOutcome>(outcome.clone()).ok()

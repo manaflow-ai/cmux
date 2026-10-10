@@ -81,12 +81,6 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     );
     assert!(wait_for_screen(&harness.socket, surface, "still-served").contains("still-served"));
 
-    let incarnation = request(
-        &harness.socket,
-        serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
-    )["terminal_incarnation"]
-        .clone();
-
     // Owner gone: the host ends its terminal after the grace, cleanly.
     let killed = Instant::now();
     kill_daemon(&mut harness);
@@ -108,11 +102,8 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
             &harness.socket,
             serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
         );
-        // A host loss leaves the terminal exited, or respawned (L2).
-        if resolved["lifecycle"] == "exited"
-            || (resolved["lifecycle"] == "running"
-                && resolved["terminal_incarnation"] != incarnation)
-        {
+        // A host loss of a `run` terminal leaves it exited, its tab dead.
+        if resolved["lifecycle"] == "exited" {
             break;
         }
         assert!(Instant::now() < deadline, "the orphan end was not recorded: {resolved}");
@@ -195,4 +186,42 @@ fn a_daemon_restart_inside_the_grace_adopts_the_host() {
         serde_json::json!({"cmd":"send","surface":surface,"text":"after-restart\n"}),
     );
     assert!(wait_for_screen(&harness.socket, surface, "after-restart").contains("after-restart"));
+}
+
+/// The orphan clock starts when the last client leaves, not when a client
+/// connected: an adopting daemon that served its host for most of a grace
+/// and then died still leaves a whole grace for the next restart.
+#[test]
+fn a_restart_after_a_long_served_period_still_gets_the_whole_grace() {
+    let _exclusive = exclusive_process_test();
+    let grace = Duration::from_secs(15);
+    let mut harness = start_with_orphan_grace("orphan-clock", grace.as_secs());
+    let (terminal_id, _, _, host_pid) = run_cat(&harness, "served-long");
+    // An adoption (no launch handshake follows it) starts the served period.
+    kill_daemon(&mut harness);
+    harness.restart();
+    wait_adopted(&harness, &terminal_id);
+    std::thread::sleep(Duration::from_secs(10));
+    kill_daemon(&mut harness);
+    std::thread::sleep(Duration::from_secs(8));
+    assert!(running(host_pid), "the host ended before a whole grace without its daemon");
+    harness.restart();
+    wait_adopted(&harness, &terminal_id);
+    let records = wait_for_host_records(&harness.host_root(), 1);
+    assert_eq!(records[0].1.host_pid, host_pid, "the terminal got a new host");
+}
+
+fn wait_adopted(harness: &RecoveryHarness, terminal_id: &str) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running" && resolved["surface"].as_u64().is_some() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "terminal was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
