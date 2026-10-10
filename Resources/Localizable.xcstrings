@@ -607855,6 +607855,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die CodeRouter-Übergabe erfordert ein angemeldetes cmux-Konto. Führen Sie `cmux auth login` aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite un compte cmux connecté. Exécutez `cmux auth login`, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter حساب cmux مسجّل الدخول. شغّل `cmux auth login` ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere una cuenta de cmux con la sesión iniciada. Ejecuta `cmux auth login` y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登入的 cmux 帳號。請執行 `cmux auth login`，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登录的 cmux 帐户。请运行 `cmux auth login`，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 로그인된 cmux 계정이 필요합니다. `cmux auth login`을 실행한 후 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux アカウントへのサインインが必要です。`cmux auth login` を実行してから再試行してください。" } }
       }
     },
@@ -607862,6 +607869,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Für die CodeRouter-Übergabe muss ein cmux-Team ausgewählt sein. Wählen Sie in cmux ein Team aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite qu’une équipe cmux soit sélectionnée. Sélectionnez une équipe dans cmux, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter تحديد فريق cmux. حدّد فريقًا في cmux ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere seleccionar un equipo de cmux. Selecciona un equipo en cmux y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要選取 cmux 團隊。請在 cmux 中選取團隊，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要选择 cmux 团队。请在 cmux 中选择团队，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 cmux 팀을 선택해야 합니다. cmux에서 팀을 선택한 후 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux チームの選択が必要です。cmux でチームを選択してから、もう一度お試しください。" } }
       }
     },
@@ -607869,6 +607883,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The cmux account or team changed during the handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das cmux-Konto oder -Team wurde während der Übergabe geändert. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le compte ou l’équipe cmux a changé pendant le transfert. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تم تغيير حساب cmux أو فريقه أثناء التسليم. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La cuenta o el equipo de cmux cambió durante el traspaso. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "交接期間 cmux 帳號或團隊已變更。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "交接期间 cmux 帐户或团队已更改。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "인계 중에 cmux 계정 또는 팀이 변경되었습니다. 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "引き継ぎ中に cmux アカウントまたはチームが変更されました。もう一度お試しください。" } }
       }
     },
@@ -607876,6 +607897,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The cmux handoff lease expired. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die cmux-Übergabe-Lease ist abgelaufen. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le bail de transfert cmux a expiré. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت صلاحية عقد تسليم cmux. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La concesión del traspaso de cmux expiró. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 交接租約已過期。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 交接租约已过期。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 인계 임대가 만료되었습니다. 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "cmux の引き継ぎリースの有効期限が切れました。もう一度お試しください。" } }
       }
     },
@@ -607883,6 +607911,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The cmux service is not available. Check your connection and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst ist nicht verfügbar. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux n’est pas disponible. Vérifiez votre connexion, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "خدمة cmux غير متاحة. تحقّق من اتصالك ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux no está disponible. Comprueba tu conexión y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務無法使用。請檢查連線後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务不可用。请检查连接后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스를 사용할 수 없습니다. 연결을 확인한 후 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスを利用できません。接続を確認して、もう一度お試しください。" } }
       }
     },
@@ -607890,6 +607925,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die installierte CodeRouter-CLI unterstützt keine sichere cmux-Übergabe. Aktualisieren Sie CodeRouter und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI CodeRouter installée ne prend pas en charge le transfert cmux sécurisé. Mettez CodeRouter à jour, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يدعم CodeRouter CLI المثبّت تسليم cmux الآمن. حدّث CodeRouter ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La CLI de CodeRouter instalada no admite el traspaso seguro de cmux. Actualiza CodeRouter y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已安裝的 CodeRouter CLI 不支援安全的 cmux 交接。請更新 CodeRouter 後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已安装的 CodeRouter CLI 不支持安全的 cmux 交接。请更新 CodeRouter 后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "설치된 CodeRouter CLI는 보안 cmux 인계를 지원하지 않습니다. CodeRouter를 업데이트한 후 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "インストールされている CodeRouter CLI は安全な cmux 引き継ぎに対応していません。CodeRouter を更新してから、もう一度お試しください。" } }
       }
     },
@@ -607897,6 +607939,13 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The cmux service rejected the CodeRouter handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst hat die CodeRouter-Übergabe abgelehnt. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux a refusé le transfert vers CodeRouter. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "رفضت خدمة cmux تسليم CodeRouter. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux rechazó el traspaso a CodeRouter. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務拒絕了 CodeRouter 交接。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务拒绝了 CodeRouter 交接。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스가 CodeRouter 인계를 거부했습니다. 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスが CodeRouter の引き継ぎを拒否しました。もう一度お試しください。" } }
       }
     },
