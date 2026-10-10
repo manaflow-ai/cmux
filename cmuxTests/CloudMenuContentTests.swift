@@ -138,6 +138,11 @@ struct CloudMenuContentTests {
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
                              "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
 
+        // Freestyle: no native fork, but the backend forks through snapshot + create.
+        var snapshotForked = Self.machine("snap")
+        snapshotForked.capabilities = VMCapabilities(snapshot: true, restore: true, fork: false)
+        #expect(recorder.actions.machine.submenuEntries(snapshotForked).contains { $0.id == "machine.snap.fork" })
+
         var desktop = Self.machine("desk", isDesktop: true)
         desktop.privateAddress = "100.64.0.9"
         let desktopEntries = recorder.actions.machine.submenuEntries(desktop)
@@ -145,7 +150,9 @@ struct CloudMenuContentTests {
         try Self.perform("machine.desk.copyIP", in: desktopEntries)
         try Self.perform("machine.desk.checkpoint", in: desktopEntries)
         try Self.perform("machine.desk.newWorkspace", in: desktopEntries)
-        #expect(recorder.log == ["copy:100.64.0.9", "run:desk:vm snapshot", "newWorkspace:desk"])
+        // Fork goes to the shared create coordinator (pending row), never a raw CLI launch.
+        try Self.perform("machine.desk.fork", in: desktopEntries)
+        #expect(recorder.log == ["copy:100.64.0.9", "run:desk:vm snapshot", "newWorkspace:desk", "fork:desk"])
 
         var expired = Self.machine("locked")
         expired.freeAccess = .expired
@@ -323,7 +330,8 @@ struct CloudMenuContentTests {
                     promptRename: { machine in self.log.append("rename:\(machine.id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
                     confirmDelete: { self.log.append("delete:\($0.id)") },
-                    promptUpgrade: { self.log.append("upgradeMachine") }
+                    promptUpgrade: { self.log.append("upgradeMachine") },
+                    fork: { self.log.append("fork:\($0.id)") }
                 )
             )
         }

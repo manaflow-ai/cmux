@@ -57,7 +57,12 @@ extension AppDelegate {
                 NSPasteboard.general.setString(text, forType: .string)
             },
             confirmDelete: { machine in _ = window(); rowActions.confirmDelete(machine) },
-            promptUpgrade: { _ = window(); rowActions.promptUpgrade() }
+            promptUpgrade: { _ = window(); rowActions.promptUpgrade() },
+            fork: { machine in
+                if !NewMachineSheetPresenter.shared.startFork(
+                    sourceMachineID: machine.id, sourceName: machine.displayName, preferredWindow: window()
+                ) { NSSound.beep() }
+            }
         )
         return CloudMenuActions(
             signIn: { [weak self] in

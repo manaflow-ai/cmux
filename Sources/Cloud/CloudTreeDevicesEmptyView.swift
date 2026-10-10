@@ -20,7 +20,7 @@ struct CloudTreeDevicesEmptyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if section.count == 0 {
-                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No devices yet"))
                     .cmuxFont(size: style.detailSize, design: style.fontDesign)
                     .foregroundStyle(.secondary)
                     .padding(.leading, scaled(textInset))
@@ -60,8 +60,11 @@ struct CloudTreeDevicesEmptyView: View {
                 title: control.title, titleDimmed: !hovered
             ) {
                 if control.isOn {
-                    Image(systemName: "checkmark")
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                    CmuxSystemSymbolImage(
+                        magnified: "checkmark",
+                        pointSize: style.detailSize,
+                        tint: Color(nsColor: .labelColor)
+                    )
                         .accessibilityHidden(true)
                 }
             }

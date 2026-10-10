@@ -19,8 +19,6 @@ struct CloudMachineWorkspaceAdoptionTests {
             let previousManager = controller.activeTabManagerForCallerNotification()
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
-            let flag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousFlag = CmuxFeatureFlags.shared.overrideValue(for: flag)
             let other = TabManager(autoWelcomeIfNeeded: false)
             let otherWindow = app.appDelegate.registerMainWindowContextForTesting(tabManager: other)
             defer {
@@ -29,10 +27,8 @@ struct CloudMachineWorkspaceAdoptionTests {
                 app.tearDown()
                 controller.setActiveTabManager(previousManager)
                 UserDefaults.standard.set(previousBeta, forKey: betaKey)
-                CmuxFeatureFlags.shared.setOverride(previousFlag, for: flag)
             }
             UserDefaults.standard.set(true, forKey: betaKey)
-            CmuxFeatureFlags.shared.setOverride(true, for: flag)
             controller.setActiveTabManager(other)
             let ref = try #require(controller.v2Ref(kind: .workspace, uuid: app.workspace.id) as? String)
             for target in [ref, app.workspace.id.uuidString.lowercased()] {

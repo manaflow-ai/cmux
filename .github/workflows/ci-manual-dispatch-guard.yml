@@ -7,6 +7,7 @@ on:
   workflow_run:
     workflows: [CI]
     types: [requested]
+    branches: [main]
 
 permissions: {}
 
@@ -15,8 +16,14 @@ env:
 
 jobs:
   guard:
-    if: github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.event == 'workflow_dispatch'
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    # Manual CI dispatches are supported only from main. The event filter
+    # avoids starting this watcher for requests on feature branches, while
+    # the job condition keeps the source workflow identity explicit.
+    if: >-
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 3
     permissions:
       actions: write

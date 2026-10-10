@@ -43,8 +43,8 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var showsHoverButtons = false
-    /// Machine rows keep their buttons visible without hover, dimmed until
-    /// the row is hovered.
+    /// Machine rows and the CodeRouter guide keep their buttons visible without
+    /// hover, dimmed until the row is hovered.
     private var buttonsShowAtRest = false
     private var buttonsVisible: Bool { hovered || buttonsShowAtRest }
     private var buttonsAlpha: CGFloat { hovered ? 1 : (buttonsShowAtRest ? Self.restingButtonsAlpha : 0) }
@@ -311,6 +311,7 @@ final class CloudTreeCellView: NSTableCellView {
         switch kind {
         // The panel's one refresh: the fleet and the account's other devices.
         case .cloudMachinesSection, .devicesSection: return { actions.refresh() }
+        case .coderouterSection: return { actions.refreshCoderouter() }
         default: return nil
         }
     }

@@ -79,15 +79,27 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Runs CodeRouter's add flow for one account type in a terminal.
+    var addCoderouterAccount: @MainActor (_ provider: CoderouterProvider) -> Void = { _ in }
+    /// Confirms, then removes one account from the selected team's CodeRouter organization.
+    var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
+    /// Re-reads the selected team's CodeRouter accounts now.
+    var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
-    /// Opens the New Machine flow through the same action as Cmd-Y.
+    /// Opens the New Machine flow through the same action as Cmd-Shift-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
+    /// Records a workspace-row click before its local projection is ready.
+    var recordCloudWorkspaceSelection: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
+    var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens the Coderouter guide as a pane in the selected local workspace.
+    var openCoderouterGuidePane: @MainActor () -> Void = {}
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
@@ -120,7 +132,8 @@ struct CloudTreeNodeActions {
         onHint: (@MainActor (String) -> Void)? = nil,
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
-        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
+        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil },
+        recordCloudWorkspaceSelection: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
@@ -557,6 +570,7 @@ struct CloudTreeNodeActions {
         )
         let onHint = onHint ?? onFailure
         actions.showHint = onHint
+        actions.recordCloudWorkspaceSelection = recordCloudWorkspaceSelection
         actions.showDisplayOpenHint = { resource in
             guard let workspaceID = selectedWorkspaceID(),
                   let workspace = Workspace.liveWorkspace(id: workspaceID) else {
@@ -596,6 +610,11 @@ struct CloudTreeNodeActions {
             _ = runKeyed(key, label, { catalog in
                 guard let current = try catalog.currentCloudWorkspace(group),
                       catalog.provider(for: machine) === provider else {
+                    // Cancellation is silent by design; log it so a row that
+                    // resolves to nothing is diagnosable from the debug log.
+#if DEBUG
+                    cmuxDebugLog("cloudTree.openWorkspace unresolved machine=\(machine.rawValue) workspace=\(workspace.id)")
+#endif
                     throw CancellationError()
                 }
                 let currentWorkspace = SurfaceRemoteWorkspace(

@@ -131,7 +131,6 @@ extension TerminalController {
             if AppDelegate.shared != nil,
                controlCommandCoordinator.needsHandleTopologyRefresh {
                 v2RefreshKnownRefs()
-                controlCommandCoordinator.markHandleTopologyRefreshCompleted()
             }
         }
         if let invalidSelector = selectorKeys.first(where: {

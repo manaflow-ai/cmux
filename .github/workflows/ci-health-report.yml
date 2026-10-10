@@ -35,10 +35,7 @@ on:
         default: false
         type: boolean
 
-permissions:
-  actions: read
-  issues: write
-  contents: read
+permissions: {}
 
 # The report refreshes one comment in place, so two runs must not read the same
 # comment and then overwrite each other.
@@ -48,6 +45,10 @@ concurrency:
 
 jobs:
   report:
+    permissions:
+      actions: read
+      issues: write
+      contents: read
     name: Report CI health
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Measured against this repo: a window's run listings plus ~160 job
@@ -84,14 +85,16 @@ jobs:
           # tests/test_runner_label_policy.py fails if a workflow reads a
           # runner variable this list leaves out. The background lane carries
           # its fallback because test_ci_self_hosted_guard.sh requires it on
-          # every read; `macos-15` is an approved label either way.
+          # every read.
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
@@ -99,7 +102,7 @@ jobs:
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
-            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
             MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
             MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}

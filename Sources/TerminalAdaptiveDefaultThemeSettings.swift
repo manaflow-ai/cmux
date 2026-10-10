@@ -45,7 +45,7 @@ extension GhosttyConfig {
         globalFontMagnificationPercent: Int? = nil,
         defaults: UserDefaults = .standard
     ) -> GhosttyConfig {
-        load(
+        var loaded = load(
             preferredColorScheme: preferredColorScheme,
             useCache: useCache,
             globalFontMagnificationPercent: globalFontMagnificationPercent,
@@ -53,5 +53,22 @@ extension GhosttyConfig {
                 TerminalAdaptiveDefaultThemeSettings(defaults: defaults)
                     .isEnabled
         )
+        if let value = defaults.object(forKey: CmuxJSONFontSettings.sidebarUserDefaultsKey) as? NSNumber {
+            loaded.sidebarFontSize = Self.clampedSidebarFontSize(value.doubleValue)
+        }
+        if let value = defaults.object(forKey: CmuxJSONFontSettings.surfaceTabBarUserDefaultsKey) as? NSNumber {
+            loaded.surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(value.doubleValue)
+        }
+        return loaded
+    }
+}
+
+private extension GhosttyConfig {
+    static func clampedSidebarFontSize(_ value: Double) -> CGFloat {
+        min(max(CGFloat(value), minSidebarFontSize), maxSidebarFontSize)
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: Double) -> CGFloat {
+        min(max(CGFloat(value), minSurfaceTabBarFontSize), maxSurfaceTabBarFontSize)
     }
 }

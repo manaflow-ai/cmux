@@ -518,11 +518,13 @@ async function routeRounds(
         attempts,
         outcome: "no_usable_account",
         failureStage: "provider_config",
+        // Not retryable until the team adds an account. Claude Code retries
+        // 408/409/429/5xx, so a 403 permission_error surfaces once instead
+        // of a retry loop.
         response: anthropicError(
-          503,
-          "api_error",
-          "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
-          { "retry-after": "30" },
+          403,
+          "permission_error",
+          "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
         ),
       };
     }

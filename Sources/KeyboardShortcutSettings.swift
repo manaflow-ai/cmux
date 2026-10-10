@@ -107,6 +107,7 @@ enum KeyboardShortcutSettings {
         case sendFeedback
         case showNotifications
         case jumpToUnread
+        case jumpToLastPrompt
         case toggleUnread
         case markOldestUnreadAndJumpNext
         case markAllNotificationsRead
@@ -263,6 +264,7 @@ enum KeyboardShortcutSettings {
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
+            case .jumpToLastPrompt: return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
             case .toggleUnread: return String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread")
             case .markOldestUnreadAndJumpNext:
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
@@ -449,11 +451,12 @@ enum KeyboardShortcutSettings {
                 // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .newCloudWorkspace:
-                // Shift+Cmd+Y: free in cmux and in AppKit's standard menus, so the
-                // plus menu, File menu, and palette can all advertise it.
-                return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
-            case .newCloudMachine:
+                // Cmd+Y creates a Cloud workspace on the last usable Cloud
+                // context, falling back to the New Cloud Machine flow.
                 return StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
+            case .newCloudMachine:
+                // Shift+Cmd+Y always opens the New Cloud Machine flow.
+                return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
@@ -476,6 +479,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .jumpToLastPrompt:
+                return StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
             case .toggleUnread:
                 return StoredShortcut(key: "u", command: true, shift: false, option: true, control: false)
             case .markOldestUnreadAndJumpNext:

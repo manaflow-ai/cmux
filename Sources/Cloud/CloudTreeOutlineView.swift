@@ -33,6 +33,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var coderouter = CloudTreeCoderouterSection()
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
@@ -74,6 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
+            coderouter: coderouter,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
@@ -94,6 +96,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
         weak var outlineView: CloudTreeNSOutlineView?
+        /// The Coderouter guide, kept so a second "?" replaces it instead of stacking.
+        var guidePopover: NSPopover?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
@@ -415,6 +419,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ?? CloudTreeCellView(frame: .zero)
             var rowActions = nodeActions
             rowActions.showRowMenu = { [weak self] nodeID in self?.popUpRowMenu(nodeID: nodeID) }
+            rowActions.showRowGuide = { [weak self] nodeID in self?.showCoderouterGuide(nodeID: nodeID) }
             rowActions.selectMachineDetailTab = { [weak self] machine, tab in self?.toggleMachineDetailTab(tab, machine: machine) }
             cell.configure(
                 node: node, machineActions: machineActions, nodeActions: rowActions, style: style,
@@ -470,17 +475,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// open it — workspace rows included (austin, 2026-08-31: they used to
         /// toggle on the first click and open only on double-click, which made a
         /// double-click flip the container's expansion while opening). Extra
-        /// clicks of a double- or triple-click are ignored, so a habitual
-        /// double-click acts exactly once and never spawns twice. Expansion is
-        /// the chevron's job (and h/l on the keyboard), never a click side effect
-        /// on workspace rows; machine and group rows still toggle because toggle
-        /// IS their open verb.
+        /// clicks of a double- or triple-click are ignored for rows whose open
+        /// verb creates or focuses content, so a habitual double-click never
+        /// spawns twice. Disclosure rows still honor every activation because
+        /// toggling is their open verb. Expansion is the chevron's job (and h/l
+        /// on the keyboard), never a click side effect on workspace rows.
         @objc func handleSingleClick(_ sender: Any?) {
-            guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
+            guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+            // A fast multi-click can leave AppKit's action callback carrying
+            // the combined click count. Leaf/workspace rows keep the one-open
+            // rule, but a disclosure row must honor that activation or its
+            // first toggle disappears when the callback arrives as click 2+.
+            let clickCount = NSApp.currentEvent?.clickCount ?? 1
+            guard clickCount <= 1 || node.kind.togglesOnActivation else { return }
 #if DEBUG
-            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(clickCount)")
 #endif
             if case .display(let resource, _, _) = node.kind,
                nodeActions.showDisplayOpenHint(resource.id) {
@@ -490,9 +501,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         /// A double-click is the rename gesture for Cloud machines and their
-        /// remote workspaces. The first click still follows the normal open
-        /// path; `handleSingleClick` ignores the second click so it cannot
-        /// open or toggle the row a second time.
+        /// remote workspaces. AppKit sends the second activation through this
+        /// selector instead of `action`, so disclosure rows must still consume
+        /// it or a fast double-click silently drops that toggle.
         @objc func handleDoubleClick(_ sender: Any?) {
             guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
@@ -500,6 +511,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.doubleClick row=\(row) kind=\(node.structureTag)")
 #endif
+            if node.kind.togglesOnActivation {
+                open(node)
+            }
             switch node.kind {
             case .machine(let machine, _):
                 machineActions.promptRename(machine)
@@ -530,9 +544,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount:
                 break
             case .createAction(let action):
                 action.perform(nodeActions)
@@ -543,6 +557,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     machineActions.create.showFailure(operation.id)
                 }
             case .workspace(let machine, let workspace, _, _, let openIn):
+                // A row click is itself the latest Cloud context, even while
+                // opening its local projection is still awaiting the provider.
+                nodeActions.recordCloudWorkspaceSelection(machine)
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
@@ -831,6 +848,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .coderouterSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshCoderouter() }]
+            case .coderouterProviderGroup(let provider, _):
+                guard provider.canAdd else { return [] }
+                return [item(provider.newAccountTitle) { [nodeActions] in nodeActions.addCoderouterAccount(provider) }]
+            case .coderouterAccount(let account):
+                return [item(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) { [nodeActions] in nodeActions.removeCoderouterAccount(account) }]
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):
                 var items: [NSMenuItem] = []

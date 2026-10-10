@@ -1,5 +1,7 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -24,6 +26,35 @@ struct NewMachineModelTests {
         #expect(model.hasNoAllowedMemoryOptions)
         #expect(!didSubmit)
         #expect(model.outcome == nil)
+    }
+
+    @Test("reapplying identical plan data does not invalidate the sheet")
+    func identicalPlanRefreshIsANoOpForObservation() {
+        let limits = VMPlanLimits(
+            maxActiveVms: 10,
+            planId: "pro",
+            freeAccessWindowDays: 0,
+            memoryOptionsMb: [4096, 8192]
+        )
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: 2, limits: limits),
+            memoryOptionsMb: limits.memoryOptionsMb,
+            submit: { _ in true }
+        )
+        var invalidated = false
+        withObservationTracking {
+            _ = model.plan
+            _ = model.memoryOptions
+            _ = model.lockedMemoryOptions
+            _ = model.planIsLoading
+        } onChange: {
+            invalidated = true
+        }
+
+        model.applyPlan(activeCount: 2, limits: limits)
+
+        #expect(!invalidated)
     }
 
     @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
@@ -93,6 +124,33 @@ struct NewMachineModelTests {
         #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
     }
 
+    @Test func selectingAMachineUsesTheForkCommandAsTheCreateSource() {
+        let source = VMSummary(id: "vm-source", provider: "freestyle", status: "running", image: "sh-source", createdAt: 0, displayName: "Build machine")
+        let (model, recorder) = makeModel()
+        model.applySourceMachines([source])
+        model.baseImage = .machine(source)
+        #expect(model.baseImage.label == "Build machine")
+        #expect(model.cliArguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.arguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        // The pending row names the fork and its progress, not a generic new machine.
+        #expect(recorder.value.first?.forkSourceName == "Build machine")
+        #expect(recorder.value.first?.displayName == "Fork of Build machine")
+        #expect(recorder.value.first?.progressLabel == "Forking…")
+    }
+
+    @Test("Base picker source refreshes keep machine IDs unique")
+    func sourceRefreshDeduplicatesMachineIDs() {
+        let first = VMSummary(id: "same", provider: "freestyle", status: "running", image: "a", createdAt: 0, displayName: "first")
+        let duplicate = VMSummary(id: "same", provider: "freestyle", status: "running", image: "b", createdAt: 1, displayName: "duplicate")
+        let (model, _) = makeModel()
+
+        model.applySourceMachines([first, duplicate])
+
+        #expect(model.sourceMachines.map(\.id) == ["same"])
+        #expect(model.sourceMachines.first?.displayName == "first")
+    }
+
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel(plan: Self.maxPlan)
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
@@ -101,19 +159,19 @@ struct NewMachineModelTests {
     }
 
     /// The client mirror of the server ladder: Pro, Team, and Founder's
-    /// Edition stop at 32 GB, and only the 64 GB row is locked and sold by Max.
+    /// Edition stop at 16 GB, and the larger rows are locked and sold by Max.
     @Test func proPlanLocksTheMaxSizesWhenTheServerOmitsThem() {
         let (model, _) = makeModel(plan: Self.proPlan)
-        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768])
-        #expect(model.lockedMemoryOptions == [65536])
+        #expect(model.memoryOptions == [4096, 8192, 16384])
+        #expect(model.lockedMemoryOptions == [24576, 32768, 65536])
         #expect(model.memoryUpgradePlanId == "max")
         #expect(model.memoryUpgradePlanName == "Max")
-        #expect(model.lockedSizesNoteText == "64 GB machines need cmux Max.")
+        #expect(model.lockedSizesNoteText == "24 GB, 32 GB, and 64 GB machines need cmux Max.")
         #expect(model.memoryUpgradeButtonTitle == "Upgrade to Max")
         #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 65536)!) == "32 vCPU · 64 GB RAM · 128 GB disk · Requires Max")
-        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 32768)
-        #expect(NewMachineModel.maxMemoryMb(planId: "team") == 32768)
-        #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 32768)
+        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 16384)
+        #expect(NewMachineModel.maxMemoryMb(planId: "team") == 16384)
+        #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 16384)
         #expect(NewMachineModel.maxMemoryMb(planId: "go") == 4096)
         #expect(NewMachineModel.maxMemoryMb(planId: "free") == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: nil) == 8192)
@@ -162,14 +220,14 @@ struct NewMachineModelTests {
     @Test func selectionNeverLandsOnALockedSize() {
         let (model, recorder) = makeModel(plan: Self.proPlan)
         model.memoryMb = 65536
-        #expect(model.memoryMb == 32768)
+        #expect(model.memoryMb == 16384)
         model.memoryMb = 16384
         #expect(model.memoryMb == 16384)
         model.memoryMb = 4096
         #expect(model.memoryMb == 4096)
         model.memoryMb = 65536
         model.create()
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "32768", "--agent-updates", "latest", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "16384", "--agent-updates", "latest", "--focus", "false"])
 
         let (smallest, _) = makeModel(plan: Self.proPlan, memoryOptionsMb: [8192, 16384], lockedMemoryOptionsMb: [4096, 32768])
         smallest.memoryMb = 4096

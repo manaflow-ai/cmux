@@ -10,7 +10,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(2)))
 struct RestorableAgentProcessGenerationTests {
     private typealias Fixture = (
         root: URL,
@@ -24,6 +24,12 @@ struct RestorableAgentProcessGenerationTests {
         storeURL: URL,
         previousHookStateDirectory: String?
     )
+
+    // These loaders return a prepared index at once; the production 10 s
+    // loader deadline is not what they test. A starved CI runner once took
+    // longer than that to schedule the detached loader, the refresh timed out
+    // and the index stayed nil. The test's time limit bounds a real hang.
+    private static let loaderTimeoutOutsideTheTest: UInt64 = 600_000_000_000
 
     @Test("Shared cache publishes unknown-to-exited liveness transitions")
     func sharedCachePublishesUnknownToExitedLivenessTransitions() async throws {
@@ -61,7 +67,8 @@ struct RestorableAgentProcessGenerationTests {
                     forkValidatedPanels: []
                 )
             },
-            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
         )
 
         await sharedIndex.refreshForkAvailabilityNow()
@@ -101,7 +108,8 @@ struct RestorableAgentProcessGenerationTests {
                     forkValidatedPanels: []
                 )
             },
-            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
         )
 
         _ = await sharedIndex.indexRefreshingNow()
@@ -343,7 +351,8 @@ struct RestorableAgentProcessGenerationTests {
                     forkValidatedPanels: []
                 )
             },
-            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
         )
 
         await sharedIndex.refreshForkAvailabilityNow()

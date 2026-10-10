@@ -484,6 +484,31 @@ struct WindowKeyDownReplayGuardTests {
 
     // MARK: - Copy key equivalent resolution
 
+    @Test
+    func menuCopyFallsBackOnlyForAnUncopiedAlternateScreen() {
+        #expect(
+            GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: true
+            ),
+            Comment(rawValue: "A fullscreen TUI owns the selection, so the Copy action must re-inject Cmd+C through Ghostty")
+        )
+        #expect(
+            !GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+                copiedNativeSelection: true,
+                isAlternateScreenActive: true
+            ),
+            Comment(rawValue: "A native terminal selection was already copied and must not receive a second Cmd+C")
+        )
+        #expect(
+            !GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: false
+            ),
+            Comment(rawValue: "Cmd+C without a selection at a normal shell prompt remains a no-op")
+        )
+    }
+
     /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/10872.
     ///
     /// "Dvorak - QWERTY ⌘" swaps to the QWERTY table while Command is held, so

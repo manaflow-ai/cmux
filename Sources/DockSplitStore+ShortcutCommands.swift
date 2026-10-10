@@ -52,6 +52,13 @@ enum DockShortcutCommand {
 }
 
 extension DockSplitStore {
+    /// The focused Dock pane holds two or more tabs, so Previous/Next steps them instead of
+    /// moving between workspaces (``TabManager/stepTabOrWorkspace(forward:dock:)``).
+    var focusedPaneHasTabsToStep: Bool {
+        guard !isRetired, let paneId = bonsplitController.focusedPaneId else { return false }
+        return bonsplitController.tabs(inPane: paneId).count > 1
+    }
+
     /// Executes surface and focus commands against the Dock's own Bonsplit tree.
     /// AppDelegate resolves configured key bindings and sends only the semantic
     /// command here, keeping every Dock entrypoint on the same ownership path.

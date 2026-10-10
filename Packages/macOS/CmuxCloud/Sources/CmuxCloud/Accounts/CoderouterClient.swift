@@ -104,10 +104,15 @@ public actor CoderouterClient {
     public func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, teamID: String?) async throws -> JSONValue {
         // `DisableAICredentialUpload` (MDM): the input carries the credential.
         guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
+        // cmux-owned Cloud imports are for the selected team's machines. The
+        // API defaults omitted visibility to private, which hides the account
+        // from organization VMs even when the caller can manage the team.
+        var body = input.jsonBody(label: label)
+        body["visibility"] = "team"
         let (data, http) = try await request(
             "POST",
             path: "/api/coderouter/claude-upstream",
-            jsonBody: input.jsonBody(label: label),
+            jsonBody: body,
             teamID: teamID
         )
         try ensureOK(http, data: data)

@@ -26,24 +26,7 @@ extension BonsplitConfiguration {
             default:
                 return false
             }
-        }.flatMap(Self.remoteTmuxEmbeddedSplitButtons)
+        }
         return configuration
-    }
-
-    /// The mirror's delegate builds no menus, so a split button keeps only its
-    /// click, and its Option-click split (the compact cluster's Split Down)
-    /// becomes a visible button of its own.
-    static func remoteTmuxEmbeddedSplitButtons(_ button: SplitActionButton) -> [SplitActionButton] {
-        var primary = button
-        primary.menuBehavior = .none
-        primary.alternateAction = nil
-        guard let alternate = button.alternateAction, alternate != button.action,
-              alternate == .splitRight || alternate == .splitDown else { return [primary] }
-        primary.tooltip = nil
-        var secondary = primary
-        secondary.id = button.id + ".alternate"
-        secondary.action = alternate
-        secondary.icon = .systemImage(alternate == .splitDown ? "square.split.1x2" : "square.split.2x1")
-        return [primary, secondary]
     }
 }

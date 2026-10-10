@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
@@ -43,6 +44,16 @@ extension DockSplitStore {
             uniquingKeysWith: { first, _ in first }
         )
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
+        // One pane per live Claude background session reattaches; plan the
+        // whole Dock up front so the others never resume it.
+        let claudeBackgroundRestores = AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        )
+            ? Workspace.claudeBackgroundAttachRestores(
+                panels: snapshot.panels,
+                skipsRemoteTerminals: false
+            )
+            : [:]
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var restoredPanelIds: Set<UUID> = []
 
@@ -66,7 +77,8 @@ extension DockSplitStore {
                             snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceWorkspaceResolver: sourceWorkspaceResolver,
                           deferBrowserPanel: deferBrowserPanels,
-                          restorableAgentIndex: restorableAgentIndex
+                          restorableAgentIndex: restorableAgentIndex,
+                          claudeBackgroundRestores: claudeBackgroundRestores
                       ) else {
                     continue
                 }
@@ -149,7 +161,8 @@ extension DockSplitStore {
         sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?,
         deferBrowserPanel: Bool = false,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]? = nil
     ) -> UUID? {
         guard acceptsRestoredDisplay(snapshot) else { return nil }
         if (!deferBrowserPanel || snapshot.type != .browser),
@@ -160,7 +173,8 @@ extension DockSplitStore {
                snapshotWorkspaceId:
                 sourceSnapshotWorkspaceId ?? sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities,
-               restorableAgentIndex: restorableAgentIndex
+               restorableAgentIndex: restorableAgentIndex,
+               claudeBackgroundRestores: claudeBackgroundRestores
            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
             if let restoredPanelId {
@@ -187,7 +201,8 @@ extension DockSplitStore {
                 from: snapshot,
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: restorableAgentIndex,
+                claudeBackgroundRestores: claudeBackgroundRestores
             )
         case .browser:
             if deferBrowserPanel,
@@ -232,7 +247,8 @@ extension DockSplitStore {
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>,
-        restorableAgentIndex: RestorableAgentSessionIndex?
+        restorableAgentIndex: RestorableAgentSessionIndex?,
+        claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]?
     ) -> UUID? {
         let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
             snapshot,
@@ -285,9 +301,24 @@ extension DockSplitStore {
             nil
         }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
-        let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
+        let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
-        ) && agentWasRunning
+        )
+        // A Claude background session lives on in Claude's daemon. One pane
+        // reattaches its viewer; no pane starts `claude --resume` as a second
+        // writer. A Dock restore pass plans every pane up front; a single
+        // reopened panel is planned here.
+        let claudeBackgroundRestore = autoResumeAgentSessions &&
+            terminalSnapshot.isRemoteTerminal != true
+            ? (claudeBackgroundRestores ?? Workspace.claudeBackgroundAttachRestores(
+                panels: [snapshot],
+                skipsRemoteTerminals: false
+            ))[snapshot.id]
+            : nil
+        let claudeBackgroundAttach = claudeBackgroundRestore?.attach
+        let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
+        let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunning &&
+            !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
@@ -335,6 +366,7 @@ extension DockSplitStore {
         let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
             stablePanelHasUncertainProcess
         let resumeBindingForStartup = hibernation != nil ||
+            suppressesResumeForBackgroundSession ||
             restoreStartupBlocked ||
             liveSessionOwner != nil ||
             stablePanelHasLiveProcess ||
@@ -377,6 +409,7 @@ extension DockSplitStore {
             ?? (!restoreStartupBlocked &&
                 liveSessionOwner == nil &&
                 !stablePanelHasLiveProcess &&
+                !suppressesResumeForBackgroundSession &&
                 restorableAgent == nil && bindingLaunch == nil
                 ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
                 : nil)
@@ -435,7 +468,8 @@ extension DockSplitStore {
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
-            deferredAgentResumeStartupInput
+            deferredAgentResumeStartupInput ??
+            claudeBackgroundAttach?.startupInput
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
@@ -452,7 +486,7 @@ extension DockSplitStore {
             hasRestorableAgent: restorableAgent != nil,
             tmuxStartCommand: restoredTmuxStartCommand,
             hasResumeStartupWork: bindingLaunch != nil || agentLaunch != nil ||
-                deferredAgentResumeStartupInput != nil
+                deferredAgentResumeStartupInput != nil || claudeBackgroundAttach != nil
         )
         let restoredScrollback = shouldReplayScrollback ? terminalSnapshot.scrollback : nil
         let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
@@ -528,11 +562,14 @@ extension DockSplitStore {
             panel: terminal,
             snapshot: restorableAgent,
             resumeBinding: resumeBinding,
-            manualResumeAvailable: restorableAgent != nil ||
-                (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
+            // The daemon still owns the session; offering a manual resume
+            // would invite a second writer.
+            manualResumeAvailable: !suppressesResumeForBackgroundSession && (restorableAgent != nil ||
+                (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true),
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: liveSessionOwner != nil ||
+                suppressesResumeForBackgroundSession ||
                 (deferredAgentResumeAdmission
                     ? true
                     : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
@@ -548,6 +585,19 @@ extension DockSplitStore {
                 processID: liveSessionOwner.processID
             )
         }
+        if let claudeBackgroundRestore {
+            StartupBreadcrumbLog.append(
+                "dock.session.restore.panel.claudeBackgroundAttach",
+                fields: [
+                    "workspace": workspaceId.uuidString,
+                    "panel": terminal.id.uuidString,
+                    "session": String(claudeBackgroundRestore.registration.sessionID.prefix(8)),
+                    "daemonPid": String(claudeBackgroundRestore.registration.processID),
+                    "attach": claudeBackgroundAttach == nil ? "0" : "1",
+                    "viewer": terminalSnapshot.claudeBackgroundViewer == nil ? "0" : "1"
+                ]
+            )
+        }
         if deferredAgentResumeAdmission {
             terminal.restoreRecovery.state = .checking
             deferAgentResumeRestore(
@@ -556,6 +606,7 @@ extension DockSplitStore {
                     stablePanelID: snapshot.id,
                     restorableAgent: restorableAgent,
                     resumeBinding: resumeBinding,
+                    tmuxStartCommand: localTmuxStartCommand,
                     restoresRemoteWorkspaceTerminalSnapshot: false,
                     remoteResumeContext: resumeBinding?.launchFlavor.remoteContext,
                     workingDirectory: workingDirectory,

@@ -11,7 +11,7 @@ import {
 
 import { randomBytes } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
-import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
+import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -22,6 +22,7 @@ import {
   ProviderError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
+  ProviderTlsRuleLimitError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -59,6 +60,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import { devboxForkDaemonReadyCommand, devboxForkReadinessStage } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -139,8 +141,9 @@ export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 // workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
-// guest makes there. The platform steers the host to its edge (/etc/hosts) and
+// `tls` rule for the coderouter host whose transform overwrites the signed
+// `x-cmux-authorization` plus compatibility bearer/VM headers on every request
+// the guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and
@@ -185,6 +188,7 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -613,6 +617,20 @@ export function isFreestyleNetworkFull(err: unknown): boolean {
 }
 
 /** Wraps a provider failure, keeping a full network distinguishable from an outage. */
+/**
+ * Freestyle's answer when an exec outlived its timeout and the guest reported
+ * no exit for it: 409 VM_NON_RESPONSIVE, "exec produced no exit within <t>".
+ * The machine itself still answers (the next exec returns at once), so this
+ * is the command's timeout, the same outcome as a null status (exit 124), not
+ * a provider outage. Other VM_NON_RESPONSIVE answers stay provider errors.
+ */
+function isFreestyleExecNoExit(err: unknown): boolean {
+  return err instanceof FreestyleApiError
+    && err.status === 409
+    && err.code === "VM_NON_RESPONSIVE"
+    && /exec produced no exit/i.test(err.message);
+}
+
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
   return isFreestyleNetworkFull(err)
     ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
@@ -961,6 +979,28 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
+/** Span attributes for the machine shape a create asked for, else the one the provider reported. */
+function freestyleCreateResourceAttributes(
+  imageSize: CreateOptions["imageSize"],
+  data: { resources?: { cpu?: number; memory?: number; storage?: number } | null },
+): Record<string, string | number | boolean> {
+  if (imageSize) {
+    return {
+      "cmux.vm.image_size": imageSize.name,
+      "cmux.vm.resources.cpu": imageSize.cpu,
+      "cmux.vm.resources.memory_mb": imageSize.memoryMb,
+      "cmux.vm.resources.storage_mb": imageSize.storageMb,
+      "cmux.vm.resize.requested": false,
+    };
+  }
+  return {
+    "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
+    "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
+    "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
+    "cmux.vm.resize.requested": false,
+  };
+}
+
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
@@ -969,6 +1009,8 @@ export class FreestyleProvider implements VMProvider {
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
   /// Freestyle exposes live resource statistics and grow-only resizing.
+  // `fork` stays derived (no native fork): forkVm takes the snapshot path, and
+  // clients offer Fork from snapshot + restore (VMCapabilities.canFork).
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
@@ -1050,6 +1092,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
+            if (options.forked) await this.awaitForkDaemon(vm);
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
@@ -1061,22 +1104,7 @@ export class FreestyleProvider implements VMProvider {
             // allocate that immutable image and attach its account network.
             // Per-machine prompt identity is refreshed asynchronously by the
             // boot contract; no guest exec or filesystem upload belongs here.
-            if (options.imageSize) {
-              setSpanAttributes(span, {
-                "cmux.vm.image_size": options.imageSize.name,
-                "cmux.vm.resources.cpu": options.imageSize.cpu,
-                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
-              });
-            } else {
-              setSpanAttributes(span, {
-                "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
-                "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
-                "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
-                "cmux.vm.resize.requested": false,
-              });
-            }
+            setSpanAttributes(span, freestyleCreateResourceAttributes(options.imageSize, data));
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1136,6 +1164,17 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.tls_deleted": result.tlsDeleted,
           });
         } catch (err) {
+          if (isFreestyleTlsRuleLimit(err)) {
+            span.setAttribute("cmux.vm.network.tls_rule_limit", true);
+            if (err instanceof FreestyleTlsRuleLimitRestoreError) {
+              span.setAttribute("cmux.vm.network.tls_restored", err.restored);
+              span.setAttribute("cmux.vm.network.tls_unrestored", err.unrestored.length);
+              if (err.unrestored.length > 0) {
+                console.error("[freestyle] TLS rule limit: retired rules not restored", JSON.stringify({ vmId, unrestored: err.unrestored }));
+              }
+            }
+            throw new ProviderTlsRuleLimitError("freestyle", `applyNetworkPolicy(${vmId}): account TLS rule limit reached`, err);
+          }
           throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },
@@ -1281,6 +1320,14 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
           return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
         } catch (err) {
+          if (isFreestyleExecNoExit(err)) {
+            setSpanAttributes(span, { "cmux.exec.exit_code": 124, "cmux.exec.no_exit_reported": true });
+            return {
+              exitCode: 124,
+              stdout: "",
+              stderr: `cmux: the command did not exit within ${Math.round(timeoutMs / 1000)}s and its output was lost; it may still be running on the machine.\n`,
+            };
+          }
           throw new ProviderError("freestyle", `exec(${vmId})`, err);
         }
       },
@@ -1659,6 +1706,30 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * A fork or restore resumes a live guest's memory image. Its boot
+   * supervisor rebinds the daemon to this machine but leaves the copied
+   * session stranded (remoteState.ts), so the daemon never listens. A user
+   * snapshot can also carry a stopped supervisor, which nothing restarts in a
+   * resumed memory image. Start a stopped supervisor, wait for the rebind,
+   * repair that one state, and wait for this machine's listener so the
+   * machine is never reported ready while attach would be refused.
+   */
+  private async awaitForkDaemon(vm: Vm): Promise<void> {
+    const ready = await this.execResult(
+      vm,
+      devboxForkDaemonReadyCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS),
+      (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
+    );
+    if (!ready || ready.exitCode !== 0) {
+      // Only the classified stage is logged and stored: the guest's own
+      // output is user-controlled text and never leaves this function.
+      const stage = ready ? devboxForkReadinessStage(ready.stderr) : "stage=exec-unavailable";
+      console.error("[freestyle] fork daemon readiness failed", stage);
+      throw new ProviderError("freestyle", `forked machine daemon did not become ready (${stage})`);
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

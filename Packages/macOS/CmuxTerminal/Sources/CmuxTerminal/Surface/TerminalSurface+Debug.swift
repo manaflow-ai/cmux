@@ -194,6 +194,8 @@ extension TerminalSurface {
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
@@ -216,6 +218,8 @@ extension TerminalSurface {
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
@@ -252,6 +256,8 @@ extension TerminalSurface {
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        // Mirror `createSurface`: capture a Ghostty layer the test hosted.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: surfaceView)
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         guard configureNativeCallbacks else { return }

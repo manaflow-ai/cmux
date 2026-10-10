@@ -9,8 +9,7 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: stable-appcast-publication
@@ -18,6 +17,8 @@ concurrency:
 
 jobs:
   repair:
+    permissions:
+      contents: write
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release

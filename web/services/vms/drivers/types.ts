@@ -78,6 +78,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
+  forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
   runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
@@ -693,6 +695,28 @@ export class ProviderNetworkFullError extends ProviderError {
     super(provider, message, cause);
     this.name = "ProviderNetworkFullError";
   }
+}
+
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * account-wide, so the user cannot free it and an immediate retry cannot
+ * succeed; routes answer with a capacity refusal and operators are alerted.
+ */
+export class ProviderTlsRuleLimitError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderTlsRuleLimitError";
+  }
+}
+
+/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
+export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderTlsRuleLimitError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
 }
 
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */

@@ -277,34 +277,30 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(body.provider.go.options.apiKey).toBe(CLI_TOKEN);
   });
 
-  test("a bound token without the matching x-cmux-vm-id is rejected", async () => {
+  test("a signed token survives missing and forged VM headers", async () => {
     const missing = await openCodeClientConfig(
-      configRequest({ "x-coderouter-route-token": BOUND_TOKEN }),
+      configRequest({ authorization: `Bearer ${BOUND_TOKEN}` }),
       dependencies(),
     );
-    expect(missing.status).toBe(401);
+    expect(missing.status).toBe(200);
     await expect(missing.json()).resolves.toMatchObject({
-      error: "unauthorized",
-      message:
-        "This machine's coderouter credential does not match the machine it was issued to.",
+      provider: { go: { options: { apiKey: VM_PLACEHOLDER_API_KEY } } },
     });
 
     const wrong = await proxyOpenCodeRequest(
       new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-          "x-coderouter-route-token": BOUND_TOKEN,
+          "authorization": `Bearer ${BOUND_TOKEN}`,
           "x-cmux-vm-id": "vm-2",
         },
         body: "{}",
       }),
       "go",
       ["chat"],
-      dependencies(),
+      dependencies([], { fetch: async () => new Response("ok", { status: 200 }) }),
     );
-    expect(wrong.status).toBe(401);
-    await expect(wrong.json()).resolves.toMatchObject({ error: "unauthorized" });
+    expect(wrong.status).toBe(200);
   });
 
   test("the placeholder API key alone is never looked up", async () => {
@@ -438,5 +434,71 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(response.status).toBe(502);
     expect(configSignal).toBeDefined();
     expect(configSignal?.aborted).toBe(true);
+  });
+});
+
+describe("coderouter OpenCode with no account configured", () => {
+  const TOKEN = "crt_no-account";
+  function noAccountDependencies(configured: boolean) {
+    const checks: string[] = [];
+    return {
+      checks,
+      dependencies: {
+        authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+        select: async () => null,
+        credential: async (): Promise<never> => {
+          throw new Error("no account should be read");
+        },
+        remoteConfig: async (): Promise<never> => {
+          throw new Error("no config should be read");
+        },
+        hasConfiguredAccount: async (input: { teamId: string }) => {
+          checks.push(input.teamId);
+          return configured;
+        },
+      },
+    };
+  }
+  const terminalBody = {
+    error: {
+      message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
+      type: "invalid_request_error",
+      code: "no_account_configured",
+    },
+  };
+  const configRequest = () => new Request("https://cmux.example/api/coderouter/opencode/config", {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  const proxyRequest = () => new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "x-coderouter-route-token": TOKEN },
+    body: "{}",
+  });
+
+  test("config answers a caller that can see no OpenCode account with the terminal 403", async () => {
+    const run = noAccountDependencies(false);
+    const response = await openCodeClientConfig(configRequest(), run.dependencies);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual(terminalBody);
+    expect(run.checks).toEqual(["team-1"]);
+  });
+
+  test("the provider proxy answers the same terminal 403", async () => {
+    const run = noAccountDependencies(false);
+    const response = await proxyOpenCodeRequest(proxyRequest(), "go", ["chat"], run.dependencies);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual(terminalBody);
+  });
+
+  test("a caller whose accounts are all unavailable keeps a retryable 503 on both surfaces", async () => {
+    const run = noAccountDependencies(true);
+    const config = await openCodeClientConfig(configRequest(), run.dependencies);
+    expect(config.status).toBe(503);
+    expect(config.headers.get("retry-after")).not.toBeNull();
+    const proxied = await proxyOpenCodeRequest(proxyRequest(), "go", ["chat"], run.dependencies);
+    expect(proxied.status).toBe(503);
+    expect(proxied.headers.get("retry-after")).not.toBeNull();
   });
 });

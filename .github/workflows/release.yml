@@ -6,10 +6,7 @@ on:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: stable-appcast-publication
@@ -43,6 +40,10 @@ jobs:
       upload: false
 
   build-ghostty-cli-helper:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     steps:
@@ -90,6 +91,10 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release

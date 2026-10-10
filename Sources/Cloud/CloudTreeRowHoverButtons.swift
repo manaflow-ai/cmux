@@ -1,4 +1,6 @@
 import CmuxCloud
+import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 struct CloudTreeRowHoverButtons: View {
@@ -16,6 +18,26 @@ struct CloudTreeRowHoverButtons: View {
         // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
+        case .coderouterSection:
+            MachinesChromeIconButton(
+                symbolName: "questionmark.circle",
+                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
+                isBusy: false
+            ) {
+                nodeActions.showRowGuide(nodeID)
+            }
+            .help(CoderouterGuideView.summary)
+            .accessibilityIdentifier("CoderouterGuideButton")
+        case .coderouterAccount(let account):
+            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account…")) {
+                nodeActions.removeCoderouterAccount(account)
+            }
+        case .coderouterProviderGroup(let provider, _):
+            if provider.canAdd {
+                plus(provider.newAccountTitle) {
+                    nodeActions.addCoderouterAccount(provider)
+                }
+            }
         case .cloudMachinesSection(let canCreateMachine, _, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
@@ -105,14 +127,14 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.newTerminal(machine, workspace.id)
                 }
                 if !machine.isLocal {
-                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) {
+                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace…")) {
                         nodeActions.closeWorkspace(machine, workspace)
                     }
                 }
             }
         case .terminal(let row):
             if !row.resource.machine.isLocal {
-                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
+                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal…")) {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
@@ -132,6 +154,10 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
+        case .coderouterProviderGroup(let provider, _):
+            return provider.canAdd
+        case .coderouterSection, .coderouterAccount:
+            return true
         case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:
@@ -148,10 +174,15 @@ struct CloudTreeRowHoverButtons: View {
     }
 
     /// True when the row's buttons stay visible without hover. Machine rows
-    /// keep + and ⋯ on screen so their actions are discoverable at rest.
+    /// keep their actions on screen, and the CodeRouter guide stays visible so
+    /// the feature can explain itself before an account is configured.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
-        if case .machine = kind { return true }
-        return false
+        switch kind {
+        case .machine, .coderouterSection:
+            return true
+        default:
+            return false
+        }
     }
 
     /// The Displays affordance remains visible while guest discovery is pending
@@ -198,9 +229,15 @@ private struct CloudTreeDevicesMenuButton: View {
                 setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
             )
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "ellipsis", accessibilityDescription: nil),
+                size: NSSize(width: 22, height: 20),
+                tintColor: isHovered ? .labelColor : .secondaryLabelColor,
+                symbolWeight: .medium,
+                fallbackSource: .systemSymbol(name: "ellipsis", accessibilityDescription: nil),
+                symbolPointSize: 11,
+                centersVisibleContent: true
+            ))
                 .frame(width: 22, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
@@ -217,6 +254,7 @@ private struct CloudTreeDevicesMenuButton: View {
         .fixedSize()
         .onHover { isHovered = $0 }
         .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
         .accessibilityIdentifier("DevicesOptionsMenu")
     }

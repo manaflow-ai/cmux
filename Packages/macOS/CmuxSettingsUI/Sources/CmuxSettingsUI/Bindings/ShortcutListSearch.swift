@@ -3,7 +3,7 @@ import Foundation
 
 /// What the Keyboard Shortcuts list is filtered by: typed text, keys pressed
 /// into the shortcut detector, or both.
-struct ShortcutListSearchQuery: Equatable {
+struct ShortcutListSearchQuery: Equatable, Hashable, Sendable {
     /// Free text ranked against each row's name, then its scope caption and shortcut.
     var text = ""
     /// Keys pressed into the detector: one stroke, or both strokes of a chord.
@@ -59,6 +59,86 @@ enum ShortcutListSearch {
             guard let binding, binding.hasChord else { return false }
             return numberedAwareStrokesConflict(stroke, numbered: false, binding.first, numbered: false)
         }
+    }
+}
+
+/// Immutable search corpus for the visible shortcut actions.
+///
+/// The model creates this snapshot on the main actor when bindings change.
+/// Matching then uses only prepared, sendable values, so typing does not read
+/// the observable model or rebuild the shortcut list on the main actor.
+struct ShortcutListSearchIndex: Sendable {
+    struct Entry: Sendable {
+        let action: ShortcutAction
+        let binding: StoredShortcut?
+        let numbered: Bool
+        let title: SettingsSearchMatcher.PreparedText
+        let secondary: SettingsSearchMatcher.PreparedText
+        let position: Int
+    }
+
+    let entries: [Entry]
+    private let matcher: SettingsSearchMatcher
+
+    @MainActor
+    init(model: ShortcutListModel) {
+        let actions = ShortcutAction.settingsVisibleActions
+        let matcher = SettingsSearchMatcher()
+        self.entries = actions.enumerated().map { position, action in
+            let effective = model.effective(for: action)
+            let shortcutText = effective.flatMap { binding in
+                binding.isUnbound ? nil : shortcutDisplayString(binding, numbered: action.usesNumberedDigitMatching)
+            } ?? ""
+            return Entry(
+                action: action,
+                binding: effective,
+                numbered: action.usesNumberedDigitMatching,
+                title: matcher.prepare(action.displayName),
+                secondary: matcher.prepare([
+                    model.scopeCaption(for: action) ?? "",
+                    shortcutText
+                ].joined(separator: " ")),
+                position: position
+            )
+        }
+        self.matcher = matcher
+    }
+
+    func actions(matching query: ShortcutListSearchQuery) -> [ShortcutAction] {
+        actions(matching: query, keeping: nil)
+    }
+
+    func actions(matching query: ShortcutListSearchQuery, keeping shown: [ShortcutAction]?) -> [ShortcutAction] {
+        guard !query.isEmpty else { return ShortcutAction.settingsVisibleActions }
+        let scored: [(action: ShortcutAction, score: Int, position: Int)] = entries.compactMap { entry in
+            if let keys = query.keys,
+               !ShortcutListSearch.keys(keys, match: entry.binding, numbered: entry.numbered) {
+                return nil
+            }
+            guard let score = matcher.matchScore(
+                query: query.text,
+                title: entry.title,
+                secondary: entry.secondary
+            ) else {
+                return nil
+            }
+            return (entry.action, score, entry.position)
+        }
+        let ranked = scored
+            .sorted { lhs, rhs in
+                lhs.score != rhs.score ? lhs.score < rhs.score : lhs.position < rhs.position
+            }
+            .map(\.action)
+        guard let shown else { return ranked }
+        let shownSet = Set(shown)
+        return shown + ranked.filter { !shownSet.contains($0) }
+    }
+}
+
+extension ShortcutListModel {
+    @MainActor
+    func shortcutSearchIndex() -> ShortcutListSearchIndex {
+        ShortcutListSearchIndex(model: self)
     }
 }
 

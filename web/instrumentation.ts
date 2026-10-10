@@ -3,7 +3,7 @@ import { DependencySpanProcessor } from "./services/observability/dependencies";
 import { buildCmuxTraceSampler } from "./services/observability/sampler";
 import {
   scrubSentryEvent,
-  shouldSendCoderouterSentryEvent,
+  shouldSendSentryEvent,
 } from "./services/sentry";
 import { preconnectFreestyle } from "./services/vms/drivers/freestyleWarmup";
 
@@ -25,6 +25,10 @@ function prewarmDevCloudRoutes(): void {
       "/api/vm/network-presets",
       "/api/vm/__prewarm__/stats",
       "/api/vm/tunnel",
+      // Fork and the attach that follows it each compiled on first use (9.3 s
+      // and 7.5 s on a fresh tag). Any method compiles the route module.
+      "/api/vm/__prewarm__/fork",
+      "/api/vm/__prewarm__/attach-endpoint",
     ].map(async (path) => {
       try {
         const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
@@ -58,8 +62,9 @@ export async function register() {
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
       release: process.env.VERCEL_GIT_COMMIT_SHA,
       sendDefaultPii: false,
-      // Vercel OpenTelemetry owns tracing. This project is intentionally only
-      // for coderouter errors, not every request served by the shared cmux app.
+      // Vercel OpenTelemetry owns tracing. This project takes deliberately
+      // reported cmux errors and coderouter errors, not every request error
+      // served by the shared app (see shouldSendSentryEvent).
       tracesSampleRate: 0,
       // Sentry's NodeFetch integration instruments undici on the global OTel
       // provider and emitted a bare "GET"/"POST" client span next to every
@@ -68,7 +73,7 @@ export async function register() {
       // no consumer. Postgres and the rest of the defaults stay.
       integrations: (defaults) => defaults.filter((integration) => integration.name !== "NodeFetch"),
       beforeSend: (event) =>
-        shouldSendCoderouterSentryEvent(event) ? scrubSentryEvent(event) : null,
+        shouldSendSentryEvent(event) ? scrubSentryEvent(event) : null,
     });
   }
 }

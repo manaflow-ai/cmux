@@ -189,6 +189,9 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            // The native surface is already gone, so its renderer may be too.
+            runtimeDisplayLayer?.detachRendererDisplayCallback()
+            runtimeDisplayLayer = nil
             paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
@@ -325,6 +328,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
@@ -334,6 +339,7 @@ extension TerminalSurface {
             paneHost.terminalSurfaceRuntimeDidRelease()
         }
         guard let surfaceToFree else {
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -343,6 +349,7 @@ extension TerminalSurface {
 #if DEBUG
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -362,6 +369,7 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -379,6 +387,7 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             }
@@ -422,6 +431,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
 
         if let surfaceToFree {
@@ -443,6 +454,7 @@ extension TerminalSurface {
             runtimeTeardown.cancelIsolatedHibernationTeardown(
                 teardownReservation
             )
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -469,6 +481,7 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -488,6 +501,7 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             },
@@ -817,6 +831,9 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        // `ghostty_surface_new` has just made `view` layer-hosting with this
+        // surface's renderer layer.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: view)
         guard let surfaceCallbackContext else {
             preconditionFailure(
                 "A native terminal surface requires callback userdata"
