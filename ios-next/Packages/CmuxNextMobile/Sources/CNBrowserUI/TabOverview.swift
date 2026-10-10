@@ -174,7 +174,7 @@ struct TabOverview: View {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
                     ForEach(Array(tabs.items.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
-                        TabCard(item: tab, image: images[tab.id] ?? tabs.cardImage(tab.id),
+                        TabCard(item: tab, image: tab.isTerminal ? (tabs.cardImage(tab.id) ?? images[tab.id]) : (images[tab.id] ?? tabs.cardImage(tab.id)),
                                 topColor: Color(uiColor: tabs.browser.frames[tab.id]?.topColor ?? .white),
                                 startPage: tabs.showsStartPage(tab.id), tabs: tabs.browser.tabs, pageSize: layout.size,
                                 safeTop: layout.safeTop, width: r.width, height: r.height, radius: layout.cardRadius, showsClose: true,

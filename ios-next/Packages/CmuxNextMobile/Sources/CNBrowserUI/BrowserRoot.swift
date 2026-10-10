@@ -28,7 +28,7 @@ public struct BrowserRoot: View {
 struct TabsScreenHost: View {
     let tabs: TabsModel
     let connection: HostConnection
-    var terminalContent: (String) -> AnyView = { _ in AnyView(Color.black) }
+    var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
     var terminalFontStep: (Int) -> Void = { _ in }
 
     private var model: BrowserModel { tabs.browser }
@@ -128,7 +128,7 @@ struct BrowserScreen: View {
     private var displaced: Bool { tabs.activeTerminal == nil && model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
 
     /// Live terminal content for a terminal tab (from the tabs root).
-    var terminalContent: (String) -> AnyView = { _ in AnyView(Color.black) }
+    var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
 
     private var showsStartPage: Bool { creatingTab || tabs.showsStartPage(tabs.activeKey) }
 
@@ -212,8 +212,22 @@ struct BrowserScreen: View {
                 // to the moving rect (the rect is the tab's window).
                 let g = zoomGeometry()
                 let content = zoomContent()
-                ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
-                           pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
+                Group {
+                    if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
+                        // The live terminal laid out at full page size, scaled to the rect.
+                        let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
+                        terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - safeBottom - 64))
+                            .padding(.top, safeTop)
+                            .frame(width: size.width, height: size.height, alignment: .top)
+                            .background(Color.cn(\.terminalBackground))
+                            .scaleEffect(scale, anchor: .topLeading)
+                            .frame(width: max(1, g.rect.width), height: max(1, g.rect.height), alignment: .topLeading)
+                            .clipped()
+                    } else {
+                        ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
+                                   pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
+                    }
+                }
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
                     .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
                     #if DEBUG
@@ -332,8 +346,17 @@ struct BrowserScreen: View {
         if let terminal = tabs.activeTerminal, !chrome.swiping {
             // A terminal tab: its live terminal fills the page (the terminal
             // module's embeddable view), under the same floating toolbar.
-            terminalContent(terminal.id)
-                .frame(width: size.width, height: size.height)
+            // While a zoom runs the overlay draws it instead (one view per
+            // terminal at a time).
+            if zoomState.phase == .page {
+                terminalContent(terminal.id, nil)
+                    .padding(.top, safeTop)
+                    .padding(.bottom, safeBottom + 64)
+                    .frame(width: size.width, height: size.height)
+                    .background(Color.cn(\.terminalBackground))
+            } else {
+                Color.cn(\.terminalBackground)
+            }
         } else {
             browserPageLayer
         }

@@ -58,8 +58,10 @@ final class TabsModel {
     }
 
     @ObservationIgnored var connection: HostConnection { browser.connection }
-    /// Renders terminal card snapshots (CNTerminalUI); set by the tabs root.
-    @ObservationIgnored var terminalSnapshot: ((String) async -> UIImage?)?
+    /// Terminal card images (CNTerminalUI's live thumbnails); set by the tabs root.
+    @ObservationIgnored var terminalImage: ((String) -> UIImage?)?
+    /// Asks for live thumbnails of these terminal ids (the grid is about to show).
+    @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
 
     init(connection: HostConnection, includesTerminals: Bool) {
         browser = BrowserModel(connection: connection)
@@ -257,19 +259,14 @@ final class TabsModel {
     }
 
     func cardImage(_ key: String) -> UIImage? {
-        if TabItem.terminalId(fromKey: key) != nil { return terminalThumbnails[key] }
+        if let id = TabItem.terminalId(fromKey: key) { return terminalImage?(id) ?? terminalThumbnails[key] }
         return browser.cardImage(key)
     }
 
     func refreshThumbnails() {
         browser.refreshThumbnails()
-        guard includesTerminals, let snapshot = terminalSnapshot else { return }
-        for t in terminals {
-            let key = TabItem.terminalPrefix + t.id
-            Task {
-                if let image = await snapshot(t.id) { terminalThumbnails[key] = image }
-            }
-        }
+        guard includesTerminals else { return }
+        showTerminalCards?(terminals.map(\.id))
     }
 }
 #endif
