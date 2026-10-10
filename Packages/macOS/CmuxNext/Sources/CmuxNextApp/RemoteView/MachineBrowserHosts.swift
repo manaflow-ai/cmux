@@ -17,14 +17,18 @@ final class MachineBrowserHosts {
     init(machines: MachineRegistry, localhost: RemoteLocalhostService) {
         self.machines = machines
         self.localhost = localhost
-        #if DEBUG
-        // task-owner: lives as long as the app; event-driven (Observation): a machine's new connection is checked once.
-        observation = Task { [weak self, machines] in
+        // task-owner: lives as long as the app; event-driven (Observation): a machine's new connection is checked
+        // once, and a forgotten machine's forwarding connection closes (its browser runtimes stop with it).
+        observation = Task { [weak self, machines, localhost] in
             for await links in Observations({ machines.daemons.filter { !$0.isLocal }.map { ($0.machineID, $0.connection != nil) } }) {
+                localhost.closeClientsOfRemovedMachines()
+                #if DEBUG
                 for (machine, connected) in links where connected && self?.installed(machine) == nil { self?.refresh(machine) }
+                #else
+                _ = (links, self)
+                #endif
             }
         }
-        #endif
     }
 
     /// The machine runs browser tabs: its daemon has `browser-runtime-v1`
