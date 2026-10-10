@@ -298,9 +298,16 @@ final class RemoteTmuxController {
 
     // MARK: - Sidebar mirroring (P3, initial increment)
 
+    /// Changes whenever the active mirror set changes. Sidebar presentation caches use this
+    /// generation to refresh their destination snapshot without scanning all mirrors on every row
+    /// refresh.
+    private(set) var hostDestinationsGeneration: UInt64 = 0
+
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``).
-    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
+    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:] {
+        didSet { hostDestinationsGeneration &+= 1 }
+    }
 
     /// Outstanding login offers, keyed by ``RemoteTmuxHost/connectionHash``.
     ///

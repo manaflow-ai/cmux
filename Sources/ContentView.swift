@@ -856,6 +856,7 @@ private final class SidebarOriginPresentationCache {
     var workspaceIds: Set<UUID> = []
     var mirrorWorkspaceIds: Set<UUID> = []
     var mirrorDestinations: [UUID: String] = [:]
+    var mirrorDestinationsGeneration: UInt64?
     var hasLoadedMirrorDestinations = false
     var colorsEnabled = false
     var hostTitlesEnabled = false
@@ -866,6 +867,7 @@ private final class SidebarOriginPresentationCache {
         workspaceIds = []
         mirrorWorkspaceIds = []
         mirrorDestinations = [:]
+        mirrorDestinationsGeneration = nil
         hasLoadedMirrorDestinations = false
         colorsEnabled = false
         hostTitlesEnabled = false
@@ -13163,7 +13165,9 @@ struct VerticalTabsSidebar: View, Equatable {
                   saved.hostTitleSuffix != hostTitleSuffixes[workspace.id] else { return nil }
             return workspace.id
         }
-        workspaceSnapshotCache.refresh(workspaceIds: workspaceIds.union(staleHostIds)) { workspaceId in
+        workspaceSnapshotCache.refresh(
+            workspaceIds: workspaceIds.union(staleHostIds).union(presentation.changedMirrorWorkspaceIds)
+        ) { workspaceId in
             guard let workspace = workspaceById[workspaceId] else { return nil }
             return makeWorkspaceSnapshot(
                 workspace: workspace,
@@ -13280,29 +13284,46 @@ struct VerticalTabsSidebar: View, Equatable {
     private func originPresentationValues(
         tabs: [Workspace],
         changedWorkspaceIds: Set<UUID>? = nil
-    ) -> (mirrorDestinations: [UUID: String]?, hostTitleSuffixes: [UUID: String]) {
+    ) -> (
+        mirrorDestinations: [UUID: String]?,
+        hostTitleSuffixes: [UUID: String],
+        changedMirrorWorkspaceIds: Set<UUID>
+    ) {
         let colorsEnabled = remoteTmuxOriginColorsEnabled
         let hostTitlesEnabled = remoteTmuxOriginHostTitlesEnabled
         guard colorsEnabled || hostTitlesEnabled else {
             sidebarOriginPresentationCache.reset()
-            return (nil, [:])
+            return (nil, [:], [])
         }
 
         let mirrorWorkspaceIds = Set(tabs.filter(\.isRemoteTmuxMirror).map(\.id))
+        let mirrorController = AppDelegate.shared?.remoteTmuxController
+        let mirrorDestinationsGeneration = mirrorController?.hostDestinationsGeneration ?? 0
         let flagsChanged = sidebarOriginPresentationCache.colorsEnabled != colorsEnabled
             || sidebarOriginPresentationCache.hostTitlesEnabled != hostTitlesEnabled
         let mirrorSetChanged = sidebarOriginPresentationCache.mirrorWorkspaceIds != mirrorWorkspaceIds
         let affectedMirrorChanged = changedWorkspaceIds?.contains { mirrorWorkspaceIds.contains($0) } == true
-        if !sidebarOriginPresentationCache.hasLoadedMirrorDestinations
+        let mirrorDestinationsGenerationChanged =
+            sidebarOriginPresentationCache.mirrorDestinationsGeneration != mirrorDestinationsGeneration
+        let shouldReloadMirrorDestinations = !sidebarOriginPresentationCache.hasLoadedMirrorDestinations
             || flagsChanged
             || mirrorSetChanged
-            || affectedMirrorChanged {
+            || affectedMirrorChanged
+            || mirrorDestinationsGenerationChanged
+        let previousMirrorDestinations = sidebarOriginPresentationCache.mirrorDestinations
+        if shouldReloadMirrorDestinations {
             sidebarOriginPresentationCache.mirrorDestinations =
-                AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
+                mirrorController?.hostDestinationsByWorkspaceId() ?? [:]
+            sidebarOriginPresentationCache.mirrorDestinationsGeneration = mirrorDestinationsGeneration
             sidebarOriginPresentationCache.hasLoadedMirrorDestinations = true
         }
 
         let mirrorDestinations = sidebarOriginPresentationCache.mirrorDestinations
+        let changedMirrorWorkspaceIds = Set(
+            Set(previousMirrorDestinations.keys)
+                .union(mirrorDestinations.keys)
+                .filter { previousMirrorDestinations[$0] != mirrorDestinations[$0] }
+        )
         let inputs = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
             let destination = originDestination(for: workspace, mirrorDestinations: mirrorDestinations)
             return (
@@ -13332,7 +13353,8 @@ struct VerticalTabsSidebar: View, Equatable {
         sidebarOriginPresentationCache.hostTitlesEnabled = hostTitlesEnabled
         return (
             colorsEnabled || hostTitlesEnabled ? mirrorDestinations : nil,
-            hostTitlesEnabled ? sidebarOriginPresentationCache.hostTitleSuffixes : [:]
+            hostTitlesEnabled ? sidebarOriginPresentationCache.hostTitleSuffixes : [:],
+            changedMirrorWorkspaceIds
         )
     }
 
