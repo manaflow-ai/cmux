@@ -19,6 +19,7 @@ extension Workspace {
     struct CloudBrowserCreationPlan {
         let route: CloudBrowserCreationRoute?
         let unavailable: Bool
+        let unsupportedURL: Bool
     }
 
     /// Resolves the remote target once for a browser creation intent. Restore
@@ -34,10 +35,20 @@ extension Workspace {
         let requiresCloudBrowser = cloudVMBinding.map {
             SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil
         } ?? false
+        let unsupportedURL = requiresCloudBrowser && creationPolicy != .restoration &&
+            requestedURL.map { !Self.cloudBrowserURLIsSupported($0) } == true
         return CloudBrowserCreationPlan(
             route: route,
-            unavailable: creationPolicy != .restoration && requiresCloudBrowser && route == nil
+            unavailable: creationPolicy != .restoration && requiresCloudBrowser && route == nil,
+            unsupportedURL: unsupportedURL
         )
+    }
+
+    private static func cloudBrowserURLIsSupported(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https", "about": return true
+        default: return false
+        }
     }
 
     /// Returns a remote browser target only for a bound Cloud workspace. SSH
@@ -157,10 +168,18 @@ extension Workspace {
 
     /// Applies the shared post-insertion action for split and tab entrypoints.
     func applyCloudBrowserCreationPlan(_ plan: CloudBrowserCreationPlan, to panel: BrowserPanel) {
-        if let route = plan.route {
+        if plan.unsupportedURL {
+            panel.cloudAccess.showUnavailable(String(
+                localized: "cloud.portAccess.invalidURL",
+                defaultValue: "This port does not have a valid HTTP or HTTPS address."
+            ))
+        } else if let route = plan.route {
             startCloudBrowserCreation(panel: panel, route: route)
         } else if plan.unavailable {
-            panel.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+            panel.cloudAccess.showUnavailable(String(
+                localized: "cloud.browser.creationUnavailable",
+                defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry."
+            ))
         }
     }
 
