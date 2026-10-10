@@ -56,6 +56,9 @@ pub struct SshBootstrapConfig {
     pub local_binary: Option<PathBuf>,
     pub auto_install: bool,
     pub timeout: Duration,
+    /// `remote-probe` capabilities the remote must advertise before this
+    /// client may attach (`SshProviderConfig::required_remote_capabilities`).
+    pub required_capabilities: Vec<String>,
 }
 
 impl SshBootstrapConfig {
@@ -73,6 +76,7 @@ impl SshBootstrapConfig {
             local_binary: std::env::current_exe().ok(),
             auto_install: true,
             timeout: Duration::from_secs(60),
+            required_capabilities: Vec::new(),
         }
     }
 
@@ -121,6 +125,9 @@ pub struct RemoteProbe {
     pub remote_protocol: u8,
     pub os: String,
     pub arch: String,
+    /// Absent in builds before `remote-probe` advertised capabilities.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -579,6 +586,14 @@ impl SshBootstrapper {
                 local: REMOTE_PROTOCOL_VERSION,
             });
         }
+        if let Some(missing) = self
+            .config
+            .required_capabilities
+            .iter()
+            .find(|capability| !probe.capabilities.contains(capability))
+        {
+            return Err(Incompatibility::MissingCapability { capability: missing.clone() });
+        }
         Ok(())
     }
 
@@ -1023,6 +1038,10 @@ pub enum Incompatibility {
     WrongApp { app: String },
     /// The link framing differs; neither side can talk to the other.
     RemoteProtocol { remote: u8, local: u8 },
+    /// The remote speaks this link protocol but is older than a link flag
+    /// this connection needs (for example `remote-link --mux-socket`), so it
+    /// would ignore the flag and reach the wrong daemon (cx-z3zh).
+    MissingCapability { capability: String },
     /// An installing client found another distribution version.
     Distribution { remote: String, local: String },
     /// An installing client with an unpublished build found another build.
@@ -1035,6 +1054,7 @@ impl Incompatibility {
             Self::WrongApp { .. } => "remote-wrong-app",
             Self::RemoteProtocol { remote, local } if remote < local => "remote-protocol-older",
             Self::RemoteProtocol { .. } => "remote-protocol-newer",
+            Self::MissingCapability { .. } => "remote-protocol-older",
             Self::Distribution { .. } => "remote-distribution-mismatch",
             Self::Build { .. } => "remote-build-mismatch",
         }
@@ -1098,6 +1118,10 @@ impl fmt::Display for BootstrapError {
                     Incompatibility::RemoteProtocol { remote, local } => write!(
                         formatter,
                         "remote cmux-tui {version} (build {build}) is newer: it speaks remote protocol {remote}, this cmux-tui speaks {local}; update this cmux-tui"
+                    ),
+                    Incompatibility::MissingCapability { capability } => write!(
+                        formatter,
+                        "remote cmux-tui {version} (build {build}) is older: it lacks {capability}, which this connection needs; update the remote cmux-tui"
                     ),
                     Incompatibility::Distribution { remote, local } => write!(
                         formatter,

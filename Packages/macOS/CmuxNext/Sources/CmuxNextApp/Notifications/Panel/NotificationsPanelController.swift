@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import Observation
@@ -109,7 +110,7 @@ final class NotificationsPanelController {
         // task-owner: NotificationsPanelController.watch, cancelled in close()
         watch = Task { [weak self] in
             var first = true
-            for await _ in Observations({ (store.notifications.last?.notification.rawValue ?? 0, NotificationCenterService.unreadCount(store)) }) {
+            for await _ in ObservationStream({ (store.notifications.last?.notification.rawValue ?? 0, NotificationCenterService.unreadCount(store)) }) {
                 // The open itself already reloaded.
                 if first { first = false; continue }
                 self?.reload()

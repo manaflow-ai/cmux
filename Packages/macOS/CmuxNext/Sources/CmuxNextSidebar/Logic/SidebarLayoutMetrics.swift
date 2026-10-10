@@ -73,6 +73,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
+    /// and marks, whatever `workspaceRow` shows (`rowContent`).
+    public var minimal = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -83,4 +86,20 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var groupsByFolder = false
 
     public init() {}
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Icon only: the name and the unread mark always draw (minimal mode).
+    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon]))
+
+    /// What `ws`'s row draws under these options. Minimal mode drops the
+    /// second line (including another computer's name and a machine's
+    /// stage), counts, badges and the working dots; attention states
+    /// (waiting, error) still show, like the unread mark.
+    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
+        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
+        content.detail = nil
+        return content
+    }
 }

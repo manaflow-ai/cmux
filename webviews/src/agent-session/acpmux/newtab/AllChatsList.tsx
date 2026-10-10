@@ -14,6 +14,15 @@ import { useNt } from "./strings";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
+/// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
+/// its state where the age would be.
+export type ActiveChat = {
+  id: string;
+  title: string;
+  harness?: string;
+  state: "input" | "running" | "error" | "unread" | "idle";
+  label: string;
+};
 
 export type AllChatsPage = {
   chats: AllChatsRow[];
@@ -31,7 +40,7 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 34;
 
 type State = {
   query: string;
@@ -105,11 +114,15 @@ function useChatPages(load: LoadChatsPage) {
 export function AllChatsList({
   load,
   onOpen,
+  active = [],
+  onOpenActive,
   onOpenInTerminal,
   now = Date.now(),
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
+  active?: ActiveChat[];
+  onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
   now?: number;
 }) {
@@ -130,9 +143,9 @@ export function AllChatsList({
     const row = rows[index];
     if (!row) return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
     const title = row.title ?? t("sidebar.newChat");
+    // The project names an untitled chat apart from the others ("New chat · cmux").
     const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const meta =
-      state.design === "age" ? ageLabel(row.updatedAt, now, t) : state.design === "project" ? project : undefined;
+    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
     return (
       <div
         key={row.key}
@@ -144,14 +157,19 @@ export function AllChatsList({
         aria-setsize={count}
         onContextMenuCapture={() => (menuKey.current = row.key)}
       >
-        <button type="button" className="nt-all-row" title={row.cwd ?? title} onClick={() => onOpen(row.key)}>
-          {state.design === "quiet" && (
-            <span className="nt-all-glyph">
-              <AgentMark harness={row.harness} />
-            </span>
-          )}
+        <button
+          type="button"
+          className="nt-all-row"
+          data-untitled={row.title ? undefined : true}
+          title={row.cwd ? `${title}\n${row.cwd}` : title}
+          onClick={() => onOpen(row.key)}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={row.harness} />
+          </span>
           <span className="nt-all-title">{title}</span>
-          {meta && <span className="nt-all-meta">{meta}</span>}
+          {project && state.design !== "quiet" && <span className="nt-all-project">{project}</span>}
+          {age && <span className="nt-all-meta">{age}</span>}
         </button>
       </div>
     );
@@ -167,22 +185,47 @@ export function AllChatsList({
       ]
     : [];
   return (
-    <section className="nt-all" aria-label={nt("allChats")}>
+    <section className="nt-all" aria-label={nt("chats")}>
       <header className="nt-chats-head">
-        <span className="nt-chats-tab is-selected">{nt("allChats")}</span>
-        <input
-          className="nt-all-search"
-          type="search"
-          value={state.query}
-          placeholder={t("sidebar.searchPlaceholder")}
-          aria-label={t("sidebar.search")}
-          onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
-        />
+        <span className="nt-chats-tab is-selected">{nt("chats")}</span>
+        <label className="nt-all-search">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={state.query}
+            placeholder={t("sidebar.searchPlaceholder")}
+            aria-label={t("sidebar.search")}
+            onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
+          />
+        </label>
       </header>
+      {!state.query && active.length > 0 && (
+        <ul className="nt-all-active" aria-label={t("sidebar.active")}>
+          {active.map((chat) => (
+            <li key={chat.id}>
+              <button
+                type="button"
+                className="nt-all-row"
+                data-state={chat.state}
+                onClick={() => onOpenActive?.(chat.id)}
+              >
+                <span className="nt-all-glyph">
+                  <AgentMark harness={chat.harness} />
+                </span>
+                <span className="nt-all-title">{chat.title}</span>
+                <span className="nt-all-state">{chat.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {state.loaded && rows.length === 0 ? (
         state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
-        <ContextMenu items={items} onOpen={() => setMenuTarget(menuKey.current)}>
+        <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -22,7 +23,7 @@ extension AppServices {
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere, or
             // any browser tab while new tabs default to Chromium.
-            for await reason in Observations({ Self.likelyFromTabs(machines, preference.defaultEngine) }) {
+            for await reason in ObservationStream({ Self.likelyFromTabs(machines, preference.defaultEngine) }) {
                 guard let reason else { continue }
                 self?.chromiumWarmup.chromiumLikely(reason)
                 return
@@ -30,7 +31,7 @@ extension AppServices {
         })
         let model = palette.model
         chromiumLikelyObservations.append(Task { [weak self] in
-            for await rows in Observations({ [model.selectedRowID, model.hoveredRowID] }) {
+            for await rows in ObservationStream({ [model.selectedRowID, model.hoveredRowID] }) {
                 let likely = Self.chromiumPaletteRows.union(preference.defaultEngine == .chromium ? Self.defaultBrowserPaletteRows : [])
                 guard rows.contains(where: { $0.map(likely.contains) ?? false }) else { continue }
                 self?.chromiumWarmup.chromiumLikely(.palette)
