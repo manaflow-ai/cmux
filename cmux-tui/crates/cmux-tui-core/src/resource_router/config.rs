@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 use super::{ParsedResourceRequest, mutation_result, validation_error};
 use crate::resource::{ResourceError, ResourceOperation, WireDecimal};
+use crate::workspace_registry::Actor;
 use crate::{Mux, ResourceTarget};
 
 pub(super) fn dispatch(
@@ -36,7 +37,12 @@ pub(super) fn dispatch(
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll => {
-            let op = write_op(operation, fields, request.envelope.idempotency_key.clone())?;
+            let op = write_op(
+                operation,
+                fields,
+                request.envelope.idempotency_key.clone(),
+                &request.actor,
+            )?;
             match mux.settings_apply(op) {
                 Ok(outcome) => mutation_result(
                     mux,
@@ -94,7 +100,11 @@ fn target(fields: &Map<String, Value>) -> Result<Target, ResourceError> {
     Ok(Target::Path(path))
 }
 
-fn meta(fields: &Map<String, Value>, key: Option<String>) -> Result<WriteMeta, ResourceError> {
+fn meta(
+    fields: &Map<String, Value>,
+    key: Option<String>,
+    actor: &Actor,
+) -> Result<WriteMeta, ResourceError> {
     let if_revision = fields
         .get("if_revision")
         .map(|value| {
@@ -108,7 +118,12 @@ fn meta(fields: &Map<String, Value>, key: Option<String>) -> Result<WriteMeta, R
             )
         })
         .transpose()?;
-    let origin = Origin::parse(fields.get("origin").and_then(Value::as_str));
+    // A sandboxed app or a peer on another machine is an agent, whatever it
+    // declares.
+    let origin = match actor {
+        Actor::App { .. } | Actor::Peer { .. } => Origin::Mcp,
+        _ => Origin::parse(fields.get("origin").and_then(Value::as_str)),
+    };
     Ok(WriteMeta { origin, idempotency_key: key, if_revision })
 }
 
@@ -116,17 +131,18 @@ fn write_op(
     operation: ResourceOperation,
     fields: &Map<String, Value>,
     key: Option<String>,
+    actor: &Actor,
 ) -> Result<Op, ResourceError> {
     Ok(match operation {
         ResourceOperation::SettingsSet => Op::Set {
             target: target(fields)?,
             value: fields.get("value").cloned().unwrap_or(Value::Null),
-            meta: meta(fields, key)?,
+            meta: meta(fields, key, actor)?,
         },
         ResourceOperation::SettingsReset => {
-            Op::Reset { target: target(fields)?, meta: meta(fields, key)? }
+            Op::Reset { target: target(fields)?, meta: meta(fields, key, actor)? }
         }
-        _ => Op::ResetAll { meta: meta(fields, key)? },
+        _ => Op::ResetAll { meta: meta(fields, key, actor)? },
     })
 }
 

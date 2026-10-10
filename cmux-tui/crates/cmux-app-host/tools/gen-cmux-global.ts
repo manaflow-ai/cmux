@@ -32,7 +32,8 @@ const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "
 const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
 // team_vm.retired.export (cx-lyvg) hands out the whole team's files: a person's session only, never an app.
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
-const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_folder\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$)/
+// settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
+const NEVER = /(^settings\.(set|reset|reset_all)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_folder\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$)/
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 
