@@ -20,11 +20,8 @@ struct TabsShell: View {
                 roots.agents().cnStatusBarStyleSuppressed(selection != .agents)
             }
             .badge(model.shellData.attentionCount)
-            Tab(ShellDestination.terminals.title, systemImage: ShellDestination.terminals.symbol, value: .terminals) {
-                roots.terminals().cnStatusBarStyleSuppressed(selection != .terminals)
-            }
-            Tab(ShellDestination.browser.title, systemImage: ShellDestination.browser.symbol, value: .browser) {
-                roots.browser().cnStatusBarStyleSuppressed(selection != .browser)
+            Tab(ShellDestination.tabs.title, systemImage: ShellDestination.tabs.symbol, value: .tabs) {
+                roots.tabsCombined().cnStatusBarStyleSuppressed(selection != .tabs)
             }
             Tab(ShellDestination.settings.title, systemImage: ShellDestination.settings.symbol, value: .settings) {
                 roots.settings().cnStatusBarStyleSuppressed(selection != .settings)

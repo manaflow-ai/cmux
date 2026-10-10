@@ -119,14 +119,9 @@ struct DrawerSidebar: View {
                         SidebarItem(id: s.id, title: s.title, subtitle: s.preview, unread: AgentReadState.shared.isUnread(s),
                                     status: Self.statusColor(s.status), route: CNShellRoute(kind: .agentSession, id: s.id))
                     })
-                    section(.terminals, items: terminals.prefix(searching ? 50 : 5).map { t in
-                        SidebarItem(id: t.id, title: t.title, subtitle: t.cwd, unread: false,
-                                    status: t.running ? nil : .cn(\.textTertiary), route: CNShellRoute(kind: .terminal, id: t.id))
-                    })
-                    section(.browser, items: tabs.prefix(searching ? 50 : 5).map { tab in
-                        SidebarItem(id: tab.id, title: tab.title.isEmpty ? tab.url : tab.title, subtitle: URL(string: tab.url)?.host(),
-                                    unread: false, route: CNShellRoute(kind: .browserTab, id: tab.id))
-                    })
+                    // Tabs: browser tabs and terminals in one list, opening the
+                    // combined grid (which filters All / Browser / Terminals).
+                    section(.tabs, items: combinedItems.prefix(searching ? 50 : 8).map { $0 })
                     if !searching {
                         DestinationRow(destination: .settings, selected: destination == .settings) { onSelect(.settings, nil) }
                             .padding(.top, 8)
@@ -153,6 +148,20 @@ struct DrawerSidebar: View {
     private var sessions: [AgentSession] { data.sessions.filter { matches($0.title, $0.preview, $0.harness) } }
     private var terminals: [Terminal] { data.terminals.filter { matches($0.title, $0.cwd) } }
     private var tabs: [BrowserTab] { data.tabs.filter { matches($0.title, $0.url) } }
+
+    /// Browser tabs (active first) then terminals, for the Tabs section.
+    private var combinedItems: [SidebarItem] {
+        let browser = tabs.sorted { $0.active && !$1.active }.map { tab in
+            SidebarItem(id: "b:" + tab.id, title: tab.title.isEmpty ? tab.url : tab.title, subtitle: URL(string: tab.url)?.host(),
+                        unread: false, symbol: "safari", route: CNShellRoute(kind: .browserTab, id: tab.id))
+        }
+        let shells = terminals.map { t in
+            SidebarItem(id: "t:" + t.id, title: t.title, subtitle: t.cwd, unread: false,
+                        status: t.running ? nil : .cn(\.textTertiary), symbol: "apple.terminal",
+                        route: CNShellRoute(kind: .terminal, id: t.id))
+        }
+        return browser + shells
+    }
 
     // MARK: Pieces
 
@@ -210,10 +219,18 @@ struct DrawerSidebar: View {
                             .frame(width: 7, height: 7)
                             .accessibilityLabel(item.unread ? "Unread" : "")
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(item.title)
-                                .font(.body)
-                                .foregroundStyle(.cn(\.textPrimary))
-                                .lineLimit(1)
+                            HStack(spacing: 5) {
+                                if let symbol = item.symbol {
+                                    Image(systemName: symbol)
+                                        .font(.footnote)
+                                        .foregroundStyle(.cn(\.textTertiary))
+                                        .accessibilityHidden(true)
+                                }
+                                Text(item.title)
+                                    .font(.body)
+                                    .foregroundStyle(.cn(\.textPrimary))
+                                    .lineLimit(1)
+                            }
                             if let subtitle = item.subtitle, !subtitle.isEmpty {
                                 Text(subtitle)
                                     .font(.footnote)
@@ -334,6 +351,8 @@ struct SidebarItem: Identifiable {
     var unread: Bool
     /// Trailing state dot (agent status, exited terminal).
     var status: Color? = nil
+    /// Kind glyph after the title (mixed lists such as Tabs).
+    var symbol: String? = nil
     var route: CNShellRoute
 }
 

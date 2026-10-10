@@ -5,6 +5,8 @@ import Foundation
 /// `CMUX_NEXT_MOCK=1` runs the whole app (both shells) on the mock host.
 public enum DevScreen: String, Sendable, CaseIterable {
     case conversations, agents, terminal, browser, settings, signin, onboarding, drawer, tabs
+    /// The combined browser tabs + terminals grid (`TabsRoot`).
+    case tabsCombined = "tabs-combined"
 
     public static let environmentKey = "CMUX_NEXT_DEV_SCREEN"
     public static let mockKey = "CMUX_NEXT_MOCK"

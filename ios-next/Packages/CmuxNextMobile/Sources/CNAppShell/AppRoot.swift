@@ -34,6 +34,7 @@ public struct AppRoot: View {
         case .agents: roots.agents()
         case .terminal: roots.terminals()
         case .browser: roots.browser()
+        case .tabsCombined: roots.tabsCombined()
         case .settings: roots.settings()
         default: flow
         }

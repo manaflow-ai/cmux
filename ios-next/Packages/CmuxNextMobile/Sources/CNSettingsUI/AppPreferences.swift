@@ -26,6 +26,10 @@ public final class AppPreferences {
         }
     }
 
+    /// UserDefaults key (Bool, default false) for "Bring tabs forward on Mac
+    /// automatically"; the browser module reads it.
+    nonisolated public static let browserBringForwardKey = "cmuxNext.browser.bringForward"
+
     public static let terminalFontRange: ClosedRange<Double> = 9...24
     public static let defaultTerminalFontSize: Double = 13
 
@@ -33,6 +37,9 @@ public final class AppPreferences {
     public var terminalFontSize: Double { didSet { defaults.set(terminalFontSize, forKey: Keys.terminalFontSize) } }
     /// Debug: force the WebRTC link onto a TURN relay.
     public var forceRelay: Bool { didSet { defaults.set(forceRelay, forKey: Keys.forceRelay) } }
+    /// Browser: when opening a Mac tab that is in the background, switch the
+    /// Mac's pane to it so it can stream. Shared key read by CNBrowserUI.
+    public var browserBringForward: Bool { didSet { defaults.set(browserBringForward, forKey: Keys.browserBringForward) } }
     /// The Mac the app connects to.
     public var selectedHostId: String? { didSet { defaults.set(selectedHostId, forKey: Keys.selectedHostId) } }
 
@@ -44,6 +51,7 @@ public final class AppPreferences {
         static let terminalFontSize = "cmuxNext.terminalFontSize"
         static let forceRelay = "cmuxNext.forceRelay"
         static let selectedHostId = "cmuxNext.selectedHostId"
+        static let browserBringForward = AppPreferences.browserBringForwardKey
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -53,6 +61,7 @@ public final class AppPreferences {
         terminalFontSize = size == 0 ? Self.defaultTerminalFontSize : min(max(size, Self.terminalFontRange.lowerBound), Self.terminalFontRange.upperBound)
         forceRelay = defaults.bool(forKey: Keys.forceRelay)
         selectedHostId = defaults.string(forKey: Keys.selectedHostId)
+        browserBringForward = defaults.bool(forKey: Keys.browserBringForward)
         // The terminal writes the same key (pinch, Larger/Smaller Text): follow it.
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: defaults, queue: .main

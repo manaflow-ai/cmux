@@ -21,6 +21,7 @@ struct ModuleRoots {
         switch destination {
         case .home: conversations()
         case .agents: agents()
+        case .tabs: tabsCombined()
         case .terminals: terminals()
         case .browser: browser()
         case .settings: settings()
@@ -28,6 +29,7 @@ struct ModuleRoots {
     }
 
     func conversations() -> some View { ConversationsRoot(connection: connection) }
+    func tabsCombined() -> some View { TabsRoot(connection: connection) }
     func agents() -> some View { AgentsRoot(connection: connection) }
     func terminals() -> some View { TerminalsRoot(connection: connection) }
     func browser() -> some View { BrowserRoot(connection: connection) }

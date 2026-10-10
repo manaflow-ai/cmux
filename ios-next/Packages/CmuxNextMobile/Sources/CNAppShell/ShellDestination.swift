@@ -6,23 +6,26 @@ import SwiftUI
 
 /// The top-level destinations both shells offer.
 enum ShellDestination: String, CaseIterable, Hashable, Sendable {
-    case home, agents, terminals, browser, settings
+    case home, agents, tabs, terminals, browser, settings
 
     var title: String {
         switch self {
         case .home: "Home"
         case .agents: "Agents"
+        case .tabs: "Tabs"
         case .terminals: "Terminals"
         case .browser: "Browser"
         case .settings: "Settings"
         }
     }
 
-    /// DEBUG: `CMUX_NEXT_START_DESTINATION=<home|agents|terminals|browser|settings>`
+    /// DEBUG: `CMUX_NEXT_START_DESTINATION=<home|agents|tabs|settings>`
     /// opens the shell on that destination (automated verification).
+    /// `terminals` and `browser` map to Tabs, which holds both.
     static var initial: ShellDestination {
         #if DEBUG
-        ProcessInfo.processInfo.environment["CMUX_NEXT_START_DESTINATION"].flatMap(ShellDestination.init(rawValue:)) ?? .home
+        let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_START_DESTINATION"].flatMap(ShellDestination.init(rawValue:)) ?? .home
+        return raw == .terminals || raw == .browser ? .tabs : raw
         #else
         .home
         #endif
@@ -32,6 +35,7 @@ enum ShellDestination: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .home: "bubble.left.and.bubble.right"
         case .agents: "sparkles"
+        case .tabs: "square.on.square"
         case .terminals: "apple.terminal"
         case .browser: "safari"
         case .settings: "gearshape"

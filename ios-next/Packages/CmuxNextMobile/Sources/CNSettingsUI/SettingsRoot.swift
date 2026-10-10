@@ -54,6 +54,15 @@ public struct SettingsRoot: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                 }
+                Section {
+                    Toggle("Bring tabs forward on Mac automatically", isOn: $preferences.browserBringForward)
+                        .tint(.cn(\.highlight))
+                        .accessibilityIdentifier("settings.browserBringForward")
+                } header: {
+                    Text("Browser")
+                } footer: {
+                    Text("When you open a Mac browser tab that's in the background, switch the Mac's pane to it so it can show here.")
+                }
                 aboutSection
             }
             .navigationTitle("Settings")
