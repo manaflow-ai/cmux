@@ -347,7 +347,14 @@ final class GlobalSearchPanelCaptureManager {
             title: title,
             location: context.location
         )
-        guard next != previous else { return true }
+        guard next != previous else {
+            // An overlapping refresh that fell back to the scrollback can
+            // index it after this session's document landed.
+            if terminalCaptureFingerprints.removeValue(forKey: panelID) != nil {
+                await purgeTerminalDocument(forPanelID: panelID, index: index)
+            }
+            return true
+        }
         guard let transcriptText = await agentSessionTranscripts.text(forSessionID: source.sessionID) else {
             return false
         }
