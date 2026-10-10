@@ -148,6 +148,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        if traitCollection.displayScale > 0 { ConversationTheme.displayScale = traitCollection.displayScale }
         view.backgroundColor = ConversationTheme.background
 
         layout.dataSource = self
@@ -305,6 +306,12 @@ public final class ConversationViewController: UIViewController {
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.displayScale > 0, traitCollection.displayScale != ConversationTheme.displayScale {
+            ConversationTheme.displayScale = traitCollection.displayScale
+            layoutCache.invalidateAll()
+            invalidateRowMetrics()
+            collectionView.reloadData()
+        }
         if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
             || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
             layoutCache.invalidateAll()

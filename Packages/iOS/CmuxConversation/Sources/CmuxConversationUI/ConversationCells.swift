@@ -625,6 +625,13 @@ final class TimestampCell: UICollectionViewCell {
         label.frame = CGRect(x: 16, y: 10, width: contentView.bounds.width - 32, height: max(18, ceil(ConversationTheme.timestampFont.lineHeight)))
     }
 
+    /// The separator's baseline below the row's top (UILabel centers the
+    /// line in the label).
+    static var baselineOffset: CGFloat {
+        let font = ConversationTheme.timestampFont
+        return 10 + (max(18, ceil(font.lineHeight)) - font.lineHeight) / 2 + font.ascender
+    }
+
     /// Messages sets the next bubble 10.6 pt below the separator's baseline
     /// (28.6 pt at Large); the row grows with the caption 2 timestamp font.
     static var height: CGFloat { 28.6 + max(0, ceil(ConversationTheme.timestampFont.lineHeight) - 14) }
@@ -633,6 +640,9 @@ final class TimestampCell: UICollectionViewCell {
         let calendar = Calendar.current
         let time = date.formatted(date: .omitted, time: .shortened)
         let day: String
+        // Older than a week, Messages joins the date and time with "at"
+        // ("Thu, Sep 24 at 7:18 PM"; device recording, iOS 26).
+        var joinsWithAt = false
         if calendar.isDateInToday(date) {
             day = String(localized: "conversation.timestamp.today", defaultValue: "Today", bundle: .module)
         } else if calendar.isDateInYesterday(date) {
@@ -641,15 +651,21 @@ final class TimestampCell: UICollectionViewCell {
             day = date.formatted(.dateTime.weekday(.wide))
         } else {
             day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+            joinsWithAt = true
         }
-        let result = NSMutableAttributedString(string: day, attributes: [
-            .font: ConversationTheme.timestampBoldFont,
-            .foregroundColor: ConversationTheme.timestampText,
-        ])
-        result.append(NSAttributedString(string: " " + time, attributes: [
-            .font: ConversationTheme.timestampFont,
-            .foregroundColor: ConversationTheme.timestampText,
-        ]))
+        let regular: [NSAttributedString.Key: Any] = [.font: ConversationTheme.timestampFont, .foregroundColor: ConversationTheme.timestampText]
+        let format = joinsWithAt
+            ? String(localized: "conversation.timestamp.dateAtTime", defaultValue: "%1$@ at %2$@", bundle: .module)
+            : "%1$@ %2$@"
+        let marker = "\u{1}"
+        let result = NSMutableAttributedString(string: String(format: format, marker, time), attributes: regular)
+        let range = (result.string as NSString).range(of: marker)
+        if range.location != NSNotFound {
+            result.replaceCharacters(in: range, with: NSAttributedString(string: day, attributes: [
+                .font: ConversationTheme.timestampBoldFont,
+                .foregroundColor: ConversationTheme.timestampText,
+            ]))
+        }
         return result
     }
 }
@@ -685,42 +701,79 @@ final class LoadingCell: UICollectionViewCell {
     }
 }
 
-/// The top of history: service name and subtitle, as Messages shows above the first message.
+/// The top of history: service name and subtitle, as Messages shows above
+/// the first message. ChatKit draws it as one two-line caption 2 label
+/// (`CKTranscriptMultilineLabelCell`): the service in its transcript bold
+/// (medium) weight, the lock and "Encrypted" regular, both in the separator
+/// gray, one font line apart (26.33 pt tall at Large, iOS 26.5 and 27.0).
 final class ConversationStartCell: UICollectionViewCell {
     static let reuseID = "start"
-    static var height: CGFloat { max(54, 2 * ceil(ConversationTheme.font(11, style: .caption2).lineHeight) + 26) }
-    private let title = UILabel()
-    private let subtitle = UILabel()
+    /// Room above the label (ChatKit's header sits 13.67 pt under the
+    /// transcript's top inset).
+    static let topInset: CGFloat = 41.0 / 3.0
+    /// Messages sets the separator's baseline 27.98 pt under "Encrypted"'s
+    /// baseline; `TimestampCell` puts its baseline `TimestampCell.baselineOffset`
+    /// into its row, so this row ends the rest of that distance below ours.
+    static let baselineToTimestampBaseline: CGFloat = 27.98
+    static var height: CGFloat {
+        let secondBaseline = topInset + textHeight + ConversationTheme.timestampFont.descender
+        return ceil((secondBaseline + baselineToTimestampBaseline - TimestampCell.baselineOffset) * 3) / 3
+    }
+
+    /// Both lines, lock included (the glyph can make its line a hair taller
+    /// than a caption line).
+    static var textHeight: CGFloat {
+        let size = text(title: "iMessage", subtitle: "Encrypted", color: .gray)
+            .boundingRect(with: CGSize(width: 1000, height: 1000), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        return ceil(size.height * 3) / 3
+    }
+
+    static func text(title: String, subtitle: String, color: UIColor) -> NSAttributedString {
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let text = NSMutableAttributedString(string: title + "\n", attributes: [
+            .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
+        ])
+        let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!
+        let attachment = NSMutableAttributedString(attachment: NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal)))
+        attachment.addAttributes([.font: ConversationTheme.timestampFont, .paragraphStyle: centered], range: NSRange(location: 0, length: attachment.length))
+        text.append(attachment)
+        text.append(NSAttributedString(string: " " + subtitle, attributes: [
+            .font: ConversationTheme.timestampFont, .foregroundColor: color, .paragraphStyle: centered,
+        ]))
+        return text
+    }
+
+    private let label = UILabel()
+    private var content: (title: String, subtitle: String)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        title.font = .systemFont(ofSize: 11, weight: .semibold)
-        title.textColor = ConversationTheme.secondaryText
-        title.textAlignment = .center
-        subtitle.font = .systemFont(ofSize: 11)
-        subtitle.textColor = ConversationTheme.secondaryText
-        subtitle.textAlignment = .center
-        contentView.addSubview(title)
-        contentView.addSubview(subtitle)
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        contentView.addSubview(label)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(title: String, subtitle: String) {
-        self.title.font = ConversationTheme.font(11, .semibold, style: .caption2)
-        self.title.text = title
-        let attachment = NSTextAttachment(image: UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!.withTintColor(ConversationTheme.secondaryText, renderingMode: .alwaysOriginal))
-        let text = NSMutableAttributedString(attachment: attachment)
-        text.append(NSAttributedString(string: " " + subtitle, attributes: [.font: ConversationTheme.font(11, style: .caption2), .foregroundColor: ConversationTheme.secondaryText]))
-        self.subtitle.attributedText = text
+        content = (title, subtitle)
+        label.attributedText = Self.text(title: title, subtitle: subtitle, color: ConversationTheme.timestampText.resolvedColor(with: traitCollection))
+        setNeedsLayout()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        // The lock is baked in a color; recolor it with the label.
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle, let content {
+            configure(title: content.title, subtitle: content.subtitle)
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let line = max(14, ceil(title.font.lineHeight))
-        title.frame = CGRect(x: 0, y: 14, width: contentView.bounds.width, height: line)
-        subtitle.frame = CGRect(x: 0, y: 15 + line, width: contentView.bounds.width, height: line)
+        label.frame = CGRect(x: 16, y: Self.topInset, width: contentView.bounds.width - 32, height: Self.textHeight)
     }
 }
 
