@@ -74,7 +74,9 @@ const emptyDefaultTeam = async () => {
 const teamUpdated = (stackTeam: string) => deliver("team.updated", { id: stackTeam, display_name: "Empty", profile_image_url: null, created_at_millis: 0 })
 const rolesOf = async (token: string, team: string) => {
   const r = await read(token, "team.members.list", {}, team)
-  expect(r.body.ok, JSON.stringify(r.body)).toBe(true)
+  // A read answers {op, value} (no ok field); a refusal carries an error code.
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
+  expect(codeOf(r), JSON.stringify(r.body)).toBeUndefined()
   return Object.fromEntries((r.body.value.members as Array<{ user: string; role: string }>).map((m) => [m.user, m.role]))
 }
 
@@ -87,7 +89,7 @@ describe("Stack members with no permission entries (cx-6wc8)", { timeout: 60_000
     expect((await teamUpdated(t.stackTeam)).status).toBe(200)
     expect(await rolesOf(t.creator.token, t.team)).toEqual({ [t.creator.user]: "owner", [plain.user]: "member" })
     // Role member: team resources yes, team management no.
-    expect((await read(plain.token, "team.members.list", {}, t.team)).body.ok).toBe(true)
+    expect(Object.keys(await rolesOf(plain.token, t.team))).toHaveLength(2)
     expect(codeOf(await op(plain.token, "team.members.remove", { user: t.creator.user }, t.team))).toBe("auth.forbidden")
     expect(t.s.removedInStack).toEqual([])
   })
