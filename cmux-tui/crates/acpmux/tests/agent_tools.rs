@@ -7,6 +7,9 @@
 //! One test function: the tools are read from this process's environment,
 //! which every test of a binary shares.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

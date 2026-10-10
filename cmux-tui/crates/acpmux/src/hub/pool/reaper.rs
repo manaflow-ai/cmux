@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 /// `killpg` on the harness group of a pooled host (park and resume).
+#[cfg(unix)]
 pub(super) fn signal_harness(record: &HostRecord, signal: i32) {
     if let Some(pid) = record.harness_pid.and_then(|p| i32::try_from(p).ok()) {
         // SAFETY: the harness leads its own process group under its host.

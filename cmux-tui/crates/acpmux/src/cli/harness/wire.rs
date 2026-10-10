@@ -89,6 +89,7 @@ pub(crate) struct TempFolder {
 }
 
 impl TempFolder {
+    #[cfg(unix)]
     pub(crate) fn new(id: &str) -> std::io::Result<Self> {
         use std::os::unix::fs::DirBuilderExt;
         let nanos = std::time::SystemTime::now()
@@ -99,6 +100,19 @@ impl TempFolder {
             .join(format!("cmux-harness-doctor-{id}-{}-{nanos}", std::process::id()));
         std::fs::DirBuilder::new().mode(0o700).create(&path)?;
         // One folder key for the trust record and the agent: /tmp vs /private/tmp.
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        Ok(Self { path })
+    }
+    /// Windows port: owner-only is an ACL there (a later landing).
+    #[cfg(not(unix))]
+    pub(crate) fn new(id: &str) -> std::io::Result<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir()
+            .join(format!("cmux-harness-doctor-{id}-{}-{nanos}", std::process::id()));
+        std::fs::DirBuilder::new().create(&path)?;
         let path = std::fs::canonicalize(&path).unwrap_or(path);
         Ok(Self { path })
     }

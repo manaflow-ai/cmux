@@ -313,6 +313,7 @@ pub fn read_secret_from(input: &mut impl Read) -> Result<Zeroizing<String>> {
 /// One line from the terminal with echo off; echo is restored on every path.
 /// The line goes into one presized buffer that is zeroed on drop; a line
 /// longer than [`MAX_SECRET_BYTES`] is refused.
+#[cfg(unix)]
 fn read_hidden_line() -> Result<Zeroizing<String>> {
     let fd = libc::STDIN_FILENO;
     let mut saved = std::mem::MaybeUninit::<libc::termios>::uninit();
@@ -339,6 +340,12 @@ fn read_hidden_line() -> Result<Zeroizing<String>> {
         bail!("the value is longer than {MAX_SECRET_BYTES} bytes");
     }
     Ok(line)
+}
+/// Windows port: console echo control comes in a later landing; a value
+/// piped on stdin works.
+#[cfg(not(unix))]
+fn read_hidden_line() -> Result<Zeroizing<String>> {
+    bail!("cannot turn off terminal echo; pipe the value on stdin instead")
 }
 
 /// `cmux harness secret set ID KEY`.

@@ -248,6 +248,7 @@ fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) ->
 
 /// Make `dir` (mode 0700) or accept it only as a real folder (no symlink)
 /// that `uid` owns.
+#[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     match std::fs::symlink_metadata(dir) {
@@ -264,6 +265,7 @@ impl Bound {
     /// The bound for a session folder, its own temporary folder created
     /// (named for `session_id`); refused off macOS and for a folder that is
     /// not a project folder (`refused_folder`).
+    #[cfg(unix)]
     pub(super) fn for_session(
         cwd: &Path,
         session_id: &str,
@@ -320,6 +322,15 @@ impl Bound {
             claude_project,
             api_port: api_url.and_then(api_port),
         })
+    }
+    /// Off macOS a remote chain is refused (as the Unix build says on Linux).
+    #[cfg(not(unix))]
+    pub(super) fn for_session(
+        _cwd: &Path,
+        _session_id: &str,
+        _api_url: Option<&str>,
+    ) -> Result<Self, String> {
+        Err("a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into())
     }
 
     /// `sandbox-exec` arguments up to the command: the profile and its

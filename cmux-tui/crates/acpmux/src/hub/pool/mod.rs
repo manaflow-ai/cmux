@@ -49,6 +49,7 @@ mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
 pub(crate) use reaper::run_reaper;
+#[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
 
@@ -422,6 +423,7 @@ impl Hub {
                 if let Some(rss) = measured.get(&p.record.host_pid) {
                     p.rss = *rss;
                 }
+                #[cfg(unix)]
                 if park && !p.parked {
                     signal_harness(&p.record, libc::SIGSTOP);
                     p.parked = true;
@@ -496,6 +498,7 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    #[cfg(unix)]
                     if p.parked {
                         signal_harness(&p.record, libc::SIGCONT);
                         p.parked = false;
@@ -772,6 +775,7 @@ impl Drop for ClaimGuard {
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
 async fn end_pooled(p: Pooled) {
+    #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);
     }
