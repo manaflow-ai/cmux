@@ -1038,9 +1038,9 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalKeepResult.fromWire(result);
     }
 
-    public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
+    public final ViewportPaneWidthResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
-        return EmptyResult.fromWire(result);
+        return ViewportPaneWidthResult.fromWire(result);
     }
 
     public final EmptyResult setWindowTitle(SetWindowTitleRequest request) throws CmuxException {

@@ -98,11 +98,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func snapshot() -> Snapshot {
+        #if DEBUG
+        DebugLayoutCounters.paneSnapshots &+= 1
+        #endif
         let store = daemon.store
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
-        let workspaceID = store.workspace(containing: pane.handle)?.id
+        // Only a browser tab's profile badge needs the workspace. The lookup scans
+        // every workspace's screens and panes, so reading it for every pane made
+        // each structural change re-run all N pane snapshots at O(N) each.
+        var workspaceLookup: String??
+        func workspaceID() -> String? {
+            if let found = workspaceLookup { return found }
+            let found = store.workspace(containing: pane.handle)?.id
+            workspaceLookup = .some(found)
+            return found
+        }
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
@@ -148,7 +160,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     item.title = live.title ?? Strings.untitledBrowser
                     item.subtitle = live.url
                 } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
+                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }

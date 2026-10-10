@@ -33,8 +33,8 @@ enum SidebarCardFeed {
     /// tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
-        guard let window else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, state: window)
+        guard window != nil else { return cards }
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 

@@ -174,6 +174,7 @@ MODEL_BY_PATH = {
     'types/TerminalResources': models.TerminalResources,
     'types/TerminalResourcesResult': models.TerminalResourcesResult,
     'types/Tree': models.Tree,
+    'types/ViewportPaneWidthResult': models.ViewportPaneWidthResult,
     'types/VtStateResult': models.VtStateResult,
     'types/WaitForResult': models.WaitForResult,
     'types/Workspace': models.Workspace,

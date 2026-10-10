@@ -6,10 +6,12 @@
 //! tab, the owner starts a new shell for the same terminal id, so tabs,
 //! splits, pins and agent references keep pointing at it. The live host
 //! death path, startup reconciliation and the adoption loop all commit that
-//! loss through `persist_terminal_exit`, which calls
-//! [`Mux::schedule_terminal_respawn`].
+//! loss through `persist_terminal_exit`, which decides the respawn in its
+//! commit's critical section ([`Mux::plan_terminal_respawn_locked`]) and
+//! starts it with no lock held ([`Mux::start_terminal_respawn`]); the owner
+//! start sweep uses [`Mux::schedule_terminal_respawn`].
 //!
-//! The schedule step runs synchronously: it checks the cause and asks the
+//! The decision runs synchronously: it checks the cause and asks the
 //! supervisor (`terminal_respawn/supervisor.rs`) for the attempt's backoff
 //! delay, takes the dead runtime out of the tabs (they stay, surfaceless)
 //! and marks the terminal [`PendingTerminal::Respawning`], so no tree push
@@ -158,7 +160,16 @@ impl TerminalRespawns {
     }
 }
 
-/// One respawn, decided by [`Mux::schedule_terminal_respawn`].
+/// What the respawn decision found for a committed host loss.
+#[cfg(unix)]
+pub(super) enum RespawnDecision {
+    /// Respawn after the plan's delay.
+    Planned(RespawnPlan),
+    /// The terminal used every attempt of the window.
+    Exhausted(TerminalPublicId),
+}
+
+/// One respawn, decided by [`Mux::plan_terminal_respawn_locked`].
 #[cfg(unix)]
 pub(super) struct RespawnPlan {
     pub(super) terminal_id: String,
@@ -192,8 +203,32 @@ impl Mux {
         incarnation: Option<&str>,
         end: &TerminalEnd,
     ) {
-        let Some(plan) = self.plan_terminal_respawn(terminal_id, incarnation, end) else { return };
-        let Some(mux) = self.exit_settles.owner() else { return };
+        if let Some(decision) = self.plan_terminal_respawn(terminal_id, incarnation, end) {
+            self.start_terminal_respawn(terminal_id, end, decision);
+        }
+    }
+
+    /// Act on a decision made under the registry and state locks: start the
+    /// respawn worker, or end a terminal that used up its attempts. Runs
+    /// with no lock held.
+    #[cfg(unix)]
+    pub(super) fn start_terminal_respawn(
+        &self,
+        terminal_id: &str,
+        end: &TerminalEnd,
+        decision: RespawnDecision,
+    ) {
+        let plan = match decision {
+            RespawnDecision::Planned(plan) => plan,
+            RespawnDecision::Exhausted(public_id) => {
+                self.end_terminal_respawn_exhausted(terminal_id, end, &public_id);
+                return;
+            }
+        };
+        let Some(mux) = self.exit_settles.owner() else {
+            self.abandon_terminal_respawn(terminal_id);
+            return;
+        };
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
@@ -205,16 +240,8 @@ impl Mux {
         });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
+            self.abandon_terminal_respawn(terminal_id);
         }
-    }
-
-    #[cfg(not(unix))]
-    pub(super) fn schedule_terminal_respawn(
-        &self,
-        _terminal_id: &str,
-        _incarnation: Option<&str>,
-        _end: &TerminalEnd,
-    ) {
     }
 
     #[cfg(unix)]
@@ -225,20 +252,54 @@ impl Mux {
             && self.terminal_host_root().is_some()
     }
 
+    /// The checks that need no lock: a host loss with a respawnable reason,
+    /// an incarnation, and an owner that respawns. `(cause, incarnation)`.
+    #[cfg(unix)]
+    pub(super) fn respawn_candidate(
+        &self,
+        incarnation: Option<&str>,
+        end: &TerminalEnd,
+    ) -> Option<(String, String)> {
+        let TerminalEnd::HostLost(_) = end else { return None };
+        let cause = end.wire_json()["reason"].as_str()?.to_string();
+        if !RESPAWN_REASONS.contains(&cause.as_str()) || !self.respawn_enabled() {
+            return None;
+        }
+        Some((cause, incarnation?.to_string()))
+    }
+
     #[cfg(unix)]
     fn plan_terminal_respawn(
         &self,
         terminal_id: &str,
         incarnation: Option<&str>,
         end: &TerminalEnd,
-    ) -> Option<RespawnPlan> {
-        let TerminalEnd::HostLost(_) = end else { return None };
-        let cause = end.wire_json()["reason"].as_str()?.to_string();
-        if !RESPAWN_REASONS.contains(&cause.as_str()) || !self.respawn_enabled() {
-            return None;
-        }
-        let old_incarnation = incarnation?.to_string();
+    ) -> Option<RespawnDecision> {
+        let (cause, old_incarnation) = self.respawn_candidate(incarnation, end)?;
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        self.plan_terminal_respawn_locked(
+            &registry,
+            &mut state,
+            terminal_id,
+            (cause, old_incarnation),
+            end,
+        )
+    }
+
+    /// Decide a respawn under the registry and state locks. The exit commit
+    /// calls it in its own critical section, so no tree read ever sees the
+    /// dead runtime of a terminal that respawns: the tabs read adopting from
+    /// the commit on.
+    #[cfg(unix)]
+    pub(super) fn plan_terminal_respawn_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        terminal_id: &str,
+        (cause, old_incarnation): (String, String),
+        end: &TerminalEnd,
+    ) -> Option<RespawnDecision> {
         // Act only on the loss this caller saw. A stale caller (the start
         // sweep, an adoption thread) must not touch a terminal that another
         // respawn already reopened or that ended in another way meanwhile.
@@ -250,10 +311,9 @@ impl Mux {
             return None;
         }
         let public_id = registry.terminal_resource_id(terminal_id).ok()??;
-        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         // Kept-layout tabs (`end_terminals` + `keep_layout`, `kept_tabs`)
         // stay dead on purpose: a frontend starts their new shell.
-        if Self::terminal_tabs_kept_locked(&registry, &state, &public_id).unwrap_or(true) {
+        if Self::terminal_tabs_kept_locked(registry, state, &public_id).unwrap_or(true) {
             return None;
         }
         let content = ContentPublicId::Terminal(public_id.clone());
@@ -274,11 +334,7 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .admit(terminal_id, Instant::now());
         let Some(delay) = admitted else {
-            drop(pending);
-            drop(state);
-            drop(registry);
-            self.end_terminal_respawn_exhausted(terminal_id, end, &public_id);
-            return None;
+            return Some(RespawnDecision::Exhausted(public_id));
         };
         pending.insert(
             public_id.as_str().to_string(),
@@ -291,9 +347,7 @@ impl Mux {
         for placement in &placements {
             state.surfaces.remove(placement);
         }
-        drop(state);
-        drop(registry);
-        Some(RespawnPlan {
+        Some(RespawnDecision::Planned(RespawnPlan {
             terminal_id: terminal_id.to_string(),
             public_id,
             old_incarnation,
@@ -304,7 +358,7 @@ impl Mux {
             delay,
             recorded: end.exit().clone(),
             user_restart: false,
-        })
+        }))
     }
 
     /// The respawn worker: respawn, then pre-fill; on failure or a refused
@@ -406,6 +460,12 @@ impl Mux {
         };
         if let Some(root) = self.terminal_host_root() {
             remove_dead_host_records(&root, &plan.terminal_id);
+            // Another thread (startup reconciliation, an adoption thread)
+            // may be between removing the old record and its endpoint: the
+            // launch below would refuse the endpoint, or that removal would
+            // delete the new host's endpoint. Wait for it to finish; a later
+            // removal finds no old record and touches nothing.
+            crate::terminal_host_runtime::wait_for_terminal_host_record_removals();
         }
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;
