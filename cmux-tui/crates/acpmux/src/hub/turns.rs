@@ -3,6 +3,53 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// ACP v1 does not define a `document` content block. Claude's translator can
+/// turn our internal document block into Anthropic's native document. Strict
+/// ACP adapters (including Codex) instead get a stable workspace file and a
+/// resource link, plus a short note telling the agent where to open it.
+fn acp_prompt_blocks(session: &Session, blocks: &[Value]) -> Result<Vec<Value>, RpcError> {
+    let is_claude = session.meta().family.as_deref() == Some("claude");
+    let mut out = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("document") || is_claude {
+            out.push(block.clone());
+            continue;
+        }
+        let name = block.get("name").and_then(Value::as_str).unwrap_or("document.pdf");
+        let safe_name: String = name
+            .chars()
+            .map(
+                |c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' },
+            )
+            .collect();
+        let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
+        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
+        })?;
+        let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
+        let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
+        std::fs::write(&path, bytes)
+            .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
+        let uri = format!("file://{}", path.display());
+        out.push(json!({
+            "type": "text",
+            "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
+        }));
+        out.push(json!({
+            "type": "resource_link",
+            "uri": uri,
+            "name": name,
+            "mimeType": "application/pdf"
+        }));
+    }
+    Ok(out)
+}
+
 impl Hub {
     // --------------------------------------------------------------- turns
 
@@ -207,7 +254,8 @@ impl Hub {
             // The turn may end between this check and the agent: without
             // steerOnly the message then becomes the next prompt, as before.
             let fallback = (!opts.steer_only).then(|| blocks.clone());
-            let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
+            let wire_blocks = acp_prompt_blocks(session, &blocks)?;
+            let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
             params["_meta"] = json!({"steer": true});
             let mut r =
                 match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
@@ -364,7 +412,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
         )
@@ -417,7 +465,7 @@ impl Hub {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
                                 )
                                 .await;
                         }
@@ -429,6 +477,12 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // The chat's route changed during the turn: move it before the next
+        // one starts (route_switch.rs). A restart that fails leaves the
+        // harness stopped; the next prompt's spawn reports why.
+        if session.route_switch.load(Ordering::SeqCst) {
+            let _ = self.restart_on_route(session).await;
+        }
         drop(guard);
         if let Ok(v) = &mut result {
             merge_mux_meta(v, ids);
@@ -497,6 +551,19 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // A failure on a bound route names the route and its fallback
+        // (route_switch.rs), in the error's data and the turn result.
+        let route_info = match &result {
+            Err(e) => self.route_failure(session, &e.message).await,
+            Ok(_) => None,
+        };
+        if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
+            match &mut e.data {
+                Some(Value::Object(data)) => data.extend(info.clone()),
+                None => e.data = Some(Value::Object(info.clone())),
+                Some(_) => {}
+            }
+        }
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -529,6 +596,9 @@ impl Hub {
                     let agent_error =
                         (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
                     o.extend(self.turn_error_fields(session, agent_error));
+                    if let Some(Value::Object(info)) = &route_info {
+                        o.extend(info.clone());
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);

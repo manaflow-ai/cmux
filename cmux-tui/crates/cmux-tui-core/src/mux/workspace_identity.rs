@@ -72,7 +72,7 @@ impl Mux {
         Ok(())
     }
 
-    pub(super) fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
+    pub(crate) fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
         if name.len() > WORKSPACE_NAME_MAX_BYTES {
             anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
         }

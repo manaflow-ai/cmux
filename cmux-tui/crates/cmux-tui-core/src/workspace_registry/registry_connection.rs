@@ -70,6 +70,10 @@ pub(crate) struct RegistryConnection {
     connection: Arc<ReentrantMutex<Connection>>,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
+    /// The journal writer, once it runs (see `registry_intent`).
+    pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
+    /// Indeterminate registry commits still owed to state (cx-g1fa.3).
+    pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -84,6 +88,11 @@ pub(crate) fn note_state_lock(acquired: bool) {
     STATE_HOLDS.with(|holds| {
         holds.set(if acquired { holds.get() + 1 } else { holds.get().saturating_sub(1) });
     });
+}
+
+/// True while the current thread holds the mux state lock.
+pub(crate) fn current_thread_holds_state() -> bool {
+    STATE_HOLDS.with(Cell::get) > 0
 }
 
 /// Marks the current thread as the journal writer until dropped. It also
@@ -125,6 +134,8 @@ impl RegistryConnection {
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
             write_path_stats: crate::diagnostics::WritePathStats::default(),
+            intent_sink: std::sync::OnceLock::new(),
+            unsettled: std::sync::Mutex::default(),
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
