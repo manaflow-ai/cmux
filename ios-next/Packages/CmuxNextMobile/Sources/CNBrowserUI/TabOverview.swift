@@ -144,8 +144,10 @@ struct TabOverview: View {
     /// A tab being created with (+): its start-page card is already in the
     /// grid (at index tabs.count) so the zoom can land on its real frame.
     var placeholderId: String?
-    /// Each card's snapshot frame in the screen's coordinate space.
-    var onCardFrame: (String, CGRect) -> Void = { _, _ in }
+    /// Origin of the grid's scroll content in the screen's coordinate space
+    /// (moves with the scroll offset). A card's screen frame is its content
+    /// frame (`OverviewLayout.card`) offset by it.
+    var onContentOrigin: (CGPoint) -> Void = { _ in }
 
     private let style = BrowserStyle.shared
 
@@ -167,9 +169,6 @@ struct TabOverview: View {
                             .onTapGesture { onSelect(tab.id) }
                             .simultaneousGesture(cardPinch(tab.id))
                             .offset(x: r.minX, y: r.minY)
-                            .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { origin in
-                                onCardFrame(tab.id, CGRect(origin: origin, size: r.size))
-                            }
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
                     if let placeholderId {
@@ -179,13 +178,11 @@ struct TabOverview: View {
                                 radius: layout.cardRadius, showsClose: false, detailsOpacity: detailsOpacity, onClose: {})
                             .opacity(placeholderId == hiddenTabId ? 0 : 1)
                             .offset(x: r.minX, y: r.minY)
-                            .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { origin in
-                                onCardFrame(placeholderId, CGRect(origin: origin, size: r.size))
-                            }
                             .allowsHitTesting(false)
                     }
                 }
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
+                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { onContentOrigin($0) }
             }
             .scrollPosition($position)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in scrollOffset = y }

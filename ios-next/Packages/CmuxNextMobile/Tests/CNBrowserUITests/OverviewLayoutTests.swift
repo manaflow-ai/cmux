@@ -38,6 +38,17 @@ struct OverviewLayoutTests {
         }
     }
 
+    /// The endpoint goes through the grid's reported content origin (its
+    /// actual scroll position), not a requested offset.
+    @Test func endpointFollowsTheReportedContentOrigin() {
+        let g = proMax(count: 8)
+        // The grid could only scroll to 300 although 508 was requested.
+        let e = g.zoomEndpoint(7, contentOrigin: CGPoint(x: 0, y: -300), fallbackOffset: 508)
+        #expect(e == g.screenFrame(7, offset: 300))
+        #expect(e.maxY > 956)  // off the bottom of the screen
+        #expect(g.zoomEndpoint(0, contentOrigin: nil, fallbackOffset: 120) == g.screenFrame(0, offset: 120))
+    }
+
     /// Recorded cases: index 5 and 6 of 7 from offset 0 both end at 508.
     @Test func revealMatchesTheRecording() {
         let g = proMax(count: 7)

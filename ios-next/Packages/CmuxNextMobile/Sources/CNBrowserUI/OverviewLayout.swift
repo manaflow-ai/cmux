@@ -49,6 +49,14 @@ struct OverviewLayout: Equatable, Sendable {
         card(index).offsetBy(dx: 0, dy: -offset)
     }
 
+    /// The tab zoom's card end: the card's content frame converted to the
+    /// screen through the grid content's origin in screen coordinates
+    /// (x 0, y = -scroll offset when the grid fills the screen).
+    func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
+        let origin = contentOrigin ?? CGPoint(x: 0, y: -fallbackOffset)
+        return card(index).offsetBy(dx: origin.x, dy: origin.y)
+    }
+
     /// Whether the card and its title row are fully on screen between the
     /// top controls and the bottom bar.
     func isFullyVisible(_ index: Int, offset: CGFloat) -> Bool {
@@ -69,3 +77,4 @@ struct OverviewLayout: Equatable, Sendable {
         return min(maxOffset, max(0, card(index).minY - top))
     }
 }
+

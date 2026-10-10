@@ -75,8 +75,8 @@ struct BrowserScreen: View {
     @State private var zoomDriver = TabZoomDriver()
     /// Tab the zoom shows: the active tab, a tapped card, or `newTabMarker`.
     @State private var zoomTabId: String?
-    /// Card snapshot frames in the screen's coordinate space, reported by the grid.
-    @State private var cardFrames: [String: CGRect] = [:]
+    /// Grid content origin in the screen's coordinate space, reported by the grid.
+    @State private var gridContentOrigin: CGPoint?
     /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
     @State private var newTabPending = false
     /// A pinch on the page or on a card drives the zoom.
@@ -127,8 +127,11 @@ struct BrowserScreen: View {
         return (rect, style.metrics.screenRadius + (layout.cardRadius - style.metrics.screenRadius) * q, safeTop * (1 - q))
     }
 
+    /// The zoom's card end: the card's frame in the grid's content converted
+    /// to the screen through the grid's reported content origin (its actual
+    /// scroll position), or the layout at the last known offset before the
+    /// grid has reported.
     private func zoomEndpoint() -> CGRect {
-        if let id = zoomTabId, let measured = cardFrames[id] { return measured }
         let index: Int
         if zoomTabId == Self.newTabMarker {
             index = model.tabs.count
@@ -136,7 +139,7 @@ struct BrowserScreen: View {
             index = zoomTabId.flatMap { id in model.tabs.firstIndex { $0.id == id } } ?? (model.activeIndex ?? 0)
         }
         let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(model.tabs.count, index + 1))
-        return grid.screenFrame(index, offset: overviewScroll)
+        return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
     var body: some View {
@@ -167,7 +170,7 @@ struct BrowserScreen: View {
                             onCloseAll: closeAll,
                             onCardPinch: { id, phase, scale, velocity in cardPinch(id, phase, scale: scale, velocity: velocity) },
                             placeholderId: newTabPending ? Self.newTabMarker : nil,
-                            onCardFrame: { id, frame in if cardFrames[id] != frame { cardFrames[id] = frame } })
+                            onContentOrigin: { origin in if gridContentOrigin != origin { gridContentOrigin = origin } })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)
                     .accessibilityHidden(!zoomState.gridInteractive)

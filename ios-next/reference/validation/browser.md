@@ -343,3 +343,96 @@ These numbers are poor and noisy:
 
 The remaining fix is throughput: video encoding (H.264) or smaller and
 differential frames instead of full JPEGs. That is beyond this round.
+
+## Round 5: zoom rect, scroll into view (Pro Max)
+
+### Why the rect was wrong (`ours-wrong-rect-device.mp4`)
+
+Frame-stepping the recording shows two failures:
+
+- **(+) zoom started from the wrong place.** In frames 371–390, the page grew
+  out of a right-column card two rows up. The new tab's real slot is the
+  next left-column slot, below the screen.
+- **Unfocus landed off its card.** In frames 305–323, the shrinking page
+  landed slightly off the card it should have reached.
+
+The cause was that the endpoint was computed from a *requested* scroll offset,
+not from where the grid actually was:
+
+- `prepareOverview` and (+) set a `ScrollPosition` and then used that number.
+  The scroll view clamped it, because the new row did not exist yet when (+)
+  set it.
+- Card frames measured after `.offset` reported the content origin, not the
+  card. This was a first attempt at measuring frames, caught on the Pro Max
+  simulator.
+
+**Fix.** The endpoint is now `OverviewLayout.card(index)` (the card's frame
+in the grid content) offset by the grid content's origin in the screen's
+coordinate space. The grid reports that origin with `onGeometryChange`, so it
+reflects the real scroll position. It is read every frame, so it stays right
+if the grid scrolls or relays out mid-flight.
+
+**New tabs.** (+) inserts a start-page placeholder card at index
+`tabs.count` immediately. The zoom grows from that card's frame. The created
+tab replaces the placeholder in the same slot.
+
+**Tests.** `CNBrowserUITests/OverviewLayoutTests` (7 cases) asserts:
+
+- the endpoint equals the card's converted frame at offsets 0, 120, 315, 400
+  and 508, including cards above or below the screen;
+- the endpoint follows the reported origin and not a requested offset;
+- Pro Max metrics;
+- the reveal rule.
+
+### Safari's scroll-into-view rule (`safari-scroll-into-view-device.mp4`)
+
+**Grid metrics.** On a Pro Max with 7 tabs, card tops in content coordinates
+are 122, 437, 752 and 1067 (pitch 315). The maximum offset is 508. Ours is
+identical: 196 × 276 cards, the same tops, and `maxOffset` 506.8.
+
+**Measured cases.**
+
+- Unfocus of tab 5 (right column, row 2) from offset 0, frames 414–445: the
+  grid jumps to offset 508 before the zoom starts. The card ends with its top
+  at 244.
+- Unfocus of tab 6 from offset 0, frames 152–184: also 508.
+- A card that is already fully visible (frames 612–630): the offset is
+  unchanged.
+
+**What the cases rule out.**
+
+- The minimal change ("card plus title just above the bar") would give 193.
+- Centering would give about 412.
+
+Neither matches.
+
+**Rule implemented** (`OverviewLayout.offset(revealing:from:)`):
+
+- If the card is already fully visible, keep the offset.
+- Otherwise move the card to the first-row position, clamped to the content.
+
+This reproduces all three cases. The recording has no case that separates "to
+the first row" from "to the end of the content", because both measured
+targets clamp to the maximum. The jump is applied without animation before
+the zoom starts, for unfocus and for pinch-in.
+
+Focusing from the grid keeps the grid's offset. Reopening the overview
+recomputes it.
+
+### Pro Max simulator check
+
+On the iPhone 17 Pro Max simulator (440 × 956 pt) with 7 tabs and the grid
+at the top:
+
+1. Tap tab 5, whose bottom is cut off by the bar. The page grows from that
+   card's real partial frame.
+2. Unfocus. The grid jumps to 508, and the page shrinks into right column,
+   row 2.
+3. The card's final top is at 244 pt, the same as Safari (measured on the
+   settled frame: the card's dark body spans 243–520).
+
+`scroll-into-view.png` shows three rows, top to bottom: Safari frames
+413–437, ours at the matching frames (brightened), and the old wrong rect
+from Aziz's recording.
+
+The zoom timing is unchanged from rounds 3–4 (same springs).
