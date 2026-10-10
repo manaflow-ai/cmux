@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextTerminal
 import os
 
@@ -19,6 +20,8 @@ import os
 ///   key typed into another window (a held key cannot move focus itself, so these are the focus
 ///   changes the creation did not cause): the keys go at once to the terminal that has focus in
 ///   their window.
+/// - a creation whose pane is gone: once the store applied every event the daemon sent before the
+///   creation's reply and holds no tab with the new surface, the creation counts as failed.
 /// Held keys always go to the window they were typed in. They are dropped only when focus there
 /// is on no terminal, with one log line (the count, never the keys).
 @MainActor
@@ -36,6 +39,7 @@ final class CreationInputCoordinator {
     /// Debug socket (`debug.creation_hold`) seams: the next split fails before it is sent; the
     /// next resolutions wait for an explicit release, so a proof can end a hold another way first.
     var failNextCreation = false
+    var vanishNextCreation = false
     var pausesResolutions = false
     private var pausedResolutions: [(CreationInputBuffer.Ticket, Bool, NSWindow)] = []
     #endif
@@ -76,6 +80,23 @@ final class CreationInputCoordinator {
             return
         }
         scheduleFlush(in: window)
+    }
+
+    /// The creation behind `ticket` replied with `surface`: once `store` applied every event up to
+    /// `sequence` (the write barrier taken after the reply), a store without that surface's tab
+    /// means the pane is gone before it showed, so the hold stops waiting for its focus.
+    func confirm(_ ticket: CreationInputBuffer.Ticket?, surface: SurfaceID, store: DaemonStore, sequence: UInt64?,
+                 in window: NSWindow?) {
+        guard let ticket, let window else { return }
+        let target = surface
+        store.whenApplied(.generate(), reaching: sequence) { [weak self, weak store, weak window] in
+            // task-owner: one check in a fresh main-actor turn, after the ticket's resolution
+            Task.detached { @MainActor [weak self, weak store, weak window] in
+                guard let self, let store, let window, store.tab(surface: target) == nil,
+                      let buffer = buffers[window.windowNumber], buffer.stopAwaiting(ticket) else { return }
+                flush(in: window)
+            }
+        }
     }
 
     /// Holds `event` while a creation in its window is pending (or its ended hold waits for the
@@ -232,6 +253,14 @@ final class CreationInputCoordinator {
     var heldKeyCounts: [Int: Int] { buffers.mapValues(\.count) }
 
     #if DEBUG
+    /// Debug socket: the next split's focus and pane check name a surface that never exists, as
+    /// when its pane is gone before its echo (consumed once). Returns the surface to use.
+    func vanishingSurface(_ surface: SurfaceID) -> SurfaceID {
+        guard vanishNextCreation else { return surface }
+        vanishNextCreation = false
+        return SurfaceID(rawValue: 0)
+    }
+
     /// Debug socket: the split behind the next ticket fails (consumed once).
     func takeInjectedFailure() -> Bool {
         defer { failNextCreation = false }
@@ -281,6 +310,7 @@ final class CreationInputBuffer {
     struct Ticket: Hashable {
         fileprivate let hold: UInt64
         fileprivate let id: Int
+        fileprivate let generation: UInt64
     }
 
     /// Hold numbers never repeat in a process, so a late resolution of an ended hold matches nothing.
@@ -312,7 +342,7 @@ final class CreationInputBuffer {
         nextID += 1
         pending[nextID] = generation
         if duringClick { openedDuringClick = true }
-        return Ticket(hold: hold, id: nextID)
+        return Ticket(hold: hold, id: nextID, generation: generation)
     }
 
     /// Whether a creation of this hold started during the click being dispatched (then that click
@@ -332,6 +362,13 @@ final class CreationInputBuffer {
     }
 
     func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
+
+    /// The creation behind `ticket` is gone: the hold no longer waits for its focus. False for a
+    /// ticket of another hold or one not resolved yet.
+    func stopAwaiting(_ ticket: Ticket) -> Bool {
+        guard ticket.hold == hold, pending[ticket.id] == nil else { return false }
+        return awaited.remove(ticket.generation) != nil
+    }
 
     func capture(_ event: NSEvent) { events.append(event) }
 

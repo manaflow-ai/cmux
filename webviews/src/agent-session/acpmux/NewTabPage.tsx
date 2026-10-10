@@ -317,18 +317,22 @@ export function NewTabPage({
   // "rome://extensions").
   const inputReady = useEffectEvent((token: string) => onInputReady?.(token));
   useEffect(() => {
-    const focus = (event?: Event) => {
+    const focus = () => {
       field.current?.focus();
       field.current?.select();
-      // The host holds keys typed since its focus request until this answer (cx-9fl).
-      const token = (event as CustomEvent<{ token?: string }> | undefined)?.detail?.token;
-      if (token) inputReady(token);
+    };
+    // A focus request while the field already has the keyboard leaves it as it is: the request
+    // (Cmd-T on this page) reaches the page after keys typed since, and selecting then let the
+    // next key replace them (cx-9fl: "chrome://extensions" became "extensions").
+    const refocus = () => {
+      if (field.current && field.current.ownerDocument.activeElement === field.current) return;
+      focus();
     };
     focus();
     if (inputToken) inputReady(inputToken);
     const host = field.current?.ownerDocument.defaultView;
-    host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    host?.addEventListener(FOCUS_LOCATION_EVENT, refocus);
+    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, refocus);
   }, [inputToken]);
   const choose = (next: TabKind) => {
     setKind(next);

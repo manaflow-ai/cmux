@@ -14,14 +14,17 @@ in order, in the expected terminal:
 - window: a key typed into a second window (Return, through `debug.key`) -> the held keys run
   first, into the terminal that has focus in their own window (here the new pane: the app runs
   without a key window, so `NSApplication.sendEvent` sends them to their own window);
-- click: click the original pane (`debug.mouse`) -> the original pane.
+- click: click the original pane (`debug.mouse`) -> the original pane;
+- vanish: no pause; `vanish_next` makes the split's focus and pane check name a surface that
+  never exists (its pane gone before its echo): once the store applied the events sent before
+  the reply, the hold ends with no click -> the terminal that has focus in window A.
 The expected terminal's screen is read over the daemon socket. Exit 1 when any run failed.
 """
 import json, socket, subprocess, sys, time
 
 TAG, ROUNDS = sys.argv[1], int(sys.argv[2])
 CTL = f"/tmp/cmux-debug-{TAG}.sock"
-CASES = ["resolve", "fail", "workspace", "window", "click"]
+CASES = ["resolve", "fail", "workspace", "window", "click", "vanish"]
 
 
 def rpc(method, params=None, timeout=30):
@@ -108,7 +111,10 @@ for rnd in range(ROUNDS):
         marker = f"h{n}{case}"
         original_pane, original_surface = first_surface(WS_A)
         before = set(panes(WS_A))
-        rpc("debug.creation_hold", {"pause": True, "fail_next": case == "fail"})
+        if case == "vanish":
+            rpc("debug.creation_hold", {"vanish_next": True})
+        else:
+            rpc("debug.creation_hold", {"pause": True, "fail_next": case == "fail"})
         key(WIN_A, "d", ["command"])
         for ch in "echo " + marker:
             key(WIN_A, ch)
@@ -131,9 +137,13 @@ for rnd in range(ROUNDS):
             expect = panes(WS_A)[new.pop()]["tabs"][0]["surface"] if new else None
         elif case == "fail":
             expect = original_surface
+        elif case == "vanish":
+            win = next(w for w in topology()["windows"] if w["key"] == WIN_A)
+            focused = panes(WS_A).get(win.get("focused_pane"))
+            expect = focused["tabs"][0]["surface"] if focused else None
         lines = screen(expect) if expect else []
         row = {"n": n, "case": case, "held": held, "held_after_end": held_after_end,
-               "ok": held == len("echo " + marker) + 1 and lines.count(marker) == 1
+               "ok": (case == "vanish" or held == len("echo " + marker) + 1) and lines.count(marker) == 1
                      and (case in ("resolve", "fail") or held_after_end == 0),
                "tail": lines[-3:]}
         rows.append(row)

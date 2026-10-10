@@ -115,8 +115,16 @@ enum PaneHandlers {
                 } else {
                     try await command.send(on: daemon)
                 }
-                content?.expectFocus(on: created.surface, generation: intent)
+                #if DEBUG
+                let surface = ctx.services.keyRouter.creationInputCoordinator.vanishingSurface(created.surface)
+                #else
+                let surface = created.surface
+                #endif
+                content?.expectFocus(on: surface, generation: intent)
                 landed = true
+                let barrier = await daemon.connection?.eventSequence()
+                ctx.services.keyRouter.creationInputCoordinator.confirm(keys, surface: surface, store: daemon.store,
+                                                                        sequence: barrier, in: window)
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil
             } catch {

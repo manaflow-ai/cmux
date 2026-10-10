@@ -28,7 +28,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
-    public func expectInputReady(token: String) { newTab?.inputToken = token } // the next newTab.inputReady answer
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?

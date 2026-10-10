@@ -344,15 +344,6 @@ public final class AgentPaneView: NSView {
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
-    /// Focus Location Bar, answered by `newTab.inputReady` with `token` once the field has the
-    /// keyboard (the new tab page's input token becomes `token`). `token` is a UUID string.
-    public func focusLocation(token: String) {
-        model.expectInputReady(token: token)
-        let detail = "{detail:{token:'\(token)'}}"
-        deliver([.focusLocation(token: token)],
-                scripts: ["window.dispatchEvent(new CustomEvent('acpmux-focus-location', \(detail)))"])
-    }
-
     /// The page's surface for overrides (R55): new tab page until a chat starts.
     var surfaceKind: SurfaceKind { model.newTab != nil ? .newTabPage : .agentPane }
 

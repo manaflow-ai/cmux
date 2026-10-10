@@ -154,12 +154,14 @@ export function NewTabScreen(props: Props) {
   // focus selected the typed text and the next key replaced it (cx-9fl).
   const inputReady = useEffectEvent((token: string) => onInputReady?.(token));
   useLayoutEffect(() => {
-    const focus = (event?: Event) => {
+    const focus = () => {
       field.current?.focus();
       field.current?.select();
-      // The host holds keys typed since its focus request until this answer (cx-9fl).
-      const token = (event as CustomEvent<{ token?: string }> | undefined)?.detail?.token;
-      if (token) inputReady(token);
+    };
+    // A focus request while the field already has the keyboard leaves it as it is (cx-9fl).
+    const refocus = () => {
+      if (field.current && field.current.ownerDocument.activeElement === field.current) return;
+      focus();
     };
     if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
@@ -167,8 +169,8 @@ export function NewTabScreen(props: Props) {
       inputReady(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
-    view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    view?.addEventListener(FOCUS_LOCATION_EVENT, refocus);
+    return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, refocus);
   }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {

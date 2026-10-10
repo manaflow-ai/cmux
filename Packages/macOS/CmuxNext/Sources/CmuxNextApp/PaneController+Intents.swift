@@ -123,6 +123,9 @@ extension PaneController {
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 landed = true
+                let barrier = await connection.eventSequence()
+                services.keyRouter.creationInputCoordinator.confirm(keys, surface: created.surface, store: daemon.store,
+                                                                    sequence: barrier, in: window)
                 then?(created.surface)
                 return nil
             } catch {
