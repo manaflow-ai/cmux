@@ -37,6 +37,9 @@ pub const OBSERVE_AGENT_METHODS: &[&str] = &[
     "iframeHandles",
     "retarget",
     "read",
+    "readBounded",
+    "readAllBounded",
+    "documentHTML",
     "activeHandle",
 ];
 
@@ -121,7 +124,8 @@ const MAX_ARGS_BYTES: usize = 64 * 1024;
 /// hides the values of sensitive fields (type=password; autocomplete
 /// one-time-code, current-password, new-password or cc-*): a direct read of
 /// such a field gives the marker, and the text results (snapshot, read,
-/// describe, strictError) have every such value replaced by the marker
+/// readBounded, readAllBounded, documentHTML, describe, strictError) have
+/// every such value replaced by the marker
 /// (substring for values of 4+ characters, whole string otherwise). The scan
 /// for those values reads within the page-read budget; when the budget stops
 /// it, the read is refused with the read-cut marker.
@@ -134,7 +138,8 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     return String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/)
       .some((t) => t === "one-time-code" || t === "current-password" || t === "new-password" || t.startsWith("cc-"));
   };
-  if (m === "read" && (a[1] === "inputValue" || (a[1] === "getAttribute" && String(a[2]).toLowerCase() === "value"))) {
+  const reads = m === "read" || m === "readBounded";
+  if (reads && (a[1] === "inputValue" || (a[1] === "getAttribute" && String(a[2]).toLowerCase() === "value"))) {
     let el = A.element(a[0]);
     if (a[1] === "inputValue") {
       const target = A.retarget(a[0], "follow-label");
@@ -142,13 +147,14 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
     }
     if (sensitive(el)) {
       const v = a[1] === "inputValue" ? el.value : el.getAttribute("value");
-      return v ? MARK : v;
+      // readBounded answers { value, cut }.
+      return m === "readBounded" ? { value: v ? MARK : v, cut: null } : v ? MARK : v;
     }
   }
   // The read runs inside the agent's reply, which settles the cuts it made
   // before the values are scrubbed (a cut never ends inside a value).
   const value = await A.reply(A[m](...a));
-  if (!["snapshot", "read", "describe", "strictError"].includes(m)) return value;
+  if (!["snapshot", "read", "readBounded", "readAllBounded", "documentHTML", "describe", "strictError"].includes(m)) return value;
   if (value && typeof value === "object" && value.__cmuxReplyCut) return value;
   // The scan reads within the page-read budget (one node per element, the
   // values' characters and a scoped read's attribute text as size). A
@@ -167,10 +173,13 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
   const B = A.budget({});
   const scope = m === "snapshot" ? (a[0] && a[0].root ? [A.element(a[0].root)] : null)
     : m === "strictError" ? (Array.isArray(a[1]) ? a[1].map((h) => A.element(h)) : null)
+    // readAllBounded reads its elements; documentHTML the whole frame.
+    : m === "readAllBounded" ? (Array.isArray(a[0]) ? a[0].map((h) => A.element(h)) : null)
+    : m === "documentHTML" ? null
     : [A.element(a[0])];
   // inputValue reads the control a label names (follow-label), which can
   // be outside the label's subtree: that control is in the part too.
-  if (m === "read" && a[1] === "inputValue") {
+  if (reads && a[1] === "inputValue") {
     const target = A.retarget(a[0], "follow-label");
     if (target !== null && target !== undefined) scope.push(A.element(target));
   }

@@ -1956,6 +1956,59 @@
     }
   }
 
+  // A locator's string read within one page-read budget: { value, cut }
+  // with `cut` the budget's report when it stopped the read.
+  function readBounded(id, what, arg) {
+    const el = element(id);
+    const b = readBudget();
+    let value;
+    switch (what) {
+      case "textContent":
+        value = boundedTextContent(el, b);
+        break;
+      case "innerText":
+        if (!(el instanceof global.HTMLElement)) throw agentError("invalid", "Node is not an HTMLElement");
+        value = boundedInnerText(el, b);
+        break;
+      case "innerHTML":
+        value = boundedHTML(el, b, false);
+        break;
+      case "outerHTML":
+        value = boundedHTML(el, b, true);
+        break;
+      case "getAttribute":
+        value = boundedString(el.getAttribute(arg), b);
+        break;
+      case "inputValue":
+        value = boundedString(read(id, "inputValue"), b);
+        break;
+      default:
+        throw agentError("invalid", `Unknown read ${what}`);
+    }
+    return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+  // The same read of several elements (allTextContents, allInnerTexts),
+  // all within one budget: { values, cut }; elements past it read "".
+  function readAllBounded(ids, what) {
+    const b = readBudget();
+    const values = [];
+    for (const id of ids) {
+      const el = element(id);
+      if (b.truncated) values.push("");
+      else if (what === "innerText") values.push(el instanceof global.HTMLElement ? boundedInnerText(el, b) : boundedTextContent(el, b) || "");
+      else values.push(boundedTextContent(el, b) || "");
+    }
+    return { values, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+  // The document's HTML (doctype and outerHTML of its root) within one
+  // page-read budget, for page.content().
+  function documentHTML() {
+    const b = readBudget();
+    const doctype = document.doctype ? fit(b, new global.XMLSerializer().serializeToString(document.doctype)) : "";
+    const value = doctype + (document.documentElement ? boundedHTML(document.documentElement, b, true) : "");
+    return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+
   function iframeHandles() {
     const out = [];
     const walk = (root) => {
@@ -2050,6 +2103,9 @@
     dispatchEvent,
     retarget: retargetHandle,
     read,
+    readBounded,
+    readAllBounded,
+    documentHTML,
     iframeHandles,
     contentBox,
     annotate,
