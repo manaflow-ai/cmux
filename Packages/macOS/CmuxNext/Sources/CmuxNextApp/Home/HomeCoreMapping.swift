@@ -48,8 +48,9 @@ nonisolated enum HomeCoreMapping {
             return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                 AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
             }))
-        case .unknown(let type, _):
-            return .text(type)
+        case .unknown:
+            // ConversationPart.plainText: the part's link when it has one, else its type.
+            return .text(part.plainText)
         }
     }
 

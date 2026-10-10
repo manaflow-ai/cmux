@@ -87,7 +87,10 @@ public enum ConversationPart: Codable, Sendable, Hashable {
         case .work(let session, _, let status, let preview): preview ?? "\(session) \(status)"
         case .attachment(let attachment): attachment.name
         case .linkPreview(let link): link.title ?? link.url
-        case .unknown(let type, _): type
+        // A part type this build does not know: its link when it carries one
+        // (a newer part with a `url`, like `link_preview` before it), else its type.
+        case .unknown(let type, let payload):
+            if case .object(let fields) = payload, case .string(let url)? = fields["url"], !url.isEmpty { url } else { type }
         }
     }
 }
