@@ -39,7 +39,8 @@ impl WorkspaceRegistry {
         if let Some(theme) = theme {
             validate_theme(theme).map_err(|error| anyhow::anyhow!("theme: {error}"))?;
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let before: Option<String> = tx
             .query_row(
                 "SELECT theme FROM personal_terminals WHERE session_id = ?1 AND terminal_key = ?2",

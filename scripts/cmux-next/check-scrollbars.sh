@@ -21,6 +21,9 @@
 # Exceptions are listed below with their reason: a whole file (ALLOWED) or one
 # rule in one file (ALLOWED_RULES).
 #
+# SCROLLBARS_WARN_MAX=N (CI sets it) is the warning tier: up to N hits are
+# ratchet debt `::warning title=ratchet debt::` annotations and pass; more fail.
+#
 # Usage: scripts/cmux-next/check-scrollbars.sh [repo-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)}"
@@ -114,7 +117,15 @@ for base in WEB_ROOTS:
     for rel, path in files(base, WEB_EXT):
         problems += scan(rel, path, WEB_RULES, strip=True)
 
+warn_max = int(os.environ.get("SCROLLBARS_WARN_MAX") or 0)
+if problems and len(problems) <= warn_max:
+    for p in problems:
+        print(f"::warning title=ratchet debt::{p}")
+    print(f"check-scrollbars: {len(problems)} hits are ratchet debt (ceiling {warn_max})")
+    sys.exit(0)
 if problems:
+    if warn_max:
+        print(f"check-scrollbars: {len(problems)} hits are over the hard ceiling of {warn_max}")
     print("check-scrollbars: scrollers must follow the macOS setting (SCROLLBARS-FOLLOW-MACOS)")
     for p in problems:
         print("  " + p)

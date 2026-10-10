@@ -23,6 +23,7 @@ fn insert_old_row(connection: &Connection, key: &str, revision: i64) {
 fn actor_of(registry: &WorkspaceRegistry, key: &str) -> String {
     registry
         .connection
+        .get()
         .query_row(
             "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1",
             [key],
@@ -37,8 +38,8 @@ fn rows_written_before_the_actor_column_read_legacy_after_the_upgrade() {
     {
         let registry = WorkspaceRegistry::open(&root, "actor-migration").unwrap();
         // The table shape of a store written by a daemon without actors.
-        let has_actor = registry
-            .connection
+        let db = registry.connection.get();
+        let has_actor = db
             .prepare("PRAGMA table_info(resource_mutations)")
             .unwrap()
             .query_map([], |row| row.get::<_, String>(1))
@@ -48,17 +49,18 @@ fn rows_written_before_the_actor_column_read_legacy_after_the_upgrade() {
         if has_actor {
             registry
                 .connection
+                .get()
                 .execute_batch("ALTER TABLE resource_mutations DROP COLUMN actor;")
                 .unwrap();
         }
-        insert_old_row(&registry.connection, "old-one", 1);
-        insert_old_row(&registry.connection, "old-two", 2);
+        insert_old_row(&registry.connection.get(), "old-one", 1);
+        insert_old_row(&registry.connection.get(), "old-two", 2);
     }
     let registry = WorkspaceRegistry::open(&root, "actor-migration").unwrap();
     assert_eq!(actor_of(&registry, "old-one"), "legacy");
     assert_eq!(actor_of(&registry, "old-two"), "legacy");
     // An older daemon on the upgraded store: its writes omit the column.
-    insert_old_row(&registry.connection, "old-daemon-after", 3);
+    insert_old_row(&registry.connection.get(), "old-daemon-after", 3);
     assert_eq!(actor_of(&registry, "old-daemon-after"), "legacy");
     drop(registry);
     // A second open is a no-op on the migrated store.
@@ -73,8 +75,8 @@ fn effect_receipts_written_before_the_actor_column_read_legacy() {
     let root = temp_root("old-receipts");
     {
         let registry = WorkspaceRegistry::open(&root, "receipt-migration").unwrap();
-        let columns = registry
-            .connection
+        let db = registry.connection.get();
+        let columns = db
             .prepare("PRAGMA table_info(resource_effect_receipts)")
             .unwrap()
             .query_map([], |row| row.get::<_, String>(1))
@@ -84,11 +86,13 @@ fn effect_receipts_written_before_the_actor_column_read_legacy() {
         if columns.iter().any(|column| column == "actor") {
             registry
                 .connection
+                .get()
                 .execute_batch("ALTER TABLE resource_effect_receipts DROP COLUMN actor;")
                 .unwrap();
         }
         registry
             .connection
+            .get()
             .execute(
                 "INSERT INTO resource_effect_receipts(
                    idempotency_key, operation, fingerprint, intent_json, state,
@@ -101,6 +105,7 @@ fn effect_receipts_written_before_the_actor_column_read_legacy() {
     let registry = WorkspaceRegistry::open(&root, "receipt-migration").unwrap();
     let actor: String = registry
         .connection
+        .get()
         .query_row(
             "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'old-receipt'",
             [],
@@ -159,30 +164,32 @@ fn older_ledgers_gain_a_nullable_actor_and_their_old_rows_read_legacy() {
     {
         let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
         for table in OLDER_LEDGERS {
-            if has_actor_column(&registry.connection, table) {
+            if has_actor_column(&registry.connection.get(), table) {
                 let sql = format!("ALTER TABLE {table} DROP COLUMN actor;");
-                registry.connection.execute_batch(&sql).unwrap();
+                registry.connection.get().execute_batch(&sql).unwrap();
             }
         }
-        insert_old_ledger_rows(&registry.connection, "old");
+        insert_old_ledger_rows(&registry.connection.get(), "old");
     }
     let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
     // An older daemon on the upgraded store omits the column on its writes.
-    insert_old_ledger_rows(&registry.connection, "old-daemon-after");
+    insert_old_ledger_rows(&registry.connection.get(), "old-daemon-after");
     for table in OLDER_LEDGERS {
-        assert!(has_actor_column(&registry.connection, table), "{table} has no actor column");
+        assert!(has_actor_column(&registry.connection.get(), table), "{table} has no actor column");
         let sql = format!("SELECT COUNT(*) FROM {table} WHERE actor IS NOT NULL");
-        let stored: i64 = registry.connection.query_row(&sql, [], |row| row.get(0)).unwrap();
+        let stored: i64 = registry.connection.get().query_row(&sql, [], |row| row.get(0)).unwrap();
         assert_eq!(stored, 0, "{table}: an old row got an actor");
     }
-    let tx = registry.connection.unchecked_transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     let actor = session_journal::resource_record_actor(&tx, "old-origin", "old", true).unwrap();
     assert_eq!(actor.as_deref(), Some("legacy"), "a NULL ledger actor reads legacy");
     drop(tx);
+    drop(db);
     drop(registry);
     // A second open is a no-op on the migrated store.
     let registry = WorkspaceRegistry::open(&root, "ledger-migration").unwrap();
-    assert!(has_actor_column(&registry.connection, "bookmark_mutations"));
+    assert!(has_actor_column(&registry.connection.get(), "bookmark_mutations"));
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
@@ -194,7 +201,8 @@ fn older_ledgers_gain_a_nullable_actor_and_their_old_rows_read_legacy() {
 fn a_record_takes_the_actor_of_its_own_origins_row() {
     let root = temp_root("record-origin");
     let registry = WorkspaceRegistry::open(&root, "record-origin").unwrap();
-    let tx = registry.connection.unchecked_transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     let theirs = WorkspaceMutation::new(
         "shared-key",
         "other-origin",
@@ -211,6 +219,7 @@ fn a_record_takes_the_actor_of_its_own_origins_row() {
     assert_eq!(actor("other-origin").as_deref(), Some("peer:websocket"));
     assert_eq!(actor("nobody").as_deref(), Some("daemon"), "no row: the daemon's own");
     drop(tx);
+    drop(db);
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
@@ -243,7 +252,7 @@ fn a_schema_14_journal_without_actor_opens_and_keeps_its_sequences() {
     let root = temp_root("journal-v14");
     {
         let registry = WorkspaceRegistry::open(&root, "journal-v14").unwrap();
-        let connection = &registry.connection;
+        let connection = &registry.connection.get();
         let marker: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM session_journal WHERE event_id = ?1",
@@ -274,7 +283,8 @@ fn a_schema_14_journal_without_actor_opens_and_keeps_its_sequences() {
     }
     let registry = WorkspaceRegistry::open(&root, "journal-v14")
         .expect("a schema-14 store without journal actors must open");
-    let connection = &registry.connection;
+    let db = registry.connection.get();
+    let connection = &*db;
     assert!(has_actor_column(connection, "session_journal"));
     let rows = connection
         .prepare("SELECT sequence, event_id, actor FROM session_journal ORDER BY sequence")
@@ -302,11 +312,13 @@ fn a_schema_14_journal_without_actor_opens_and_keeps_its_sequences() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     assert!(segment_columns.iter().any(|column| column == "actors_json"));
+    drop(db);
     drop(registry);
     // A second open is a no-op on the migrated store.
     let registry = WorkspaceRegistry::open(&root, "journal-v14").unwrap();
     let count: i64 = registry
         .connection
+        .get()
         .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 3);

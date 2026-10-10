@@ -495,7 +495,9 @@ describe("direct client session state", () => {
     // compactor session; the old tab showed it. The tab names its session by id only.
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch")
-        return { sessions: [{ sessionId: "compactor-new", name: "optchat-sub-h1-a1", title: "Compaction: merge lines" }] };
+        return {
+          sessions: [{ sessionId: "compactor-new", name: "optchat-sub-h1-a1", title: "Compaction: merge lines" }],
+        };
       if (method === "_acpmux/attach") return attachReply(params.sessionId);
       return {};
     };
@@ -522,7 +524,9 @@ describe("direct client session state", () => {
     expect(latest().missingSession).toBe("a");
     expect(latest().rows).toEqual([]);
     expect(
-      ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/attach").map((r) => r.params.sessionId),
+      ScriptedSocket.current.sent
+        .filter((request) => request.method === "_acpmux/attach")
+        .map((r) => r.params.sessionId),
     ).toEqual(["a"]);
     client.close();
   });

@@ -978,3 +978,74 @@ fn an_import_keeps_the_chats_view_near_its_budget() {
         "a view of {largest} bytes during the import"
     );
 }
+
+/// Kept memory of the 9f851bd1dfb9 import: merge 288+32 (two lines of about
+/// 500 bytes each) became "Tests fail on pool.rs", 21 bytes, and every
+/// fact of 32 messages was lost: a size retry answered with a fragment, and
+/// it fit. A model call only ever gets an input over the node size (a
+/// shorter one is a free node), so for a long input a line under an eighth
+/// of the limit is not a summary: it is retried, and it never wins over a
+/// real try.
+#[test]
+fn a_fragment_reply_is_retried_and_never_kept_over_a_real_try() {
+    // Two lines of about 500 bytes, as the merge had.
+    let input = format!("{}\n{}", "m".repeat(500), "h".repeat(500));
+    let fragment = "Tests fail on pool.rs".to_owned();
+    match size_check_for(std::slice::from_ref(&fragment), NODE, &input) {
+        SizeCheck::Retry(note) => assert!(note.starts_with("Too short"), "{note}"),
+        other => panic!("a fragment was kept: {other:?}"),
+    }
+    let long = "x".repeat(600);
+    let tries = vec![long.clone(), fragment.clone()];
+    assert!(
+        matches!(size_check_for(&tries, NODE, &input), SizeCheck::Retry(_)),
+        "a fragment after a long try is retried"
+    );
+    // The tries ran out: the shortest real try wins, never the fragment.
+    let real = "y".repeat(530);
+    let mut tries = vec![long, real.clone()];
+    while tries.len() < TRIES {
+        tries.push(fragment.clone());
+    }
+    assert_eq!(
+        size_check_for(&tries, NODE, &input),
+        SizeCheck::Accept(real)
+    );
+    // A line of fair size that fits is kept as before.
+    let fine = "z".repeat(300);
+    assert_eq!(
+        size_check_for(std::slice::from_ref(&fine), NODE, &input),
+        SizeCheck::Accept(fine)
+    );
+}
+
+/// When no try fits, the try that keeps the most of the input's words is
+/// kept, not the shortest (the shortest drops the most); when tries fit,
+/// the longest that fits.
+#[test]
+fn the_size_loop_keeps_the_try_that_keeps_the_most_of_its_input() {
+    let input = "user: note for later: the staging port for kestrel is 6143\nuser: parse_cache leaks a handle";
+    let keeps = format!(
+        "kestrel staging port 6143, parse_cache leaks handle {}",
+        "a".repeat(500)
+    );
+    let drops = format!("parse_cache leaks handle {}", "b".repeat(520));
+    let tries = vec![
+        keeps.clone(),
+        drops.clone(),
+        keeps.clone() + "c",
+        drops.clone() + "d",
+        drops.clone() + "e",
+    ];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(keeps)
+    );
+    let short = "w".repeat(300);
+    let longer = "v".repeat(500);
+    let tries = vec!["x".repeat(600), longer.clone(), short];
+    assert_eq!(
+        size_check_for(&tries, NODE, input),
+        SizeCheck::Accept(longer)
+    );
+}
