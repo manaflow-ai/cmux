@@ -326,6 +326,8 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
 
 def verify_launch_capture(bun: str, extension_path: Path, root: Path) -> None:
     """Execute the extension's lifecycle and inspect the environment sent to cmux."""
+    root = root.resolve()
+    extension_path = extension_path.resolve()
     shim = root / "original" / "omp"
     script = root / "oh-my-pi" / "cli.js"
     alternate = root / "alternate" / "omp"
@@ -335,7 +337,8 @@ def verify_launch_capture(bun: str, extension_path: Path, root: Path) -> None:
     output = root / "launch-capture.json"
     fake_cmux = root / "capture-cmux"
     make_executable(fake_cmux, f"#!{bun}\n" +
-                    'require("node:fs").writeFileSync(process.env.CAPTURE_OUTPUT, JSON.stringify(process.env));\n')
+                    'const launch = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("CMUX_AGENT_LAUNCH_")));\n'
+                    'require("node:fs").writeFileSync(process.env.CAPTURE_OUTPUT, JSON.stringify(launch));\n')
     options = ["--model", "sonnet"]
     cases = [
         ("absolute binary", [str(shim), *options], "", [str(shim), *options]),
