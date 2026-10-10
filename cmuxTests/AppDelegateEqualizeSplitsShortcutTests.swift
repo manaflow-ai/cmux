@@ -484,6 +484,30 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
             XCTAssertTrue(browserPanel.webView.performKeyEquivalent(with: event))
             XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+
+#if DEBUG
+            // The shortcut above exercises the geometry-enabled path. Start a
+            // second browser-only follow-up and observe its deferred flush so
+            // this regression cannot pass without the workspace-scoped window
+            // layout pass that materializes the browser anchor.
+            let flushesBeforeBrowserOnlyRetry = workspace.debugWorkspaceWindowLayoutFlushCountForTesting
+            workspace.debugBeginBrowserOnlyLayoutFollowUpForTesting(panelId: browserPanel.id)
+            let deadline = Date(timeIntervalSinceNow: 1)
+            while workspace.debugWorkspaceWindowLayoutFlushCountForTesting <= flushesBeforeBrowserOnlyRetry,
+                  Date() < deadline {
+                RunLoop.main.run(
+                    mode: .default,
+                    before: min(deadline, Date(timeIntervalSinceNow: 0.01))
+                )
+            }
+            XCTAssertGreaterThan(
+                workspace.debugWorkspaceWindowLayoutFlushCountForTesting,
+                flushesBeforeBrowserOnlyRetry,
+                "A browser-only retry must flush its owning workspace window"
+            )
+#else
+            XCTFail("Browser-only layout follow-up probe is only available in DEBUG")
+#endif
         }
     }
 
