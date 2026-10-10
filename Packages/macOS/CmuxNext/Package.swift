@@ -13,7 +13,7 @@ import PackageDescription
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
-//   CmuxNextCompat -> system frameworks only (back-ports of newer system APIs for the
+//   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
@@ -142,6 +142,9 @@ let package = Package(
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
+        // other dependencies; Apache-2.0).
+        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
         // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
         .package(path: "../../iOS/CmuxMobileRPC"),
         // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
@@ -553,10 +556,11 @@ let package = Package(
             swiftSettings: uiSwiftSettings
         ),
         // Back-ports of newer system APIs so that cmux-next runs on macOS 14
-        // (plans/cmux-next/macos-floor.md): Mutex and Atomic with the
-        // Synchronization API. System frameworks only, no dependencies.
+        // (plans/cmux-next/macos-floor.md): Mutex (os_unfair_lock) and Atomic
+        // (lock-free, swift-atomics) with the Synchronization API.
         .target(
             name: "CmuxNextCompat",
+            dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
