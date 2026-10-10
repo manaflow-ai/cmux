@@ -3,8 +3,7 @@ import CmuxNextPalette
 import Foundation
 
 /// Decodes the daemon's `palette-usage-v1` values into the palette's
-/// history mirror, and former local histories into import rows. Values are
-/// the daemon's; nothing here computes a score.
+/// history mirror. Values are the daemon's; nothing here computes a score.
 nonisolated enum PaletteUsageWire {
     /// One `PaletteUsageRow` / `PaletteUsagePick` (decimal fields are strings).
     private struct Row: Decodable {
@@ -58,38 +57,5 @@ nonisolated enum PaletteUsageWire {
             pickHalfLife: (Double(snapshot.pick_half_life_ms) ?? 0) / 1000
         )
         return (history, UInt64(snapshot.revision) ?? 0, Set(snapshot.imported))
-    }
-
-    /// A former local history as `palette_usage.import` rows: only rows the
-    /// catalog accepts (a key of 1 to 512 characters, a positive finite
-    /// score), at most 500, so one damaged history never fails its import.
-    static func importRows(_ history: FrecencyStore) -> [JSONValue] {
-        history.entries
-            .filter { !$0.key.trimmingCharacters(in: .whitespaces).isEmpty && $0.key.count <= 512
-                && $0.value.score.isFinite && $0.value.score > 0 }
-            .sorted { $0.key < $1.key }
-            .prefix(500)
-            .map { key, entry in
-            .object(["key": .string(key), "score": .number(entry.score), "last_used_ms": .string(milliseconds(entry.lastUsed))])
-        }
-    }
-
-    /// The former per-build histories on this Mac: every cmux defaults
-    /// domain's `cmuxNext.palette.frecency.v1` (each dogfood tag had its own),
-    /// by domain. Read once at import; never written.
-    static func legacyHistories(preferences: URL, key: String = "cmuxNext.palette.frecency.v1") -> [(source: String, history: FrecencyStore)] {
-        let files = (try? FileManager.default.contentsOfDirectory(at: preferences, includingPropertiesForKeys: nil)) ?? []
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("com.cmuxterm.app") && $0.pathExtension == "plist" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .compactMap { file in
-                // concurrency-allow: nonisolated; its one caller (DaemonPaletteUsageStore) runs it in Task.detached
-                guard let data = try? Data(contentsOf: file),
-                      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                      let stored = plist[key] as? Data,
-                      let history = try? JSONDecoder().decode(FrecencyStore.self, from: stored),
-                      !history.entries.isEmpty else { return nil }
-                return (file.deletingPathExtension().lastPathComponent, history)
-            }
     }
 }
