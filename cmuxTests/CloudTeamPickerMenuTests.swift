@@ -212,6 +212,37 @@ struct CloudTeamPickerMenuTests {
         #expect(hovers == [true, false])
     }
 
+    /// Replacing the tracking area while the pointer is stationary keeps the
+    /// hover owned by the replacement area, including after a resize.
+    @Test func trackingAreaRebuildKeepsStationaryPointerHover() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerOnScreen = window.convertToScreen(
+            NSRect(origin: NSPoint(x: 40, y: 10), size: .zero)
+        ).origin
+
+        var hovers: [Bool] = []
+        anchor.onHoverChange = { hovers.append($0) }
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        let oldTrackingArea = try #require(anchor.trackingAreas.first)
+
+        anchor.setFrameSize(NSSize(width: 160, height: 22))
+        anchor.updateTrackingAreas()
+        anchor.handleMouseExited(from: oldTrackingArea)
+
+        #expect(hovers == [true])
+    }
+
     /// Detaching clears hover before the view can be reattached, rather than
     /// waiting for a later lifecycle callback.
     @Test func windowDetachClearsHoverImmediately() throws {
@@ -233,6 +264,38 @@ struct CloudTeamPickerMenuTests {
         anchor.removeFromSuperview()
 
         #expect(hovers == [true, false])
+    }
+
+    /// Detaching clears hover immediately, and reattachment reads the pointer
+    /// synchronously without a later lifecycle repair changing the result.
+    @Test func windowDetachAndReattachReconcilesHoverWithoutDeferredRepair() async throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerOnScreen = window.convertToScreen(
+            NSRect(origin: NSPoint(x: 40, y: 10), size: .zero)
+        ).origin
+
+        var hovers: [Bool] = []
+        anchor.onHoverChange = { hovers.append($0) }
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        anchor.removeFromSuperview()
+        #expect(hovers == [true, false])
+
+        window.contentView?.addSubview(anchor)
+        #expect(hovers == [true, false, true])
+
+        await nextRunLoopTurn()
+        #expect(hovers == [true, false, true])
     }
 
     /// A menu's tracking loop swallows the exit, so closing the menu settles

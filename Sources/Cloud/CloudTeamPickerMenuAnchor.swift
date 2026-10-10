@@ -19,12 +19,14 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     let makeMenu: @MainActor (CloudTeamPickerMenuAnchorView) -> NSMenu
     let onWillPresent: @MainActor () -> Void
 
+    /// Creates the AppKit overlay that owns pointer tracking and menu input.
     func makeNSView(context: Context) -> CloudTeamPickerMenuAnchorView {
         let view = CloudTeamPickerMenuAnchorView()
         view.toolTip = helpText
         return view
     }
 
+    /// Updates the overlay without changing the menu or hover ownership.
     func updateNSView(_ view: CloudTeamPickerMenuAnchorView, context: Context) {
         view.toolTip = helpText
         view.isRightToLeft = context.environment.layoutDirection == .rightToLeft
@@ -37,6 +39,7 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
         view.syncPresentation(isPresented)
     }
 
+    /// Cancels menu tracking when SwiftUI removes the overlay.
     static func dismantleNSView(_ view: CloudTeamPickerMenuAnchorView, coordinator: ()) {
         view.syncPresentation(false)
     }
@@ -88,6 +91,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         isEnabled ? super.hitTest(point) : nil
     }
 
+    /// Rebuilds the tracking area and reconciles it with the current pointer.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTracking { removeTrackingArea(hoverTracking) }
@@ -98,15 +102,35 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         )
         addTrackingArea(area)
         hoverTracking = area
+        // Rebuilding the area can produce an exit for the old area even while
+        // the pointer remains over this view. The window pointer is the source
+        // of truth after every rebuild.
+        syncPointerInside()
     }
 
+    /// Records an enter from the active tracking area.
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        handleMouseEntered(from: event.trackingArea)
+    }
+
+    /// Records an exit from the active tracking area.
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        handleMouseExited(from: event.trackingArea)
+    }
+
+    /// Applies an enter only when it belongs to the current tracking area.
+    func handleMouseEntered(from trackingArea: NSTrackingArea?) {
+        guard trackingArea == nil || trackingArea === hoverTracking else { return }
         setPointerInside(true)
     }
 
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
+    /// Applies an exit only when it belongs to the current tracking area.
+    func handleMouseExited(from trackingArea: NSTrackingArea?) {
+        // An exit from the area removed by updateTrackingAreas is stale. The
+        // replacement area has already reconciled against the current pointer.
+        guard trackingArea == nil || trackingArea === hoverTracking else { return }
         setPointerInside(false)
     }
 
@@ -123,7 +147,10 @@ final class CloudTeamPickerMenuAnchorView: NSView {
             setPointerInside(false)
             return
         }
-        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let windowPoint = window.convertFromScreen(
+            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
+        ).origin
+        let point = convert(windowPoint, from: nil)
         setPointerInside(bounds.contains(point))
     }
 
@@ -134,18 +161,25 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         present()
     }
 
+    /// Ends hover before AppKit detaches the view from its current window.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow {
+            trackingMenu?.cancelTracking()
+            // A window transition owns the pointer transition. Do this before
+            // AppKit detaches the view so no stale exit can clear a reattached
+            // view later.
+            setPointerInside(false)
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    /// Reconciles hover and pending presentation after a window transition.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            trackingMenu?.cancelTracking()
-            // Leaving the window sends no exit event. Cleared on a later turn,
-            // since a removal can land inside a SwiftUI update.
-            if isPointerInside {
-                RunLoop.main.perform(inModes: [.default]) { [weak self] in
-                    MainActor.assumeIsolated { self?.setPointerInside(false) }
-                }
-            }
+            setPointerInside(false)
         } else {
+            syncPointerInside()
             presentIfRequested()
         }
     }
