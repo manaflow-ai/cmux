@@ -94,4 +94,15 @@ public struct SocketClientAuthorization {
             return SocketClientCapabilityCommand(command)?.command ?? command
         }
     }
+
+    /// Whether a peer the socket access mode admitted may call `method`.
+    ///
+    /// - Parameters:
+    ///   - method: The v2 method the request names.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux,
+    ///     or nil for an in-process call that has no socket peer.
+    public func admitsMethod(_ method: String, peerHasSameUID: Bool?) -> Bool {
+        true
+    }
 }
+

@@ -134,4 +134,31 @@ struct SocketClientAuthorizationTests {
             isDescendant: { _ in false }
         ) == "ping")
     }
+
+    /// `allowAll` widens who may connect to the socket, not what a caller
+    /// reaches: the browser REPL drives the user's browser profile (cookies,
+    /// tabs) and files, so a peer of another user is refused in every mode,
+    /// also once `allowAll` admitted its command.
+    @Test func browserReplRequiresSameUserEvenWhenAllowAllAdmitsThePeer() {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        let command = #"{"id":1,"method":"browser.repl.eval","params":{}}"#
+        #expect(authorization.authorizedCommand(
+            command,
+            accessMode: .allowAll,
+            peerProcessID: 123,
+            peerHasSameUID: false,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false }
+        ) == command)
+        for method in ["browser.repl.eval", "browser.repl.reset", "browser.repl.list"] {
+            #expect(!authorization.admitsMethod(method, peerHasSameUID: false), "\(method)")
+            #expect(authorization.admitsMethod(method, peerHasSameUID: true), "\(method)")
+            #expect(authorization.admitsMethod(method, peerHasSameUID: nil), "\(method)")
+        }
+        #expect(authorization.admitsMethod("system.ping", peerHasSameUID: false))
+    }
 }
+
