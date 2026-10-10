@@ -14,6 +14,11 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        // The click: the windows leave the screen at once (S1); a failed
+        // install brings them back.
+        let handoff = UpdateWindowHandoff()
+        willInstallStaged = { _ = handoff.hide() }
+        installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // What's New after an update: bundled documents and this feed's digests.

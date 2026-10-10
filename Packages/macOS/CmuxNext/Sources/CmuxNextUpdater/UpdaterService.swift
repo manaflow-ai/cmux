@@ -66,6 +66,14 @@ public final class UpdaterService {
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
+    /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
+    @ObservationIgnored var keptRunningBuild: KeepState?
+    @ObservationIgnored var keepTask: Task<Void, Never>?
+    /// The click that installs, before Sparkle takes over (set by the App:
+    /// the windows go at once). ``installAbandoned`` undoes it when the
+    /// install ends without a relaunch.
+    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -357,6 +365,11 @@ public final class UpdaterService {
     private func bool(_ key: String, fallback: Bool) -> Bool {
         (defaults.object(forKey: key) as? Bool) ?? (Bundle.main.object(forInfoDictionaryKey: key) as? Bool) ?? fallback
     }
+}
+
+/// Where the running bundle's keep for rollback is.
+enum KeepState {
+    case running, kept
 }
 
 extension UpdaterService: UpdateActionDelegate {
