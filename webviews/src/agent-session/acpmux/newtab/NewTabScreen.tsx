@@ -307,6 +307,7 @@ export function NewTabScreen(props: Props) {
           <input
             ref={field}
             className="nt-field"
+            data-focus-ring="none"
             aria-label={shell ? t("composer.shell") : nt("placeholder")}
             placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
             value={text}
@@ -384,6 +385,12 @@ export function NewTabScreen(props: Props) {
           {...(allChats ? { title: t("sidebar.active") } : { onShowAll: props.onShowAll })}
         />
       )}
+      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
+      {sections.tools && props.onAddHarness && (
+        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
+          {t("newtab.addHarness")}
+        </button>
+      )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList
           load={props.loadChatsPage}
@@ -392,12 +399,6 @@ export function NewTabScreen(props: Props) {
           {...(now !== undefined ? { now } : {})}
         />
       )}
-      {sections.tools && props.onAddHarness && (
-        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
-          {t("newtab.addHarness")}
-        </button>
-      )}
-      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
     </div>
   );
 }

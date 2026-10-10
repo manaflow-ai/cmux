@@ -187,7 +187,7 @@ export function AllChatsList({
       {state.loaded && rows.length === 0 ? (
         state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
-        <ContextMenu items={items} onOpen={() => setMenuTarget(menuKey.current)}>
+        <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"
