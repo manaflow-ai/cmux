@@ -150,7 +150,7 @@ export const localCases = (c: Corpus): void => {
   // link_preview parts (cmux-conversation link_preview.rs): the shape rules, and a commit with every field.
   const links = new CoreHost()
   const image = { hash: "f".repeat(64), mime_type: "image/webp", byte_count: 512_000 }
-  const link = (over: Record<string, unknown>) => ({ type: "link_preview", url: "https://example.com/a", ...over })
+  const link = (over: Record<string, unknown>) => ({ type: "link_preview", url: "https://example.com/a", ...over }) as never
   c.op(links, "link preview: a non-http scheme", ALICE, "l0", send("l0", [link({ url: "javascript:alert(1)" })]), "invalid_parts")
   c.op(links, "link preview: user info in the authority", ALICE, "l0", send("l0", [link({ url: "https://user@example.com" })]), "invalid_parts")
   c.op(links, "link preview: an empty host", ALICE, "l0", send("l0", [link({ url: "https:///a" })]), "invalid_parts")
