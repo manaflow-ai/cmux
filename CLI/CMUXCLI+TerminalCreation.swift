@@ -142,6 +142,77 @@ extension CMUXCLI {
         ))
     }
 
+    /// Validates new-surface argv before any handle resolution or socket mutation.
+    func validateNewSurfaceArguments(_ args: [String]) throws {
+        let valueOptions: Set<String> = [
+            "--workspace",
+            "--window",
+            "--type",
+            "--pane",
+            "--url",
+            "--provider",
+            "--provider-id",
+            "--renderer",
+            "--renderer-kind",
+            "--working-directory",
+            "--cwd",
+            "--placement",
+            "--focus",
+            "--command",
+        ]
+        let targetOptions: Set<String> = ["--workspace", "--window", "--pane"]
+        let invalidArguments = {
+            CLIError(message: String(
+                format: String(
+                    localized: "cli.remotes.error.invalidArguments",
+                    defaultValue: "%@: invalid arguments."
+                ),
+                locale: .current,
+                "new-surface"
+            ))
+        }
+
+        var index = 0
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" {
+                return
+            }
+            guard argument.hasPrefix("--") else {
+                throw invalidArguments()
+            }
+
+            let parts = argument.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let option = String(parts[0])
+            guard valueOptions.contains(option) else {
+                throw invalidArguments()
+            }
+
+            if parts.count == 2 {
+                let value = String(parts[1])
+                guard !value.isEmpty,
+                      !targetOptions.contains(option)
+                        || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw invalidArguments()
+                }
+                index += 1
+                continue
+            }
+
+            let valueIndex = index + 1
+            guard valueIndex < args.count else {
+                throw invalidArguments()
+            }
+            let value = args[valueIndex]
+            guard value != "--", !value.hasPrefix("--"),
+                  !targetOptions.contains(option)
+                    || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw invalidArguments()
+            }
+            index += 2
+        }
+    }
+
     /// Parses terminal-creation command text without consuming a following flag.
     func parseTerminalCreationCommandOption(
         _ args: [String],
