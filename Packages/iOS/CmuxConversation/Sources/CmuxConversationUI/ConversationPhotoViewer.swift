@@ -149,10 +149,19 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         // from the trailing edge at the safe-area top, the title centered on
         // it, and 48 pt bottom controls whose centers sit 52 pt above the
         // bottom edge (the Tapback/Reply capsule is 111 pt wide, 28 pt in).
-        closeButton.frame = CGRect(x: width - 16 - 44, y: safe.top, width: 44, height: 44)
         titleLabel.frame = CGRect(x: 76, y: safe.top, width: width - 152, height: 44)
         let barMidY = view.bounds.height - 52
-        shareButton.frame = CGRect(x: width - 28 - 48, y: barMidY - 24, width: 48, height: 48)
+        if #available(iOS 27.0, *) {
+            // iOS 27 Quick Look (Messages' viewer): close at the leading
+            // edge and Share at the trailing edge of the top bar, 13 pt in.
+            // The Messages photo viewer itself would not open in the 27.0
+            // simulator, so this follows Quick Look's 27.0 chrome.
+            closeButton.frame = CGRect(x: 13, y: safe.top, width: 44, height: 44)
+            shareButton.frame = CGRect(x: width - 13 - 44, y: safe.top, width: 44, height: 44)
+        } else {
+            closeButton.frame = CGRect(x: width - 16 - 44, y: safe.top, width: 44, height: 44)
+            shareButton.frame = CGRect(x: width - 28 - 48, y: barMidY - 24, width: 48, height: 48)
+        }
         actionsBar.frame = CGRect(x: 28, y: barMidY - 24, width: 111, height: 48)
         actionsBar.layer.cornerRadius = 24
         actionsBar.subviews.first { $0 is UIVisualEffectView }?.frame = actionsBar.bounds
