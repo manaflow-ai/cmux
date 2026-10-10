@@ -3,6 +3,7 @@
 // missing export) fails its own load and no other (entryStore.ts). test/gallery-coverage.test.ts
 // reads the same files without Vite (scripts/gallery/entries.ts).
 import { createEntryStore, type EntrySource } from "./entryStore";
+import { viteHot } from "../viteHot";
 
 const loaders = import.meta.glob("../**/*.gallery.{ts,tsx}", { import: "default" });
 
@@ -27,7 +28,8 @@ export const entryStore = createEntryStore(entrySources);
 
 // The live dev server (dev-server/galleryLive.ts) names the entry files a save changed; each loads
 // again on its own, so a fixed file recovers in place with no page reload.
-if (import.meta.hot)
-  import.meta.hot.on("cmux-gallery:entry", (data: { files: string[]; timestamp: number }) =>
+const hot = viteHot();
+if (hot)
+  hot.on("cmux-gallery:entry", (data: { files: string[]; timestamp: number }) =>
     entryStore.reload(data.files, data.timestamp),
   );

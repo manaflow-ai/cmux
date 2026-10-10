@@ -7,6 +7,7 @@
 //     `{action: "resolveMarkdownFile"}` answers `__cmuxMarkdownFileResolved`,
 //     `{action: "openMarkdownFile"}` navigates to that file.
 // Shell <style> edits arrive as `cmux-markdown:styles` and replace the style text in place.
+import { viteHot } from "../viteHot";
 
 type LibMessage = { lib: string };
 type ActionMessage = { action: string; requestId?: string; path?: string };
@@ -65,15 +66,16 @@ if (!handlers.cmuxLib) {
   window.webkit = { ...window.webkit, messageHandlers: { ...handlers, cmuxLib } } as Window["webkit"];
 }
 
-if (import.meta.hot) {
-  import.meta.hot.on("cmux-markdown:styles", (styles: string[]) => {
+const hot = viteHot();
+if (hot) {
+  hot.on("cmux-markdown:styles", (styles: string[]) => {
     document.querySelectorAll<HTMLStyleElement>("style[data-cmux-shell-style]").forEach((element) => {
       const next = styles[Number(element.dataset.cmuxShellStyle)];
       if (typeof next === "string" && element.textContent !== next) element.textContent = next;
     });
     shell.__cmuxApplyTheme?.();
   });
-  import.meta.hot.on("cmux-markdown:content", (changed: { file: string }) => {
+  hot.on("cmux-markdown:content", (changed: { file: string }) => {
     if (changed.file === file) void render();
   });
 }

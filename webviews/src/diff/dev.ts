@@ -14,6 +14,7 @@ import "../viewer-empty/styles.css";
 import "../ui/ui.css";
 import { devDiffClient } from "../viewer-empty/dev";
 import { pickDiffConfig } from "../viewer-empty/mount";
+import { viteHot } from "../viteHot";
 
 async function loadConfig(): Promise<DiffViewerConfig> {
   if (new URLSearchParams(location.search).has("pick")) {
@@ -41,7 +42,7 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Missing cmux webview root");
 await mountDiffSurface(root);
 // The dev server pushes the languages folder again whenever a file in it changes.
-import.meta.hot?.on("cmux-diff-languages", (pack) => {
+viteHot()?.on("cmux-diff-languages", (pack) => {
   const report = window.cmuxDiffViewerLanguages?.apply(pack);
   console.info("cmux diff languages applied", JSON.stringify(report));
   if (report?.reloadRequired) location.reload();

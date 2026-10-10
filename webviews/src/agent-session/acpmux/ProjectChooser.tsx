@@ -156,7 +156,9 @@ export function ProjectChooser({
       </button>
       <Popover
         open={open}
-        onOpenChange={(next) => (next ? show() : close(true))}
+        // Outside press belongs to the element that was pressed; only an explicit Escape or a
+        // current-folder pick returns focus to this trigger.
+        onOpenChange={(next) => (next ? show() : close(false))}
         anchor={open ? trigger.current : null}
         label={t("project.label")}
         className="acpmux-menu acpmux-project-menu"

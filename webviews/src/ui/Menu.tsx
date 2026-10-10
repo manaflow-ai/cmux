@@ -33,6 +33,8 @@ interface MenuContextValue {
   endPointer(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
+/// The surface class of a submenu sits in the parent popup, so nested menus keep the same theme.
+const PopupSurface = createContext<string | undefined>(undefined);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
 export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
@@ -108,7 +110,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
 }
 
 export interface MenuButtonProps {
+  /** Optional trigger ref for callers that need to restore focus after an async action. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   className?: string;
+  "data-tool"?: string;
   /** The accessible name when the button shows only an icon. */
   label?: string;
   /** The hover tooltip (the page's title tooltips show it). */
@@ -122,7 +127,9 @@ export interface MenuButtonProps {
 }
 
 export function MenuButton({
+  buttonRef,
   className,
+  "data-tool": dataTool,
   label,
   title,
   disabled,
@@ -134,7 +141,9 @@ export function MenuButton({
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
+      ref={buttonRef}
       className={cx("ui-button", className)}
+      data-tool={dataTool}
       aria-label={label}
       title={title}
       aria-labelledby={ariaLabelledBy}
@@ -185,12 +194,10 @@ export interface MenuPopupProps {
    * field (a picker's search) returns focus there.
    */
   finalFocus?: boolean | RefObject<HTMLElement | null>;
+  /** Backwards-compatible alias for callers that predate the `label` prop. */
+  "aria-label"?: string;
   children: ReactNode;
 }
-
-/// The surface class of the popup a submenu sits in, so the submenu wears the same surface (a themed
-/// menu never gets a bare, see-through submenu).
-const PopupSurface = createContext<string | undefined>(undefined);
 
 export function MenuPopup({
   id,
@@ -200,6 +207,7 @@ export function MenuPopup({
   align = "start",
   anchor,
   finalFocus,
+  "aria-label": ariaLabel,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -214,7 +222,7 @@ export function MenuPopup({
       >
         <BaseMenu.Popup
           id={id}
-          aria-label={label}
+          aria-label={label ?? ariaLabel}
           className={cx("ui-popup ui-menu", className)}
           finalFocus={finalFocus}
         >
@@ -366,8 +374,7 @@ export interface SubmenuProps {
   children: ReactNode;
 }
 
-/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
- * wears the parent popup's surface unless `popupClassName` names another. */
+/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
   const surface = use(PopupSurface);
   return (
