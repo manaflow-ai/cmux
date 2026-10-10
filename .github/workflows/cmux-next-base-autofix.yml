@@ -7,8 +7,11 @@ name: cmux-next base autofix
 # generated-files job's tools), every React page's generated/strings.json
 # (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
 # (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
-# action catalog export (web/scripts/export-docs-shortcuts.ts), and cargo fmt
-# in cmux-tui. Each
+# action catalog export (web/scripts/export-docs-shortcuts.ts), the namespace
+# ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
+# wire clients from the committed cloud catalog (backend/packages/protocol),
+# webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
+# in cmux-tui and the OptChat crates. Each
 # runs only when its inputs changed since the last successful run (actions:
 # read lists it); a repair that cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
@@ -37,11 +40,21 @@ on:
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/**
+      - Native/OptChat/**
       - Packages/**
       - webviews/src/**
       - webviews/scripts/pages/**
+      - webviews/test/**
       - plans/cmux-next/action-surfaces.json
       - web/scripts/export-docs-shortcuts.ts
+      - ios/cmux/**
+      - scripts/lint-ios-package-conventions.sh
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-ratchet.txt
+      - backend/catalog/cloud-operations.json
+      - backend/packages/protocol/scripts/export-client.ts
+      - backend/packages/protocol/scripts/export-rust-client.ts
+      - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -58,9 +71,53 @@ on:
 permissions: {}
 
 jobs:
+  # `vp fmt` needs webviews' installed packages, so it runs here with a
+  # read-only token (installed without lifecycle scripts) and hands its diff to
+  # the autofix job as a patch, which applies only webviews paths.
+  webviews-fmt:
+    name: webviews vp fmt
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # `vp` runs on Node and needs ^22.18 or ^24.11.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: vp fmt
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          node_modules/.bin/vp fmt
+          git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
+          git diff --stat -- . | tail -1
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt.patch
+          if-no-files-found: error
+          retention-days: 1
+
   autofix:
     name: autofix feat-cmux-next
-    if: github.repository == 'manaflow-ai/cmux'
+    # The other repairs still run when the webviews formatting job fails.
+    needs: webviews-fmt
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
     # A newer push supersedes this run's repairs (the next run diffs from the
     # last successful one).
     concurrency:
@@ -89,11 +146,11 @@ jobs:
           since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
             echo "No successful run to diff from; running every repair."
-            graph=true strings=true sdk=true shortcuts=true fmt=true
+            graph=true strings=true sdk=true shortcuts=true ratchets=true cloud=true fmt=true
           else
             echo "Changes since the last successful run at ${since:0:12}."
             changed="$(git diff --name-only "$since" HEAD)"
-            graph=false strings=false sdk=false shortcuts=false fmt=false
+            graph=false strings=false sdk=false shortcuts=false ratchets=false cloud=false fmt=false
             bot='scripts/cmux-next/base-autofix|\.github/workflows/cmux-next-base-autofix\.yml'
             grep -qE "^(Packages/|scripts/cmux-next/ci-target-graph\.py|$bot)" <<<"$changed" && graph=true
             # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
@@ -102,9 +159,12 @@ jobs:
             grep -qE "^(cmux-tui/spec/|cmux-tui/bindings/codegen/|$bot)" <<<"$changed" && sdk=true
             # The docs shortcuts read the catalog export and the action string catalogs.
             grep -qE "^(plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|$bot)" <<<"$changed" && shortcuts=true
-            grep -qE "^(cmux-tui/|$bot)" <<<"$changed" && fmt=true
+            # The namespace lint reads the package and iOS app sources.
+            grep -qE "^(Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|$bot)" <<<"$changed" && ratchets=true
+            grep -qE "^(backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/|$bot)" <<<"$changed" && cloud=true
+            grep -qE "^(cmux-tui/|Native/OptChat/|$bot)" <<<"$changed" && fmt=true
           fi
-          { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "shortcuts=$shortcuts"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
+          { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "shortcuts=$shortcuts"; echo "ratchets=$ratchets"; echo "cloud=$cloud"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
       # checkout is mounted at its own path, read-only: the manifest's local
@@ -124,7 +184,7 @@ jobs:
           node-version: "24.11.1"
 
       - name: Setup Bun
-        if: steps.areas.outputs.shortcuts == 'true'
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.cloud == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
@@ -133,12 +193,21 @@ jobs:
         if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Download the webviews formatting patch
+        if: needs.webviews-fmt.result == 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt
+
       - name: Repair
         env:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
+          RATCHETS: ${{ steps.areas.outputs.ratchets }}
+          CLOUD: ${{ steps.areas.outputs.cloud }}
           FMT: ${{ steps.areas.outputs.fmt }}
         run: |
           set -euo pipefail
@@ -147,6 +216,10 @@ jobs:
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
+          [[ "$RATCHETS" == true ]] && args+=(--ratchets)
+          [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          patch="$RUNNER_TEMP/webviews-fmt/webviews-fmt.patch"
+          [[ -s "$patch" ]] && args+=(--webviews-fmt-patch "$patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
