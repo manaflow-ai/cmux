@@ -774,8 +774,8 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
-    func testRemoteTuiPublicNavigationDoesNotWaitForLegacyProxyEndpoint() throws {
-        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+    func testRemoteTuiPublicIPAddressDoesNotWaitForLegacyProxyEndpoint() throws {
+        let url = try XCTUnwrap(URL(string: "https://93.184.216.34/"))
         let panel = BrowserPanel(
             workspaceId: UUID(),
             renderInitialNavigation: false,
@@ -787,6 +787,21 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
         XCTAssertNotNil(navigation)
         XCTAssertFalse(panel.hasPendingRemoteNavigation)
+    }
+
+    func testRemoteTuiDNSHostnameWaitsForManagedProxyEndpoint() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+
+        XCTAssertNil(navigation)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
     }
 
     func testRemoteTuiLoopbackRequestDoesNotFallThroughToLocalBrowser() throws {
@@ -806,7 +821,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
     func testRemoteTuiPublicNavigationSupersedesQueuedLoopbackRequest() throws {
         let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/"))
-        let publicURL = try XCTUnwrap(URL(string: "https://example.com/"))
+        let publicURL = try XCTUnwrap(URL(string: "https://93.184.216.34/"))
         let panel = BrowserPanel(
             workspaceId: UUID(),
             renderInitialNavigation: false,

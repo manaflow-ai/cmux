@@ -5825,9 +5825,10 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_routed")
             return
         }
-        // A managed SSH pane can load ordinary public hostnames locally.
-        // Syntactically non-public destinations stay queued until their owning
-        // TUI provider is available; DNS resolution is left to WebKit.
+        // A managed SSH pane may load public IP literals locally while its
+        // loopback-only proxy is starting. Hostnames stay queued: static DNS
+        // classification cannot prevent a private answer or a later rebind
+        // from reaching this Mac outside the managed route.
         guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy
                 || allowsLocalPublicNavigationWithoutRemoteProxy(for: originalURL) else {
             return
@@ -5856,7 +5857,9 @@ final class BrowserPanel: Panel, ObservableObject {
               let host = url.host else {
             return false
         }
-        return !PrivateNetworkHostPolicy().isNonPublic(host: host)
+        let policy = PrivateNetworkHostPolicy()
+        guard !policy.requiresAddressLookup(host: host) else { return false }
+        return !policy.isNonPublic(host: host)
     }
 
     @discardableResult

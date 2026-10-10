@@ -72,7 +72,11 @@ extension BrowserPanel {
         }
         for scheme in ["http", "ws"] {
             rules.append([
-                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)/"],
+                // WebKit may represent the root URL without a trailing slash.
+                // Match both forms so the allow rule cannot leave the valid
+                // listener endpoint blocked while still requiring the exact
+                // managed port.
+                "trigger": ["url-filter": "^\(scheme)://127\\.0\\.0\\.1:\(port)(?:/|$)"],
                 "action": ["type": "ignore-previous-rules"]
             ])
         }

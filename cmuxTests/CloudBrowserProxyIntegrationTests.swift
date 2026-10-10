@@ -249,8 +249,10 @@ struct CloudBrowserProxyIntegrationTests {
               ContinuousClock.now < nextDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(remoteService.requests.contains(where: { $0.method == "GET" && $0.target == "/next" }),
-                "Subsequent address-bar navigation must use the same SSH forward")
+        let receivedNextRequest = remoteService.requests.contains {
+            $0.method == "GET" && $0.target == "/next"
+        }
+        #expect(receivedNextRequest, "Subsequent address-bar navigation must use the same SSH forward")
         #expect(clientService.requests.isEmpty)
         await model.retire()
         #expect(await stoppedTarget.result == CloudPortForwardTarget(host: "127.0.0.1", port: Int(clientService.port)))

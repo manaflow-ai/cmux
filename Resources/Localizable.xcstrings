@@ -648231,7 +648231,73 @@
         "state": "translated",
         "value": "cmux 無法安全地開啟此 SSH 迴圈預覽。請重新載入再試一次。"
       }
-    }
+    },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao sigurno otvoriti ovaj SSH loopback pregled. Ponovo učitajte da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke åbne denne SSH-loopback-forhåndsvisning sikkert. Genindlæs for at prøve igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha potuto aprire in sicurezza questa anteprima loopback SSH. Ricarica per riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបើកការមើលជាមុន SSH loopback នេះដោយសុវត្ថិភាពទេ។ ផ្ទុកឡើងវិញដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke åpne denne SSH-loopback-forhåndsvisningen på en trygg måte. Last inn på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł bezpiecznie otworzyć tego podglądu SSH loopback. Wczytaj ponownie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu abrir esta visualização de loopback SSH com segurança. Recarregue para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось безопасно открыть этот предварительный просмотр SSH loopback. Перезагрузите страницу и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเปิดตัวอย่าง SSH loopback นี้ได้อย่างปลอดภัย โหลดใหม่เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu SSH loopback önizlemesini güvenli şekilde açamadı. Tekrar denemek için yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося безпечно відкрити цей попередній перегляд SSH loopback. Перезавантажте, щоб спробувати ще раз."
+          }
+        }
   }
 },
     "cloud.portAccess.sshLoopbackHTTPSUnavailable": {
@@ -648290,9 +648356,1075 @@
         "state": "translated",
         "value": "目前尚未支援 SSH 迴圈服務的 HTTPS 預覽。"
       }
-    }
+    },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS pregledi za SSH loopback usluge još nisu podržani."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-forhåndsvisninger af SSH-loopback-tjenester understøttes ikke endnu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le anteprime HTTPS per i servizi loopback SSH non sono ancora supportate."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុន HTTPS សម្រាប់សេវា SSH loopback មិនទាន់ត្រូវបានគាំទ្រទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-forhåndsvisninger av SSH-loopback-tjenester støttes ikke ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podgląd HTTPS usług SSH loopback nie jest jeszcze obsługiwany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As visualizações HTTPS para serviços de loopback SSH ainda não são compatíveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предварительный просмотр HTTPS для служб SSH loopback пока не поддерживается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่รองรับตัวอย่าง HTTPS สำหรับบริการ SSH loopback"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH loopback hizmetleri için HTTPS önizlemeleri henüz desteklenmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній перегляд HTTPS для служб SSH loopback ще не підтримується."
+          }
+        }
   }
-}
+},
+    "ssh.tui.browserListener.endpointLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app's managed SSH browser endpoint limit has been reached."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الوصول إلى حد نقاط نهاية متصفح SSH المُدارة في التطبيق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Limit für verwaltete SSH-Browser-Endpunkte der App ist erreicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se alcanzó el límite de puntos finales de navegador SSH administrados por la aplicación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La limite de points de terminaison de navigateur SSH gérés par l’application est atteinte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリで管理できる SSH ブラウザーエンドポイントの上限に達しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱에서 관리할 수 있는 SSH 브라우저 엔드포인트 한도에 도달했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到应用管理的 SSH 浏览器端点数量上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已達到 App 管理的 SSH 瀏覽器端點數量上限."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosegnuto je ograničenje upravljanih SSH krajnjih tačaka preglednika u aplikaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens grænse for administrerede SSH-browserendpoints er nået."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È stato raggiunto il limite dell’app per gli endpoint browser SSH gestiti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានឈានដល់ដែនកំណត់ចំណុចបញ្ចប់កម្មវិធីរុករក SSH ដែលកម្មវិធីគ្រប់គ្រង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens grense for administrerte SSH-nettleserendepunkter er nådd."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osiągnięto limit zarządzanych punktów końcowych przeglądarki SSH aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O limite de endpoints de navegador SSH gerenciados pelo app foi atingido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Достигнут лимит управляемых SSH-конечных точек браузера приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถึงขีดจำกัดปลายทางเบราว์เซอร์ SSH ที่แอปจัดการแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamanın yönetilen SSH tarayıcı uç noktası sınırına ulaşıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досягнуто ліміт керованих кінцевих точок SSH-браузера програми."
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.forwardEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port forward ended before it became ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى تمرير منفذ SSH قبل أن يصبح جاهزًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Portweiterleitung endete, bevor sie bereit war."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío del puerto SSH terminó antes de estar listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection du port SSH s’est terminée avant d’être prête."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポート転送は準備が整う前に終了しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 포트 전달이 준비되기 전에 종료되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 端口转发在准备就绪前已结束。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連接埠轉送在準備就緒前已結束。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosljeđivanje SSH porta završilo je prije nego što je postalo spremno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-portviderestillingen sluttede, før den blev klar."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il port forwarding SSH è terminato prima di diventare pronto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជូនបន្តច្រក SSH បានបញ្ចប់ មុនពេលវារួចរាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-portvideresendingen ble avsluttet før den ble klar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekierowanie portu SSH zakończyło się, zanim było gotowe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O encaminhamento da porta SSH terminou antes de ficar pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправление порта SSH завершилось до готовности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การส่งต่อพอร์ต SSH สิ้นสุดก่อนที่จะพร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH bağlantı noktası yönlendirmesi hazır olmadan sona erdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправлення порту SSH завершилося до готовності."
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH forward returned an invalid browser listener port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد تمرير SSH منفذًا غير صالح لمستمع المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Weiterleitung gab einen ungültigen Browser-Listener-Port zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío SSH devolvió un puerto no válido para el agente del navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection SSH a renvoyé un port d’écouteur de navigateur non valide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 転送から無効なブラウザーリスナーポートが返されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 전달에서 잘못된 브라우저 리스너 포트를 반환했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 转发返回了无效的浏览器监听端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 轉送傳回了無效的瀏覽器監聽連接埠。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH prosljeđivanje vratilo je nevažeći port pregledničkog slušača."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-viderestillingen returnerede en ugyldig port for browser-lytteren."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il forwarding SSH ha restituito una porta non valida per il listener del browser."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជូនបន្ត SSH បានត្រឡប់ច្រកស្តាប់កម្មវិធីរុករកមិនត្រឹមត្រូវ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-videresendingen returnerte en ugyldig port for nettleserlytteren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekierowanie SSH zwróciło nieprawidłowy port nasłuchujący przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O encaminhamento SSH retornou uma porta inválida para o listener do navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправление SSH вернуло недействительный порт прослушивателя браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การส่งต่อ SSH คืนค่าพอร์ตตัวรับฟังเบราว์เซอร์ที่ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH yönlendirmesi geçersiz bir tarayıcı dinleyici bağlantı noktası döndürdü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправлення SSH повернуло недійсний порт прослуховувача браузера."
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.operationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create or configure the managed SSH browser listener."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء مستمع متصفح SSH المُدار أو تهيئته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der verwaltete SSH-Browser-Listener konnte nicht erstellt oder konfiguriert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear ni configurar el agente de navegador SSH administrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer ou de configurer l’écouteur de navigateur SSH géré."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象の SSH ブラウザーリスナーを作成または構成できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리되는 SSH 브라우저 리스너를 만들거나 구성할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建或配置受管理的 SSH 浏览器监听器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立或設定受管理的 SSH 瀏覽器監聽器。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kreirati ili konfigurisati upravljani SSH preglednički slušač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den administrerede SSH-browserlytter kunne ikke oprettes eller konfigureres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare o configurare il listener del browser SSH gestito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត ឬកំណត់រចនាសម្ព័ន្ធកម្មវិធីស្តាប់កម្មវិធីរុករក SSH ដែលគ្រប់គ្រងបានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette eller konfigurere den administrerte SSH-nettleserlytteren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć ani skonfigurować zarządzanego nasłuchującego SSH przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar ou configurar o listener de navegador SSH gerenciado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать или настроить управляемый прослушиватель SSH-браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้างหรือตั้งค่าตัวรับฟังเบราว์เซอร์ SSH ที่แอปจัดการได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönetilen SSH tarayıcı dinleyicisi oluşturulamadı veya yapılandırılamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити або налаштувати керований прослуховувач SSH-браузера."
+          }
+        }
+      }
+    },
+    "ssh.tui.browserListener.portMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH helper reported a different browser listener port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبلغ مساعد SSH عن منفذ مختلف لمستمع المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Helfer meldete einen anderen Browser-Listener-Port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El asistente SSH informó de un puerto de navegador diferente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’assistant SSH a signalé un autre port d’écouteur de navigateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ヘルパーが別のブラウザーリスナーポートを報告しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 도우미가 다른 브라우저 리스너 포트를 보고했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 辅助程序报告了不同的浏览器监听端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 輔助程式回報了不同的瀏覽器監聽連接埠。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH pomoćnik prijavio je drugi port pregledničkog slušača."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-hjælperen rapporterede en anden port for browser-lytteren."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’helper SSH ha segnalato una porta diversa per il listener del browser."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំនួយការ SSH បានរាយការណ៍ច្រកស្តាប់កម្មវិធីរុករកផ្សេង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-hjelperen rapporterte en annen port for nettleserlytteren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomocnik SSH zgłosił inny port nasłuchujący przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O auxiliar SSH informou uma porta diferente para o listener do navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вспомогательная служба SSH сообщила о другом порте прослушивателя браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวช่วย SSH รายงานพอร์ตตัวรับฟังเบราว์เซอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH yardımcısı farklı bir tarayıcı dinleyici bağlantı noktası bildirdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помічник SSH повідомив про інший порт прослуховувача браузера."
+          }
+        }
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.prepareFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH browser protection rule could not be prepared."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إعداد قاعدة حماية متصفح SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Browserschutzregel konnte nicht vorbereitet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo preparar la regla de protección del navegador SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La règle de protection du navigateur SSH n’a pas pu être préparée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ブラウザー保護ルールを準備できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 브라우저 보호 규칙을 준비할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法准备 SSH 浏览器保护规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法準備 SSH 瀏覽器保護規則。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće pripremiti pravilo zaštite SSH preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-browserens beskyttelsesregel kunne ikke forberedes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile preparare la regola di protezione del browser SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរៀបចំច្បាប់ការពារកម្មវិធីរុករក SSH បានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarte ikke å klargjøre beskyttelsesregelen for SSH-nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przygotować reguły ochrony przeglądarki SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível preparar a regra de proteção do navegador SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось подготовить правило защиты SSH-браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเตรียมกฎการป้องกันเบราว์เซอร์ SSH ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH tarayıcı koruma kuralı hazırlanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося підготувати правило захисту SSH-браузера."
+          }
+        }
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.encodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH browser protection rule could not be encoded."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر ترميز قاعدة حماية متصفح SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Browserschutzregel konnte nicht codiert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo codificar la regla de protección del navegador SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La règle de protection du navigateur SSH n’a pas pu être encodée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ブラウザー保護ルールをエンコードできませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 브라우저 보호 규칙을 인코딩할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法编码 SSH 浏览器保护规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法編碼 SSH 瀏覽器保護規則。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kodirati pravilo zaštite SSH preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-browserens beskyttelsesregel kunne ikke kodes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile codificare la regola di protezione del browser SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចអ៊ិនកូដច្បាប់ការពារកម្មវិធីរុករក SSH បានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarte ikke å kode beskyttelsesregelen for SSH-nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zakodować reguły ochrony przeglądarki SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível codificar a regra de proteção do navegador SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось закодировать правило защиты SSH-браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเข้ารหัสกฎการป้องกันเบราว์เซอร์ SSH ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH tarayıcı koruma kuralı kodlanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося закодувати правило захисту SSH-браузера."
+          }
+        }
+      }
+    },
+    "cloud.portAccess.loopbackProtectionRule.compileFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH browser protection rule could not be compiled."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تجميع قاعدة حماية متصفح SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Browserschutzregel konnte nicht kompiliert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo compilar la regla de protección del navegador SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La règle de protection du navigateur SSH n’a pas pu être compilée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ブラウザー保護ルールをコンパイルできませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 브라우저 보호 규칙을 컴파일할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法编译 SSH 浏览器保护规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法編譯 SSH 瀏覽器保護規則。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kompajlirati pravilo zaštite SSH preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-browserens beskyttelsesregel kunne ikke kompileres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile compilare la regola di protezione del browser SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចងក្រងច្បាប់ការពារកម្មវិធីរុករក SSH បានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarte ikke å kompilere beskyttelsesregelen for SSH-nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można skompilować reguły ochrony przeglądarki SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível compilar a regra de proteção do navegador SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось скомпилировать правило защиты SSH-браузера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถคอมไพล์กฎการป้องกันเบราว์เซอร์ SSH ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH tarayıcı koruma kuralı derlenemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося скомпілювати правило захисту SSH-браузера."
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

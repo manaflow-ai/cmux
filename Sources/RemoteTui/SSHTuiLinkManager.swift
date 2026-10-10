@@ -162,40 +162,92 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
               ["127.0.0.1", "localhost", "::1"].contains(target.host.lowercased()) else {
             throw CancellationError()
         }
-        _ = try await connected(machineID: machineID)
         let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)
-        if let starting = loopbackForwardStarts[key] { return try await starting.value }
-        if let process = loopbackForwards[key] {
-            if let port = await process.readyPort { return port }
-            await process.stop()
-            loopbackForwards[key] = nil
+        if let starting = loopbackForwardStarts[key] {
+            return try await awaitSharedForwardStart(starting)
         }
-        let listener = try await listenerRegistry.lease(machineID: machineID, target: target)
-        let process = SSHTuiLoopbackForwardProcess()
-        loopbackForwards[key] = process
-        let arguments = connection.forwardArguments(stateDirectory: paths.stateDir.path, target: target)
-        let task = Task {
-            try await process.start(client: clientURL, arguments: arguments,
-                                    environment: connection.sshProcessEnvironment,
-                                    listener: listener)
+
+        // Register the keyed start before the first suspension. The actor may
+        // re-enter while the carrier or listener lease is waiting; every
+        // concurrent caller must join this task instead of creating another
+        // helper for the same remote service.
+        let registry = listenerRegistry
+        let task = Task { [self] in
+            _ = try await self.connected(machineID: machineID)
+            try Task.checkCancellation()
+
+            if let existing = self.loopbackForwards[key] {
+                if let port = await existing.readyPort {
+                    try Task.checkCancellation()
+                    return port
+                }
+                await existing.stop()
+                if self.loopbackForwards[key] === existing {
+                    self.loopbackForwards[key] = nil
+                }
+                try Task.checkCancellation()
+            }
+
+            let listener = try await registry.lease(machineID: machineID, target: target)
+            try Task.checkCancellation()
+            let process = SSHTuiLoopbackForwardProcess()
+            self.loopbackForwards[key] = process
+            let arguments = self.connection.forwardArguments(stateDirectory: self.paths.stateDir.path, target: target)
+            do {
+                let port = try await process.start(
+                    client: self.clientURL,
+                    arguments: arguments,
+                    environment: self.connection.sshProcessEnvironment,
+                    listener: listener
+                )
+                try Task.checkCancellation()
+                guard port > 0 else {
+                    throw CloudMachineLink.LinkError.failureMessage(String(
+                        localized: "ssh.tui.browserListener.invalidPort",
+                        defaultValue: "The SSH forward returned an invalid browser listener port."
+                    ))
+                }
+                guard self.loopbackForwards[key] === process, self.isEnabled() else {
+                    throw CancellationError()
+                }
+                return port
+            } catch {
+                if self.loopbackForwards[key] === process {
+                    self.loopbackForwards[key] = nil
+                }
+                await process.stop()
+                throw error
+            }
         }
         loopbackForwardStarts[key] = task
-        defer { if loopbackForwardStarts[key] == task { loopbackForwardStarts[key] = nil } }
-        do {
-            let port = try await task.value
-            guard port > 0 else {
-                throw CloudMachineLink.LinkError.failureMessage(String(
-                    localized: "ssh.tui.browserListener.invalidPort",
-                    defaultValue: "The SSH forward returned an invalid browser listener port."
-                ))
+
+        // Cleanup is tied to the shared task, rather than the first waiter.
+        // A canceled pane must not remove the join point while another pane is
+        // still waiting for the same forward to become ready.
+        Task { [weak self] in
+            _ = try? await task.value
+            guard let self else { return }
+            if self.loopbackForwardStarts[key] == task {
+                self.loopbackForwardStarts[key] = nil
             }
-            guard loopbackForwards[key] === process, isEnabled() else { throw CancellationError() }
-            return port
-        } catch {
-            if loopbackForwards[key] === process { loopbackForwards[key] = nil }
-            await process.stop()
-            throw error
         }
+        return try await awaitSharedForwardStart(task)
+    }
+
+    /// Waits for a keyed forward without allowing one canceled waiter to cancel
+    /// the shared startup task used by other browser panes.
+    private func awaitSharedForwardStart(_ task: Task<UInt16, Error>) async throws -> UInt16 {
+        let result = CloudLinkFirstValue<Result<UInt16, any Error>>()
+        let waiter = Task {
+            do {
+                result.resolve(.success(try await task.value))
+            } catch {
+                result.resolve(.failure(error))
+            }
+        }
+        defer { waiter.cancel() }
+        guard let outcome = await result.result else { throw CancellationError() }
+        return try outcome.get()
     }
 
     func closeLoopbackForward(machineID: String, target: CloudPortForwardTarget) async {
