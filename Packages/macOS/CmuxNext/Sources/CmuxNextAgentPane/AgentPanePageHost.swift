@@ -8,9 +8,14 @@ enum AgentPanePageHost {
     static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
-        return PageWebView(descriptor: .agent, root: root,
-                           routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
-                           options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+        let page = PageWebView(descriptor: .agent, root: root,
+                               routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+        // The composer menu's edits run as the page view's own responder actions.
+        provider.onEdit = { [weak page] command in
+            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+        }
+        return page
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview

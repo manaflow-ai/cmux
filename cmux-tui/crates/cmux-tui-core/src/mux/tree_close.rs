@@ -424,7 +424,7 @@ impl Mux {
             return Ok(result);
         }
         let (removed, delta, empty_revision, selection_resync, result) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;

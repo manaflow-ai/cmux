@@ -1,8 +1,18 @@
 //! Session result handlers: surface attach and mutation settlement, remote
 //! tree updates and client list updates.
 
-// The handler bodies came verbatim from app.rs and name its items and imports.
-use crate::app::*;
+use std::sync::atomic::Ordering;
+
+use cmux_tui_core::SurfaceId;
+
+use crate::app::pointer::deferred::PointerRoutePhase;
+use crate::app::render_pacing::RenderAction;
+use crate::app::selection::Selection;
+use crate::app::session_mutation::{MutationImpact, SessionMutationOutcome};
+use crate::app::surface_sync::SurfaceAttachOutcome;
+use crate::app::{App, BACKGROUND_REFRESH_RETRIES, LAYOUT_REFRESH_RETRIES};
+use crate::localization;
+use crate::session::{ClientInfo, TreeView};
 
 impl App {
     pub(super) fn on_mux_subscription_recovered(

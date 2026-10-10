@@ -77,6 +77,10 @@ fn request(i: u64) -> CompactRequest {
     }
 }
 
+/// A summary line of fair size for a long pasted message: a reply under an
+/// eighth of the limit is a fragment (`FRAGMENT_DIVISOR`) and is retried.
+const DEPLOY_LINE: &str = "user: pasted a deploy log of 100 deploy steps, to be run in this order";
+
 fn texts(blocks: &[Value]) -> Vec<String> {
     blocks
         .iter()
@@ -87,7 +91,7 @@ fn texts(blocks: &[Value]) -> Vec<String> {
 #[test]
 fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     let compactor = Arc::new(compactor(&agents, dir.path()));
     let config = Config {
         reporter: Arc::new(|_| {}),
@@ -833,7 +837,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     // One per slot: the active ones and the spares for warm sessions.
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares(),
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
@@ -861,7 +865,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
     assert_eq!(
         codex.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares()
     );
     assert!(
         codex
@@ -976,7 +980,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares()
     );
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
@@ -999,7 +1003,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     }
     assert_eq!(
         homes.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares(),
         "one CODEX_HOME per slot"
     );
 }
@@ -1302,7 +1306,7 @@ const NO_MODEL: &str = "There's an issue with the selected model (claude-haiku-5
 #[test]
 fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     agents.inner.lock().unwrap().answer_error = Some(NO_MODEL.into());
     let lines: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = lines.clone();
@@ -1315,14 +1319,8 @@ fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
         .with_log(Arc::new(move |l: &str| {
             sink.lock().unwrap().push(l.to_owned())
         }));
-    assert_eq!(
-        run_node(&compactor, &request(1)).unwrap(),
-        "user: pasted a deploy log"
-    );
-    assert_eq!(
-        run_node(&compactor, &request(2)).unwrap(),
-        "user: pasted a deploy log"
-    );
+    assert_eq!(run_node(&compactor, &request(1)).unwrap(), DEPLOY_LINE);
+    assert_eq!(run_node(&compactor, &request(2)).unwrap(), DEPLOY_LINE);
     let models: Vec<Option<String>> = agents
         .inner
         .lock()
@@ -1354,7 +1352,7 @@ fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
 #[test]
 fn the_next_node_prompts_at_the_writers_first_streamed_output() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     agents.hold(true);
     let config = Config {
         reporter: Arc::new(|_| {}),
@@ -1403,14 +1401,11 @@ fn the_next_node_prompts_at_the_writers_first_streamed_output() {
 #[test]
 fn the_next_node_takes_a_warm_session_started_when_the_last_one_ended() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     agents.inner.lock().unwrap().system_prompts = true;
     let compactor = compactor(&agents, dir.path()).with_warm(2);
     for i in 1..=2 {
-        assert_eq!(
-            run_node(&compactor, &request(i)).unwrap(),
-            "user: pasted a deploy log"
-        );
+        assert_eq!(run_node(&compactor, &request(i)).unwrap(), DEPLOY_LINE);
     }
     let inner = agents.inner.lock().unwrap();
     let names: Vec<&str> = inner.specs.iter().map(|s| s.name.as_str()).collect();
@@ -1671,7 +1666,7 @@ fn an_older_acpmux_keeps_the_args_it_knows() {
 #[test]
 fn a_compactor_slot_carries_the_users_settings_env() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     let spec = CompactorSpec {
         user_env: [(
             "ANTHROPIC_BASE_URL".to_owned(),
@@ -1714,7 +1709,7 @@ fn the_compactor_model_resolves_per_harness() {
 fn a_compactor_slots_settings_file_is_private() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     let spec = CompactorSpec {
         user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
         ..spec(dir.path())
@@ -1764,15 +1759,12 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
 #[test]
 fn a_node_returns_before_its_slots_warm_session_starts() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     agents.inner.lock().unwrap().system_prompts = true;
     agents.inner.lock().unwrap().slow_session = Some(("warm".into(), Duration::from_secs(3)));
     let compactor = compactor(&agents, dir.path()).with_warm(2).shared();
     let started = std::time::Instant::now();
-    assert_eq!(
-        run_node(&*compactor, &request(1)).unwrap(),
-        "user: pasted a deploy log"
-    );
+    assert_eq!(run_node(&*compactor, &request(1)).unwrap(), DEPLOY_LINE);
     assert!(
         started.elapsed() < Duration::from_secs(2),
         "the node waited for its slot's warm session: {:?}",
@@ -1837,17 +1829,14 @@ fn size_retries_of_a_marked_node_reread_the_view_mark() {
 #[test]
 fn an_exhausted_route_fails_over_and_comes_back_after_its_wait() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     agents.inner.lock().unwrap().session_errors.insert(
         "claude-sr".into(),
         r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 1s)"#.into(),
     );
     let compactor = compactor(&agents, dir.path()).with_alternate_harness(Some("claude".into()));
     for i in 1..=2 {
-        assert_eq!(
-            run_node(&compactor, &request(i)).unwrap(),
-            "user: pasted a deploy log"
-        );
+        assert_eq!(run_node(&compactor, &request(i)).unwrap(), DEPLOY_LINE);
     }
     let harnesses = |agents: &FakeAgents| -> Vec<String> {
         agents
@@ -1949,7 +1938,7 @@ fn a_line_stuck_on_an_exhausted_route_posts_no_notice() {
 fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
     let dir = tempfile::tempdir().unwrap();
     let traces = dir.path().join("traces");
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     let exhausted = r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
     agents
         .inner
@@ -2012,7 +2001,7 @@ fn a_codex_compactor_slot_sets_its_own_service_tier() {
 #[test]
 fn a_fast_compactor_starts_fast_sessions() {
     let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let agents = FakeAgents::new(Box::new(|_, _| answer(DEPLOY_LINE)));
     let spec = CompactorSpec {
         harness: "codex".into(),
         family: Family::Codex,
@@ -2571,4 +2560,63 @@ fn warm_sessions_end_after_the_compactor_is_idle_for_a_while() {
     // 10 minutes after the last work: the warm session ends.
     timer.advance(Duration::from_secs(300));
     assert!(ended("s3"), "{:?}", agents.inner.lock().unwrap().ended);
+}
+
+/// Soak on cmux-lawrence-2: its Claude Code 2.1.287 does not know
+/// claude-haiku-5-5, so it priced the model at its default rates (20x) and
+/// checked it with one more request (max_tokens 1) in every session. The
+/// probe says so, warn-only: one host.log line and one
+/// `compactor.model_unknown` trace event, and the probe still passes.
+#[test]
+fn the_probe_warns_when_the_harness_does_not_know_the_compactor_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |version: &str| {
+        let traces = dir.path().join(format!("traces-{version}"));
+        let v = version.to_owned();
+        let agents = FakeAgents::new(Box::new(move |_, _| {
+            let mut events = vec![update(
+                "session_info_update",
+                json!({"title": null, "_meta": {"claude": {
+                    "tools": [], "mcp_servers": [], "model": "claude-haiku-5-5", "version": v
+                }}}),
+            )];
+            events.extend(answer("user: ping"));
+            events
+        }));
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let mut spec = spec(dir.path());
+        spec.model = Some("claude-haiku-5-5".into());
+        let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+            .with_log(Arc::new(move |l: &str| {
+                sink.lock().unwrap().push(l.to_owned())
+            }))
+            .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+        assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+        let mut events = Vec::new();
+        for entry in std::fs::read_dir(&traces).into_iter().flatten().flatten() {
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            events.extend(
+                text.lines()
+                    .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                    .filter(|e| e["ev"] == "compactor.model_unknown"),
+            );
+        }
+        let lines = lines.lock().unwrap().clone();
+        (lines, events)
+    };
+    let (lines, events) = run("2.1.287");
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["harness"], "claude-sr");
+    assert_eq!(events[0]["cc_version"], "2.1.287");
+    assert_eq!(events[0]["model"], "claude-haiku-5-5");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("2.1.287") && l.contains("claude-haiku-5-5")),
+        "{lines:?}"
+    );
+    let (lines, events) = run("2.1.295");
+    assert!(events.is_empty(), "{events:?}");
+    assert!(!lines.iter().any(|l| l.contains("2.1.295")), "{lines:?}");
 }

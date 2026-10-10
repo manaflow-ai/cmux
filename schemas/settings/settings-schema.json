@@ -300,6 +300,7 @@
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
               "sidebar.showProjects",
+              "sidebar.groupBy",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -9670,6 +9671,67 @@
     },
     {
       "accepts" : [
+        "none",
+        "folder"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupByNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByFolder",
+            "text" : "Folder"
+          },
+          "value" : "folder"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupBy",
+      "keywords" : [
+        "sidebar",
+        "projects",
+        "group",
+        "folder",
+        "directory",
+        "cwd"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupBy"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.groupBy",
+        "text" : "Group Projects By"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -17307,7 +17369,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b1d247e38c0d9db308412cc4a526f5e8c71a5bd432a59db2e588e92b05d76472",
+  "schema_hash" : "4b8c0e8798b2f98d1c04bdb60bca4e23821d965561f03ea323742a18e630bc60",
   "sections" : [
     {
       "id" : "general",

@@ -48,6 +48,10 @@ public actor MacInstallIdentity {
         _ = try await installToken()
     }
 
+    /// The headers every install-token request carries (the client
+    /// version, so the owner can refuse a too-old app).
+    public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
+
     /// A valid install token for the signed-in user.
     public func installToken() async throws -> String {
         guard let client else { throw Failure.signedOut }

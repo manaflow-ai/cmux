@@ -575,7 +575,7 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
         let registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resource_effect_projection_locked(&registry, &mut state, json!({}))
     }
 }

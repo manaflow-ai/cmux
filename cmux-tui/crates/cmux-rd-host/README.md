@@ -7,8 +7,8 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264]
-cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER]
+cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
 
@@ -53,6 +53,24 @@ VM), never on a Mac: `cargo build --release`.
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+
+## Upstream media (development)
+
+A viewer's microphone, camera or screen share reaches the host only when the host offers
+the `up_media` cap, and it offers it only with a sink. The desktop has no virtual
+microphone or camera sink yet (audio: cx-wb5.19), so by default the host offers none and
+refuses `stream_open` with `caps`. `--upstream-record DIR` (development only) records each
+upstream stream to its own owner-only file in `DIR`: video as the raw Annex-B stream
+(`up-<ms>-<stream>.h264`), audio as Opus packets each after a little-endian u16 length
+(`up-<ms>-<stream>.opus-packets`). On every stream close the host logs one JSON line,
+`{"upstream_recorded": {stream, kind, path, frames, bytes, fnv1a, error}}`. `frames` and `bytes` count what arrived (after a write error, more than was written). The directory must be the user's own with mode 0700. One session records at most `--upstream-record-max-mb` (default 1024) and 64 files; past that it stops writing and refuses new streams. The files hold
+the viewer's microphone and screen; never enable this on a shared machine.
+
+`cmux-rd bench --upstream mic|camera|screen` sends synthetic frames upstream through the
+same sender as the viewer app (`cmux-rd-core::upstream`) and reports the frames sent and
+acknowledged and the FNV-1a hash of the sent bytes. `scripts/upstream-loopback.sh` runs
+both carriers against a recording host and a default host, and passes only when every
+sent frame was recorded whole and in order and the default host refused with `caps`.
 
 ## Security (phase 1)
 

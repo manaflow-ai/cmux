@@ -9956,6 +9956,1185 @@
           }
         }
       }
+    },
+    "cloud.create.approveInFeed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve this machine in your cmux feed, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux フィードでこのマシンを承認してから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وافق على هذا الجهاز في موجز cmux، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odobrite ovu mašinu u svom cmux feedu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkend maskinen i dit cmux-feed, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genehmige diese Maschine in deinem cmux-Feed und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprueba esta máquina en tu feed de cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approuvez cette machine dans votre flux cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approva questa macchina nel tuo feed cmux, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុម័តម៉ាស៊ីននេះក្នុង feed cmux របស់អ្នក រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 피드에서 이 머신을 승인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjenn maskinen i cmux-feeden din, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdź tę maszynę w swoim kanale cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprove esta máquina no seu feed do cmux e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подтвердите эту машину в ленте cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุมัติเครื่องนี้ในฟีด cmux ของคุณ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makineyi cmux akışınızda onaylayın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схваліть цю машину у стрічці cmux і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phê duyệt máy này trong nguồn cấp cmux của bạn, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在 cmux 动态中批准该机器,然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在 cmux 動態中核准此機器,然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent or a script asked for a new Cloud machine. The machine counts against your Cloud plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントまたはスクリプトが新しい Cloud マシンを要求しました。このマシンは Cloud プランの使用量に含まれます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلب وكيل أو برنامج نصي جهاز Cloud جديدًا. يُحتسب الجهاز ضمن خطة Cloud الخاصة بك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent ili skripta je zatražio novu Cloud mašinu. Mašina se računa u vaš Cloud plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent eller et script bad om en ny Cloud-maskine. Maskinen tæller med i din Cloud-plan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Agent oder ein Skript hat eine neue Cloud-Maschine angefordert. Die Maschine zählt zu deinem Cloud-Tarif."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente o un script pidió una nueva máquina de Cloud. La máquina cuenta en tu plan de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agent ou un script a demandé une nouvelle machine Cloud. La machine compte dans votre forfait Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente o uno script ha chiesto una nuova macchina Cloud. La macchina conta nel tuo piano Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ ឬស្គ្រីបបានស្នើម៉ាស៊ីន Cloud ថ្មី។ ម៉ាស៊ីននេះរាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트나 스크립트가 새 Cloud 머신을 요청했습니다. 이 머신은 Cloud 요금제 사용량에 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent eller et skript ba om en ny Cloud-maskin. Maskinen teller i Cloud-planen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent lub skrypt poprosił o nową maszynę Cloud. Maszyna wlicza się do Twojego planu Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um agente ou script pediu uma nova máquina do Cloud. A máquina conta no seu plano do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент или скрипт запросил новую машину Cloud. Машина учитывается в вашем тарифе Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์หรือสคริปต์ขอเครื่อง Cloud ใหม่ เครื่องนี้นับรวมในแผน Cloud ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan veya betik yeni bir Cloud makinesi istedi. Makine Cloud planınıza sayılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент або скрипт запросив нову машину Cloud. Машина враховується у вашому тарифі Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tác nhân hoặc tập lệnh đã yêu cầu một máy Cloud mới. Máy này được tính vào gói Cloud của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个代理或脚本请求了新的 Cloud 机器。该机器计入你的 Cloud 套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個代理或腳本要求了新的 Cloud 機器。此機器計入你的 Cloud 方案。"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine counts against your Cloud plan. Click Create to approve it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは Cloud プランの使用量に含まれます。承認するには「作成」をクリックしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُحتسب الجهاز ضمن خطة Cloud الخاصة بك. انقر على إنشاء للموافقة عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina se računa u vaš Cloud plan. Kliknite Kreiraj da je odobrite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen tæller med i din Cloud-plan. Klik på Opret for at godkende den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Maschine zählt zu deinem Cloud-Tarif. Klicke auf Erstellen, um sie zu genehmigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La máquina cuenta en tu plan de Cloud. Haz clic en Crear para aprobarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La machine compte dans votre forfait Cloud. Cliquez sur Créer pour l’approuver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina conta nel tuo piano Cloud. Fai clic su Crea per approvarla."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះរាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។ ចុច បង្កើត ដើម្បីអនុម័ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신은 Cloud 요금제 사용량에 포함됩니다. 승인하려면 만들기를 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen teller i Cloud-planen din. Klikk Opprett for å godkjenne den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna wlicza się do Twojego planu Cloud. Kliknij Utwórz, aby ją zatwierdzić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina conta no seu plano do Cloud. Clique em Criar para aprová-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина учитывается в вашем тарифе Cloud. Нажмите «Создать», чтобы подтвердить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้นับรวมในแผน Cloud ของคุณ คลิกสร้างเพื่ออนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine Cloud planınıza sayılır. Onaylamak için Oluştur'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина враховується у вашому тарифі Cloud. Натисніть «Створити», щоб схвалити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này được tính vào gói Cloud của bạn. Nhấp Tạo để phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该机器计入你的 Cloud 套餐。点按“创建”以批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此機器計入你的 Cloud 方案。按一下「建立」以核准。"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنشاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kreiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Créer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opprett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Criar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "创建"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建立"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a Cloud machine?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを作成しますか?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إنشاء جهاز Cloud؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kreirati Cloud mašinu?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du oprette en Cloud-maskine?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Maschine erstellen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Crear una máquina de Cloud?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Créer une machine Cloud ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Creare una macchina Cloud?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើតម៉ាស៊ីន Cloud ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 머신을 만들까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du opprette en Cloud-maskin?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utworzyć maszynę Cloud?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Criar uma máquina do Cloud?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать машину Cloud?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างเครื่อง Cloud หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Cloud makinesi oluşturulsun mu?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити машину Cloud?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo máy Cloud?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "创建 Cloud 机器?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建立 Cloud 機器?"
+          }
+        }
+      }
+    },
+    "cloud.create.stillPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine still waits for approval. Try again in a minute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはまだ承認待ちです。1 分後にもう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال الجهاز في انتظار الموافقة. حاول مرة أخرى بعد دقيقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina još čeka odobrenje. Pokušajte ponovo za minutu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen venter stadig på godkendelse. Prøv igen om et minut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Maschine wartet noch auf die Genehmigung. Versuche es in einer Minute erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La máquina sigue esperando la aprobación. Vuelve a intentarlo en un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La machine attend encore l’approbation. Réessayez dans une minute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina attende ancora l’approvazione. Riprova tra un minuto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននៅតែរង់ចាំការអនុម័ត។ សូមព្យាយាមម្តងទៀតក្នុងមួយនាទី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신이 아직 승인을 기다리고 있습니다. 1분 후에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen venter fortsatt på godkjenning. Prøv igjen om et minutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna nadal czeka na zatwierdzenie. Spróbuj ponownie za minutę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina ainda aguarda aprovação. Tente de novo em um minuto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина всё ещё ждёт подтверждения. Повторите попытку через минуту."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องยังรอการอนุมัติ ลองอีกครั้งในอีกหนึ่งนาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine hâlâ onay bekliyor. Bir dakika sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина ще чекає на схвалення. Спробуйте ще раз за хвилину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy vẫn đang chờ phê duyệt. Hãy thử lại sau một phút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该机器仍在等待批准。请一分钟后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此機器仍在等待核准。請一分鐘後再試。"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size: %1$d vCPU, %2$d GB memory, %3$d GB disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ: %1$d vCPU、メモリ %2$d GB、ディスク %3$d GB"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحجم: %1$d vCPU، ذاكرة %2$d غيغابايت، قرص %3$d غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina: %1$d vCPU, %2$d GB memorije, %3$d GB diska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelse: %1$d vCPU, %2$d GB hukommelse, %3$d GB disk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Größe: %1$d vCPU, %2$d GB Arbeitsspeicher, %3$d GB Speicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño: %1$d vCPU, %2$d GB de memoria, %3$d GB de disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille : %1$d vCPU, %2$d Go de mémoire, %3$d Go de disque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione: %1$d vCPU, %2$d GB di memoria, %3$d GB di disco"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំ: %1$d vCPU, អង្គចងចាំ %2$d GB, ថាស %3$d GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "크기: vCPU %1$d개, 메모리 %2$d GB, 디스크 %3$d GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelse: %1$d vCPU, %2$d GB minne, %3$d GB disk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar: %1$d vCPU, %2$d GB pamięci, %3$d GB dysku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho: %1$d vCPU, %2$d GB de memória, %3$d GB de disco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер: %1$d vCPU, память %2$d ГБ, диск %3$d ГБ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาด: %1$d vCPU, หน่วยความจำ %2$d GB, ดิสก์ %3$d GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boyut: %1$d vCPU, %2$d GB bellek, %3$d GB disk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір: %1$d vCPU, пам’ять %2$d ГБ, диск %3$d ГБ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kích thước: %1$d vCPU, bộ nhớ %2$d GB, ổ đĩa %3$d GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小:%1$d 个 vCPU,%2$d GB 内存,%3$d GB 磁盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小:%1$d 個 vCPU,%2$d GB 記憶體,%3$d GB 磁碟"
+          }
+        }
+      }
+    },
+    "cloud.create.confirm.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاسم: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naziv: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombre: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nom : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwa: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имя: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ad: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назва: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名称:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名稱:%@"
+          }
+        }
+      }
+    },
+    "cloud.create.approvalMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The approval request does not match the machine you confirmed, so cmux did not approve it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認リクエストが確認したマシンと一致しないため、cmux は承認しませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلب الموافقة لا يطابق الجهاز الذي أكدته، لذلك لم يوافق cmux عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zahtjev za odobrenje ne odgovara mašini koju ste potvrdili, pa ga cmux nije odobrio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkendelsesanmodningen passer ikke til den maskine, du bekræftede, så cmux godkendte den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Genehmigungsanfrage passt nicht zu der bestätigten Maschine, daher hat cmux sie nicht genehmigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La solicitud de aprobación no coincide con la máquina que confirmaste, así que cmux no la aprobó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La demande d’approbation ne correspond pas à la machine que vous avez confirmée, donc cmux ne l’a pas approuvée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La richiesta di approvazione non corrisponde alla macchina che hai confermato, quindi cmux non l’ha approvata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណើអនុម័តមិនត្រូវនឹងម៉ាស៊ីនដែលអ្នកបានបញ្ជាក់ទេ ដូច្នេះ cmux មិនបានអនុម័តវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "승인 요청이 확인한 머신과 일치하지 않아 cmux가 승인하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjenningsforespørselen samsvarer ikke med maskinen du bekreftet, så cmux godkjente den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba o zatwierdzenie nie pasuje do potwierdzonej maszyny, więc cmux jej nie zatwierdził."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A solicitação de aprovação não corresponde à máquina que você confirmou, então o cmux não a aprovou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрос на подтверждение не совпадает с подтверждённой вами машиной, поэтому cmux его не подтвердил."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำขออนุมัติไม่ตรงกับเครื่องที่คุณยืนยัน cmux จึงไม่ได้อนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onay isteği onayladığınız makineyle eşleşmiyor, bu yüzden cmux onaylamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит на схвалення не збігається з машиною, яку ви підтвердили, тому cmux його не схвалив."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yêu cầu phê duyệt không khớp với máy bạn đã xác nhận, nên cmux không phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "批准请求与你确认的机器不一致,因此 cmux 没有批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "核准請求與你確認的機器不一致,因此 cmux 沒有核准。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

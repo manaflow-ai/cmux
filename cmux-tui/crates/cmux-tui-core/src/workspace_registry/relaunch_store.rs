@@ -185,7 +185,7 @@ impl WorkspaceRegistry {
         record: &RelaunchRecord,
     ) -> anyhow::Result<()> {
         let env = record.env.iter().map(|(key, value)| (key.clone(), json!(value)));
-        self.connection.execute(
+        self.connection.get().execute(
             "INSERT INTO terminal_relaunch(
                terminal_id, cwd, kind, shell_path, program, env_json, updated_at_ms
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -211,7 +211,7 @@ impl WorkspaceRegistry {
         cwd: Option<&str>,
     ) -> anyhow::Result<()> {
         let Some(cwd) = cwd.and_then(absolute) else { return Ok(()) };
-        self.connection.execute(
+        self.connection.get().execute(
             "UPDATE terminal_relaunch SET cwd = ?2, updated_at_ms = ?3 WHERE terminal_id = ?1",
             params![terminal_id, cwd, now_ms()?],
         )?;
@@ -246,6 +246,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<StoredRelaunch>> {
         let row = self
             .connection
+            .get()
             .query_row(
                 "SELECT cwd, kind, shell_path, program, env_json, agent_json
                  FROM terminal_relaunch WHERE terminal_id = ?1",
@@ -297,7 +298,7 @@ impl WorkspaceRegistry {
             Some(_) => return Ok(()),
             None => None,
         };
-        self.connection.execute(
+        self.connection.get().execute(
             "UPDATE terminal_relaunch SET agent_json = ?2, updated_at_ms = ?3
              WHERE terminal_id = (
                SELECT terminal_id FROM resource_terminals

@@ -190,7 +190,7 @@ something an entry now covers. After you add an entry:
 ```sh
 cd webviews
 CMUX_GALLERY_UPDATE_ALLOWLIST=1 bun test test/gallery-coverage.test.ts   # shrink the allowlist
-bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/gallery-theme.test.ts test/pane-english.test.ts
+bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/pane-english.test.ts
 bun run typecheck
 ```
 
@@ -238,7 +238,7 @@ Lawrence can see them side by side and pick one. Three pieces, all next to the c
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
 defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
    `description`. `defaultArm` is the arm that ships. Add the definition to
-   `src/experiments/registry.ts` (one import, one list item); `test/experiments.test.ts` checks it.
+   `src/experiments/registry.ts` (one import, one list item).
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
    host override `globalThis.cmuxExperiments` (the gallery's stage frame sets it from `arm=`), else
    the debug key `localStorage["cmux.experiments"]` (`{"<id>":"<arm>"}`, for dogfood in the app),

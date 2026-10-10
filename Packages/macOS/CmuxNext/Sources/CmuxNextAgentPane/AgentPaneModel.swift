@@ -78,10 +78,6 @@ public final class AgentPaneModel {
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
-    /// Set for a tab a `cmux://session/<id>` link opened: the handshake asks
-    /// the page to refuse a session the daemon does not have rather than
-    /// show the most recent one. Cleared once the page reports a session.
-    @ObservationIgnored public var sessionMustExist = false
     /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
@@ -232,7 +228,10 @@ public final class AgentPaneModel {
                 if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
-                if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                // A pane attaches only to the exact session its tab recorded: a session the
+                // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
+                // available", never another chat (P1 2026-10-09).
+                if sessionId != nil { handshake.sessionMustExist = true }
                 // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
                 if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
@@ -255,7 +254,6 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
-            sessionMustExist = false
             if id != sessionId {
                 sessionId = id
                 newTab = nil
