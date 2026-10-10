@@ -85,6 +85,21 @@ impl Package {
         Some((family, entry))
     }
 
+    /// The backend op `op` this first-party server app consumes
+    /// (`consumes.ops`), with the backend catalog's policy; `None` when the
+    /// app does not consume it, is not a first-party app with a server, or
+    /// no server may run it (`super::consumes`).
+    pub(super) fn consumed_op(&self, op: &str) -> Option<super::consumes::Policy> {
+        if self.tier != Tier::FirstParty || self.manifest.get("server").is_none() {
+            return None;
+        }
+        let consumed = self.manifest.pointer("/consumes/ops")?.as_array()?;
+        if !consumed.iter().any(|name| name.as_str() == Some(op)) {
+            return None;
+        }
+        super::consumes::policy(op)
+    }
+
     /// The catalog ops whose user runs get an open token: `options.openOps`
     /// of the app's terminal backend and connector implementations.
     pub fn open_ops(&self) -> BTreeSet<String> {
@@ -219,9 +234,9 @@ pub struct Catalog {
 pub struct Sources {
     /// The first-party bundles shipped with cmux: every valid package here is
     /// a default app (installed for everyone with its required scopes,
-    /// hideable, removable with a tombstone). The Mac app passes
-    /// `Contents/Resources/apps/first-party` as `CMUX_APPS_FIRST_PARTY_DIR`;
-    /// elsewhere it is `apps/first-party` next to the daemon.
+    /// hideable, removable with a tombstone). Inside the Mac app it is the
+    /// bundle's one copy, found from the daemon's own executable; elsewhere
+    /// `apps/first-party` next to the daemon (`crate::first_party_dir`).
     pub first_party: Option<PathBuf>,
     /// Directories of other app packages shipped with cmux (samples).
     pub bundled: Vec<PathBuf>,
@@ -236,9 +251,8 @@ impl Sources {
     pub fn from_env(state_dir: Option<&Path>) -> Self {
         let exe_dir =
             std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-        let first_party = std::env::var_os("CMUX_APPS_FIRST_PARTY_DIR")
-            .map(PathBuf::from)
-            .or_else(|| exe_dir.as_ref().map(|d| d.join("apps").join("first-party")));
+        // From the daemon's own bundle; the override counts only inside it (cx-0uo1, cx-e0cs).
+        let first_party = crate::first_party_dir::current();
         let bundled = match std::env::var_os("CMUX_APPS_DIRS") {
             Some(list) => std::env::split_paths(&list).collect(),
             None => exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(),
