@@ -119,3 +119,24 @@ import Testing
         #expect(TimestampDrawerLabelGeometry.alpha(fraction: 0, fadesIn: false) == 0)
     }
 }
+
+/// Which rows the send-time drawer slides. Measured in the iOS 26.5 and 27.0
+/// simulators' Messages (incoming rows fed in through a display-only
+/// `isFromMe` hook): in a one-to-one chat outgoing rows slide and incoming
+/// rows stay. In a group transcript, whose incoming rows carry the avatar
+/// column, every row slides (the user's report from a real iPhone; ChatKit
+/// gives contact-image rows the drawer layout).
+@Suite struct TimestampDrawerRowsTests {
+    @Test func outgoingRowsAlwaysSlide() {
+        #expect(TimestampDrawerRows.travel(isOutgoing: true, inAvatarTranscript: false, reveal: 58) == 58)
+        #expect(TimestampDrawerRows.travel(isOutgoing: true, inAvatarTranscript: true, reveal: 58) == 58)
+    }
+
+    @Test func incomingRowsSlideInGroupTranscripts() {
+        #expect(TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: true, reveal: 30) == 30)
+    }
+
+    @Test func incomingRowsStayInOneToOneChats() {
+        #expect(TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: false, reveal: 58) == 0)
+    }
+}
