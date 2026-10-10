@@ -1,5 +1,6 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import os
 
