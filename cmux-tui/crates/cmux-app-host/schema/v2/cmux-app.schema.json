@@ -224,6 +224,21 @@
         }
       }
     },
+    "serves": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Backend ops this first-party app's server serves for the host (cloud-client-contract.md 2.1). The supervisor routes each one to the app's server with the backend catalog's policy; an op the backend catalog does not know is refused. consumes.ops stays the list of ops the app calls.",
+      "properties": {
+        "ops": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/opName"
+          }
+        }
+      }
+    },
     "scopes": {
       "$ref": "#/$defs/scopes"
     },
