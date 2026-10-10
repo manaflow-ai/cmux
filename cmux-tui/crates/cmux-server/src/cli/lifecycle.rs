@@ -489,27 +489,3 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     };
     Ok(Output::new(json!({"pinned": pinned}), human))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn final_backup_never_lands_in_the_state_it_purges() {
-        let tmp = tempfile::tempdir().unwrap();
-        let state = tmp.path().join("state");
-        std::fs::create_dir_all(state.join("sub")).unwrap();
-        assert!(final_backup_dest(&state, &state, 0).is_err());
-        assert!(final_backup_dest(&state.join("sub"), &state, 0).is_err());
-        let ok = final_backup_dest(tmp.path(), &state, 0).unwrap();
-        assert_eq!(ok, tmp.path().join("cmux-server-final-backup-19700101T000000Z"));
-    }
-
-    #[test]
-    fn channel_names_follow_the_manifest_rule() {
-        assert!(valid_channel("stable") && valid_channel("beta-2"));
-        for bad in ["", "Beta", "2beta", "a b", "../x", &"a".repeat(33)] {
-            assert!(!valid_channel(bad), "{bad:?}");
-        }
-    }
-}

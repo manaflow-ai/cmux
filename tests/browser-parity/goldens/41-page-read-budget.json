@@ -72,6 +72,15 @@
     "tabs-content-html-masked": {
       "leaked": false,
       "masked": true
+    },
+    "blocked-coalesced": [
+      3
+    ],
+    "blocked-long-cut": true,
+    "blocked-dropped": {
+      "first": "dropped",
+      "counted": true,
+      "size": 1001
     }
   }
 }
