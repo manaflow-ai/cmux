@@ -1543,6 +1543,36 @@ final class ClaudeHookSessionStore {
             guard accepted else { return false }
 
             let now = Date().timeIntervalSince1970
+            // Installing a new authoritative owner retires the previous
+            // claimant on this pane. Clear its cached StopFailure summary and
+            // lifecycle so store readers cannot keep surfacing a superseded
+            // error after restart, /clear, or auto-resume.
+            let supersededSessionIDs = Set(
+                [
+                    state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId,
+                    state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId,
+                ]
+                .compactMap { $0 }
+                .filter { $0 != normalizedSessionId }
+            )
+            for supersededSessionId in supersededSessionIDs {
+                if var superseded = state.sessions[supersededSessionId] {
+                    superseded.agentLifecycle = .idle
+                    superseded.lastSubtitle = nil
+                    superseded.lastBody = nil
+                    superseded.lastNotificationStatus = nil
+                    superseded.runtimeStatus = .idle
+                    superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.updatedAt = now
+                    state.sessions[supersededSessionId] = superseded
+                }
+                state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
+                    $0.value.sessionId != supersededSessionId
+                }
+                state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {
+                    $0.value.sessionId != supersededSessionId
+                }
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalizedSessionId,
@@ -29568,6 +29598,7 @@ struct CMUXCLI {
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let sessionStartSource = parsedInput.object?["source"] as? String
+            let priorSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -29598,6 +29629,28 @@ struct CMUXCLI {
                 return
             }
             if let acceptedSessionId {
+                // A SessionStart is a recovery/ownership boundary. Retire the
+                // previous turn's summary before any notification hook can
+                // reuse its StopFailure text for the recovered session.
+                try? sessionStore.clearNotificationSummary(sessionId: acceptedSessionId)
+                try? sessionStore.clearNotificationEmission(sessionId: acceptedSessionId)
+                if let priorSession,
+                   priorSession.workspaceId != workspaceId || priorSession.surfaceId != surfaceId {
+                    // A moved session leaves a physical notification/status
+                    // behind on its old pane; retire that pane explicitly.
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(priorSession.workspaceId) --panel=\(priorSession.surfaceId)",
+                        client: client
+                    )
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: priorSession.workspaceId,
+                        surfaceId: priorSession.surfaceId,
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93"
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -29627,8 +29680,8 @@ struct CMUXCLI {
                 )
             }
             // SessionStart establishes session identity and process ownership.
-            // Keep ordinary startup/resume visually quiet; actual work starts at
-            // UserPromptSubmit, while the PID still binds later hooks to this surface.
+            // The pane is idle until UserPromptSubmit, and any prior status or
+            // notification is retired at this boundary.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -29645,7 +29698,11 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if !suppressVisibleMutations {
+                // SessionStart is the ownership/recovery boundary. Clear the
+                // pane's previous hook notification and status before the
+                // next turn so a StopFailure cannot remain visible while the
+                // recovered process is idle.
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 try setClaudeStatus(
                     client: client,
