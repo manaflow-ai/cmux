@@ -1,5 +1,5 @@
-import Darwin
-import Foundation
+public import Darwin
+public import Foundation
 
 /// Reads the private coalition-resource footprint when its ABI is verified.
 public struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {

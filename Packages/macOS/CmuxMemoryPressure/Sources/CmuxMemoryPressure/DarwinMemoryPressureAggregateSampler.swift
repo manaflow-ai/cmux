@@ -1,6 +1,6 @@
-import CmuxFoundation
-import Darwin
-import Foundation
+public import CmuxFoundation
+public import Darwin
+public import Foundation
 
 /// Captures cmux and all unique descendants, preferring the resource coalition.
 public struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
