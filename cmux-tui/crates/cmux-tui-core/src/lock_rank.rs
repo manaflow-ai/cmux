@@ -1,8 +1,8 @@
 //! Debug-build lock ranks (lockdep style) for the mux and surface locks.
 //!
 //! Order, outer first: workspace registry -> journal writer -> registry
-//! connection -> `Mux::state` -> PTY geometry -> terminal -> PTY runtime ->
-//! attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
+//! connection -> `Mux::state` -> Kitty limits request -> PTY geometry ->
+//! terminal -> PTY runtime -> Kitty limits -> attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
 //! after every rank the thread already holds. A blocking acquisition at a rank
 //! equal to or before a held rank panics in debug and test builds and names
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
@@ -28,12 +28,18 @@ pub(crate) enum LockRank {
     RegistryConnection,
     /// `Mux::state`.
     MuxState,
+    /// `PtyTerminalRuntime::kitty_limits_request`, held for a whole Kitty
+    /// limits request, including the runtime, terminal and taps it takes.
+    KittyLimitsRequest,
     /// `PtyTerminalRuntime::geometry`.
     Geometry,
     /// `PtyTerminalRuntime::term`.
     Terminal,
     /// `PtyTerminalRuntime::runtime`.
     Runtime,
+    /// `PtyTerminalRuntime::kitty_graphics_limits`; a commit resynchronizes
+    /// the attach taps while it holds it.
+    KittyLimits,
     /// `PtyTerminalRuntime::taps` (byte and snapshot attach taps); a tap
     /// update reads the last attach colors.
     AttachTaps,
@@ -75,8 +81,9 @@ mod held {
             panic!(
                 "lock order violation: acquiring {name} ({rank:?}) while this thread holds \
                  {held_name} ({held_rank:?}); the order is workspace.registry > journal.writer > \
-                 registry.connection > mux.state > pty.geometry > pty.term > \
-                 pty.runtime > pty.taps > leaf (see PtyTerminalRuntime)"
+                 registry.connection > mux.state > pty.kitty_limits_request > \
+                 pty.geometry > pty.term > pty.runtime > pty.kitty_graphics_limits > \
+                 pty.taps > leaf (see PtyTerminalRuntime)"
             );
         }
     }

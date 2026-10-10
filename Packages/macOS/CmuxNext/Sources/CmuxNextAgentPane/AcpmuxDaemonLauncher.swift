@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Starts a detached acpmux daemon and returns its WebSocket endpoint from
 /// the `--ready-fd` line, so a fresh daemon needs no status round trip.

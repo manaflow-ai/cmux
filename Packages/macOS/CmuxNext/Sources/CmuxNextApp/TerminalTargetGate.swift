@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import Synchronization
+import CmuxNextCompat
 
 /// The attach target of a terminal view whose terminal is not created yet: the view of a pane
 /// Cmd+D shows before the daemon replied (plans/cmux-next/remote-state-ownership.md S3). The

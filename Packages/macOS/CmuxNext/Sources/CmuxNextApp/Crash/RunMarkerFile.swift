@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import Darwin
 import Dispatch
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Writes `run.json` for `AppRunMarker` on a serial background queue, so
 /// the main thread never waits on the disk.
