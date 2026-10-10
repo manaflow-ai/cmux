@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 /// The one Assignee control (decision T3): people, then agents, then
@@ -29,7 +31,7 @@ struct AssigneeMenu: View {
             model.choose(choice, for: task.id)
         } label: {
             if model.isCurrent(choice, for: task) {
-                Label(title, systemImage: "checkmark")
+                Label { Text(title) } icon: { Image(nsImage: NSImage.icon(.stateSelected, size: 16)) }
             } else {
                 Text(title)
             }
