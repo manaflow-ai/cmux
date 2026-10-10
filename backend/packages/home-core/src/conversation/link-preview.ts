@@ -39,7 +39,12 @@ const validLabel = (value: unknown, maxChars: number): boolean => {
 
 /** Validates one `link_preview` part; returns it with only the known fields, or null when invalid. */
 export const cleanLinkPreviewPart = (part: Record<string, unknown>): LinkPreviewPart | null => {
-  const { url, title, site, image } = part
+  // A null field is absent, as the Rust owner reads it (serde `Option`).
+  const absent = (value: unknown) => (value === null ? undefined : value)
+  const url = part.url
+  const title = absent(part.title)
+  const site = absent(part.site)
+  const image = absent(part.image)
   if (!validLinkUrl(url) || !validLabel(title, LINK_PREVIEW_LIMITS.maxTitleChars) || !validLabel(site, LINK_PREVIEW_LIMITS.maxSiteChars)) return null
   let cleanImage: LinkPreviewPart["image"]
   if (image !== undefined) {

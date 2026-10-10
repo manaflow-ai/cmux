@@ -83,7 +83,7 @@ pub fn message_text(message: &Message) -> String {
             // A link preview is found by its title (the URL is in the text part that carries it).
             Part::LinkPreview { title, .. } => title.as_deref(),
             Part::Question(question) => question.items.first().map(|item| item.prompt.as_str()),
-            Part::Work { .. } | Part::Attachment { .. } => None,
+            Part::Work { .. } | Part::Attachment { .. } | Part::Unknown(_) => None,
         })
         .collect::<Vec<_>>()
         .join(" ");

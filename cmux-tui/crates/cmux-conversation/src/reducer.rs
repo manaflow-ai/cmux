@@ -567,6 +567,7 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                 }
             }
             Part::Question(question) => crate::question::validate(question)?,
+            Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }
     Ok(())

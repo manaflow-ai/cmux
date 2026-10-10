@@ -202,8 +202,12 @@ export const currentParticipant = (head: ConversationHead, id: string): Particip
 export const currentParticipants = (head: ConversationHead): ReadonlyArray<Participant> =>
   head.participants.filter((participant) => participant.left_at === undefined)
 
-/** Whether a message is a counted turn for the loop guard: text, or a question (an agent asking is a turn). */
-export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text" || part.type === "question")
+/**
+ * Whether a message is a counted turn for the loop guard: text, a question (an agent asking is a
+ * turn) or a link preview (a link-only message is a reply). Rust `Part::counts_as_turn`.
+ */
+export const hasText = (parts: ReadonlyArray<Part>): boolean =>
+  parts.some((part) => part.type === "text" || part.type === "question" || part.type === "link_preview")
 
 /**
  * A display name from an outside source (Stack, the caller): control

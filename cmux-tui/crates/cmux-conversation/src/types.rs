@@ -135,14 +135,23 @@ pub enum Part {
     /// it; only `question.answer` moves it out of pending, except the
     /// author's edit that cancels it.
     Question(crate::question::Question),
+    /// A part this build cannot read: a type it does not know (a newer
+    /// writer's), or a known type whose fields do not decode. Kept as its
+    /// JSON so a reader can skip or show it instead of failing the whole
+    /// message; serialized back unchanged. The owner never commits one
+    /// (`invalid_parts`). Untagged, so it is tried only after every tagged
+    /// variant failed; it must stay the last variant.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl Part {
     /// Whether a message with this part is a counted turn for the loop guard
-    /// (budget.rs): text, or a question (an agent asking is a turn). Work
-    /// cards, attachments and link previews neither count nor reset the count.
+    /// (budget.rs): text, a question (an agent asking is a turn) or a link
+    /// preview (a link-only message is a reply). Work cards and attachments
+    /// neither count nor reset the count.
     pub fn counts_as_turn(&self) -> bool {
-        matches!(self, Self::Text { .. } | Self::Question(_))
+        matches!(self, Self::Text { .. } | Self::Question(_) | Self::LinkPreview { .. })
     }
 }
 

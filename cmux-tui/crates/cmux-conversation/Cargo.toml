@@ -12,6 +12,6 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-
-[dev-dependencies]
+# A part of an unknown type is kept as its JSON (types.rs `Part::Unknown`).
 serde_json.workspace = true
+

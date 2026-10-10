@@ -66,6 +66,17 @@ export const TextRun = Schema.Struct({
 const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP, capped per variant. */
+/**
+ * The owners count a link preview's title and site in code points and its URL in UTF-8 bytes
+ * (cmux-conversation link_preview.rs, home-core link-preview.ts). The UTF-16 `isMaxLength`
+ * beside each is only the loose bound JSON Schema can state (a code point is at most 2 units, a
+ * URL has no more units than bytes); these filters are the rule.
+ */
+const maxCodePoints = (max: number) =>
+  Schema.makeFilter((value: string) => [...value].length <= max || `at most ${max} characters`)
+const utf8MaxBytes = (max: number) =>
+  Schema.makeFilter((value: string) => new TextEncoder().encode(value).length <= max || `at most ${max} UTF-8 bytes`)
+
 const derivedImage = (identifier: string, maxBytes: number, description: string) =>
   Schema.Struct({
     hash: Sha256,
@@ -96,9 +107,9 @@ export const Part = Schema.Union([
   }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." }),
   Schema.Struct({
     type: Schema.Literal("link_preview"),
-    url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048)),
-    title: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(300))),
-    site: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253))),
+    url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048), utf8MaxBytes(2048)),
+    title: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(600), maxCodePoints(300))),
+    site: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(506), maxCodePoints(253))),
     image: Schema.optionalKey(derivedImage("HomeLinkPreviewImage", 512_000, "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."))
   }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." })
 ]).annotate({ identifier: "HomePart" })
