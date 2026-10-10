@@ -239,10 +239,12 @@ impl ProviderEngine {
                     }
                 }
                 // A Chromium tab opens blank; the session then navigates it
-                // through the tab's CDP relay to the commit, as a headless
-                // tab does, so the reply means the document committed and
-                // the navigation passes the same checks as any other.
-                let navigate = if self.engine == "cef" {
+                // to the commit, so the reply means the document committed
+                // and the navigation passes the same checks as any other.
+                // The tab is the session's (`opened`) before its first
+                // request: on a shared headless browser its own request
+                // filter and response checks apply, not every session's.
+                let navigate = if self.engine == "cef" || self.engine == "headless" {
                     open.remove("url").filter(|url| url.as_str().is_some_and(|url| !url.is_empty()))
                 } else {
                     None
@@ -429,6 +431,15 @@ impl Driver for ProviderEngine {
             (self.events)(event);
         }
         true
+    }
+
+    /// The session's own tabs (created, popups of them, driven), and a tab
+    /// no other session drives; not a tab only other sessions drive (every
+    /// session gets every tab's events).
+    fn drives_tab(&self, target_id: &str) -> bool {
+        self.created_tabs().contains(target_id)
+            || self.driven.lock().unwrap_or_else(PoisonError::into_inner).contains(target_id)
+            || !self.provider.driven_by_others(self.subscription, target_id)
     }
 
     /// The session's filter on the tabs it drives, where the source can
