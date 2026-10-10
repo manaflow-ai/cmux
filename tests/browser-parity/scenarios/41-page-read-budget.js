@@ -66,8 +66,10 @@ await page.evaluate(() => {
 });
 emitCmux("big-values-cut", {
   generated: await bigCut('<p id="gen">Generated</p>'),
-  placeholder: await bigCut('<input placeholder="BIG">'),
-  option: await bigCut('<select><option label="BIG">one</option></select>'),
+  // Named by aria-label, so the placeholder read is the one that cuts.
+  placeholder: await bigCut('<input aria-label="x" placeholder="BIG">'),
+  // A list box has no value, so the option read is the one that cuts.
+  option: await bigCut('<select size="2"><option label="BIG">one</option></select>'),
   editable: await bigCut('<div contenteditable="true">BIG</div>'),
 });
 
@@ -101,3 +103,7 @@ emitCmux("all-text-cut", { first: all[0], secondCut: all[1].endsWith("…") && a
 const html = await page.content();
 emitCmux("content-cut", { short: html.length <= 2000001, cut: html.endsWith("…") });
 emitCmux("password-read", { value: await page.locator("#pw").inputValue(), attribute: await page.locator("#pw").getAttribute("value") });
+// A short secret (under 4 characters) inside HTML results reads as the
+// marker in its value attribute.
+await page.evaluate(() => (document.body.innerHTML = '<div id="wrap"><input type="password" value="ab1"></div>'));
+emitCmux("short-secret-html", (await page.locator("#wrap").innerHTML()).includes('value="ab1"') ? "leaked" : "masked");

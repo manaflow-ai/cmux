@@ -42,6 +42,7 @@
     "password-read": {
       "value": "********",
       "attribute": "********"
-    }
+    },
+    "short-secret-html": "masked"
   }
 }
