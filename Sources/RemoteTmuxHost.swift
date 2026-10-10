@@ -368,6 +368,13 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// `select-pane -T` expands tmux formats in its title argument even after
+    /// the command parser has consumed shell quoting. Double each format marker
+    /// so a title entered in cmux remains literal on the remote pane.
+    static func tmuxFormatLiteral(_ value: String) -> String {
+        value.replacingOccurrences(of: "#", with: "##")
+    }
+
     /// Builds a remote shell command that resolves `tmux` before executing it.
     ///
     /// OpenSSH runs remote commands under the account's shell, but not as an
@@ -390,6 +397,25 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     static func controlModeCommandName(_ value: String?) -> String? {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return controlModeLineSafeName(trimmed)
+    }
+
+    /// Returns a line-safe pane title. Unlike session and window names, tmux
+    /// accepts an empty pane title, which clears the explicitly set pane title.
+    static func controlModeCommandPaneTitle(_ value: String?) -> String? {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        guard trimmed.unicodeScalars.allSatisfy({ !forbidden.contains($0) }) else { return nil }
+        return trimmed
+    }
+
+    /// Builds a line-safe `select-pane -T` command for one tmux pane.
+    ///
+    /// The title is validated and format-escaped before shell quoting so the
+    /// caller cannot accidentally turn a literal title into a tmux expansion.
+    static func selectPaneTitleCommand(paneID: Int, title: String) -> String? {
+        guard paneID >= 0,
+              let title = controlModeCommandPaneTitle(title) else { return nil }
+        return "select-pane -t %\(paneID) -T \(shellSingleQuoted(tmuxFormatLiteral(title)))"
     }
 
     /// Validates a name already received from tmux. Unlike

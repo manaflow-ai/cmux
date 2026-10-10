@@ -209,16 +209,12 @@ extension RemoteTmuxControlConnection {
             if let placement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6])) {
                 titleRowPlacement = placement
             }
-            let expandedFields = String(parts[7].dropFirst()).split(
-                separator: RemoteTmuxPaneTitleMetadata.fieldSeparator,
-                maxSplits: 1,
-                omittingEmptySubsequences: false
-            )
-            labels[paneId] = Self.strippingStyleTokens(String(expandedFields[0]))
-            if expandedFields.count == 2,
-               let metadata = RemoteTmuxPaneTitleMetadata(wireValue: String(expandedFields[1])) {
-                titleMetadata[paneId] = metadata
+            let fields = String(parts[7].dropFirst())
+            if let metadataFields = RemoteTmuxPaneTitleMetadata.paneRectLabel(from: fields) {
+                labels[paneId] = Self.strippingStyleTokens(metadataFields.header)
+                titleMetadata[paneId] = metadataFields.metadata
             } else {
+                labels[paneId] = Self.strippingStyleTokens(fields)
                 panesWithoutTitleMetadata.insert(paneId)
             }
         }
@@ -262,13 +258,27 @@ extension RemoteTmuxControlConnection {
             }
             return
         }
-        for (paneId, metadata) in titleMetadata
-        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
-            paneTitleMetadataByPane[paneId] = metadata
+        for (paneId, metadata) in titleMetadata {
+            if RemoteTmuxPaneTitleMetadata.snapshotMayReplace(
+                liveRevision: paneTitleMetadataLiveRevisionByPane[paneId],
+                snapshotRevision: snapshotRevision
+            ) {
+                if paneTitleMetadataByPane[paneId] != metadata {
+                    paneTitleMetadataByPane[paneId] = metadata
+                }
+            } else if let live = paneTitleMetadataByPane[paneId] {
+                let merged = live.applyingSnapshotDefaults(metadata)
+                if live != merged { paneTitleMetadataByPane[paneId] = merged }
+            }
         }
         for paneId in panesWithoutTitleMetadata
-        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
-            paneTitleMetadataByPane[paneId] = nil
+        where RemoteTmuxPaneTitleMetadata.snapshotMayReplace(
+            liveRevision: paneTitleMetadataLiveRevisionByPane[paneId],
+            snapshotRevision: snapshotRevision
+        ) {
+            if paneTitleMetadataByPane[paneId] != nil {
+                paneTitleMetadataByPane[paneId] = nil
+            }
         }
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
             paneHeaderLabels[paneId] = label
@@ -305,6 +315,11 @@ extension RemoteTmuxControlConnection {
             pendingLayouts[windowId] = nil
         }
         record("pane-rects @\(windowId)")
+        // Establish the title watcher from verified pane topology rather than
+        // from terminal seeding. Restored panes may be render-ready and skip a
+        // `capture-pane` seed entirely, but their tmux title must still remain
+        // live after this snapshot.
+        subscribePaneTitlesIfNeeded()
         if initialBatchAwaiting != nil {
             // First population: hold verified windows in staging and publish
             // them all at once when the last reply lands, so observers never

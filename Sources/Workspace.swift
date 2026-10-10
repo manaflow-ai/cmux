@@ -9920,10 +9920,35 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
     /// `%window-renamed`). No-ops if the panel is no longer mounted.
     func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let tabId = surfaceIdFromPanelId(panelId)
+            ?? (remoteTmuxControlPane(surfaceID: panelId) == nil ? nil : TabID(uuid: panelId))
+        guard let tabId else { return }
         panelTitles[panelId] = title
-        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
+        guard let existing = bonsplitController.tab(tabId),
+              existing.title != title || existing.hasCustomTitle else { return }
         bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+    }
+
+    /// Updates one projected pane after tmux changes `pane_title`. Pane titles
+    /// are tmux-authoritative; unlike a `%window-renamed`, this settles and
+    /// clears a local pending pane-title intent.
+    func updateRemoteTmuxPaneTitle(panelId: UUID, title: String) {
+        guard let remoteTmuxPane = remoteTmuxControlPane(surfaceID: panelId) else { return }
+        panelCustomTitles.removeValue(forKey: panelId)
+        panelCustomTitleSources.removeValue(forKey: panelId)
+        panelTitles[panelId] = title
+        if let windowMirror = remoteTmuxPane.windowMirror {
+            windowMirror.updatePaneTabTitle(
+                title,
+                forPane: remoteTmuxPane.pane.tmuxPaneID,
+                hasCustomTitle: false
+            )
+            return
+        }
+        let tabId = TabID(uuid: panelId)
+        guard let existing = bonsplitController.tab(tabId),
+              existing.title != title || existing.hasCustomTitle else { return }
+        bonsplitController.updateTab(tabId, title: title, hasCustomTitle: false)
     }
 
     @discardableResult

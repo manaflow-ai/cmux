@@ -71,6 +71,17 @@ import Testing
         source.fireReconnectReady()
         #expect(source.sentCommands.isEmpty, "a detached channel publishes nothing")
     }
+
+    @Test func channelForwardsPaneTitleSubscriptionToItsSharedSource() {
+        let source = ReconnectFanOutFakeSource()
+        let channel = RemoteTmuxSessionChannel(
+            underlying: source, sessionName: "alpha", sessionId: 1, windowIds: [10]
+        )
+
+        channel.subscribePaneTitlesIfNeeded()
+
+        #expect(source.paneTitleSubscriptionRequests == 1)
+    }
 }
 
 /// Inert `RemoteTmuxSessionSource` that only records observers, so a test can
@@ -139,6 +150,8 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func unsubscribePaneReflow(paneId: Int) {}
     func unsubscribePaneHeader(paneId: Int) {}
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {}
+    var paneTitleSubscriptionRequests = 0
+    func subscribePaneTitlesIfNeeded() { paneTitleSubscriptionRequests += 1 }
     func removePaneColors(paneId: Int) {}
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {}
     func setSessionName(_ name: String) {}

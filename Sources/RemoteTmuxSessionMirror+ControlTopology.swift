@@ -136,21 +136,25 @@ extension RemoteTmuxSessionMirror {
 
     /// Resolves a projected pane surface through the session-owned reverse index.
     func controlPaneLocation(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
-        guard let tmuxPaneID = tmuxPaneIdByControlSurface[surfaceID],
-              controlSurfaceIdByPane[tmuxPaneID] == surfaceID,
-              let windowID = windowIdByPane[tmuxPaneID],
-              let containerPanelID = panelIdByWindow[windowID],
-              let windowMirror = windowMirrorByWindowId[windowID],
-              let pane = windowMirror.controlPane(tmuxPaneID: tmuxPaneID),
-              pane.panel.id == surfaceID else {
-            return nil
+        if let tmuxPaneID = tmuxPaneIdByControlSurface[surfaceID],
+           controlSurfaceIdByPane[tmuxPaneID] == surfaceID,
+           let windowID = windowIdByPane[tmuxPaneID],
+           let containerPanelID = panelIdByWindow[windowID],
+           let windowMirror = windowMirrorByWindowId[windowID],
+           let pane = windowMirror.controlPane(tmuxPaneID: tmuxPaneID),
+           pane.panel.id == surfaceID {
+            return RemoteTmuxControlPaneLocation(
+                containerPanelID: containerPanelID,
+                owner: self,
+                windowMirror: windowMirror,
+                pane: pane
+            )
         }
-        return RemoteTmuxControlPaneLocation(
-            containerPanelID: containerPanelID,
-            owner: self,
-            windowMirror: windowMirror,
-            pane: pane
-        )
+
+        // The projected pane is still authoritative while its reverse index is
+        // being reconciled. Do not reject a valid control-socket request merely
+        // because that bookkeeping arrives after the mirror surface itself.
+        return controlPaneLocations().first(where: { $0.pane.panel.id == surfaceID })
     }
 
     func controlFocus(

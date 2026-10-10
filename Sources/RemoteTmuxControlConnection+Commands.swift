@@ -444,10 +444,8 @@ extension RemoteTmuxControlConnection {
         requestPaneReflow(paneId: paneId)
         let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
-        // One batched refresh-client for all four live subscriptions
-        // instead of four separate sends — see subscribePaneAll. Under
-        // churn this is the difference between the command FIFO keeping up
-        // with tmux and backing up into minutes-long non-convergence.
+        // Register the per-pane subscriptions in one FIFO entry plus the
+        // one-time session title watcher; see `subscribePaneAll`.
         subscribePaneAll(paneId: paneId)
         return seedID
     }

@@ -194,6 +194,11 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
     /// Reports a pane's terminal colors to the remote tmux (kept across reconnects).
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int)
+    /// Ensures the session-wide pane-title watcher is installed after topology is mounted.
+    ///
+    /// The concrete control connection owns this subscription, while a multiplexed
+    /// session channel forwards the request to its shared connection.
+    func subscribePaneTitlesIfNeeded()
     /// Forgets a pane's reported colors when its mirror goes away.
     func removePaneColors(paneId: Int)
     /// Ends per-pane cwd / reflow / header subscriptions when a pane's mirror goes away.

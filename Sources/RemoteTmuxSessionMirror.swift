@@ -344,11 +344,29 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
+    /// Starts a pane-title command only while this session still owns the pane.
+    func requestRenamePane(
+        _ tmuxPaneID: Int,
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard windowIdByPane[tmuxPaneID] != nil,
+              let command = RemoteTmuxHost.selectPaneTitleCommand(paneID: tmuxPaneID, title: title),
+              connection.connectionState == .connected else {
+            return false
+        }
+        return connection.sendTracked(command, completion: completion)
+    }
+
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
             rebuildTopology(in: workspace)
         }
+        // A restored surface can reconcile before the control stream reaches
+        // `.connected`; retry the idempotent session-wide title watcher here
+        // once topology is actually mounted.
+        connection.subscribePaneTitlesIfNeeded()
         focusExplicitlyRequestedWindowIfAvailable()
     }
 
@@ -523,6 +541,13 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         guard let windowId = windowIdContaining(pane: paneId),
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.updatePaneTitleMetadata(paneId)
+        if let panel = mirror.panel(forPane: paneId),
+           let workspace {
+            workspace.updateRemoteTmuxPaneTitle(
+                panelId: panel.id,
+                title: mirror.title(forPane: paneId)
+            )
+        }
     }
 
     /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route

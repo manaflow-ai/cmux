@@ -45,7 +45,7 @@ extension TerminalController {
             return .missingAction
         }
 
-        let resolvesMirroredTab = action == "rename"
+        let resolvesMirroredTab = action == "rename" || action == "clear_name"
         let workspace = resolvesMirroredTab
             ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
             : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
@@ -148,11 +148,22 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle)
+            // Generic tab operations use the mirror's container panel. Pane
+            // renames must instead retain the projected surface identity, or
+            // they would rename both the remote window and its active pane.
+            let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
+            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle) || !isProjectedTmuxPane else {
+                return .renameFailed
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":
-            workspace.setPanelCustomTitle(panelId: panelId, title: nil)
+            let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
+            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: nil) || !isProjectedTmuxPane else {
+                return .renameFailed
+            }
             return finish(.none)
 
         case "pin":

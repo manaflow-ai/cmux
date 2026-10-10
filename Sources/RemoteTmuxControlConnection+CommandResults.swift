@@ -304,6 +304,12 @@ extension RemoteTmuxControlConnection {
                 case nil:
                     break
                 }
+                // Pane rectangles can be reconciled while the attach result is
+                // still draining, when `send` deliberately rejects subscription
+                // writes to preserve FIFO alignment. Install the session-wide
+                // title watcher again now that this control client is connected
+                // and the attach block is known to be drained.
+                subscribePaneTitlesIfNeeded()
                 pendingPostAttachAction = nil
                 // First-connect coverage for the attach redraw kick happens at
                 // the publication point (each window's rects reply): here
