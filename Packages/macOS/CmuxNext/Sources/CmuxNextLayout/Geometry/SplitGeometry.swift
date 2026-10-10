@@ -32,20 +32,25 @@ public nonisolated enum SplitGeometry {
         // Child minimums of every split in one bottom-up pass: asking
         // `minimumSize` at each split walked its whole subtree again, so a
         // deep tree cost O(N * depth), a same-axis chain O(N^2).
+        // A split id can repeat in one tree (`split@<firstPane>` from a daemon
+        // without split ids, LayoutHandleMap): those splits use the recursive path.
         var minimums: [SplitID: (a: CGSize, b: CGSize)] = [:]
-        _ = collectMinimums(node, style: style, into: &minimums)
+        var repeated: Set<SplitID> = []
+        _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated)
+        for id in repeated { minimums[id] = nil }
         layout(node, in: rect, style: style, scale: scale, minimums: minimums, into: &result)
         return result
     }
 
-    private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: (a: CGSize, b: CGSize)]) -> CGSize {
+    private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: (a: CGSize, b: CGSize)],
+                                        repeated: inout Set<SplitID>) -> CGSize {
         switch node {
         case .leaf:
             return style.minimumPaneSize
         case let .split(id, axis, _, a, b):
-            let first = collectMinimums(a, style: style, into: &minimums)
-            let second = collectMinimums(b, style: style, into: &minimums)
-            minimums[id] = (first, second)
+            let first = collectMinimums(a, style: style, into: &minimums, repeated: &repeated)
+            let second = collectMinimums(b, style: style, into: &minimums, repeated: &repeated)
+            if minimums.updateValue((first, second), forKey: id) != nil { repeated.insert(id) }
             return combine(first, second, axis: axis, divider: style.dividerThickness)
         }
     }

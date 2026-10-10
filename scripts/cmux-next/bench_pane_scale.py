@@ -202,6 +202,11 @@ class Bench:
         else:
             result = body()
         wall = time.monotonic() - start
+        # Hosts and helpers started inside the window count from zero.
+        for pid, kind in classify(self.app_pid, self.bundle).items():
+            if pid not in kinds:
+                kinds[pid] = kind
+                before[pid] = (0, 0, 0)
         after = {pid: usage(pid) for pid in kinds}
         g0, g1 = self.group(kinds, before), self.group(kinds, after)
         rows = {}
@@ -252,7 +257,14 @@ class Bench:
                 latencies.append(rtt)
             return latencies
 
-        measured, latencies = self.window(body=body)
+        def settled_body():
+            latencies = body()
+            # Observation work for the last ops runs after their replies.
+            self.topology()
+            time.sleep(1.0)  # test script: let trailing async apply work finish inside the window
+            return latencies
+
+        measured, latencies = self.window(body=settled_body)
         frames = self.debug("debug.frames", {"action": "stop"})
         hangs = self.debug("debug.hangs", {"limit": 3})
         layout_after = self.debug("debug.layout_counters")
@@ -299,10 +311,8 @@ class Bench:
         want = panes * self.args.tabs
         added = 0
         for _ in range(panes):
-            current = self.counts()[1]
-            per_pane_missing = self.args.tabs - 1
-            for _ in range(per_pane_missing):
-                if current + added >= want:
+            for _ in range(self.args.tabs - 1):
+                if tabs + added >= want:
                     break
                 _, error = self.action("newTab")
                 if error:

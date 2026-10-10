@@ -142,8 +142,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
         #endif
+        let wasApplying = isApplying
         isApplying = true
-        defer { isApplying = false }
+        defer { isApplying = wasApplying }
         handles = result.handles
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
