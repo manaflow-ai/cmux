@@ -1,0 +1,146 @@
+import AppKit
+import CmuxCloud
+import CmuxCloudMachines
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Runs Cmd-Y's action through the production composition with delayed providers.
+@MainActor
+@Suite(.serialized, .exclusiveAppContext)
+struct CloudWorkspaceOptimisticShortcutTests {
+    @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
+          arguments: ["stay", "beforeResolution", "beforeProvider", "awayAndBack", "afterAdmission", "background"])
+    func optimisticSelection(navigation: String) async throws {
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        defer { fixture.close() }
+        let manager = fixture.manager
+        let original = try #require(manager.selectedWorkspace)
+        let other = try #require(manager.addWorkspaceIfActive(initialSurface: .cloudVMLoading, select: false))
+        let keyWindow = KeyStatusTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let context = try #require(fixture.app.mainWindowContexts.values.first { $0.windowId == fixture.windowID })
+        if navigation != "background" {
+            manager.window = keyWindow
+            context.window = keyWindow
+        }
+        defer { manager.window = fixture.window; context.window = fixture.window; withExtendedLifetime(keyWindow) {} }
+        let suite = "optimistic-cloud-shortcut-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pins = CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" })
+        let operations = CloudWorkspaceOperationController(isAvailable: { true })
+        fixture.app.cloudWorkspaceOperationController = operations
+        defer { fixture.app.cloudWorkspaceCoordinator = nil; operations.cancelAll() }
+        fixture.app.cloudWorkspaceCoordinator = cmuxApp.makeCloudWorkspaceCoordinator(
+            machinePinStore: pins, allowsOperation: { true },
+            loadMachines: {
+                if navigation == "beforeResolution" || navigation == "awayAndBack" {
+                    manager.selectWorkspace(other)
+                    if navigation == "awayAndBack" { manager.selectWorkspace(original) }
+                }
+                return [fixture.provider.machine.rawValue]
+            },
+            tabManager: { $0 == fixture.windowID ? manager : nil },
+            provider: { id in
+                #expect(id == fixture.provider.machine.rawValue)
+                if navigation == "beforeProvider" { manager.selectWorkspace(other) }
+                return fixture.provider
+            },
+            catalog: fixture.catalog
+        )
+        fixture.provider.usesReceipt = true
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        defer { release.continuation.finish() }
+        fixture.provider.beforeCreate = {
+            entered.continuation.yield(())
+            for await _ in release.stream { break }
+        }
+
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager))
+        for await _ in entered.stream { break }
+        let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+        let reservation = try #require(operation.reservation)
+        let pending = try #require(manager.workspacesById[reservation.workspaceID])
+        let shouldSelect = navigation == "stay" || navigation == "afterAdmission"
+        let previous = navigation == "beforeResolution" || navigation == "beforeProvider" ? other.id : original.id
+        #expect(fixture.provider.createdWorkspaces.isEmpty, "The remote response is still held open")
+        #expect(manager.selectedTabId == (shouldSelect ? pending.id : previous))
+        #expect(pending.cloudVMBinding?.vmID == fixture.provider.machine.rawValue)
+        #expect(pending.cloudVMBinding?.remoteWorkspaceID == nil)
+        #expect(pending.cloudPendingCreations[reservation.panelID] === reservation)
+        if navigation == "afterAdmission" { manager.selectWorkspace(other) }
+        release.continuation.yield(())
+        await operations.waitForPendingOperations()
+
+        let remote = try #require(fixture.provider.createdWorkspaces.first)
+        #expect(pending.cloudVMBinding?.remoteWorkspaceID == remote.id)
+        #expect(fixture.provider.createdWorkspaces.count == 1)
+        #expect(fixture.provider.adoptedPanels == [reservation.panelID])
+        #expect(manager.tabs.count == 3, "Reconciliation adopts the same workspace")
+        #expect(manager.selectedTabId == (navigation == "afterAdmission" ? other.id : shouldSelect ? pending.id : previous))
+        let reveal = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager))
+        #expect(reveal.isWithdrawn == (navigation != "stay"))
+    }
+
+    @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
+          arguments: ["failure", "cancel", "cancelAfterNavigation"])
+    func unsuccessfulCreation(outcome: String) async throws {
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        defer { fixture.close() }
+        let manager = fixture.manager
+        let original = try #require(manager.selectedWorkspace)
+        let other = try #require(manager.addWorkspaceIfActive(initialSurface: .cloudVMLoading, select: false))
+        let keyWindow = KeyStatusTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let context = try #require(fixture.app.mainWindowContexts.values.first { $0.windowId == fixture.windowID })
+        manager.window = keyWindow
+        context.window = keyWindow
+        defer { manager.window = fixture.window; context.window = fixture.window; withExtendedLifetime(keyWindow) {} }
+        let suite = "optimistic-cloud-failure-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let operations = CloudWorkspaceOperationController(isAvailable: { true })
+        fixture.app.cloudWorkspaceOperationController = operations
+        defer { fixture.app.cloudWorkspaceCoordinator = nil; operations.cancelAll() }
+        fixture.app.cloudWorkspaceCoordinator = cmuxApp.makeCloudWorkspaceCoordinator(
+            machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
+            allowsOperation: { true }, loadMachines: { [fixture.provider.machine.rawValue] },
+            tabManager: { $0 == fixture.windowID ? manager : nil }, provider: { _ in fixture.provider },
+            catalog: fixture.catalog
+        )
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        defer { release.continuation.finish() }
+        fixture.provider.beforeCreate = {
+            entered.continuation.yield(())
+            for await _ in release.stream { break }
+            if outcome == "failure" { throw CloudDiagnosticFailure.conflict }
+            throw CancellationError()
+        }
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager))
+        for await _ in entered.stream { break }
+        let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+        let reservation = try #require(operation.reservation)
+        #expect(manager.selectedTabId == reservation.workspaceID)
+        if outcome == "cancelAfterNavigation" { manager.selectWorkspace(other) }
+        release.continuation.yield(())
+        await operations.waitForPendingOperations()
+
+        #expect(fixture.provider.createdWorkspaces.isEmpty)
+        let reveal = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager))
+        #expect(reveal.isWithdrawn)
+        if outcome == "failure" {
+            #expect(manager.selectedTabId == reservation.workspaceID)
+            #expect(operation.failure != nil)
+            #expect(reservation.retry != nil, "The failed pane exposes the shared reconnect action")
+        } else {
+            #expect(manager.workspacesById[reservation.workspaceID] == nil)
+            #expect(manager.selectedTabId == (outcome == "cancelAfterNavigation" ? other.id : original.id))
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+        }
+    }
+}
