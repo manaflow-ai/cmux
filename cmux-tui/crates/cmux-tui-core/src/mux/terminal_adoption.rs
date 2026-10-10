@@ -11,7 +11,7 @@ impl Mux {
     ) -> anyhow::Result<Option<RestoredTerminalBinding>> {
         let registry = self.workspace_registry.lock().unwrap();
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-            return Ok(None);
+            return detached_terminals::detached_adoption_binding(&registry, terminal_id);
         };
         drop(registry);
         let state = self.state.lock().unwrap();
@@ -141,7 +141,7 @@ impl Mux {
             if terminal.is_none()
                 && !template_claimed
                 && options.adopt_template_terminal
-                && !record.workspace_key.is_empty()
+                && detached_terminals::names_a_workspace(&record.workspace_key)
                 && self.state.lock().unwrap().workspaces.is_empty()
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
@@ -659,6 +659,7 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {
             self.emit(MuxEvent::TreeChanged);
