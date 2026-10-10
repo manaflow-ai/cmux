@@ -128,11 +128,18 @@ public protocol HomeSource: Sendable {
     /// while a read of it ran (the read may have set up again what the
     /// first close found nothing of), so a repeated close must be harmless.
     func close(_ conversation: ConversationID)
+
+    /// Whether the owner of `conversation` takes `link_preview` parts. A
+    /// sender sends plain text to an owner that does not (an older daemon).
+    func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
 }
 
 extension HomeSource {
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
+
+    /// Default: no link preview parts (send plain text).
+    public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }
 
     /// Default for sources without blob storage.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {

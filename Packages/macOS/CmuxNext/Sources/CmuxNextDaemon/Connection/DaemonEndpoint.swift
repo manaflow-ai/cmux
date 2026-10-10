@@ -195,6 +195,9 @@ public struct DaemonCapabilities: Sendable {
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
+    /// `link_preview` parts on the local conversation owner (a sender sends
+    /// plain text to a daemon without it).
+    public let linkPreview = "link-preview-v1"
     /// `chief-inspect`: the Chief memory inspector's read-only API on the
     /// brain's daemon (advertised when the daemon knows the brain's tools socket).
     public let chiefInspect = "chief-inspect-v1"
@@ -258,7 +261,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, linkPreview] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

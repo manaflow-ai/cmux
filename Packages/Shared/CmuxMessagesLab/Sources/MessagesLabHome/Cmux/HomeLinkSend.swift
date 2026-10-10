@@ -11,19 +11,24 @@ import Foundation
 /// becomes a JPEG image record that uploads with the message
 /// (`HomeStore.prepareLinkPreviewImage`). A failed fetch sends the URL only
 /// (a domain card everywhere, as iMessage sends the bare URL); a URL the
-/// owner would refuse as a link preview goes as a text line.
+/// owner would refuse as a link preview goes as a text line. An owner
+/// without `link-preview-v1` (an older daemon) gets no cards at all: the
+/// send stays the plain text it was logged with.
 @MainActor
 struct HomeLinkSend {
     let previews: HomeLinkPreviews?
     let store: HomeStore
+    let conversation: ConversationID
 
     /// True when MessagesLab shows a card for a line of `text`.
     static func hasLinks(_ shown: [Part]) -> Bool {
         shown.contains { if case .link = $0 { return true }; return false }
     }
 
-    /// The parts for MessagesLab's `shown` parts, and the pictures to upload.
-    func parts(_ shown: [Part]) async -> (parts: [MessagePart], uploads: [LocalAttachment]) {
+    /// The parts for MessagesLab's `shown` parts, and the pictures to upload;
+    /// nil when the owner takes no link previews (send the plain text).
+    func parts(_ shown: [Part]) async -> (parts: [MessagePart], uploads: [LocalAttachment])? {
+        guard await store.acceptsLinkPreviews(in: conversation) else { return nil }
         var parts: [MessagePart] = [], uploads: [LocalAttachment] = []
         for part in shown {
             switch part {

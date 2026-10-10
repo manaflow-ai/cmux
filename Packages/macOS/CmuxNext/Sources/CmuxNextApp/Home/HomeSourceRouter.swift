@@ -133,6 +133,10 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: file.conversation).upload(file)
     }
 
+    func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool {
+        await source(for: conversation).acceptsLinkPreviews(in: conversation)
+    }
+
     func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
         try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
     }

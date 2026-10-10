@@ -13,9 +13,9 @@ import Observation
 /// A send: the draft goes to `HomeStore.perform(.sendMessage)` with a fresh
 /// key, and `.send` is dispatched on the projection in the same turn, so the
 /// morph flies at the press as in MessagesLab. A draft with URL-only lines
-/// goes once their previews answered (`HomeLinkSend`: `link_preview` parts
-/// with the pictures uploaded as records), as iMessage sends after its
-/// loading card. The local message keeps its
+/// is logged at once as its plain text, then sent once their previews
+/// answered (`HomeLinkSend`: `link_preview` parts with the pictures uploaded
+/// as records), as iMessage sends after its loading card. The local message keeps its
 /// reducer id (`aliases[key]`); HomeStore's pending item and committed echo
 /// carry the key, so they only change its status. A send the owner refuses
 /// before logging it leaves the projection (rebuild) and its text returns to
@@ -257,15 +257,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let homeStore = self.homeStore, conversation = self.conversation
         // Messages' link rule: URL-only lines are cards whose previews this Mac attaches.
         let shown = TextParts.parts(for: text)
-        let links = HomeLinkSend.hasLinks(shown) ? HomeLinkSend(previews: linkPreviews, store: homeStore) : nil
+        let links = HomeLinkSend.hasLinks(shown)
+            ? HomeLinkSend(previews: linkPreviews, store: homeStore, conversation: conversation) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
             do {
                 if let links {
-                    // The local message already flies with the grey card; the parts go once the previews answered.
-                    let (parts, pictures) = await links.parts(shown)
-                    try await homeStore.send(conversation: conversation, parts: attachments.map { .attachment($0.ref) } + parts,
-                                             uploads: attachments + pictures, key: key)
+                    // Logged at once as the plain text (a quit or a later send cannot lose or pass it);
+                    // the previews fill it before it goes, as the local message flies with the grey card.
+                    let files: [MessagePart] = attachments.map { .attachment($0.ref) }
+                    let plain = files + [.text(text)]
+                    try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key) {
+                        guard let filled = await links.parts(shown) else { return (plain, []) }
+                        return (files + filled.parts, filled.uploads)
+                    }
                 } else if attachments.isEmpty {
                     _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
                 } else {
