@@ -66,6 +66,7 @@ def metrics():
             (phase, "frame interval p99 / missed", lambda c, p, ph=phase: pair(get(c, "phases", ph, "frames", "p99_ms"),
                                                                                get(c, "phases", ph, "frames", "missed")), "ms / n"),
             (phase, "pane snapshots per op", lambda c, p, ph=phase: get(c, "phases", ph, "layout", "pane_snapshots_per_op"), ""),
+            (phase, "view layout passes per op", lambda c, p, ph=phase: get(c, "phases", ph, "layout_passes", "per_op"), ""),
             (phase, "topology sends per op", lambda c, p, ph=phase: get(c, "phases", ph, "layout", "topology_sends_per_op"), ""),
         ]
     return rows
