@@ -373,7 +373,7 @@ impl ChildAgent {
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         #[cfg(windows)]
-        cmd.creation_flags(crate::job::START_SUSPENDED);
+        cmd.creation_flags(crate::job::AGENT_FLAGS);
         let mut child = cmd
             .spawn()
             .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
@@ -660,15 +660,15 @@ impl ChildAgent {
             unsafe {
                 libc::killpg(pid as i32, libc::SIGTERM);
             }
-            // Windows has no polite signal for a job: it ends at once.
+            // Windows: Ctrl+Break to the agent's process group first.
             #[cfg(windows)]
-            {
-                let _ = pid;
-                self.kill_job();
-            }
+            crate::job::ctrl_break(pid);
             if let Some(child) = guard.as_mut() {
                 let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
             }
+            // Then the job ends, stragglers included (SIGKILL on Unix).
+            #[cfg(windows)]
+            self.kill_job();
             #[cfg(unix)]
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
@@ -718,11 +718,10 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
-        // Windows has no polite signal for a job: it ends at once.
+        // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
-        {
-            let _ = pgid;
-            self.kill_job();
+        if let Some(pg) = pgid {
+            crate::job::ctrl_break(pg as u32);
         }
         let _ = tokio::time::timeout(grace, async {
             // The exit watcher may hold this lock while it reaps, and frees
@@ -732,6 +731,9 @@ impl ChildAgent {
             }
         })
         .await;
+        // Then the job ends, stragglers included (SIGKILL on Unix).
+        #[cfg(windows)]
+        self.kill_job();
         #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
