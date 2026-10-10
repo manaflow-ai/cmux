@@ -742,7 +742,7 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
     let (daemon, _) = super::wire::resolve_socket_with_origin(global)
-        .map_err(|_| crate::localization::catalog().startup.invalid_session_name.to_owned())?;
+        .map_err(|error| super::wire::resolve_failure_message(&error))?;
     match identity {
         Some(identity) if app_owns_daemon(&identity, &daemon) => Ok(identity.control_socket(&home)),
         _ => Err(no_app()),

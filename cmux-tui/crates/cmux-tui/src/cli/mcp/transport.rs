@@ -96,9 +96,9 @@ pub(super) fn resource(
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
-    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|_| {
-        let message = crate::localization::catalog().startup.invalid_session_name;
-        fail(NotRun, "usage.invalid", message.to_string())
+    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
+        CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
+            .with_key(key.as_deref())
     })?;
     let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
@@ -168,6 +168,8 @@ fn app_open_failure(failure: resolve::Failure, key: Option<&str>) -> CallFailure
     let never_ran = super::super::frontend_browser::never_ran(&failure);
     let (kind, error) = match failure {
         resolve::Failure::Resource(error) => (if never_ran { NotRun } else { Rejected }, error),
+        // A local refusal (the socket resolver's) never reached a daemon.
+        resolve::Failure::Local { error, .. } => (NotRun, error),
         resolve::Failure::Transport(message) => (
             InProgress,
             json!({"code": "transport.failed", "message": message, "details": {}, "retryable": true}),
