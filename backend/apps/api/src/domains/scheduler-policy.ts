@@ -1,5 +1,7 @@
-import type { OutboxItem, Reject } from "@cmux/ownership"
-import type { RunRecord, SchedulerState } from "./scheduler.ts"
+import type { OutboxItem, Reject, RowReader } from "@cmux/ownership"
+import { runRowOf } from "./scheduler-rows.ts"
+import type { SchedulerStore } from "./scheduler-store.ts"
+import type { SchedulerState } from "./scheduler.ts"
 
 /**
  * The run class of the team policy's agents.allowedClasses (enterprise P17-4), as SchedulerDO
@@ -41,24 +43,20 @@ export const applyRunPolicy = (current: RunPolicy | undefined, next: RunPolicy):
   return { version: next.version, runs_allowed: next.runs_allowed }
 }
 
-type Cancel = (runs: Readonly<Record<string, RunRecord>>, automation: string) => { runs: Record<string, RunRecord>; outbox: Array<OutboxItem> }
+type Cancel = (automation: string) => Array<OutboxItem>
 
 /**
  * `scheduler.run_policy`: the newest push wins. A deny also cancels queued runs that have no
  * Workflow yet (coordinator 2026-10-03); started runs keep running.
  */
-export const reduceRunPolicy = (state: SchedulerState, value: RunPolicy, cancelQueued: Cancel) => {
+export const reduceRunPolicy = (state: SchedulerState, st: SchedulerStore, value: RunPolicy, cancelQueued: Cancel) => {
   const next = applyRunPolicy(state.run_policy, value)
   if (!next) return { ok: true as const, state, value: state.run_policy ?? null, changed: false }
   if (next.runs_allowed) return { ok: true as const, state: { ...state, run_policy: next }, value: next }
-  let runs: Readonly<Record<string, RunRecord>> = state.runs
-  const outbox: Array<OutboxItem> = []
-  for (const id of Object.keys(state.automations)) {
-    const c = cancelQueued(runs, id)
-    runs = c.runs
-    outbox.push(...c.outbox)
-  }
-  return { ok: true as const, state: { ...state, run_policy: next, runs }, value: next, outbox }
+  // Every automation's queued runs (an open run's automation always exists: delete cancels them).
+  const automations = [...new Set(st.openRuns().map((r) => r.automation))].filter((id) => st.automation(id) !== undefined)
+  const outbox = automations.flatMap((id) => cancelQueued(id))
+  return { ok: true as const, state: st.head({ ...state, run_policy: next }), value: next, outbox, writes: st.writes() }
 }
 
 /**
@@ -66,8 +64,8 @@ export const reduceRunPolicy = (state: SchedulerState, value: RunPolicy, cancelQ
  * that is terminal now (cancelled by a deny, disable or delete), or gone, must have its new
  * Workflow instance terminated instead of being marked dispatched.
  */
-export const afterCreate = (state: Pick<SchedulerState, "runs">, run: string): "terminate" | "dispatched" => {
-  const r = state.runs[run]
+export const afterCreate = (rows: RowReader | undefined, run: string): "terminate" | "dispatched" => {
+  const r = runRowOf(rows, run)
   return !r || TERMINAL_STATES.has(r.state) ? "terminate" : "dispatched"
 }
 

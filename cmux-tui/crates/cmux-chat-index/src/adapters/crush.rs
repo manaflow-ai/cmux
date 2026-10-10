@@ -166,29 +166,3 @@ pub(crate) fn project_data_dirs(index: &Path) -> Vec<PathBuf> {
 pub(super) fn classify(parts: &[&str]) -> PathRole {
     role(false, matches!(parts, [name] if *name == DB || *name == "crush.db-wal"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::project_data_dirs;
-
-    #[test]
-    fn projects_json_names_absolute_data_dirs() {
-        let dir = tempfile::tempdir().unwrap();
-        let proj = dir.path().join("proj");
-        let custom = dir.path().join("elsewhere");
-        let index = dir.path().join("projects.json");
-        let file = serde_json::json!({"projects": [
-            {"path": proj, "data_dir": ".crush", "last_accessed": "2026-10-01T10:00:00Z"},
-            {"path": proj, "data_dir": proj.join(".crush")},
-            {"path": "relative", "data_dir": ".crush"},
-            {"path": proj, "data_dir": custom},
-            {"path": proj},
-            "junk"
-        ]});
-        std::fs::write(&index, file.to_string()).unwrap();
-        assert_eq!(project_data_dirs(&index), vec![proj.join(".crush"), custom]);
-        assert!(project_data_dirs(&dir.path().join("missing.json")).is_empty());
-        std::fs::write(&index, b"{not json").unwrap();
-        assert!(project_data_dirs(&index).is_empty());
-    }
-}

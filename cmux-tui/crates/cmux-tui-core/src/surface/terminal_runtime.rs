@@ -146,6 +146,21 @@ impl PtyTerminalRuntime {
 /// This object owns the process, terminal emulator, ordered input/output, and
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
+///
+/// Lock order (outer first): `Mux::state` -> `geometry` -> `term` ->
+/// `runtime` -> `taps` -> leaf locks (`render`, `title`, `mouse_encoders`,
+/// `last_attach_colors`, `Mux::default_colors`, ...). These locks carry the
+/// ranks `LockRank::{MuxState, Geometry, Terminal, Runtime, AttachTaps, Leaf}`
+/// (crate::lock_rank; `Mux::state` through `StateMutex`, the others as
+/// [`RankedMutex`]): in debug and test builds a blocking acquisition at a rank
+/// equal to or before one the thread holds panics and names both locks;
+/// release builds compile the check out. Mux code holds `Mux::state` while it reads
+/// `geometry` (`Surface::size`), and a resize holds `geometry` while it takes
+/// `term`. So no path may call a mux method that takes `Mux::state` (every
+/// `emit_terminal_*`, `mark_output_dirty`) while it holds `term` or
+/// `geometry`: collect the event under the lock, release it, then emit.
+/// Parser callbacks run inside `vt_write` under `term`, so they only record
+/// flags or counters that the reader publishes after it unlocks.
 pub struct PtyTerminalRuntime {
     pub(super) event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
@@ -172,7 +187,7 @@ pub struct PtyTerminalRuntime {
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: Mutex<Box<Terminal>>,
+    pub(super) term: RankedMutex<Box<Terminal>>,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -181,8 +196,8 @@ pub struct PtyTerminalRuntime {
     /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
-    pub(super) mouse_encoders: Mutex<Box<MouseEncoders>>,
-    pub(super) runtime: Mutex<PtyRuntime>,
+    pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
+    pub(super) runtime: RankedMutex<PtyRuntime>,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.
@@ -211,14 +226,14 @@ pub struct PtyTerminalRuntime {
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
-    pub(super) title: Mutex<String>,
+    pub(super) title: RankedMutex<String>,
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,
     pub(super) directory_pending: AtomicBool,
     /// A shell has reported a directory at least once; only then is a later
     /// absent report a clear rather than the still-unreported launch directory.
     pub(super) directory_reported: AtomicBool,
-    pub(super) geometry: Mutex<PtyGeometry>,
+    pub(super) geometry: RankedMutex<PtyGeometry>,
     pub(super) kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
     pub(super) geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
@@ -234,7 +249,7 @@ pub struct PtyTerminalRuntime {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    pub(super) taps: Mutex<Vec<AttachTap>>,
+    pub(super) taps: RankedMutex<Vec<AttachTap>>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     pub(super) attach_colors_pending: AtomicBool,
     /// A reset or cursor-semantic transition requires reapplying equal state:
@@ -246,10 +261,10 @@ pub struct PtyTerminalRuntime {
     /// Last effective color state emitted to attach streams. This suppresses
     /// repeated OSC sets that advance Ghostty's revision without changing the
     /// frontend-visible state.
-    pub(super) last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
+    pub(super) last_attach_colors: RankedMutex<Option<Box<TerminalColors>>>,
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
-    pub(super) render: Arc<Mutex<RenderHub>>,
+    pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
     pub(super) frame_requests: SyncSender<u64>,
     #[cfg(test)]

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn resource_record_is_typed_scoped_and_append_only() {
-    let mut registry = WorkspaceRegistry::in_memory("journal").unwrap();
+    let registry = WorkspaceRegistry::in_memory("journal").unwrap();
     let workspace_id = format!("ws_{}", "1".repeat(32));
     let pane_id = format!("pane_{}", "2".repeat(32));
     let result = serde_json::json!({"workspace_id":workspace_id});
@@ -12,7 +12,8 @@ fn resource_record_is_typed_scoped_and_append_only() {
         "id":pane_id,
         "value":{"workspace_id":workspace_id,"pane_id":pane_id}
     }]);
-    let tx = registry.connection.transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
     append_resource_journal_record(
         &tx,
@@ -47,6 +48,7 @@ fn resource_record_is_typed_scoped_and_append_only() {
     assert!(record.subjects.iter().any(|subject| subject.kind == "pane" && subject.id == pane_id));
     let indexed = registry
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM journal_subject_index
                  WHERE kind = 'pane' AND id = ?1 AND sequence = 1",
@@ -58,18 +60,20 @@ fn resource_record_is_typed_scoped_and_append_only() {
 
     let update = registry
         .connection
+        .get()
         .execute("UPDATE session_journal SET kind = 'pane.changed' WHERE sequence = 1", []);
     assert!(update.unwrap_err().to_string().contains("append-only"));
-    let delete = registry.connection.execute("DELETE FROM session_journal", []);
+    let delete = registry.connection.get().execute("DELETE FROM session_journal", []);
     assert!(delete.unwrap_err().to_string().contains("append-only"));
-    let delete_index = registry.connection.execute("DELETE FROM journal_subject_index", []);
+    let delete_index = registry.connection.get().execute("DELETE FROM journal_subject_index", []);
     assert!(delete_index.unwrap_err().to_string().contains("append-only"));
 }
 
 #[test]
 fn migration_marks_incomplete_history_and_preserves_retained_events() {
-    let mut registry = WorkspaceRegistry::in_memory("migration").unwrap();
-    let tx = registry.connection.transaction().unwrap();
+    let registry = WorkspaceRegistry::in_memory("migration").unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute_batch(
         "DROP TABLE session_journal;
              CREATE TABLE resource_events (
@@ -111,8 +115,9 @@ fn migration_marks_incomplete_history_and_preserves_retained_events() {
 
 #[test]
 fn migration_marks_projection_only_legacy_history_incomplete() {
-    let mut registry = WorkspaceRegistry::in_memory("projection-only-migration").unwrap();
-    let tx = registry.connection.transaction().unwrap();
+    let registry = WorkspaceRegistry::in_memory("projection-only-migration").unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute_batch(
         "DROP TABLE session_journal;
              UPDATE meta SET value = '7' WHERE key = 'resource_revision';",
@@ -147,14 +152,15 @@ fn journal_cursor_and_page_limits_fail_closed() {
 #[test]
 fn persistent_reader_observes_commits_on_an_independent_connection() {
     let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
-    let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
+    let registry = WorkspaceRegistry::open(&root, "reader").unwrap();
     let database_path = registry.session_journal_database_path().unwrap();
     let reader = SessionJournalReader::open(&database_path).unwrap();
     assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
 
     let workspace_id = format!("ws_{}", "1".repeat(32));
     let result = serde_json::json!({"workspace_id":workspace_id});
-    let tx = registry.connection.transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
     append_resource_journal_record(
         &tx,
@@ -189,15 +195,17 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     assert_eq!(absent.scanned_through, 1);
     assert!(absent.records.is_empty());
     drop(reader);
+    drop(db);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn archived_segment_metadata_is_verified_before_replay() {
-    let mut registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
+    let registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
     let result = serde_json::json!({"focused":true});
-    let tx = registry.connection.transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
     append_resource_journal_record(
         &tx,
@@ -222,6 +230,7 @@ fn archived_segment_metadata_is_verified_before_replay() {
     let compressed = encoder.finish().unwrap();
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -232,6 +241,7 @@ fn archived_segment_metadata_is_verified_before_replay() {
         .unwrap();
     registry
         .connection
+        .get()
         .execute_batch(
             "DROP TRIGGER session_journal_reject_delete;
                  DELETE FROM session_journal;
@@ -254,9 +264,10 @@ fn archived_segment_rejects_trailing_compressed_data() {
     let variants = [("gzip member", trailing_member), ("non-gzip bytes", b"trailing".to_vec())];
 
     for (label, suffix) in variants {
-        let mut registry = WorkspaceRegistry::in_memory("segment-trailing").unwrap();
+        let registry = WorkspaceRegistry::in_memory("segment-trailing").unwrap();
         let result = serde_json::json!({"focused":true});
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
         append_resource_journal_record(
             &tx,
@@ -282,6 +293,7 @@ fn archived_segment_rejects_trailing_compressed_data() {
         compressed.extend_from_slice(&suffix);
         registry
             .connection
+            .get()
             .execute(
                 "INSERT INTO journal_segments(
                        segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -297,6 +309,7 @@ fn archived_segment_rejects_trailing_compressed_data() {
             .unwrap();
         registry
             .connection
+            .get()
             .execute_batch(
                 "DROP TRIGGER session_journal_reject_delete;
                      DELETE FROM session_journal;
@@ -314,10 +327,11 @@ fn archived_segment_rejects_trailing_compressed_data() {
 #[test]
 fn restore_cursor_decodes_a_multi_page_segment_once() {
     let root = std::env::temp_dir().join(format!("cmux-journal-cursor-{}", new_uuid_v4()));
-    let mut registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
+    let registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
     let workspace_id = format!("ws_{}", "1".repeat(32));
     for sequence in 1..=4 {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [sequence.to_string()],
@@ -347,6 +361,7 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
     let compressed = encoder.finish().unwrap();
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -357,6 +372,7 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
         .unwrap();
     registry
         .connection
+        .get()
         .execute_batch(
             "DROP TRIGGER session_journal_reject_delete;
                  DELETE FROM session_journal;

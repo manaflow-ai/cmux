@@ -9,7 +9,13 @@ final class SuggestionRowView: NSView {
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     /// Pointer inside (true) or leaving (false), at a screen point.
     var onPointer: ((Bool, CGPoint) -> Void)?
-    var isHighlighted = false { didSet { if oldValue != isHighlighted { updateFill() } } }
+    var isHighlighted = false {
+        didSet {
+            guard oldValue != isHighlighted else { return }
+            setAccessibilitySelected(isHighlighted)
+            updateFill()
+        }
+    }
     var leadingIconCenter: CGFloat = 16 { didSet { needsLayout = true } }
     var textLeading: CGFloat = 33 { didSet { needsLayout = true } }
 
@@ -47,6 +53,7 @@ final class SuggestionRowView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
+        setAccessibilitySelected(false)
         applyColors()
     }
 

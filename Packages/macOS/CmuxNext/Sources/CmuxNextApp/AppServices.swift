@@ -165,6 +165,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Relays the Chats index and editor sources into the daemon's project list.
+    private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
@@ -270,7 +272,7 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
-            onboarding.cookiePrompt.attach(entry)
+            onboarding.browserImportOffer.attach(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

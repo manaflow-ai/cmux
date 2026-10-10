@@ -465,6 +465,22 @@ fn new_tabs_get_domains_and_the_agent_world_before_they_run() {
     assert_eq!(script["runImmediately"], true);
 }
 
+/// A tab the driver created reports load only from its own lifecycle
+/// events: it never reads document.readyState, so a navigation that has not
+/// committed yet is never reported loaded from the blank start page (seeding
+/// is for pages a relay attaches to after they loaded).
+#[test]
+fn a_tab_the_driver_created_is_never_seeded_from_ready_state() {
+    let h = Harness::new();
+    let mark = h.mark();
+    h.open(None);
+    let seeded = h
+        .sent_since(mark)
+        .into_iter()
+        .any(|(m, p)| m == "Runtime.evaluate" && p["expression"] == "document.readyState");
+    assert!(!seeded, "an owned tab must not be seeded from document.readyState");
+}
+
 #[test]
 fn open_with_url_navigates_and_info_reports_the_document() {
     let h = Harness::new();

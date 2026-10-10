@@ -413,9 +413,9 @@ jobs:
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
 
-      # Runs the agent-chat unit tests listed in its package.json, including
-      # the Claude launch environment policy.
-      - name: Run agent-chat unit tests
+      # Runs the agent-chat boundary tests (a real server process and the
+      # cmux-chat script; run-tests.ts).
+      - name: Run agent-chat tests
         if: ${{ matrix.group == 'preflight' }}
         working-directory: agent-chat
         run: bun run test
@@ -539,6 +539,14 @@ jobs:
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_select_package_tests.py
+
+      - name: Validate the app FFI pin scope
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_cmux_next_app_ffi_pin_scope.py
+
+      - name: Validate cargo affected-crate selection
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_cargo_affected.py
 
       - name: Validate the package test lane's GhosttyKit revision on a fleet worktree
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}

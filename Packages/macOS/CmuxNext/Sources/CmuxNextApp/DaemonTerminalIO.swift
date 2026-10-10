@@ -47,7 +47,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
-    init(target: Target, visible: Bool = true, policyBlocked: @escaping @Sendable () -> Bool = { false },
+    /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
+    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil,
+         policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -55,7 +57,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             initialSize: target.initialSize,
             visible: visible,
             opener: { size in
-                try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
+                var attachment = target.attachment
+                if let gate {
+                    guard let resolved = await gate.value() else { throw CancellationError() }
+                    attachment = resolved
+                }
+                return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,

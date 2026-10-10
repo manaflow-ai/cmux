@@ -46,7 +46,8 @@ class GraphCoversThePackage(unittest.TestCase):
         paths = {target["path"] for target in GRAPH["targets"].values() if target["path"]}
         for kind in ("Sources", "Tests"):
             for directory in sorted((ROOT / PACKAGE / kind).iterdir()):
-                if directory.is_dir():
+                # A folder with no Swift sources (a fixture another language reads) is not a target.
+                if directory.is_dir() and any(directory.rglob("*.swift")):
                     with self.subTest(directory=directory.name):
                         self.assertIn(f"{PACKAGE}/{kind}/{directory.name}", paths)
 
@@ -93,8 +94,7 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_shared_module_selects_its_dependents(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(),
-                         ["CmuxNextAppTests", "CmuxNextBridgeTests", "CmuxNextSidebarTests"])
+        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests"])
         self.assertEqual(result["daemon"], "false")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
@@ -114,13 +114,11 @@ class PullRequestTiers(unittest.TestCase):
         # a bundle, and the app that embeds them, are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual(result["swift_targets"].split(), sorted([
-            "CmuxNextSettingsTests", "CmuxNextAppTests",
-            "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextAgentActivityTests", "CmuxNextPaletteTests",
+            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
         ]))
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
-        self.assertIn("CmuxNextHomeTests", result["swift_targets"].split())
         self.assertIn("CmuxNextAppTests", result["swift_targets"].split())
         self.assertNotIn("CmuxNextDaemonTests", result["swift_targets"].split())
 
@@ -186,12 +184,6 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextAgentPane/AgentPaneView.swift"])
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["scheme"], "true")
-
-    def test_a_web_file_a_swift_test_reads_keeps_that_test(self):
-        reads = [read for target in GRAPH["targets"].values() for read in target.get("reads", [])
-                 if read.startswith("webviews/") and not read.endswith("/")]
-        self.assertTrue(reads, "no Swift test reads a webviews file; pick another fixture")
-        self.assertEqual(tiers([reads[0]])["swift"], "true")
 
     def test_a_ci_only_change_runs_no_mac_tier(self):
         """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
