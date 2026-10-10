@@ -53,6 +53,11 @@ final class MachineBrowserPageTab: BrowserTab {
         view.show(state(), queued: record.initialURL)
     }
 
+    private var isStarting: Bool {
+        guard case .starting = phase else { return false }
+        return true
+    }
+
     /// Open Locally Instead (the button, `browser.openLocally`).
     func openLocally() { openLocallyHandler(queuedURL) }
 
@@ -66,7 +71,7 @@ final class MachineBrowserPageTab: BrowserTab {
 
     /// Retry: checks the machine again and starts its browser when it can.
     func reload() {
-        if let onStart, phase.map({ if case .starting = $0 { false } else { true } }) ?? true {
+        if let onStart, !isStarting {
             onStart()
         } else {
             view.show(phase ?? currentState(), queued: queuedURL)
