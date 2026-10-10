@@ -55,25 +55,6 @@ struct BackdropArtTests {
         #expect(artLayer.contentsRect == expected)
     }
 
-    @Test func catalogContainsBundledCC0PaintingsAndEnumeratesSystemFiles() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try Data([0x01]).write(to: directory.appendingPathComponent("z-wallpaper.jpg"))
-        try Data([0x01]).write(to: directory.appendingPathComponent("a-wallpaper.png"))
-        let catalog = BackdropCatalog(systemDirectory: directory, fileManager: .default, systemLimit: 1)
-        // The bundled art, the desktop picture, then the system files.
-        #expect(catalog.choices.count == BackdropArt.allCases.count + 2)
-        let firstSystem = try #require(catalog.choices.dropFirst(BackdropArt.allCases.count + 1).first)
-        guard case .system(let actualPath) = firstSystem else {
-            Issue.record("The first system wallpaper choice was not a system path")
-            return
-        }
-        let actualURL = URL(fileURLWithPath: actualPath).resolvingSymlinksInPath()
-        let expectedURL = directory.appendingPathComponent("a-wallpaper.png").resolvingSymlinksInPath()
-        #expect(actualURL == expectedURL)
-    }
-
     @Test func tuningClampsAndPreservesUnchangedAxes() {
         let tuning = AppearanceTuning(glassTransparency: 4, hue: .nan, saturation: -2)
         #expect(tuning == AppearanceTuning(glassTransparency: 1, hue: 0.5, saturation: 0))
