@@ -82,11 +82,14 @@ fn split_client_keys_over_the_socket() {
         &harness.socket,
         serde_json::json!({"id": 21, "cmd": "split", "pane": pane, "dir": "right", "pane_id": id("pane_", 5)}),
     );
-    assert!(error_text(&conflict).contains("creation.conflict"), "{conflict}");
+    // The wire carries the resource error's message (code `creation.conflict`).
+    assert!(error_text(&conflict).contains("bound to different semantics"), "{conflict}");
 
     // An existing pane id and an existing tab id are refused.
-    let existing = request(&harness.socket, serde_json::json!({"id": 22, "cmd": "list-workspaces"}))
-        ["workspaces"][0]["screens"][0]["panes"][0]["resource_id"]
+    let existing = request(
+        &harness.socket,
+        serde_json::json!({"id": 22, "cmd": "list-workspaces"}),
+    )["workspaces"][0]["screens"][0]["panes"][0]["resource_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -104,9 +107,12 @@ fn split_client_keys_over_the_socket() {
     // A malformed id is refused before anything is created.
     let panes = pane_count(&harness);
     for (n, (field, value)) in
-        [("pane_id", "pane_xyz"), ("tab_id", "pane_00000000000000000000000000000001")].into_iter().enumerate()
+        [("pane_id", "pane_xyz"), ("tab_id", "pane_00000000000000000000000000000001")]
+            .into_iter()
+            .enumerate()
     {
-        let mut command = serde_json::json!({"id": 30 + n, "cmd": "split", "pane": pane, "dir": "right"});
+        let mut command =
+            serde_json::json!({"id": 30 + n, "cmd": "split", "pane": pane, "dir": "right"});
         command[field] = serde_json::json!(value);
         let refused = request_response(&harness.socket, command);
         assert!(error_text(&refused).contains("bad request"), "{field}: {refused}");
@@ -114,8 +120,7 @@ fn split_client_keys_over_the_socket() {
     assert_eq!(pane_count(&harness), panes);
 
     // A retry with the same terminal id and no pane id returns the first split.
-    let by_terminal =
-        serde_json::json!({"id": 40, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal(7)});
+    let by_terminal = serde_json::json!({"id": 40, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal(7)});
     let first = request(&harness.socket, by_terminal.clone());
     let retry = request(&harness.socket, by_terminal);
     assert_eq!(retry["surface"], first["surface"], "{retry}");
