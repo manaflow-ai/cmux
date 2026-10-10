@@ -6,8 +6,7 @@ import { decodeBrowserFramePayload } from "../src/rpc/frames.ts";
 import {
   IPHONE_USER_AGENT,
   MAX_UNACKED,
-  QUALITY_IDLE,
-  QUALITY_INTERACTIVE,
+  SCREENCAST_QUALITY,
   decodeBrowserFrameMeta,
   jpegSize,
   normalizeUrl,
@@ -29,6 +28,10 @@ interface FakeCdp {
   base: string;
   /** document.visibilityState the fake page reports. */
   state: { hidden: boolean };
+  /** Sends a CDP event to every connected client. */
+  emit(method: string, params: unknown, sessionId?: string): void;
+  /** Delay (ms) before answering a method. */
+  delays: Record<string, number>;
   calls: { method: string; params: any; sessionId?: string }[];
   close(): Promise<void>;
 }
@@ -36,6 +39,7 @@ interface FakeCdp {
 async function startFakeCdp(): Promise<FakeCdp> {
   const calls: FakeCdp["calls"] = [];
   const state = { hidden: false };
+  const delays: Record<string, number> = {};
   const http: Server = createServer((req, res) => {
     if (req.url === "/json/version") {
       const port = (http.address() as AddressInfo).port;
@@ -62,7 +66,8 @@ async function startFakeCdp(): Promise<FakeCdp> {
     ws.on("message", (raw) => {
       const msg = JSON.parse(raw.toString());
       calls.push({ method: msg.method, params: msg.params, sessionId: msg.sessionId });
-      const reply = (result: unknown) => ws.send(JSON.stringify({ id: msg.id, result, ...(msg.sessionId ? { sessionId: msg.sessionId } : {}) }));
+      const send = (result: unknown) => ws.send(JSON.stringify({ id: msg.id, result, ...(msg.sessionId ? { sessionId: msg.sessionId } : {}) }));
+      const reply = (result: unknown) => (delays[msg.method] ? setTimeout(() => send(result), delays[msg.method]) : send(result));
       switch (msg.method) {
         case "Target.getTargets":
           return reply({ targetInfos: [{ targetId: "T1", type: "page", url: "https://example.com/", title: "Example" }, { targetId: "W1", type: "service_worker", url: "x", title: "" }] });
@@ -99,6 +104,10 @@ async function startFakeCdp(): Promise<FakeCdp> {
   return {
     base,
     state,
+    delays,
+    emit: (method, params, sessionId) => {
+      for (const c of wss.clients) c.send(JSON.stringify({ method, params, ...(sessionId ? { sessionId } : {}) }));
+    },
     calls,
     close: () =>
       new Promise((r) => {
@@ -145,7 +154,7 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     client.onStream(streamId, (p) => frames.push(decodeBrowserFramePayload(Uint8Array.from(p))));
     const metrics = cdp.calls.find((c) => c.method === "Emulation.setDeviceMetricsOverride")!;
     expect(metrics).toMatchObject({ sessionId: "S1", params: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true } });
-    expect(cdp.calls.find((c) => c.method === "Page.startScreencast")!.params).toMatchObject({ format: "jpeg", quality: QUALITY_IDLE, maxWidth: 1170, maxHeight: 2532 });
+    expect(cdp.calls.find((c) => c.method === "Page.startScreencast")!.params).toMatchObject({ format: "jpeg", quality: SCREENCAST_QUALITY, maxWidth: 1170, maxHeight: 2532 });
     // mobile:true also sets the iPhone user agent.
     expect(cdp.calls.find((c) => c.method === "Emulation.setUserAgentOverride")!.params).toMatchObject({ userAgent: IPHONE_USER_AGENT, platform: "iPhone" });
 
@@ -188,7 +197,7 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     expect(created.tab).toMatchObject({ id: "T2", active: true });
   });
 
-  it("sends scroll metadata on request, lowers JPEG quality while touching and closes tabs it lost track of", async () => {
+  it("sends scroll metadata on request, keeps input in order, re-fronts hidden tabs and closes tabs it lost track of", async () => {
     const cdp = await startFakeCdp();
     cleanups.push(() => cdp.close());
     const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
@@ -201,15 +210,27 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     await waitFor(() => payloads.length >= 1);
     expect(decodeBrowserFrameMeta(payloads[0]!)).toEqual({ scrollX: 0, scrollY: 0, pageScale: 1, offsetTop: 0 });
 
-    // A tab that went to the background is brought back before input.
-    cdp.state.hidden = true;
+    // A tab that reported visibilitychange -> hidden is brought back before
+    // input, with no per-input Runtime.evaluate; input stays in order even
+    // though the touch start waits for the re-front and later events do not.
+    cdp.emit("Runtime.bindingCalled", { name: "__cmuxNextVisibility", payload: "hidden" }, "S1");
+    await new Promise((r) => setTimeout(r, 30));
     const fronts = () => cdp.calls.filter((c) => c.method === "Page.bringToFront").length;
     const before = fronts();
-    await client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] });
+    const visEvals = () => cdp.calls.filter((c) => c.method === "Runtime.evaluate" && c.params.expression === "document.visibilityState").length;
+    const evals = visEvals();
+    cdp.delays["Target.activateTarget"] = 80;
+    await Promise.all([
+      client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] }),
+      client.request("browser.touch", { tabId: "T1", type: "move", points: [{ x: 10, y: 40, id: 0 }] }),
+      client.request("browser.touch", { tabId: "T1", type: "end", points: [] }),
+    ]);
+    delete cdp.delays["Target.activateTarget"];
     expect(fronts()).toBe(before + 1);
-    cdp.state.hidden = false;
-    await waitFor(() => cdp.calls.some((c) => c.method === "Page.startScreencast" && c.params.quality === QUALITY_INTERACTIVE));
-    await waitFor(() => cdp.calls.filter((c) => c.method === "Page.startScreencast").at(-1)!.params.quality === QUALITY_IDLE, 3_000);
+    expect(visEvals()).toBe(evals);
+    expect(cdp.calls.filter((c) => c.method === "Input.dispatchTouchEvent").slice(-3).map((c) => c.params.type)).toEqual(["touchStart", "touchMove", "touchEnd"]);
+    // One screencast quality: no restarts while touching.
+    expect(cdp.calls.filter((c) => c.method === "Page.startScreencast").length).toBe(1);
 
     // Desktop mode restores the browser's own user agent.
     await client.request("browser.detach", { streamId });
@@ -222,6 +243,38 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     // A target the host no longer tracks is still closed in Chrome.
     await client.request("browser.close", { tabId: "UNTRACKED" });
     await expect(client.request("browser.close", { tabId: "GONE" })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("reloads for the user agent only when asked or for tabs the phone created", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    await client.request("browser.list");
+    const reloads = () => cdp.calls.filter((c) => c.method === "Page.reload").length;
+    // T1 was open on the Mac before: mobile attach sets the UA without reloading.
+    cdp.emit("Page.frameNavigated", { frame: { id: "F", url: "https://example.com/" } }, "S1");
+    const a = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true });
+    expect(cdp.calls.some((c) => c.method === "Emulation.setUserAgentOverride" && c.params.userAgent === IPHONE_USER_AGENT)).toBe(true);
+    expect(reloads()).toBe(0);
+    await client.request("browser.detach", { streamId: a.streamId });
+    // Request Desktop Website (explicit) reloads.
+    const b = await client.request("browser.attach", { tabId: "T1", width: 980, height: 1980, scale: 1.2, mobile: false, reloadForMode: true });
+    expect(reloads()).toBe(1);
+    await client.request("browser.detach", { streamId: b.streamId });
+    // A tab the phone created and saw load with the desktop agent reloads once.
+    const created = await client.request("browser.create", { url: "new.example" });
+    // (the fake gives every target session S1; let T2's attach land first)
+    await waitFor(() => cdp.calls.filter((c) => c.method === "Target.attachToTarget" && c.params.targetId === "T2").length > 0);
+    await new Promise((r) => setTimeout(r, 30));
+    cdp.emit("Page.frameNavigated", { frame: { id: "F2", url: "https://new.example/" } }, "S1");
+    await new Promise((r) => setTimeout(r, 30));
+    const c = await client.request("browser.attach", { tabId: created.tab.id, width: 390, height: 844, scale: 3, mobile: true });
+    expect(reloads()).toBe(2);
+    await client.request("browser.detach", { streamId: c.streamId });
+    // Re-attaching after detach does not reload: the document is still mobile.
+    await client.request("browser.attach", { tabId: created.tab.id, width: 390, height: 844, scale: 3, mobile: true });
+    expect(reloads()).toBe(2);
   });
 
   it("stops the old screencast before a new attachment takes over and tells the displaced client", async () => {

@@ -142,12 +142,17 @@ Uploads stream on the bulk lane so a large file never blocks control replies.
 Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, active}`
 - `browser.list {}` -> `{tabs:[Tab]}`
 - `browser.create {url?}` -> `{tab}`
-- `browser.attach {tabId, width, height, scale, mobile:true, frameMeta?:bool}` -> `{streamId, tab}` (width/height in CSS px).
+- `browser.attach {tabId, width, height, scale, mobile:true, frameMeta?:bool, reloadForMode?:bool}` -> `{streamId, tab}` (width/height in CSS px).
   The emulated viewport is exactly width x height CSS px at `scale`; frames are that size (pxW = width*scale).
-  `mobile:true` also sets an iPhone Safari user agent (the page reloads once if it was loaded with the
-  desktop one); `mobile:false` keeps the browser's own user agent and desktop metrics. Detach restores the
-  desktop user agent and metrics. `frameMeta:true` adds the document scroll offset to every frame (§3).
-  The host keeps at most 4 frames unacked and lowers JPEG quality while touch input arrives.
+  `mobile:true` sets an iPhone Safari user agent, `mobile:false` the browser's own user agent and desktop
+  metrics. The new user agent applies to the next navigation; the loaded page reloads only when
+  `reloadForMode:true` (the user picked Request Mobile/Desktop Website) or for a tab created with
+  `browser.create` whose page the host saw load with the other user agent. Detach restores the desktop user
+  agent and metrics for new navigations; the loaded page keeps its layout. `frameMeta:true` adds the
+  document scroll offset to every frame (§3). Input for one tab reaches Chrome in arrival order. A streamed
+  tab that went to the background is brought to the front when the phone's input starts on it (with an
+  explicit `--cdp` browser, only for input from the phone that owns the stream). The host keeps at most 4
+  frames unacked; JPEG quality is fixed.
 - `browser.detach {streamId}` / `browser.close {tabId}` / `browser.activate {tabId}` -> `{}`
 - `browser.viewport {tabId, width, height, scale}` -> `{}`
 - `browser.ack {streamId, seq}` -> `{}` (acks every frame up to seq; host keeps at most 4 unacked frames)

@@ -12,16 +12,21 @@ import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint, reti
 
 /** Frames the host keeps in flight before holding CDP acks (flow control). */
 export const MAX_UNACKED = 4;
-/** JPEG quality at rest and while the phone is touching the page. */
-export const QUALITY_IDLE = 72;
-export const QUALITY_INTERACTIVE = 50;
-/** Back to idle quality this long after the last touch. */
-const INTERACTIVE_HOLD_MS = 700;
+/** JPEG quality of the screencast (one setting: restarting the screencast to change it costs frames). */
+export const SCREENCAST_QUALITY = 65;
 /** Header flag on the format byte: an extended header follows (PROTOCOL.md §3). */
 export const FRAME_META_FLAG = 0x80;
 export const IPHONE_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
 const SCROLL_BINDING = "__cmuxNextScroll";
+const VISIBILITY_BINDING = "__cmuxNextVisibility";
+const VISIBILITY_SCRIPT = `(() => {
+  if (window.__cmuxNextVisibilityHooked) return;
+  window.__cmuxNextVisibilityHooked = true;
+  const post = () => { try { ${VISIBILITY_BINDING}(document.visibilityState); } catch {} };
+  document.addEventListener("visibilitychange", post);
+  post();
+})()`;
 /** Input that Chrome has not acknowledged by then is dropped (it blocks the phone's ordered input). */
 const INPUT_TIMEOUT_MS = 3_000;
 const SCROLL_SCRIPT = `(() => {
@@ -43,13 +48,12 @@ interface Cast {
   mobile: boolean;
   /** Phone asked for the extended frame header with scroll offsets. */
   meta: boolean;
-  quality: number;
   seq: number;
   unacked: number[];
   pendingCdpAck: number | null;
   lastFrame?: Buffer;
-  idleTimer?: NodeJS.Timeout;
   scrollScriptId?: string;
+  visibilityScriptId?: string;
 }
 
 interface TabState {
@@ -63,8 +67,16 @@ interface TabState {
   chain?: Promise<unknown>;
   /** Latest document scroll offset reported by the page (CSS px). */
   scroll?: { x: number; y: number };
-  /** User agent mode the current document was loaded with. */
-  uaMode?: "mobile" | "desktop";
+  /** User agent Chrome currently sends for this tab (our override). */
+  uaOverride?: "mobile" | "desktop";
+  /** User agent the current document was loaded with, when the host saw it load. */
+  docMode?: "mobile" | "desktop";
+  /** Created through browser.create (the phone opened it). */
+  createdByHost?: boolean;
+  /** Last document.visibilityState the page reported (cached; no per-input round trip). */
+  hidden?: boolean;
+  /** Tail of this tab's input chain: input reaches Chrome in arrival order. */
+  inputChain?: Promise<unknown>;
 }
 
 /** Runs `fn` after every earlier attach/detach/viewport of the same tab. */
@@ -97,8 +109,14 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private endpoint: string | null = null;
   private lastActivated: string | null = null;
   private defaultUserAgent: string | null = null;
+  /** The browser is the host's own Chrome profile (not an explicit --cdp / CMUX_NEXT_CDP). */
+  private get ownsBrowser(): boolean {
+    return !this.opts.cdp && !process.env.CMUX_NEXT_CDP && !this.opts.resolveEndpoint;
+  }
   /** Tabs a phone closed that Chrome has not destroyed yet (kept out of the list). */
   private readonly closing = new Map<string, () => void>();
+  /** Closed by a phone but never destroyed by Chrome; kept out of the list. */
+  private readonly hiddenClosed = new Set<string>();
 
   private endpointSeen = false;
 
@@ -200,7 +218,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   private upsertTarget(info: any): void {
     if (!this.isPage(info)) return;
-    if (this.closing.has(info.targetId)) return;
+    if (this.closing.has(info.targetId) || this.hiddenClosed.has(info.targetId)) return;
     let t = this.tabs.get(info.targetId);
     const isNew = !t;
     if (!t) {
@@ -256,6 +274,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       case "Target.targetDestroyed":
         this.closing.get(params.targetId)?.();
         this.closing.delete(params.targetId);
+        this.hiddenClosed.delete(params.targetId);
         this.removeTab(params.targetId);
         return;
       case "Target.detachedFromTarget": {
@@ -292,6 +311,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         return;
       case "Page.frameNavigated":
         if (!params.frame?.parentId) {
+          // The new document loaded with whatever user agent was in effect.
+          t.docMode = t.uaOverride ?? "desktop";
           t.tab.url = params.frame.url + (params.frame.urlFragment ?? "");
           t.tab.progress = Math.max(t.tab.progress, 0.3);
           this.emitTab(t);
@@ -307,6 +328,10 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         this.onScreencastFrame(t, params);
         return;
       case "Runtime.bindingCalled":
+        if (params.name === VISIBILITY_BINDING && typeof params.payload === "string") {
+          t.hidden = params.payload === "hidden";
+          return;
+        }
         if (params.name === SCROLL_BINDING && typeof params.payload === "string") {
           const [x, y] = params.payload.split(",").map(Number);
           if (Number.isFinite(x) && Number.isFinite(y)) t.scroll = { x: x!, y: y! };
@@ -374,6 +399,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     this.lastActivated = targetId;
     this.updateActive();
     const t = this.get(targetId);
+    t.createdByHost = true;
     this.emitTab(t);
     return { ...t.tab };
   }
@@ -389,6 +415,20 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async closeTab(tabId: string): Promise<void> {
     const cdp = await this.connect();
+    // Listen for Target.targetDestroyed before asking, so a fast destroy is
+    // not missed; drop the listener on failure or timeout.
+    let resolveDestroyed: (gone: boolean) => void = () => {};
+    const destroyed = new Promise<boolean>((resolve) => (resolveDestroyed = resolve));
+    const timer = setTimeout(() => {
+      this.closing.delete(tabId);
+      resolveDestroyed(false);
+    }, 2_000);
+    timer.unref?.();
+    // While registered, the tab is also kept out of the list (upsertTarget).
+    this.closing.set(tabId, () => {
+      clearTimeout(timer);
+      resolveDestroyed(true);
+    });
     // Close the Chrome target even when this host lost track of it (for
     // example after a reconnect raced the target list); only an unknown
     // target id is an error.
@@ -405,27 +445,20 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       closed = Boolean(res?.ok);
     }
     if (!closed) {
+      clearTimeout(timer);
+      this.closing.delete(tabId);
       if (!this.tabs.has(tabId)) throw new RpcError("not_found", `tab ${tabId} not found`);
       throw new RpcError("unavailable", `Chrome did not close tab ${tabId}`);
     }
     // Chrome reports success before the tab is gone and, with a stalled
-    // browser UI (no display on a headless Mac), may never destroy it. The
-    // tab stays out of the phone's list either way and is dropped from
-    // Chrome when it finally closes.
-    const destroyed = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 2_000);
-      timer.unref?.();
-      this.closing.set(tabId, () => {
-        clearTimeout(timer);
-        resolve(true);
-      });
-    });
+    // browser UI (seen on a headless Mac), may never destroy it. The tab
+    // leaves the phone's list either way.
     this.removeTab(tabId);
-    const gone = await destroyed;
-    if (!gone) this.log(`browser.close ${tabId}: Chrome acknowledged the close but the tab is still open; hiding it from phones`);
+    if (!(await destroyed)) {
+      this.hiddenClosed.add(tabId);
+      this.log(`browser.close ${tabId}: Chrome acknowledged the close but the tab is still open; hiding it from phones`);
+    }
   }
-
-
 
   // ---------------------------------------------------------------- screencast
 
@@ -437,6 +470,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     scale: number,
     mobile = true,
     meta = false,
+    reloadForMode = false,
   ): Promise<{ streamId: number; tab: Tab }> {
     const { cdp, t, sid } = await this.session(tabId);
     // Attach/detach/viewport of one tab run one at a time, so two concurrent
@@ -454,7 +488,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         await this.stopCast(t, displaced);
       }
       if (!session.open) throw new RpcError("unavailable", "client disconnected");
-      const cast: Cast = { session, streamId: 0, width, height, scale, mobile, meta, quality: QUALITY_IDLE, seq: 0, unacked: [], pendingCdpAck: null };
+      const cast: Cast = { session, streamId: 0, width, height, scale, mobile, meta, seq: 0, unacked: [], pendingCdpAck: null };
       cast.streamId = session.addStream({
         kind: "browser",
         target: tabId,
@@ -470,13 +504,18 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
       this.lastActivated = tabId;
       this.updateActive();
+      t.hidden = false;
       await this.applyViewport(cdp, sid, cast);
-      const reload = await this.applyUserAgent(cdp, t, sid, cast.mobile);
+      const reload = await this.applyUserAgent(cdp, t, sid, cast.mobile, reloadForMode);
+      await this.installVisibilityReporter(cdp, sid, cast);
       if (cast.meta) await this.installScrollReporter(cdp, sid, cast);
       await this.startCast(cdp, sid, cast);
       // A document loaded with the other user agent keeps its layout until
       // it reloads (desktop Wikipedia at 1120 CSS px on a phone).
-      if (reload) await cdp.send("Page.reload", {}, sid).catch(() => {});
+      if (reload) {
+        t.docMode = cast.mobile ? "mobile" : "desktop";
+        await cdp.send("Page.reload", {}, sid).catch(() => {});
+      }
       return { streamId: cast.streamId, tab: { ...t.tab } };
     });
   }
@@ -506,8 +545,15 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }, sid).catch(() => {});
   }
 
-  /** Sets the iPhone (mobile) or the browser's own (desktop) user agent. Returns true when the loaded document should reload. */
-  private async applyUserAgent(cdp: CdpConnection, t: TabState, sid: string, mobile: boolean): Promise<boolean> {
+  /**
+   * Sets the iPhone (mobile) or the browser's own (desktop) user agent and
+   * returns whether the loaded document should reload to pick it up. It
+   * reloads only when the phone asked for it (Request Mobile/Desktop
+   * Website), or for a tab the phone created whose document the host saw
+   * load with the other user agent. Other tabs keep their state (forms, SPA
+   * state, scroll) and get the new user agent on their next navigation.
+   */
+  private async applyUserAgent(cdp: CdpConnection, t: TabState, sid: string, mobile: boolean, explicit: boolean): Promise<boolean> {
     const mode = mobile ? "mobile" : "desktop";
     if (mobile) {
       await cdp
@@ -524,13 +570,25 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     } else {
       await this.restoreUserAgent(cdp, sid);
     }
-    const previous = t.uaMode ?? "desktop";
-    t.uaMode = mode;
-    return previous !== mode && /^https?:/i.test(t.tab.url);
+    t.uaOverride = mode;
+    if (!/^https?:/i.test(t.tab.url)) return false;
+    const loadedWith = t.docMode;
+    if (loadedWith === mode) return false;
+    return explicit || (t.createdByHost === true && loadedWith !== undefined);
   }
 
   private async restoreUserAgent(cdp: CdpConnection, sid: string): Promise<void> {
     await cdp.send("Emulation.setUserAgentOverride", { userAgent: this.defaultUserAgent ?? "" }, sid).catch(() => {});
+  }
+
+  /** Reports document.visibilityState changes (cached for input; see ensureVisible). */
+  private async installVisibilityReporter(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+    await cdp.send("Runtime.addBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
+    const r = await cdp
+      .send<{ identifier?: string }>("Page.addScriptToEvaluateOnNewDocument", { source: VISIBILITY_SCRIPT }, sid)
+      .catch(() => null);
+    cast.visibilityScriptId = r?.identifier;
+    await cdp.send("Runtime.evaluate", { expression: VISIBILITY_SCRIPT }, sid).catch(() => {});
   }
 
   /** Reports document scroll offsets through a binding (frame header metadata). */
@@ -550,7 +608,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       "Page.startScreencast",
       {
         format: "jpeg",
-        quality: cast.quality,
+        quality: SCREENCAST_QUALITY,
         maxWidth: Math.round(cast.width * cast.scale),
         maxHeight: Math.round(cast.height * cast.scale),
         everyNthFrame: 1,
@@ -559,45 +617,21 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     );
   }
 
-  /** Restarts the screencast at a new JPEG quality (no viewport change). */
-  private async setQuality(t: TabState, cast: Cast, quality: number): Promise<void> {
-    if (cast.quality === quality) return;
-    cast.quality = quality;
-    await serialized(t, async () => {
-      const cdp = this.cdp;
-      if (!cdp || !t.sessionId || t.cast !== cast) return;
-      await cdp.send("Page.stopScreencast", {}, t.sessionId).catch(() => {});
-      cast.unacked = [];
-      cast.pendingCdpAck = null;
-      await this.startCast(cdp, t.sessionId, cast);
-    });
-  }
-
-  /** Touch input: smaller frames (faster) while interacting, full quality after. */
-  private noteInteraction(t: TabState): void {
-    const cast = t.cast;
-    if (!cast) return;
-    if (cast.idleTimer) clearTimeout(cast.idleTimer);
-    cast.idleTimer = setTimeout(() => {
-      cast.idleTimer = undefined;
-      if (t.cast === cast) void this.setQuality(t, cast, QUALITY_IDLE).catch(() => {});
-    }, INTERACTIVE_HOLD_MS);
-    cast.idleTimer.unref?.();
-    if (cast.quality !== QUALITY_INTERACTIVE) void this.setQuality(t, cast, QUALITY_INTERACTIVE).catch(() => {});
-  }
-
   private async stopCast(t: TabState, cast?: Cast): Promise<void> {
-    if (cast?.idleTimer) clearTimeout(cast.idleTimer);
     const cdp = this.cdp;
     const sid = t.sessionId;
     if (!cdp || !sid) return;
     await cdp.send("Page.stopScreencast", {}, sid).catch(() => {});
     if (cast?.scrollScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.scrollScriptId }, sid).catch(() => {});
     if (cast?.meta) await cdp.send("Runtime.removeBinding", { name: SCROLL_BINDING }, sid).catch(() => {});
-    // The Mac's own window goes back to its desktop user agent; the loaded
-    // page keeps its layout until the user reloads it there.
-    if (t.uaMode === "mobile") await this.restoreUserAgent(cdp, sid);
-    t.uaMode = "desktop";
+    if (cast?.visibilityScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.visibilityScriptId }, sid).catch(() => {});
+    await cdp.send("Runtime.removeBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
+    t.hidden = undefined;
+    // New navigations on the Mac use its desktop user agent again. The loaded
+    // document keeps the mode it was loaded with (docMode is not reset), so
+    // the next attach does not reload it needlessly.
+    if (t.uaOverride === "mobile") await this.restoreUserAgent(cdp, sid);
+    t.uaOverride = "desktop";
     await cdp.send("Emulation.clearDeviceMetricsOverride", {}, sid).catch(() => {});
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false }, sid).catch(() => {});
   }
@@ -663,7 +697,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private async applyViewportChange(cdp: CdpConnection, t: TabState, sid: string, width: number, height: number, scale: number): Promise<void> {
     const cast = t.cast;
     if (!cast) {
-      await this.applyViewport(cdp, sid, { width, height, scale, mobile: t.uaMode !== "desktop" });
+      await this.applyViewport(cdp, sid, { width, height, scale, mobile: t.uaOverride !== "desktop" });
       return;
     }
     cast.width = width;
@@ -701,77 +735,106 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Page.stopLoading", {}, sid);
   }
 
-  async pointer(tabId: string, p: { type: string; x: number; y: number; button?: string; clickCount?: number }): Promise<void> {
-    const { cdp, t, sid } = await this.session(tabId);
-    if (p.type === "down") await this.ensureVisible(cdp, t, sid);
-    const type = p.type === "down" ? "mousePressed" : p.type === "up" ? "mouseReleased" : "mouseMoved";
-    await cdp.send(
-      "Input.dispatchMouseEvent",
-      { type, x: p.x, y: p.y, button: p.button === "left" ? "left" : "none", clickCount: p.clickCount ?? (type === "mouseMoved" ? 0 : 1), pointerType: "mouse" },
-      sid,
-    );
+  /**
+   * Runs one input event for `tabId` after every earlier one. RPC handlers
+   * run concurrently, so without this a touch end could reach Chrome before
+   * its start (the phone pipelines up to 8 inputs). Enqueued synchronously
+   * on arrival, so the order is the link's message order.
+   */
+  private input(tabId: string, _session: ClientSession | undefined, fn: (cdp: CdpConnection, t: TabState, sid: string) => Promise<void>): Promise<void> {
+    const t = this.tabs.get(tabId);
+    if (!t) return this.session(tabId).then(() => undefined); // throws not_found
+    const run = (t.inputChain ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const { cdp, sid } = await this.session(tabId);
+        await fn(cdp, t, sid);
+      });
+    t.inputChain = run.catch(() => {});
+    return run;
   }
 
   /**
    * A hidden (background) tab produces no screencast frames and Chrome never
    * acknowledges input dispatched to it (Input.* times out), for example after
-   * the Mac user or another phone brought a different tab to the front. Bring
-   * a streamed tab back to the front when an interaction starts on it.
+   * the Mac user or another phone brought a different tab to the front. The
+   * page reports visibilitychange through a binding (cached in `t.hidden`),
+   * so this costs no round trip per input.
+   *
+   * Only a tab the phone is streaming is brought to the front. In the
+   * host's own Chrome profile that is enough; with an explicit --cdp (the
+   * user's own Chrome), the input must also come from the phone that owns
+   * the stream, so another client's input never moves the user's window.
    */
-  private async ensureVisible(cdp: CdpConnection, t: TabState, sid: string): Promise<void> {
-    if (!t.cast) return;
-    const r = await cdp
-      .send<{ result?: { value?: string } }>("Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }, sid, 2_000)
-      .catch(() => null);
-    if (r?.result?.value !== "hidden") return;
+  private async ensureVisible(cdp: CdpConnection, t: TabState, sid: string, session?: ClientSession): Promise<void> {
+    const cast = t.cast;
+    if (!cast || t.hidden !== true) return;
+    if (!this.ownsBrowser && cast.session !== session) return;
     this.log(`browser: tab ${t.tab.id} was in the background; bringing it to the front for input`);
     await cdp.send("Target.activateTarget", { targetId: t.tab.id }).catch(() => {});
     await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
+    t.hidden = false;
     this.lastActivated = t.tab.id;
     this.updateActive();
   }
 
-  async touch(tabId: string, type: string, points: { x: number; y: number; id: number }[]): Promise<void> {
-    const { cdp, t, sid } = await this.session(tabId);
-    if (type === "start") await this.ensureVisible(cdp, t, sid);
-    this.noteInteraction(t);
+  pointer(tabId: string, p: { type: string; x: number; y: number; button?: string; clickCount?: number }, session?: ClientSession): Promise<void> {
+    return this.input(tabId, session, async (cdp, t, sid) => {
+      if (p.type === "down") await this.ensureVisible(cdp, t, sid, session);
+      const type = p.type === "down" ? "mousePressed" : p.type === "up" ? "mouseReleased" : "mouseMoved";
+      await cdp.send(
+        "Input.dispatchMouseEvent",
+        { type, x: p.x, y: p.y, button: p.button === "left" ? "left" : "none", clickCount: p.clickCount ?? (type === "mouseMoved" ? 0 : 1), pointerType: "mouse" },
+        sid,
+        INPUT_TIMEOUT_MS,
+      );
+    });
+  }
+
+  touch(tabId: string, type: string, points: { x: number; y: number; id: number }[], session?: ClientSession): Promise<void> {
     const map: Record<string, string> = { start: "touchStart", move: "touchMove", end: "touchEnd", cancel: "touchCancel" };
     const cdpType = map[type];
-    if (!cdpType) throw new RpcError("bad_request", `bad touch type ${type}`);
-    await cdp.send(
-      "Input.dispatchTouchEvent",
-      { type: cdpType, touchPoints: cdpType === "touchEnd" || cdpType === "touchCancel" ? [] : points.map((pt) => ({ x: pt.x, y: pt.y, id: pt.id })) },
-      sid,
-      INPUT_TIMEOUT_MS,
-    );
+    if (!cdpType) return Promise.reject(new RpcError("bad_request", `bad touch type ${type}`));
+    return this.input(tabId, session, async (cdp, t, sid) => {
+      if (type === "start") await this.ensureVisible(cdp, t, sid, session);
+      await cdp.send(
+        "Input.dispatchTouchEvent",
+        { type: cdpType, touchPoints: cdpType === "touchEnd" || cdpType === "touchCancel" ? [] : points.map((pt) => ({ x: pt.x, y: pt.y, id: pt.id })) },
+        sid,
+        INPUT_TIMEOUT_MS,
+      );
+    });
   }
 
-  async scroll(tabId: string, x: number, y: number, dx: number, dy: number): Promise<void> {
-    const { cdp, sid } = await this.session(tabId);
-    await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: dx, deltaY: dy }, sid);
+  scroll(tabId: string, x: number, y: number, dx: number, dy: number, session?: ClientSession): Promise<void> {
+    return this.input(tabId, session, async (cdp, _t, sid) => {
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: dx, deltaY: dy }, sid, INPUT_TIMEOUT_MS);
+    });
   }
 
-  async key(tabId: string, p: { type: string; key: string; code?: string; text?: string; modifiers?: number }): Promise<void> {
-    const { cdp, t, sid } = await this.session(tabId);
-    if (p.type !== "up") await this.ensureVisible(cdp, t, sid);
-    const vk = virtualKeyCode(p.key);
-    const params: Record<string, unknown> = {
-      type: p.type === "up" ? "keyUp" : p.text ? "keyDown" : "rawKeyDown",
-      key: p.key,
-      code: p.code ?? "",
-      modifiers: p.modifiers ?? 0,
-      ...(vk ? { windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk } : {}),
-    };
-    if (p.type !== "up" && p.text) {
-      params.text = p.text;
-      params.unmodifiedText = p.text;
-    }
-    await cdp.send("Input.dispatchKeyEvent", params, sid);
+  key(tabId: string, p: { type: string; key: string; code?: string; text?: string; modifiers?: number }, session?: ClientSession): Promise<void> {
+    return this.input(tabId, session, async (cdp, t, sid) => {
+      if (p.type !== "up") await this.ensureVisible(cdp, t, sid, session);
+      const vk = virtualKeyCode(p.key);
+      const params: Record<string, unknown> = {
+        type: p.type === "up" ? "keyUp" : p.text ? "keyDown" : "rawKeyDown",
+        key: p.key,
+        code: p.code ?? "",
+        modifiers: p.modifiers ?? 0,
+        ...(vk ? { windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk } : {}),
+      };
+      if (p.type !== "up" && p.text) {
+        params.text = p.text;
+        params.unmodifiedText = p.text;
+      }
+      await cdp.send("Input.dispatchKeyEvent", params, sid, INPUT_TIMEOUT_MS);
+    });
   }
 
-  async text(tabId: string, text: string): Promise<void> {
-    const { cdp, sid } = await this.session(tabId);
-    await cdp.send("Input.insertText", { text }, sid);
+  text(tabId: string, text: string, session?: ClientSession): Promise<void> {
+    return this.input(tabId, session, async (cdp, _t, sid) => {
+      await cdp.send("Input.insertText", { text }, sid, INPUT_TIMEOUT_MS);
+    });
   }
 
   async screenshot(tabId: string): Promise<string> {
@@ -800,6 +863,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         num(p, "scale", 3),
         p.mobile !== false,
         p.frameMeta === true,
+        p.reloadForMode === true,
       ),
     );
     server.register("browser.detach", async (p, session) => {
@@ -848,24 +912,24 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       await this.stop(str(p, "tabId"));
       return {};
     });
-    server.register("browser.pointer", async (p) => {
-      await this.pointer(str(p, "tabId"), { type: str(p, "type"), x: num(p, "x"), y: num(p, "y"), button: optStr(p, "button"), clickCount: typeof p.clickCount === "number" ? p.clickCount : undefined });
+    server.register("browser.pointer", async (p, session) => {
+      await this.pointer(str(p, "tabId"), { type: str(p, "type"), x: num(p, "x"), y: num(p, "y"), button: optStr(p, "button"), clickCount: typeof p.clickCount === "number" ? p.clickCount : undefined }, session);
       return {};
     });
-    server.register("browser.touch", async (p) => {
-      await this.touch(str(p, "tabId"), str(p, "type"), Array.isArray(p.points) ? p.points : []);
+    server.register("browser.touch", async (p, session) => {
+      await this.touch(str(p, "tabId"), str(p, "type"), Array.isArray(p.points) ? p.points : [], session);
       return {};
     });
-    server.register("browser.scroll", async (p) => {
-      await this.scroll(str(p, "tabId"), num(p, "x"), num(p, "y"), num(p, "dx", 0), num(p, "dy", 0));
+    server.register("browser.scroll", async (p, session) => {
+      await this.scroll(str(p, "tabId"), num(p, "x"), num(p, "y"), num(p, "dx", 0), num(p, "dy", 0), session);
       return {};
     });
-    server.register("browser.key", async (p) => {
-      await this.key(str(p, "tabId"), { type: str(p, "type"), key: str(p, "key"), code: optStr(p, "code"), text: optStr(p, "text"), modifiers: typeof p.modifiers === "number" ? p.modifiers : 0 });
+    server.register("browser.key", async (p, session) => {
+      await this.key(str(p, "tabId"), { type: str(p, "type"), key: str(p, "key"), code: optStr(p, "code"), text: optStr(p, "text"), modifiers: typeof p.modifiers === "number" ? p.modifiers : 0 }, session);
       return {};
     });
-    server.register("browser.text", async (p) => {
-      await this.text(str(p, "tabId"), typeof p.text === "string" ? p.text : "");
+    server.register("browser.text", async (p, session) => {
+      await this.text(str(p, "tabId"), typeof p.text === "string" ? p.text : "", session);
       return {};
     });
     server.register("browser.screenshot", async (p) => ({ dataBase64: await this.screenshot(str(p, "tabId")) }));
