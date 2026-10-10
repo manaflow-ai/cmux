@@ -361,6 +361,9 @@ function card(o, i) {
   if (o.play && o.play.error) parts.push(el("div", {class: "sub"}, "Play: " + o.play.error));
   return el("article", {id: o.key, "data-entry": o.entry}, ...parts);
 }
+function settleChanged(o) {
+  return (o.frames || []).some((f) => f.basePlay && f.play && typeof f.basePlay.settleMs === "number" && typeof f.play.settleMs === "number" && f.basePlay.settleMs !== f.play.settleMs);
+}
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
@@ -368,11 +371,23 @@ order.forEach((status) => {
     const section = el("section", {"data-status": status});
     const failed = list.filter(([o]) => o.play && o.play.status === "fail");
     const unchanged = list.filter(([o]) => !o.play || o.play.status !== "fail");
-    if (failed.length) section.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    if (failed.length) section.append(el("h2", {"data-heading": "play-failures"}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    const latency = unchanged.filter(([o]) => settleChanged(o));
+    if (latency.length) {
+      section.append(
+        el("h2", {"data-heading": "latency-receipts"}, "Latency changed (" + latency.length + ")"),
+        ...latency.map(([o, i]) => {
+          const node = card(o, i);
+          node.dataset.settleReceipt = "true";
+          return node;
+        }),
+      );
+    }
+    const plain = unchanged.filter(([o]) => !settleChanged(o));
     const details = el("details", {});
     details.append(
-      el("summary", {"data-summary": "unchanged"}, unchanged.length + " unchanged"),
-      el("ul", {class: "plain"}, ...unchanged.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+      el("summary", {"data-summary": "unchanged"}, plain.length + " unchanged"),
+      el("ul", {class: "plain"}, ...plain.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
     );
     section.append(details);
     main.append(section);
@@ -392,16 +407,22 @@ const applyEntryFilter = () => {
   for (const section of main.querySelectorAll("[data-status]")) {
     const status = section.dataset.status;
     if (status === "unchanged") {
-      const failed = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const failed = [...section.querySelectorAll("article[data-entry]:not([data-settle-receipt])")].filter((node) => !node.hidden);
+      const receipts = [...section.querySelectorAll("article[data-settle-receipt]")].filter((node) => !node.hidden);
       const unchanged = [...section.querySelectorAll("ul.plain [data-entry]")].filter((node) => !node.hidden);
-      const heading = section.querySelector("h2");
+      const heading = section.querySelector("h2[data-heading='play-failures']");
       if (heading) {
         heading.hidden = failed.length === 0;
         heading.textContent = "Play checks failed (" + failed.length + ")";
       }
+      const latencyHeading = section.querySelector("h2[data-heading='latency-receipts']");
+      if (latencyHeading) {
+        latencyHeading.hidden = receipts.length === 0;
+        latencyHeading.textContent = "Latency changed (" + receipts.length + ")";
+      }
       const summary = section.querySelector("[data-summary='unchanged']");
       if (summary) summary.textContent = unchanged.length + " unchanged";
-      section.hidden = failed.length === 0 && unchanged.length === 0;
+      section.hidden = failed.length === 0 && receipts.length === 0 && unchanged.length === 0;
     } else {
       const visible = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
       const heading = section.querySelector("h2");
