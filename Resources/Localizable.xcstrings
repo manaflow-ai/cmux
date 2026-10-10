@@ -626243,124 +626243,6 @@
         }
       }
     },
-    "coderouter.loadingTeam": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا تزال إعدادات الحساب تُحمّل لهذا الفريق. حاول مرة أخرى بعد قليل."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Kontoeinstellungen für dieses Team werden noch geladen. Versuche es gleich noch einmal."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account settings are still loading for this team. Try again in a moment."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La configuración de cuentas de este equipo todavía se está cargando. Inténtalo de nuevo en un momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les réglages de compte de cette équipe sont encore en cours de chargement. Réessayez dans un instant."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此团队的账户设置仍在加载，请稍后再试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此團隊的帳號設定仍在載入，請稍後再試。"
-          }
-        }
-      }
-    },
-    "coderouter.selectWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wähle einen lokalen Workspace aus, bevor du ein Coding-Agent-Konto hinzufügst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select a local workspace before adding a coding agent account."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selecciona un espacio de trabajo local antes de añadir una cuenta de agente de programación."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de programmation."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コーディングエージェントのアカウントを追加する前に、ローカルワークスペースを選択してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加编程代理账户前，请选择本地工作区。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增程式代理程式帳號前，請選取本機工作區。"
-          }
-        }
-      }
-    },
     "coderouter.guide.title": {
       "extractionState": "manual",
       "localizations": {
@@ -644280,6 +644162,367 @@
         }
       }
     },
+    "remoteSession.parked.sshAuthenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication failed. Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証に失敗しました。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证失败。自动重连已暂停；请使用“重新连接”再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung ist fehlgeschlagen. Die automatische Wiederverbindung ist pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH a échoué. La reconnexion automatique est en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مصادقة SSH. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH falló. La reconexión automática está pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證失敗。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증에 실패했습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH provjera autentičnosti nije uspjela. Automatsko ponovno povezivanje je pauzirano; koristite Ponovo poveži da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-godkendelse mislykkedes. Automatisk genforbindelse er sat på pause; brug Forbind igen for at prøve igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autenticazione SSH non riuscita. La riconnessione automatica è in pausa; usa Riconnetti per riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទៀងផ្ទាត់ SSH បានបរាជ័យ។ ការភ្ជាប់ឡើងវិញដោយស្វ័យប្រវត្តិត្រូវបានផ្អាក។ ប្រើ «ភ្ជាប់ឡើងវិញ» ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-autentisering mislyktes. Automatisk tilkobling på nytt er satt på pause; bruk Koble til på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwierzytelnianie SSH nie powiodło się. Automatyczne ponowne łączenie jest wstrzymane; użyj opcji Połącz ponownie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na autenticação SSH. A reconexão automática está pausada; use Reconectar para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось выполнить аутентификацию SSH. Автоматическое переподключение приостановлено; нажмите «Подключиться снова», чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตรวจสอบสิทธิ์ SSH ล้มเหลว การเชื่อมต่ออัตโนมัติถูกหยุดชั่วคราว ใช้ “เชื่อมต่อใหม่” เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH kimlik doğrulaması başarısız oldu. Otomatik yeniden bağlanma duraklatıldı; yeniden denemek için Yeniden Bağlan'ı kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося автентифікуватися через SSH. Автоматичне повторне підключення призупинено; натисніть «Підключитися знову», щоб спробувати ще раз."
+          }
+        }
+      }
+    },
+    "featureFlags.macAccountDirectory.title": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Cross-team My Devices"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Teamübergreifende Meine Geräte"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mes appareils entre équipes"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "أجهزتي عبر الفرق"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mis dispositivos entre equipos"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨團隊我的裝置"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "跨团队我的设备"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "팀 간 내 기기"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "チーム横断のマイデバイス"
+            }
+          }
+        }
+      },
+    "featureFlags.macAccountDirectory.description": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Finds and connects your Macs signed in to the same account even when they selected different teams."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Findet und verbindet deine Macs mit demselben Konto, auch wenn sie unterschiedliche Teams ausgewählt haben."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Trouve et connecte vos Mac connectés au même compte, même s’ils ont sélectionné des équipes différentes."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يعثر على أجهزة Mac المسجّلة بالحساب نفسه ويصلها حتى لو اختارت فرقًا مختلفة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Encuentra y conecta tus Mac con la misma cuenta aunque hayan seleccionado equipos distintos."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "尋找並連線登入同一帳號的 Mac，即使它們選擇了不同的團隊。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "查找并连接登录同一账号的 Mac，即使它们选择了不同的团队。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "다른 팀을 선택했더라도 같은 계정에 로그인한 Mac을 찾아 연결합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
+            }
+          }
+        }
+      },
+    "coderouter.loadingTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال إعدادات الحساب تُحمّل لهذا الفريق. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kontoeinstellungen für dieses Team werden noch geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account settings are still loading for this team. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración de cuentas de este equipo todavía se está cargando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réglages de compte de cette équipe sont encore en cours de chargement. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此团队的账户设置仍在加载，请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此團隊的帳號設定仍在載入，請稍後再試。"
+          }
+        }
+      }
+    },
+    "coderouter.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen lokalen Workspace aus, bevor du ein Coding-Agent-Konto hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a local workspace before adding a coding agent account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un espacio de trabajo local antes de añadir una cuenta de agente de programación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de programmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントのアカウントを追加する前に、ローカルワークスペースを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加编程代理账户前，请选择本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增程式代理程式帳號前，請選取本機工作區。"
+          }
+        }
+      }
+    },
     "cli.sshTmux.list.connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -644766,124 +645009,6 @@
         }
       }
     },
-    "featureFlags.macAccountDirectory.title": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Cross-team My Devices"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Teamübergreifende Meine Geräte"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Mes appareils entre équipes"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "أجهزتي عبر الفرق"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Mis dispositivos entre equipos"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "跨團隊我的裝置"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "跨团队我的设备"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "팀 간 내 기기"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "チーム横断のマイデバイス"
-            }
-          }
-        }
-      },
-    "featureFlags.macAccountDirectory.description": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Finds and connects your Macs signed in to the same account even when they selected different teams."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Findet und verbindet deine Macs mit demselben Konto, auch wenn sie unterschiedliche Teams ausgewählt haben."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Trouve et connecte vos Mac connectés au même compte, même s’ils ont sélectionné des équipes différentes."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "يعثر على أجهزة Mac المسجّلة بالحساب نفسه ويصلها حتى لو اختارت فرقًا مختلفة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Encuentra y conecta tus Mac con la misma cuenta aunque hayan seleccionado equipos distintos."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "尋找並連線登入同一帳號的 Mac，即使它們選擇了不同的團隊。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "查找并连接登录同一账号的 Mac，即使它们选择了不同的团队。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "다른 팀을 선택했더라도 같은 계정에 로그인한 Mac을 찾아 연결합니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "異なるチームを選択していても、同じアカウントでサインインしている Mac を見つけて接続します。"
-            }
-          }
-        }
-      },
     "cloud.welcome.slide.displays.caption": {
       "extractionState": "manual",
       "localizations": {

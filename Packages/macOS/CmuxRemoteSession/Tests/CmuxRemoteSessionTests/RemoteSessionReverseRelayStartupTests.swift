@@ -35,6 +35,38 @@ struct RemoteSessionReverseRelayStartupTests {
         ))
     }
 
+    @Test("Only canonical OpenSSH authentication markers are classified")
+    func identifiesSSHAuthenticationFailure() {
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "user@example.test: Permission denied (publickey,password)."
+            ) == .permissionDenied(methods: "publickey, password")
+        )
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures"
+            ) == .tooManyAuthenticationFailures
+        )
+        #expect(
+            RemoteRelayAuthenticationFailure.detect(
+                in: "Permission denied: caller-controlled diagnostic"
+            ) == nil
+        )
+        for diagnostic in [
+            "debug1: ProxyCommand echo Permission denied (publickey).",
+            "debug1: echo Too many authentication failures",
+            "Permission denied (secret-canary).",
+            "user@example.test: Permission denied (publickey). secret-canary",
+            "Permission denied (publickey).\nError: remote port forwarding failed for listen port 64044",
+            "Load key /tmp/key: Permission denied",
+            "Error: remote port forwarding failed for listen port 64044",
+            "ssh: connect to host example.test port 22: Connection refused",
+        ] {
+            let classified = RemoteRelayAuthenticationFailure.detect(in: diagnostic) != nil
+            #expect(!classified)
+        }
+    }
+
     @MainActor
     static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
@@ -43,6 +75,7 @@ struct RemoteSessionReverseRelayStartupTests {
         relayPort: Int? = nil,
         sshOptions: [String]? = nil,
         persistentDaemonSlot: String? = nil,
+        agentSocketPath: String? = nil,
         identity: ResolvedControlPathFixture.Identity? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
         providesResolvedControlPath: Bool = true,
@@ -79,6 +112,7 @@ struct RemoteSessionReverseRelayStartupTests {
             localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
             ownerWorkspaceID: UUID(),
             terminalStartupCommand: nil,
+            agentSocketPath: agentSocketPath,
             preserveAfterTerminalExit: persistentDaemonSlot != nil,
             persistentDaemonSlot: persistentDaemonSlot
         )
