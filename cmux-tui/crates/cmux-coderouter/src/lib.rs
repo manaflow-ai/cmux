@@ -378,8 +378,13 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
         .truncate(false)
         .write(true)
         .open(router_dir.join("router.lock"))?;
-    let lock =
-        tokio::task::spawn_blocking(move || fs4::FileExt::lock(&lock).map(|()| lock)).await??;
+    // Bounded: a router that never lets go (hung) must not collect waiters.
+    let lock = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::task::spawn_blocking(move || fs4::FileExt::lock(&lock).map(|()| lock)),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;

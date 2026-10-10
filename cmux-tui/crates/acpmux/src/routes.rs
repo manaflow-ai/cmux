@@ -752,9 +752,11 @@ pub fn local_router_with(
         return Ok((url, key.clone()));
     }
     // A key id may not hold `_`, the key format's separator.
-    // The daemon pid keeps a restarted daemon from re-minting (and so revoking)
-    // the key of a harness a previous daemon spawned.
-    let key_id: String = format!("acpmux-route-{family}-{}", std::process::id())
+    // A random id per daemon run keeps a restarted daemon from re-minting (and
+    // so revoking) the key of a harness a previous daemon spawned.
+    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let run = RUN.get_or_init(|| uuid::Uuid::now_v7().simple().to_string());
+    let key_id: String = format!("acpmux-route-{family}-{run}")
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
         .take(64)
