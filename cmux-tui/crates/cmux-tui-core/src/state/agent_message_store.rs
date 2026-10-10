@@ -288,14 +288,15 @@ pub(crate) fn send(
 
 /// Whether a receipt may move from `from` to `to`. Receipts move forward:
 /// queued, delivered, acknowledged. A queued or failed delivery may fail
-/// (again) or be delivered, and a person may acknowledge a message that was
-/// never delivered.
+/// (again) or be delivered, a delivery path that claimed a message before
+/// handing it over may record that the hand-over failed, and a person may
+/// acknowledge a message that was never delivered.
 fn transition_allowed(from: &str, to: &str) -> bool {
     matches!(
         (from, to),
         ("queued", "delivered" | "acknowledged" | "failed")
             | ("failed", "delivered" | "acknowledged" | "failed")
-            | ("delivered", "acknowledged")
+            | ("delivered", "acknowledged" | "failed")
     )
 }
 
