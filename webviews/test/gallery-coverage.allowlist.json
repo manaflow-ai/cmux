@@ -37,8 +37,6 @@
     "agent-session/acpmux/ModelPickerCascade.tsx#ModelPickerCascade",
     "agent-session/acpmux/ModelPickerDrill.tsx#ModelPickerDrill",
     "agent-session/acpmux/ModelPickerShell.tsx#ModelPickerShell",
-    "agent-session/acpmux/NewTabPage.tsx#KindIcon",
-    "agent-session/acpmux/NewTabPage.tsx#NewTabPage",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
