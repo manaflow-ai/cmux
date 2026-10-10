@@ -236,20 +236,28 @@ extension BrowserPanel {
             .flatMap({ Int($0.split(separator: ":").last ?? "") }),
            url.scheme?.lowercased() == "http",
            url.port == listenerPort { return nil }
-        // A forward restart leaves WebKit history and in-flight commits
-        // pointing at the retired listener. Resolve that stale loopback URL
-        // against this pane's stable service identity before asking the
-        // provider to rebind; otherwise the old ephemeral port is mistaken
-        // for the SSH host's service port.
+        if let serviceURL = privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) {
+            return serviceURL
+        }
         if let remoteURL = cloudAccess.remoteURL,
            cloudAccess.model?.route == .loopback,
            var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            parts.scheme = remoteURL.scheme
-            parts.host = remoteURL.host
-            parts.port = remoteURL.port
+            if cloudAccess.isRetiredListener(url) {
+                // A forward restart leaves WebKit history and in-flight
+                // commits pointing at the retired listener. Resolve only that
+                // known stale port against the stable service identity.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+                parts.port = remoteURL.port
+            } else {
+                // A different loopback port can be another SSH service. Keep
+                // its port while using this machine's private service host.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+            }
             return parts.url
         }
-        return privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) ?? url
+        return url
     }
 
     /// The machine this browser belongs to: its current cloud route, or the
