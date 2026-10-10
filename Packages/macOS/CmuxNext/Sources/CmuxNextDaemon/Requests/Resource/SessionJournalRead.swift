@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A bounded read of a session journal (`session.journal.subscribe` with
 /// `follow:false`, the primitive behind `cmux session current journal

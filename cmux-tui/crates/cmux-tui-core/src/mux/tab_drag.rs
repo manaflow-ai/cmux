@@ -14,7 +14,7 @@
 use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
-use crate::model::{ColumnDock, LayoutColumn, LayoutUndoTabRestore};
+use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
@@ -662,6 +662,14 @@ pub(crate) fn apply_tab_drag(
         let flags = reduce_column_dock(&flags, index, Some(dock))?;
         for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
             column.dock = flag;
+        }
+        // A left dock leads the column order, so undocking it scrolls it in
+        // on the left, where it was shown (cx-x7pl: the agent chat dock went
+        // to the far right of the strip).
+        if dock.edge == DockEdge::Left && index != 0 {
+            let column = screen.layout_columns.remove(index);
+            screen.layout_columns.insert(0, column);
+            screen.sync_layout_column_projection();
         }
     }
     if undoable {

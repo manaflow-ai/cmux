@@ -2959,6 +2959,10 @@ fn plain_launch_attaches_to_existing_local_session() {
 mod session_shutdown;
 
 #[cfg(unix)]
+#[path = "cli/apps_store.rs"]
+mod apps_store;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]
@@ -3649,6 +3653,9 @@ mod closed_delete;
 mod feed_local;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
+#[cfg(unix)]
+#[path = "cli/left_dock_undock.rs"]
+mod left_dock_undock;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

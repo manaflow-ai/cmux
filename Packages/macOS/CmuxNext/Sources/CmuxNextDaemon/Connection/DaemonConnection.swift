@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// The control-plane connection: one socket for `subscribe` and mutations.
