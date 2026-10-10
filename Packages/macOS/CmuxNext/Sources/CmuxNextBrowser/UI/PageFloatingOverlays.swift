@@ -25,6 +25,8 @@ final class PageFloatingOverlays {
         let view: NSView
         var lift: CGFloat
         var handle: OverlayHandle?
+        /// Fading out: it no longer takes clicks (`release`).
+        var isReleased = false
     }
 
     private var cards: [Card] = []
@@ -50,6 +52,14 @@ final class PageFloatingOverlays {
         view.translatesAutoresizingMaskIntoConstraints = false
         cards.append(Card(view: view, lift: lift))
         observePages()
+    }
+
+    /// `view` starts to fade out: from now on clicks pass through it to the
+    /// page, also when it is presented again before the fade ends.
+    func release(_ view: NSView) {
+        guard let index = cards.firstIndex(where: { $0.view === view }) else { return }
+        cards[index].isReleased = true
+        cards[index].handle?.stopTakingMouse()
     }
 
     /// Takes `view` off the page (its overlay goes away at once).
@@ -84,7 +94,8 @@ final class PageFloatingOverlays {
             } else {
                 dismiss(index)
                 let handle = WindowOverlayHost.host(for: window).present(
-                    view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero), layer: .pane(clip: clip))
+                    view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
+                                                  passesThroughClicks: cards[index].isReleased, layer: .pane(clip: clip))
                 )
                 cards[index].handle = handle
                 if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift) }
