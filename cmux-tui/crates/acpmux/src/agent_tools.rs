@@ -44,6 +44,15 @@ use serde_json::{Map, Value, json};
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
 /// `0` turns the agent tools off for this daemon.
 pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
+/// The agent session the cmux CLI and `cmux mcp serve` name as their caller
+/// (`caller.agent_session`), so the app opens their tabs beside its chat.
+pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
+
+/// Caller ids an agent must not inherit from the daemon's own environment
+/// (a daemon an agent started carries that agent's session too).
+pub const INHERITED_CALLER_ENV: [&str; 4] =
+    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
+
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
 pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
@@ -170,9 +179,17 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
         || args.iter().any(|a| a == "--strict-mcp-config")
 }
 
-/// `mcpServers` for a session's ACP harness.
-pub fn acp_servers_for(remote_origin: bool, env: &BTreeMap<String, String>) -> Value {
-    if left_out(remote_origin, env, &[]) { json!([]) } else { current().scoped(env).acp_servers() }
+/// `mcpServers` for acpmux session `session_id`'s ACP harness.
+pub fn acp_servers_for(
+    remote_origin: bool,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+) -> Value {
+    if left_out(remote_origin, env, &[]) {
+        json!([])
+    } else {
+        current().scoped(env).for_session(session_id).acp_servers()
+    }
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -186,7 +203,10 @@ pub fn claude_args_for(
     if left_out(remote_origin, env, args) {
         Vec::new()
     } else {
-        current().scoped(env).claude_args(&mcp_config_path(&crate::config::home(), session_id))
+        current()
+            .scoped(env)
+            .for_session(session_id)
+            .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
 
@@ -284,6 +304,19 @@ impl AgentTools {
             server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
+            }
+        }
+        self
+    }
+
+    /// The tools for acpmux session `session_id`: the cmux server gets it as
+    /// [`AGENT_SESSION_ENV`] in its own env, because a client may pass only
+    /// an allowlisted env to a stdio MCP server (Codex does).
+    pub fn for_session(mut self, session_id: &str) -> Self {
+        for server in &mut self.servers {
+            server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
+            if server.name == "cmux" {
+                server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
         }
         self
