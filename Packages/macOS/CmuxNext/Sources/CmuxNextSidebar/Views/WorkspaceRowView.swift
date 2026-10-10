@@ -21,8 +21,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
-    /// A single colored segment connects grouped workspace rows.
-    private let groupRail = CALayer()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
@@ -43,11 +41,6 @@ final class WorkspaceRowView: SidebarRowView {
     private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
-    /// The group band's frame (`GroupLabelBandTests`).
-    var groupBandFrame: NSRect { groupRail.frame }
-    var isGroupBandHidden: Bool { groupRail.isHidden }
-    private var groupColor: GroupColor?
-    private var lastInGroup = false
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
@@ -89,7 +82,6 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
-        layer?.addSublayer(groupRail)
         closeButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
@@ -125,8 +117,6 @@ final class WorkspaceRowView: SidebarRowView {
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
-        var groupColor: GroupColor?
-        var lastInGroup: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant
@@ -137,15 +127,13 @@ final class WorkspaceRowView: SidebarRowView {
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         lastConfiguration = (ws, row)
         let content = Content(
-            ws: ws, group: row.group, groupColor: row.groupColor, lastInGroup: row.isLastInGroup,
+            ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: observedAgentMarkVariant(),
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
-        groupColor = row.groupColor
-        lastInGroup = row.isLastInGroup
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isPlaceholderRow = ws.rowState == .placeholder
@@ -268,21 +256,9 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        // The members' bar (cx-rcby, the Chrome tab group line): one thin
-        // line in the group's theme color under the chip's rounded start,
-        // through every member row (full height, so rows join) and rounded
-        // off under the last member; a neutral line for a group without a color.
+        // Members indent under their group header; the members' line is
+        // one layer per group under the rows (SidebarListView+GroupLines).
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
-        let barWidth = SidebarStyle.groupBarWidth
-        let barBottom = lastInGroup ? Metrics.space2 : 0
-        let gapAbove = Metrics.space1 // up through the row spacing above: one unbroken bar (cx-qno.17)
-        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: -gapAbove, width: barWidth, height: max(0, b.height - barBottom + gapAbove))
-        groupRail.isHidden = !grouped
-        performWithTheme {
-            groupRail.backgroundColor = (groupColor ?? .grey).headerFill.cgColor
-            groupRail.cornerRadius = lastInGroup ? barWidth / 2 : 0
-            groupRail.maskedCorners = isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        }
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent

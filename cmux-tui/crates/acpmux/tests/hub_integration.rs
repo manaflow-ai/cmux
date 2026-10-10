@@ -1494,6 +1494,7 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 mod adopt;
 
 #[path = "hub_integration/preset_args.rs"]
+#[cfg(unix)]
 mod preset_args;
 
 #[path = "hub_integration/lifecycle_fixes.rs"]

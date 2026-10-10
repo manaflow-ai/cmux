@@ -23,6 +23,15 @@ import AppKit
     static func content(_ list: SidebarListView, _ rows: [SidebarRow], in block: NSRect) -> NSView? {
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
+        // The group's members' line rides under the rows on the card, as in the list (cx-qno.17).
+        let lines = SidebarListView.groupLines(rows, colors: list.groups) { list.frame(for: $0).offsetBy(dx: -block.minX, dy: -block.minY) }
+        for line in lines {
+            let view = NSView(frame: line.frame)
+            view.wantsLayer = true
+            view.layer?.cornerRadius = line.frame.width / 2
+            container.performWithTheme { view.layer?.backgroundColor = line.color.headerFill.cgColor }
+            container.addSubview(view)
+        }
         for row in rows {
             let view = rowView(list, row)
             let rowFrame = list.frame(for: row)

@@ -12,6 +12,9 @@
 //! The unix socket keeps its behavior: a local turn under `approve-all`
 //! still answers itself.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

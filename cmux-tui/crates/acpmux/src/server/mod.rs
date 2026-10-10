@@ -15,7 +15,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
+/// Windows port: the daemon socket is `cmux::local_socket` there (a later
+/// landing); until then no listener exists, so none is ever bound.
+#[cfg(not(unix))]
+pub enum UnixListener {}
 use tokio::sync::{broadcast, mpsc};
 
 /// How one connection receives one attached session's live records.
@@ -116,6 +122,7 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 }
 
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
+#[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
@@ -141,7 +148,12 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
+#[cfg(not(unix))]
+pub async fn bind_unix(_path: &std::path::Path) -> Result<UnixListener> {
+    Err(crate::platform::unsupported("the acpmux daemon socket"))
+}
 
+#[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
@@ -179,6 +191,10 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
         });
     }
+}
+#[cfg(not(unix))]
+pub async fn serve_unix(_hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
+    match listener {}
 }
 
 const INDEX_HTML: &str = include_str!("../../web/index.html");
