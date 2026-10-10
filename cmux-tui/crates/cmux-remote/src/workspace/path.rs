@@ -572,6 +572,9 @@ fn normalize_symlink_components(
 ) -> Result<VecDeque<OsString>, RpcError> {
     for component in target.components() {
         match component {
+            Component::Normal(name) if name == OsStr::new("~") => {
+                return Err(invalid_path("resolved path contains an unexpanded '~' component"));
+            }
             Component::Normal(name) => expanded.push(name.to_owned()),
             Component::CurDir => {}
             Component::ParentDir => {

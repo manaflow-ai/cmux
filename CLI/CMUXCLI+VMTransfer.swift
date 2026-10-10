@@ -348,6 +348,7 @@ extension CMUXCLI {
         remotePath: String, excludes: [String], client: SocketClient, phase: inout String
     ) throws -> VMPushOutcome {
         let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
+        try Self.rejectLiteralTildePath(destination, operation: "vm push remote path")
         guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
             throw CLIError(message: "Cloud file destination contains an unsupported control character.")
         }
@@ -359,6 +360,7 @@ extension CMUXCLI {
         if isDirectory {
             let tarURL = try makeLocalTarball(of: localURL, excludes: excludes)
             defer { try? FileManager.default.removeItem(at: tarURL) }
+            try validateLocalTarball(at: tarURL)
             try FileManager.default.moveItem(at: tarURL, to: localFile)
         } else {
             let source = localURL.resolvingSymlinksInPath()
@@ -1682,6 +1684,23 @@ extension CMUXCLI {
             throw CLIError(message: "tar failed packing \(directory.path) (exit \(tar.terminationStatus))")
         }
         return tarURL
+    }
+
+    /// Validate the archive after tar applies its exclusions, so every path that
+    /// can reach the machine shares the same literal-tilde invariant.
+    private func validateLocalTarball(at tarURL: URL) throws {
+        let result = CLIProcessRunner.runProcessData(
+            executablePath: "/usr/bin/tar",
+            arguments: ["-tzf", tarURL.path],
+            timeout: 30
+        )
+        guard result.status == 0 else {
+            throw CLIError(message: "tar failed listing the transfer archive (exit \(result.status))")
+        }
+        let listing = String(data: result.stdout, encoding: .utf8) ?? ""
+        for entry in listing.split(whereSeparator: \.isNewline) {
+            try Self.rejectLiteralTildePath(String(entry), operation: "vm push archive path")
+        }
     }
 
     static func formatByteCount(_ bytes: Int) -> String {
