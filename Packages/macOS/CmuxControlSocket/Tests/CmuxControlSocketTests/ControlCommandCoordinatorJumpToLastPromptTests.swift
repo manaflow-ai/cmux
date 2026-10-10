@@ -15,15 +15,15 @@ struct ControlCommandCoordinatorJumpToLastPromptTests {
         _ method: String,
         params: [String: JSONValue] = [:],
         configure: (FakeSurfaceControlCommandContext) -> Void
-    ) -> ControlCallResult {
+    ) throws -> ControlCallResult {
         let context = FakeSurfaceControlCommandContext()
         configure(context)
         let coordinator = ControlCommandCoordinator(context: context)
-        return coordinator.handle(ControlRequest(id: .int(1), method: method, params: params))
+        return try #require(coordinator.handle(ControlRequest(id: .int(1), method: method, params: params)))
     }
 
-    @Test func reportsNotOpenedWhenNoSurfaceHasAPrompt() {
-        let result = run("surface.jump_to_last_prompt") { _ in }
+    @Test func reportsNotOpenedWhenNoSurfaceHasAPrompt() throws {
+        let result = try run("surface.jump_to_last_prompt") { _ in }
         #expect(result == .ok(.object(["opened": .bool(false)])))
     }
 
@@ -31,7 +31,7 @@ struct ControlCommandCoordinatorJumpToLastPromptTests {
         let windowID = UUID()
         let workspaceID = UUID()
         let surfaceID = UUID()
-        let result = run("surface.jump_to_last_prompt") {
+        let result = try run("surface.jump_to_last_prompt") {
             $0.jumpToLastPromptResolution = .focused(
                 windowID: windowID,
                 workspaceID: workspaceID,
@@ -50,8 +50,8 @@ struct ControlCommandCoordinatorJumpToLastPromptTests {
         #expect(payload["surface_ref"] != nil)
     }
 
-    @Test func dockFailureCarriesNoRequestedSurface() {
-        let result = run("surface.jump_to_last_prompt") {
+    @Test func dockFailureCarriesNoRequestedSurface() throws {
+        let result = try run("surface.jump_to_last_prompt") {
             $0.jumpToLastPromptResolution = .dockUnavailable(message: "dock")
         }
         #expect(result == .err(code: "unavailable", message: "dock", data: nil))
@@ -59,9 +59,9 @@ struct ControlCommandCoordinatorJumpToLastPromptTests {
 
     /// `surface.focus` now shares the encoder; its Dock error still echoes the
     /// surface the caller asked for.
-    @Test func surfaceFocusDockFailureStillEchoesTheRequestedSurface() {
+    @Test func surfaceFocusDockFailureStillEchoesTheRequestedSurface() throws {
         let surfaceID = UUID()
-        let result = run(
+        let result = try run(
             "surface.focus",
             params: ["surface_id": .string(surfaceID.uuidString)]
         ) {
