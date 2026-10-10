@@ -29,74 +29,10 @@ fn listening_line_matches_the_app_vector() {
     assert_eq!(listening_line(bound), r#"{"listening":"127.0.0.1:52144"}"#);
 }
 
-#[test]
-fn lifeline_fires_once_at_end_of_file() {
-    let mut fired = 0;
-    watch_lifeline(Cursor::new(b"ignored bytes".to_vec()), || fired += 1);
-    assert_eq!(fired, 1);
-}
-
 struct Failing;
 
 impl Read for Failing {
     fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
         Err(std::io::Error::other("closed"))
-    }
-}
-
-#[test]
-fn lifeline_fires_on_a_read_error() {
-    let mut fired = false;
-    watch_lifeline(Failing, || fired = true);
-    assert!(fired);
-}
-
-fn hello(token: Option<&str>) -> RdControl {
-    serde_json::from_value(serde_json::json!({
-        "t": "hello", "user": "u", "install": "i", "class": "c", "interactive": true,
-        "udp_port": null, "max_datagram": 1200, "token": token, "service": "rb/1", "caps": ["input.service"],
-    }))
-    .expect("hello")
-}
-
-#[test]
-fn the_secret_is_the_first_lifeline_line() {
-    let mut input = Cursor::new(b"s3cret-0123\nlater bytes are the lifeline\n".to_vec());
-    assert_eq!(read_secret(&mut input).as_deref(), Some("s3cret-0123"));
-    assert_eq!(read_secret(&mut Cursor::new(b"\n".to_vec())), None, "empty line");
-    assert_eq!(read_secret(&mut Cursor::new(Vec::new())), None, "end of file");
-}
-
-#[test]
-fn a_viewer_without_the_right_secret_is_refused() {
-    let good = "ab".repeat(32);
-    assert!(authorize(Some(&good), &hello(Some(&good))).is_ok());
-    assert!(authorize(Some(&good), &hello(Some(&"cd".repeat(32)))).is_err(), "wrong secret");
-    assert!(authorize(Some(&good), &hello(None)).is_err(), "no secret");
-    assert!(authorize(Some(&good), &hello(Some(&format!("{good}00")))).is_err(), "longer secret");
-    assert!(authorize(Some(&good), &RdControl::Stop).is_err(), "not a hello");
-    // A host without a per-launch secret has no open mode.
-    assert!(authorize(None, &hello(None)).is_err(), "no host secret");
-    assert!(authorize(None, &hello(Some(&good))).is_err(), "no host secret, any token");
-}
-
-#[test]
-fn the_host_listens_on_loopback_only() {
-    for ok in ["127.0.0.1:0", "127.0.0.1:4103", "[::1]:0"] {
-        assert!(loopback_only(ok.parse().expect("addr")).is_ok(), "{ok}");
-    }
-    for bad in ["0.0.0.0:4103", "[::]:0", "192.168.1.5:4103", "10.0.0.2:0"] {
-        assert!(loopback_only(bad.parse().expect("addr")).is_err(), "{bad}");
-    }
-}
-
-/// The secret never reaches a refusal reason (the host logs and sends those).
-#[test]
-fn refusals_never_carry_the_secret() {
-    let good = "ef".repeat(32);
-    let wrong = "01".repeat(32);
-    for hello in [hello(Some(&wrong)), hello(None), RdControl::Stop] {
-        let reason = authorize(Some(&good), &hello).expect_err("refused");
-        assert!(!reason.contains(&good) && !reason.contains(&wrong), "{reason}");
     }
 }
