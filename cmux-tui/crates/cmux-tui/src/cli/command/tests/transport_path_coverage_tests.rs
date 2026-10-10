@@ -134,6 +134,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
+                        // The hosting app opens an app's workspace from its
+                        // sidebar item (app-screens-v1); no CLI verb yet.
+                        | "workspace.ensure_app"
                         // The verified app mints confirmations for its own
                         // page relay; the CLI is never that app.
                         | "origin.confirmation.issue"

@@ -302,6 +302,7 @@ pub(crate) fn delete_closed_browser_rows(
         transaction
             .execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         transaction.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
+        transaction.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
     }
     Ok(())
 }
@@ -317,6 +318,7 @@ impl crate::workspace_registry::WorkspaceRegistry {
         tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(tx.commit()?)
     }
 }

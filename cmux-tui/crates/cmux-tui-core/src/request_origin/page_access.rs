@@ -151,6 +151,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceGet
         | Op::WorkspaceCreate
         | Op::WorkspaceEnsureHome
+        | Op::WorkspaceEnsureApp
         | Op::WorkspaceRename
         | Op::WorkspaceMove
         | Op::WorkspaceFocus
