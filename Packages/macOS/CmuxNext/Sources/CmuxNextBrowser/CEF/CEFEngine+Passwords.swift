@@ -115,17 +115,17 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
     // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
     // dropped (never copied to another thread) and the reveal ends as not found.
     guard Thread.isMainThread else {
-        // crash-allow: runs in a main-queue block
-        DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address).finish(nil) } }
+        // main-proof: a DispatchQueue.main block runs on the main thread
+        DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address)?.finish(nil) } }
         return
     }
     // Integers cross into the main-actor closure (a raw buffer is not Sendable); the closure runs
     // synchronously, while the bytes are still valid.
     let base = UInt(bitPattern: bytes)
-    // crash-allow: checked Thread.isMainThread just above
+    // main-proof: guarded by Thread.isMainThread above
     MainActor.assumeIsolated {
         let buffer = UnsafeRawPointer(bitPattern: base).map { UnsafeRawBufferPointer(start: $0, count: length) }
-        PasswordRevealBox.take(address).finish(buffer)
+        PasswordRevealBox.take(address)?.finish(buffer)
     }
 }
 
@@ -140,9 +140,11 @@ final class PasswordRevealBox {
     }
 
     /// The box the shim context names, taking back the retain the call gave it.
-    static func take(_ address: UInt) -> PasswordRevealBox {
-        // crash-allow: the address is the box retained by revealPassword, passed back once by the shim
-        Unmanaged<PasswordRevealBox>.fromOpaque(UnsafeRawPointer(bitPattern: address)!).takeRetainedValue()
+    /// The address is the box retained by revealPassword, passed back once by the shim; a null
+    /// address (no box) is nil rather than a trap.
+    static func take(_ address: UInt) -> PasswordRevealBox? {
+        guard let pointer = UnsafeRawPointer(bitPattern: address) else { return nil }
+        return Unmanaged<PasswordRevealBox>.fromOpaque(pointer).takeRetainedValue()
     }
 
     func finish(_ bytes: UnsafeRawBufferPointer?) {

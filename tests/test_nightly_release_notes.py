@@ -320,6 +320,21 @@ class AppcastTests(unittest.TestCase):
                     self.assertEqual(items[0].find("enclosure").attrib, old_items[0].find("enclosure").attrib)
                     self.assertEqual(ET.tostring(items[1]), ET.tostring(old_items[1]))
 
+    def test_the_arm64_only_track_updates_its_one_feed(self):
+        """nightly-next publishes only the arm64 variant: one feed, and a missing one still fails."""
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=("appcast-arm64.xml",))
+            self.assertEqual(ET.parse(directory / "appcast-arm64.xml").findtext("channel/item/description"), "Fresh notes")
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes")
+            (directory / "appcast-arm64.xml").unlink()
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=("appcast-arm64.xml",))
+
     def test_missing_feeds_fail_instead_of_silently_publishing_without_updater_notes(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

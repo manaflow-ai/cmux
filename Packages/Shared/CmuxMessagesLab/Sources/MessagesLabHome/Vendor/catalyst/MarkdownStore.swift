@@ -36,8 +36,8 @@ final class MarkdownStore: @unchecked Sendable {
             let lines = MDLines.split(text).map { MDLine($0) }
             let from = last.lines.lowerBound
             var refs = MDRefs()
-            var tail = MDBlockParser.parse(Array(lines[min(from, lines.count)...]), refs: &refs, known: nil, topLevel: true)
-            for i in tail.indices { tail[i].lines = (tail[i].lines.lowerBound + from)..<(tail[i].lines.upperBound + from) }
+            var tail = MDBlockParser.parse(Array(lines.slice(from: min(from, lines.count))), refs: &refs, known: nil, topLevel: true) // cmux: clamped slice
+            tail = tail.map { var b = $0; b.lines = (b.lines.lowerBound + from)..<(b.lines.upperBound + from); return b } // cmux: no index writes
             if let first = tail.first, var t0 = Optional(first) {
                 t0.blankBefore = last.blankBefore
                 tail[0] = t0
@@ -65,15 +65,22 @@ final class MarkdownStore: @unchecked Sendable {
 }
 
 extension Markdown {
-    /// The markdown layout of a text part, or nil for the plain path: markdown off,
-    /// a long text (LongText; shared/LONG-MESSAGES.md), no rich element, or the
-    /// message shown as source.
-    static func layout(_ text: String, message: ID?, width: CGFloat) -> MarkdownLayout? {
-        guard enabled, mightContain(text), !LongText.isLong(text) else { return nil }
+    /// The markdown layout of a text part, or nil for the plain path: the message is not
+    /// marked markdown (`format`, plain by default: opt-in), markdown off, a long text
+    /// (LongText; shared/LONG-MESSAGES.md), no rich element, or the message shown as source.
+    static func layout(_ text: String, message: ID?, format: MessageFormat?, width: CGFloat) -> MarkdownLayout? {
+        guard format == .markdown, enabled, mightContain(text), !LongText.isLong(text) else { return nil }
         if let message, MarkdownStore.shared.showsSource(message) { return nil }
         let doc = MarkdownStore.shared.document(text)
         guard doc.isRich else { return nil }
         return MarkdownLayoutEngine.layout(doc, source: text, maxWidth: Metrics(width: width).maxTextWidth)
+    }
+
+    /// The display string of a text part (what selection offsets index and Copy returns), or nil
+    /// when the part takes the plain path (then the source is the display string). Independent of
+    /// the width (only line breaks depend on it); thread safe; block layouts are cached.
+    static func displayText(_ text: String, message: ID?, format: MessageFormat?) -> String? {
+        layout(text, message: message, format: format, width: Fixture.windowWidth)?.plain
     }
 
     /// Measure-key salt: a message shown as source is a new measurement.

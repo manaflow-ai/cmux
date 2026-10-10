@@ -18,7 +18,13 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-tui-cloud-conversations.workspace = true
+cmux-tui-platform.workspace = true
+cmux-tui-image-paste.workspace = true
+cmux-tui-remote-access.workspace = true
+cmux-tui-util.workspace = true
 cmux-terminal-iface.workspace = true
+cmux-terminal-sizing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -33,14 +39,20 @@ cmux-local-auth.workspace = true
 cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
+parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
+quick-xml.workspace = true
 zeroize.workspace = true
 url.workspace = true
 cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
+cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
+cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
@@ -52,5 +64,16 @@ rustls.workspace = true
 tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# The local socket transport and its same-user checks (cmux::local_socket),
+# shared with the SDK's clients; the SDK's client code is not built.
+cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 uds_windows.workspace = true
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = [
+    "Wdk_System_Threading",
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Kernel",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

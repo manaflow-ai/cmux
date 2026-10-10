@@ -1,11 +1,13 @@
 import type { Op, Part } from "../src/conversation/types.ts"
 import { agent, CoreHost, human, NOW, text } from "../test/support/harness.ts"
 import type { Corpus } from "./generate.ts"
+import { questionCases } from "./question-cases.ts"
 
 /**
  * The Rust crate's local subset: heads without `kind`, the eight ops, create and the agent
  * loop guard. REQUIRED check for the Rust owner: heads carry `agent_text_streak` (0 at
  * create) and `last_agent_text_at`, updated on every text send (agent +1, human resets).
+ * The ninth op, `question.answer`, and the `question` part are in question-cases.ts.
  */
 export const localCases = (c: Corpus): void => {
   const ALICE = "user_local"
@@ -145,4 +147,6 @@ export const localCases = (c: Corpus): void => {
   }
   cards.advance(10_000)
   c.op(cards, "loop guard: a fifth agent text after work cards is refused", MUX, "t9", send("t9", parts("again")), "agent_budget")
+
+  questionCases(c)
 }

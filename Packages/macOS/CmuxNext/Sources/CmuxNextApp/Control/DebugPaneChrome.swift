@@ -54,6 +54,9 @@ enum DebugPaneChrome {
                 "window_controls": .object([
                     "sidebar_hidden": .bool(controller.root.sidebarHidden),
                     "toggle_symbol": .string(controller.root.toolbarBand.sidebarToggle.symbol),
+                    "toggle_icon": .string(SidebarToggleIcon.tunable.value.rawValue),
+                    "band_presence": .number(Double(controller.root.toolbarBand.presence)),
+                    "band_frame": rect(controller.root.toolbarBand.frame),
                     "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
                 ]),
                 // 2026-10-05: the title bar buttons' reveal (top row or sidebar hover) and what is drawn.

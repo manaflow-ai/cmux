@@ -1,4 +1,5 @@
-//! Help for the scopes `browser`, `notification`, `room`, `closed` and `git`,
+//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git` and
+//! `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
 pub(super) const BROWSER_HELP: &str = "\
@@ -70,6 +71,8 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
+  cmux closed <closed> delete [--members <i,j,...>]
+  cmux closed clear [--since-ms <unix-ms>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
@@ -77,6 +80,9 @@ its pane at its old index, each screen in its workspace, each workspace as a
 new workspace. Without an id, reopen takes the newest group of the window, else
 the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
+delete and clear remove groups permanently (and their terminal archives; the
+journals keep what they recorded); clear --since-ms removes only the groups
+closed at or after that time.
 ";
 
 pub(super) const GIT_HELP: &str = "\
@@ -150,3 +156,19 @@ pub(super) fn edit_distance(left: &str, right: &str) -> usize {
     }
     previous[right.len()]
 }
+
+pub(super) const CONVERSATION_HELP: &str = "\
+USAGE
+  cmux conversation list
+  cmux conversation <conv_id> get [--tail <0..500>]
+  cmux conversation <conv_id> history --before-seq <n> --limit <1..500>
+  cmux conversation search <words>... [--limit <1..100>]
+  cmux conversation <conv_id> send --text <text> | --parts-json <json>
+    [--reply-to <msg_id> [--reply-part <n>]]
+  cmux conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+
+The conversations of this session that you take part in (Home and the Chief).
+send writes as you; Home shows it at once. events streams the conversation:
+a snapshot, then each commit, typing and the Chief's live reply drafts, one
+JSON line each with --jsonl. `cmux chief` is the chat on top of these.
+";

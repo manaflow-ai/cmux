@@ -386,7 +386,3 @@ impl VisitStore {
 fn escape_like(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
-
-#[cfg(test)]
-#[path = "visits_tests.rs"]
-mod tests;

@@ -76,6 +76,22 @@ class VerdictTests(unittest.TestCase):
                          "__ZN4core3fmt5writeE")
         self.assertEqual(parity.normalize_symbol("_ghostty_terminal_new"), "_ghostty_terminal_new")
 
+    def test_executable_rust_symbols_are_not_its_interface(self):
+        # Which of two identical Rust functions keeps its global name is a
+        # linker choice; an executable's interface is its C-named exports.
+        mac = info(exported=["__mh_execute_header", "_main", "__ZN4core7convert4From4fromE_i32"])
+        linux = info(exported=["__mh_execute_header", "_main", "__ZN4core7convert4From4fromE_u32",
+                               "__RNvXs0_NtCsabc_3std7processNtB5_10ExitStatus3fmt"])
+        self.assertTrue(self.verdict(mac, linux)["checks"]["exported_symbols"])
+        linux_c = info(exported=["__mh_execute_header", "_main", "_cmux_extra_entry"])
+        self.assertFalse(self.verdict(mac, linux_c)["checks"]["exported_symbols"])
+
+    def test_static_archive_rust_exports_still_must_match(self):
+        archive = ["LC_BUILD_VERSION", "LC_SYMTAB"]
+        mac = info(load_commands=archive, exported=["_cmux_rd_new", "__ZN3foo3barE"])
+        linux = info(load_commands=archive, exported=["_cmux_rd_new", "__ZN3foo3bazE"])
+        self.assertFalse(self.verdict(mac, linux)["checks"]["exported_symbols"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,11 +24,17 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// `collapsed` restores a group folded (undo of Ungroup).
     case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
     case renameGroup(GroupID, String)
+    /// The group's name editor closed (commit or cancel). The App removes a
+    /// group made with no member that is still empty (cx-rcby). No local change.
+    case groupEditorEnded(GroupID)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
     case setGroupPinned(GroupID, Bool)
+    /// Set a group's icon to the shared icon string (one emoji or an SF
+    /// Symbol name); nil removes it.
+    case setGroupIcon(GroupID, String?)
     /// Close every workspace in the group. A pinned group stays as an empty,
     /// collapsed saved group; an unpinned one disappears.
     case closeGroup(GroupID)
@@ -61,6 +67,17 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// A notice card button (`SidebarModel.noticeCard`): the card's id and
+    /// the action's id (a tip's Try It, an update's Update).
+    case noticeAction(card: String, action: String)
+    /// A notice card's x.
+    case dismissNotice(String)
+    /// The "cmux Updated!" card's "See What's New" row (`updates.whatsNew`).
+    case openWhatsNew
+    /// The "cmux Updated!" card's "Share cmux" row (`app.shareCmux`).
+    case shareCmux
+    /// The "cmux Updated!" card's x: this version is seen.
+    case dismissUpdated
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

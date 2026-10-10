@@ -36,14 +36,20 @@ import CmuxHomeCoreTestSupport
         #expect(store.rows.first(where: { $0.id == id })?.preview == "hello")
     }
 
-    @Test func offlineRefusesNewOpsAndQueuesNothing() async {
+    /// Ops other than sends are refused offline and leave nothing behind;
+    /// a send waits for the reconnect (OfflineSendQueueTests).
+    @Test func offlineRefusesNewOpsAndQueuesOnlySends() async {
         let (store, source) = await started()
         await source.setOnline(false)
         await waitUntil { !store.isOnline }
         await #expect(throws: HomeRejection.ownerUnreachable) {
-            try await store.perform(.sendMessage(conversation: ConversationID("conv_austin"), parts: [.text("x")]))
+            try await store.perform(.setReadCursor(conversation: ConversationID("conv_austin"), seq: 1))
         }
         #expect(store.log.isEmpty)
+        await #expect(throws: HomeSendState.pendingResend) {
+            try await store.perform(.sendMessage(conversation: ConversationID("conv_austin"), parts: [.text("x")]))
+        }
+        #expect(store.log.entries.count == 1)
     }
 
     @Test func replayedKeyIsAppliedOnce() async throws {

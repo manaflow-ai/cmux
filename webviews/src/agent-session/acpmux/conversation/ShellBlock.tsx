@@ -2,10 +2,20 @@
 // and, when the command failed, its exit code.
 import { useT } from "../i18n";
 
-export function ShellBlock({ command, output, exitCode }: { command?: string; output?: string; exitCode?: number }) {
+export function ShellBlock({
+  id,
+  command,
+  output,
+  exitCode,
+}: {
+  id?: string;
+  command?: string;
+  output?: string;
+  exitCode?: number;
+}) {
   const t = useT();
   return (
-    <div className="cv-shell">
+    <div className="cv-shell" id={id}>
       <div className="cv-shell__label">{t("shell.label")}</div>
       <pre className="cv-shell__body selectable">
         {command && <span className="cv-shell__command">$ {command}</span>}

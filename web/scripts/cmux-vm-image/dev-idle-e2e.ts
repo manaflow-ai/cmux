@@ -25,7 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Freestyle } from "freestyle";
-import { API_ORIGINS } from "../../../images/cmux-vm/guest/vm-agent";
+import { API_ORIGINS, HOST_CLI } from "./host-agent";
 import { assertDevOrigin, readEnvFile } from "./dev-e2e";
 import { argValue, freestyleApiKey, run, type Vm } from "./guest";
 
@@ -121,7 +121,7 @@ class Api {
 async function signin(credentials: Record<string, string>): Promise<string> {
   const res = await fetch(`${STACK}/api/v1/auth/password/sign-in`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ?? "" },
+    headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": DEV_STACK_PROJECT, ...(credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ? { "x-stack-publishable-client-key": credentials.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY } : {}) },
     body: JSON.stringify({ email: credentials.CMUX_DOGFOOD_STACK_EMAIL, password: credentials.CMUX_DOGFOOD_STACK_PASSWORD }),
   });
   const body = (await res.json()) as { access_token?: string };
@@ -157,7 +157,7 @@ async function vmFor(fs: Freestyle, machine: string): Promise<Vm> {
   return fs.vms.ref(data.id) as unknown as Vm;
 }
 
-const HEARTBEAT_15S = "mkdir -p /etc/systemd/system/cmux-vm-agent.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-vm-agent.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-vm-agent.service && echo heartbeat-15s";
+const HEARTBEAT_15S = "mkdir -p /etc/systemd/system/cmux-host.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-host.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-host.service && echo heartbeat-15s";
 const putPerson = `printf '%s' '${Buffer.from(PERSON_PY).toString("base64")}' | base64 -d > /root/person.py`;
 const putAgent = `printf '%s' '${Buffer.from(AGENT_PY).toString("base64")}' | base64 -d > /root/agent.py`;
 
@@ -211,7 +211,7 @@ export async function main(argv = process.argv): Promise<number> {
     const agentFirst = agentLines.map((l: string) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
     result.m3_agent_first_writes = agentFirst;
     if (!agentFirst.some((l: any) => l.ok)) throw new Error(`M3 agent v2 input failed: ${agentLines.join(" ").slice(-300)}`);
-    const probe3 = (await run(vm3, "/usr/local/bin/bun /opt/cmux/guest/vm-agent.ts --probe-activity")).stdout.trim();
+    const probe3 = (await run(vm3, `${HOST_CLI} cloud probe-activity`)).stdout.trim();
     result.m3_probe_after_agent_write = probe3;
     const userInput3 = (JSON.parse(probe3.split("\n").at(-1) ?? "{}") as { activity?: { last_user_input_at?: number } }).activity?.last_user_input_at ?? 0;
     if (userInput3 > sent3.sent_at_ms + 1_000) throw new Error(`M3: the agent's v2 input moved last_user_input_at to ${userInput3} (person input ${sent3.sent_at_ms})`);

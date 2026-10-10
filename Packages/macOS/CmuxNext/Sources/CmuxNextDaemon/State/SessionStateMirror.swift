@@ -27,14 +27,17 @@ public struct SessionStateMirror: Sendable, Hashable {
         public var zoom: Double?
         public var back: [String] = []
         public var forward: [String] = []
+        /// The user's icon for the tab (the shared icon wire string, `IconValue`), or nil.
+        public var icon: String?
 
-        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = []) {
+        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
+            self.icon = icon
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty }
+        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil }
     }
 
     /// Newest first, at most `closedLimit`.
@@ -142,7 +145,7 @@ public struct StateScreenGroup: Sendable, Hashable, Decodable {
 /// accepts a JSON number.
 enum StateDecimal {
     static func decode<K: CodingKey>(_ container: KeyedDecodingContainer<K>, _ key: K) throws -> UInt64? {
-        if let text = try? container.decodeIfPresent(String.self, forKey: key) { return UInt64(text) }
+        if let text = try? container.decodeIfPresent(String.self, forKey: key) { return UInt64(text, radix: 10) }
         return try container.decodeIfPresent(UInt64.self, forKey: key)
     }
 }

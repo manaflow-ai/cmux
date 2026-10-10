@@ -29,11 +29,17 @@ pub mod cua_socket;
 pub mod daemon;
 #[cfg(test)]
 mod git_short_sha;
+pub mod harness_admin;
 pub mod hub;
+pub mod live_models;
 pub mod login_env;
 pub mod native;
 pub mod peer;
 pub mod protected_folders;
+pub mod question_answer;
+#[cfg(test)]
+mod question_answer_tests;
+pub mod registry;
 pub mod rpc;
 pub mod schema;
 pub mod server;

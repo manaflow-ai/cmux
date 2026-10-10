@@ -3145,6 +3145,137 @@
         }
       }
     },
+    "handlers.misc.failed.noAgentPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused pane is not showing an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたペインにはエージェントチャットが表示されていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللوحة المركّز عليها لا تعرض محادثة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirano okno ne prikazuje razgovor s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserede rude viser ikke en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der fokussierte Bereich zeigt keinen Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel enfocado no muestra un chat con agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau actif n’affiche pas de chat avec l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riquadro attivo non mostra una chat con agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងដែលបានផ្ដោតមិនកំពុងបង្ហាញការជជែកភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 창에 에이전트 채팅이 표시되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserte ruten viser ikke en agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywny panel nie pokazuje czatu z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel em foco não está mostrando um chat com agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активной панели нет чата с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างที่โฟกัสอยู่ไม่ได้แสดงแชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaktaki bölme bir ajan sohbeti göstermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активній панелі немає чату з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn đang được chọn không hiển thị cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦的窗格未显示智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦的窗格未顯示代理聊天。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.continueInNeedsFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -3282,127 +3413,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quick Agent Chat opens from the keyboard, palette or menu. It does not take the keyboard for automation."
+            "value": "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クイックエージェントチャットはキーボード、パレット、メニューから開きます。自動化のためにキーボードを奪うことはありません。"
+            "value": "「エージェントを開始」はキーボード、パレット、メニューから開きます。自動化のためにキーボードを奪うことはありません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تُفتح دردشة الوكيل السريعة من لوحة المفاتيح أو لوحة الأوامر أو القائمة. ولا تستحوذ على لوحة المفاتيح لأغراض الأتمتة."
+            "state": "needs_review",
+            "value": "يُفتح «بدء وكيل» من لوحة المفاتيح أو اللوحة أو القائمة. ولا يستحوذ على لوحة المفاتيح لأجل الأتمتة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brzi chat s agentom otvara se s tastature, palete ili menija. Ne preuzima tastaturu za automatizaciju."
+            "value": "Pokreni agenta se otvara s tastature, palete ili menija. Ne preuzima tastaturu za automatizaciju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hurtig agentchat åbnes fra tastaturet, paletten eller menuen. Den overtager ikke tastaturet til automatisering."
+            "value": "Start agent åbnes fra tastaturet, paletten eller menuen. Den tager ikke tastaturet til automatisering."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Schneller Agent-Chat öffnet sich über Tastatur, Befehlspalette oder Menü. Für Automatisierung übernimmt er die Tastatur nicht."
+            "state": "needs_review",
+            "value": "„Agent starten“ öffnet sich über Tastatur, Palette oder Menü. Für Automatisierung übernimmt es nicht die Tastatur."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El chat rápido con agente se abre desde el teclado, la paleta o el menú. No toma el teclado para la automatización."
+            "state": "needs_review",
+            "value": "Iniciar agente se abre desde el teclado, la paleta o el menú. No toma el teclado para la automatización."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le chat agent rapide s’ouvre depuis le clavier, la palette ou le menu. Il ne prend pas le clavier pour l’automatisation."
+            "state": "needs_review",
+            "value": "Démarrer un agent s’ouvre depuis le clavier, la palette ou le menu. Il ne prend pas le clavier pour l’automatisation."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La chat rapida con l’agente si apre da tastiera, palette o menu. Non prende la tastiera per l’automazione."
+            "value": "Avvia agente si apre da tastiera, palette o menu. Non prende la tastiera per l’automazione."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកភ្នាក់ងាររហ័សបើកពីក្ដារចុច ផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ វាមិនយកក្ដារចុចសម្រាប់ស្វ័យប្រវត្តិកម្មទេ។"
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ បើកពីក្តារចុច ផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ វាមិនយកក្តារចុចសម្រាប់ស្វ័យប្រវត្តិកម្មទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "빠른 에이전트 채팅은 키보드, 팔레트 또는 메뉴에서 열립니다. 자동화를 위해 키보드를 가져가지 않습니다."
+            "state": "needs_review",
+            "value": "에이전트 시작은 키보드, 팔레트 또는 메뉴에서 열립니다. 자동화를 위해 키보드를 가져가지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rask agentchat åpnes fra tastaturet, paletten eller menyen. Den tar ikke over tastaturet for automatisering."
+            "value": "Start agent åpnes fra tastaturet, paletten eller menyen. Den tar ikke tastaturet for automatisering."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szybki czat z agentem otwiera się z klawiatury, palety lub menu. Nie przejmuje klawiatury na potrzeby automatyzacji."
+            "value": "Uruchom agenta otwiera się z klawiatury, palety lub menu. Nie przejmuje klawiatury na potrzeby automatyzacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O chat rápido com agente abre pelo teclado, paleta ou menu. Ele não toma o teclado para automação."
+            "value": "Iniciar agente abre pelo teclado, pela paleta ou pelo menu. Ele não toma o teclado para automação."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Быстрый чат с агентом открывается с клавиатуры, из палитры или меню. Для автоматизации он не перехватывает клавиатуру."
+            "value": "«Запустить агента» открывается с клавиатуры, из палитры или меню. Оно не перехватывает клавиатуру для автоматизации."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทเอเจนต์ด่วนเปิดได้จากแป้นพิมพ์ พาเล็ต หรือเมนู และจะไม่แย่งแป้นพิมพ์เพื่อการทำงานอัตโนมัติ"
+            "value": "เริ่มเอเจนต์เปิดจากแป้นพิมพ์ พาเล็ต หรือเมนู และจะไม่ยึดแป้นพิมพ์เพื่อการทำงานอัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hızlı Ajan Sohbeti klavyeden, paletten veya menüden açılır. Otomasyon için klavyeyi devralmaz."
+            "value": "Ajan Başlat klavyeden, paletten veya menüden açılır. Otomasyon için klavyeyi almaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Швидкий чат з агентом відкривається з клавіатури, палітри або меню. Для автоматизації він не перехоплює клавіатуру."
+            "value": "«Запустити агента» відкривається з клавіатури, палітри або меню. Воно не перехоплює клавіатуру для автоматизації."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trò chuyện nhanh với tác tử mở từ bàn phím, bảng lệnh hoặc menu. Nó không chiếm bàn phím cho tự động hóa."
+            "value": "Bắt đầu tác tử mở từ bàn phím, bảng lệnh hoặc menu. Nó không chiếm bàn phím cho tự động hóa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速智能体聊天可从键盘、命令面板或菜单打开。它不会为自动化操作占用键盘。"
+            "state": "needs_review",
+            "value": "“启动智能体”可从键盘、命令面板或菜单打开。它不会为自动化占用键盘。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理聊天可從鍵盤、命令面板或選單開啟。它不會為自動化操作佔用鍵盤。"
+            "state": "needs_review",
+            "value": "「啟動代理」可從鍵盤、命令面板或選單開啟。它不會為自動化佔用鍵盤。"
           }
         }
       }
@@ -3413,127 +3544,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quick Agent Chat needs the agent page, which this build does not include."
+            "value": "Start Agent needs the agent page, which this build does not include."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クイックエージェントチャットにはエージェントページが必要ですが、このビルドには含まれていません。"
+            "value": "「エージェントを開始」にはエージェントページが必要ですが、このビルドには含まれていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تحتاج دردشة الوكيل السريعة إلى صفحة الوكيل، وهي غير مضمّنة في هذا الإصدار."
+            "state": "needs_review",
+            "value": "يحتاج «بدء وكيل» إلى صفحة الوكيل، وهي غير مضمّنة في هذا الإصدار."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brzi chat s agentom treba stranicu agenta, koju ova verzija ne sadrži."
+            "value": "Pokreni agenta treba stranicu agenta, koju ova verzija ne uključuje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hurtig agentchat kræver agentsiden, som denne version ikke indeholder."
+            "value": "Start agent kræver agentsiden, som denne build ikke indeholder."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Schneller Agent-Chat benötigt die Agent-Seite, die in diesem Build fehlt."
+            "state": "needs_review",
+            "value": "„Agent starten“ braucht die Agent-Seite, die dieser Build nicht enthält."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El chat rápido con agente necesita la página del agente, que esta compilación no incluye."
+            "state": "needs_review",
+            "value": "Iniciar agente necesita la página del agente, que esta compilación no incluye."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le chat agent rapide nécessite la page agent, absente de cette version."
+            "state": "needs_review",
+            "value": "Démarrer un agent nécessite la page de l’agent, absente de cette version."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La chat rapida con l’agente richiede la pagina dell’agente, che questa build non include."
+            "value": "Avvia agente richiede la pagina dell’agente, non inclusa in questa build."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកភ្នាក់ងាររហ័សត្រូវការទំព័រភ្នាក់ងារ ដែលកំណែនេះមិនមាន។"
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ ត្រូវការទំព័រភ្នាក់ងារ ដែលកំណែនេះមិនមាន។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "빠른 에이전트 채팅에는 에이전트 페이지가 필요하지만 이 빌드에는 포함되어 있지 않습니다."
+            "state": "needs_review",
+            "value": "에이전트 시작에는 에이전트 페이지가 필요하지만 이 빌드에는 포함되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rask agentchat trenger agentsiden, som denne versjonen ikke har."
+            "value": "Start agent trenger agentsiden, som denne versjonen ikke inneholder."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szybki czat z agentem wymaga strony agenta, której ta kompilacja nie zawiera."
+            "value": "Uruchom agenta wymaga strony agenta, której ta wersja nie zawiera."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O chat rápido com agente precisa da página do agente, que esta versão não inclui."
+            "value": "Iniciar agente precisa da página do agente, que esta versão não inclui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для быстрого чата с агентом нужна страница агента, которой нет в этой сборке."
+            "value": "Для «Запустить агента» нужна страница агента, которой нет в этой сборке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทเอเจนต์ด่วนต้องใช้หน้าเอเจนต์ ซึ่งบิลด์นี้ไม่มี"
+            "value": "เริ่มเอเจนต์ต้องใช้หน้าเอเจนต์ ซึ่งบิลด์นี้ไม่มี"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hızlı Ajan Sohbeti ajan sayfasına ihtiyaç duyar; bu derleme onu içermiyor."
+            "value": "Ajan Başlat, bu sürümde bulunmayan ajan sayfasına ihtiyaç duyar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для швидкого чату з агентом потрібна сторінка агента, якої немає в цій збірці."
+            "value": "Для «Запустити агента» потрібна сторінка агента, якої немає в цій збірці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trò chuyện nhanh với tác tử cần trang tác tử, nhưng bản dựng này không có."
+            "value": "Bắt đầu tác tử cần trang tác tử, nhưng bản dựng này không có."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速智能体聊天需要智能体页面，但此版本未包含该页面。"
+            "state": "needs_review",
+            "value": "“启动智能体”需要智能体页面，但此版本未包含。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理聊天需要代理頁面，但此版本未包含該頁面。"
+            "state": "needs_review",
+            "value": "「啟動代理」需要代理頁面，但此版本未包含。"
           }
         }
       }
@@ -6214,6 +6345,268 @@
         }
       }
     },
+    "handlers.misc.failed.switchModelNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل تبديل النموذج… في محادثات الوكلاء. ركّز على إحداها أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeni model… radi u agent razgovorima. Prvo fokusiraj jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift model… virker i agentchats. Fokuser på en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Modell wechseln…“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Model… works in agent chats. Focus one first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar modelo… funciona en chats de agentes. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer de modèle… fonctionne dans les discussions d’agent. Mettez-en une au premier plan d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia modello… funziona nelle chat degli agenti. Metti prima a fuoco una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「モデルを切り替え…」はエージェントのチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរម៉ូដែល… ដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델 전환…은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt modell… virker i agentchatter. Fokuser på én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień model… działa w czatach agentów. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trocar modelo… funciona em chats de agentes. Foque em um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Сменить модель…» работает в чатах агентов. Сначала переведите фокус на чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับโมเดล… ใช้ได้ในแชตของเอเจนต์ โปรดโฟกัสแชตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modeli Değiştir… ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Змінити модель…» працює в чатах агентів. Спершу наведіть фокус на чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển mô hình… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“切换模型…”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「切換模型…」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.switchModelNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح تبديل النموذج… قائمة، لذا يحتاج إلى التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeni model… otvara meni, pa mu je potreban fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift model… åbner en menu, så den kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Modell wechseln…“ öffnet ein Menü und braucht deshalb den Fokus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Model… opens a menu, so it needs focus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar modelo… abre un menú, por lo que necesita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer de modèle… ouvre un menu et a donc besoin du focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia modello… apre un menu, quindi richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「モデルを切り替え…」はメニューを開くため、フォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរម៉ូដែល… បើកម៉ឺនុយ ដូច្នេះវាត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델 전환…은 메뉴를 열기 때문에 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt modell… åpner en meny, så den trenger fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień model… otwiera menu, więc wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trocar modelo… abre um menu, então precisa do foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Сменить модель…» открывает меню, поэтому нужен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับโมเดล… จะเปิดเมนู จึงต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modeli Değiştir… bir menü açar, bu yüzden odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Змінити модель…» відкриває меню, тому потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển mô hình… mở một menu nên cần tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“切换模型…”会打开菜单，因此需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「切換模型…」會開啟選單，因此需要焦點。"
+          }
+        }
+      }
+    },
     "handlers.agentChats.title": {
       "extractionState": "manual",
       "localizations": {
@@ -7000,6 +7393,268 @@
         }
       }
     },
+    "handlers.chief.inspector.pageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief のメモリ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ذاكرة Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefova memorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Speicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memoria de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mémoire de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memoria di Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អង្គចងចាំ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 메모리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pamięć Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memória do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Память Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief Belleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пам’ять Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ nhớ của Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 记忆"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 記憶"
+          }
+        }
+      }
+    },
+    "handlers.chief.inspector.serverOffline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server with this Chief is not connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief があるサーバーに接続されていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخادم الذي يعمل عليه Chief غير متصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server s ovim Chiefom nije povezan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren med denne Chief er ikke forbundet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server mit diesem Chief ist nicht verbunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servidor con este Chief no está conectado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le serveur de ce Chief n’est pas connecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il server con questo Chief non è connesso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមេដែលមាន Chief នេះមិនបានភ្ជាប់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Chief가 있는 서버가 연결되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren med denne Chief er ikke tilkoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serwer z tym Chiefem nie jest połączony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O servidor com este Chief não está conectado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер с этим Chief не подключен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซิร์ฟเวอร์ที่มี Chief นี้ไม่ได้เชื่อมต่ออยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Chief’in bulunduğu sunucu bağlı değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер із цим Chief не під’єднано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ có Chief này chưa được kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "运行此 Chief 的服务器未连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行此 Chief 的伺服器未連線。"
+          }
+        }
+      }
+    },
     "handlers.agent.addHarness.request": {
       "comment": "Composer text of the chat Add Harness opens. Keep `cmux harness guide` exactly.",
       "extractionState": "manual",
@@ -7132,6 +7787,798 @@
         }
       }
     },
+    "handlers.agent.harness.doctorFailed": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل %@ في الفحص عند %@: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije prošao provjeru kod %@: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ fejlede tjekket ved %@: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ hat die Prüfung bei %@ nicht bestanden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ failed its check at %@: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no superó la comprobación en %@: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ a échoué à la vérification à l’étape %@ : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non ha superato la verifica in %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は %@ で確認に失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បរាជ័យការពិនិត្យនៅ %@៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 확인이 %@ 단계에서 실패했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ feilet sjekken ved %@: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie przeszedł sprawdzenia na etapie %@: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ falhou na verificação em %@: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не прошёл проверку на шаге %@: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ตรวจสอบไม่ผ่านที่ %@: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ denetimi %@ adımında başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не пройшов перевірку на кроці %@: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không qua kiểm tra ở %@: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 %@ 检查失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 %@ 檢查失敗：%@"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.needsAgent": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سمِّ الوكيل باستخدام ‎--arg id=<agent>‎."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedi agenta s --arg id=<agent>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv agenten med --arg id=<agent>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib den Agenten mit --arg id=<agent> an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the agent with --arg id=<agent>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica el agente con --arg id=<agent>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez l’agent avec --arg id=<agent>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’agente con --arg id=<agent>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--arg id=<agent> でエージェントを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះភ្នាក់ងារដោយ --arg id=<agent>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--arg id=<agent>로 에이전트를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi agenten med --arg id=<agent>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wskaż agenta przez --arg id=<agent>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o agente com --arg id=<agent>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите агента: --arg id=<agent>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุเอเจนต์ด้วย --arg id=<agent>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aracıyı --arg id=<agent> ile belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть агента: --arg id=<agent>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ định tác tử bằng --arg id=<agent>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请用 --arg id=<agent> 指定智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請用 --arg id=<agent> 指定代理。"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.needsCommand": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّد ما يجب تشغيله: ‎--arg command=<program>‎ أو ‎--arg registry=<id>‎ أو ‎--arg example=<id>‎."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedi šta pokrenuti: --arg command=<program>, --arg registry=<id> ili --arg example=<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv, hvad der skal startes: --arg command=<program>, --arg registry=<id> eller --arg example=<id>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib an, was gestartet wird: --arg command=<program>, --arg registry=<id> oder --arg example=<id>."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name what to start: --arg command=<program>, --arg registry=<id> or --arg example=<id>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica qué iniciar: --arg command=<program>, --arg registry=<id> o --arg example=<id>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez quoi lancer : --arg command=<program>, --arg registry=<id> ou --arg example=<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica cosa avviare: --arg command=<program>, --arg registry=<id> o --arg example=<id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動するものを指定してください: --arg command=<program>、--arg registry=<id>、または --arg example=<id>。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះអ្វីដែលត្រូវចាប់ផ្ដើម៖ --arg command=<program>, --arg registry=<id> ឬ --arg example=<id>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시작할 대상을 지정하세요: --arg command=<program>, --arg registry=<id> 또는 --arg example=<id>."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi hva som skal startes: --arg command=<program>, --arg registry=<id> eller --arg example=<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wskaż, co uruchomić: --arg command=<program>, --arg registry=<id> lub --arg example=<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o que iniciar: --arg command=<program>, --arg registry=<id> ou --arg example=<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите, что запускать: --arg command=<program>, --arg registry=<id> или --arg example=<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุสิ่งที่จะเริ่ม: --arg command=<program>, --arg registry=<id> หรือ --arg example=<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neyin başlatılacağını belirtin: --arg command=<program>, --arg registry=<id> veya --arg example=<id>."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть, що запускати: --arg command=<program>, --arg registry=<id> або --arg example=<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ định thứ cần khởi động: --arg command=<program>, --arg registry=<id> hoặc --arg example=<id>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请指定要启动的内容：--arg command=<program>、--arg registry=<id> 或 --arg example=<id>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請指定要啟動的內容：--arg command=<program>、--arg registry=<id> 或 --arg example=<id>。"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.noDaemon": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "برنامج الوكلاء الخفي لا يعمل. افتح محادثة وكيل لتشغيله، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent daemon ne radi. Otvori agent chat da ga pokreneš, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentdæmonen kører ikke. Åbn en agentchat for at starte den, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Agent-Daemon läuft nicht. Öffne einen Agent-Chat, um ihn zu starten, und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent daemon is not running. Open an agent chat to start it, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El daemon de agentes no se está ejecutando. Abre un chat de agente para iniciarlo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le démon des agents ne tourne pas. Ouvrez une conversation d’agent pour le lancer, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il daemon degli agenti non è in esecuzione. Apri una chat con un agente per avviarlo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントデーモンが動いていません。エージェントチャットを開いて起動してから、もう一度試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដេមិនភ្នាក់ងារមិនដំណើរការទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើម រួចសាកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 데몬이 실행 중이 아닙니다. 에이전트 채팅을 열어 시작한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentdemonen kjører ikke. Åpne en agentchat for å starte den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demon agentów nie działa. Otwórz czat z agentem, aby go uruchomić, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O daemon de agentes não está em execução. Abra um chat de agente para iniciá-lo e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демон агентов не запущен. Откройте чат с агентом, чтобы запустить его, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดีมอนเอเจนต์ไม่ทำงาน เปิดแชทเอเจนต์เพื่อเริ่ม แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aracı arka plan programı çalışmıyor. Başlatmak için bir aracı sohbeti açın ve tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демон агентів не запущено. Відкрийте чат з агентом, щоб запустити його, і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình nền tác tử không chạy. Mở một cuộc trò chuyện tác tử để khởi động, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体守护进程未运行。打开智能体聊天以启动它，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理常駐程式未執行。開啟代理聊天以啟動它，然後再試一次。"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.nothingRemoved": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد وكيل محذوف لاستعادته. سمِّه باستخدام ‎--arg backup=<file>‎."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema uklonjenog agenta za vraćanje. Navedi ga s --arg backup=<file>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fjernet agent at gendanne. Angiv den med --arg backup=<file>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein entfernter Agent zum Wiederherstellen. Gib ihn mit --arg backup=<file> an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No removed agent to restore. Name its backup file with --arg backup=<file>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún agente quitado que restaurar. Indícalo con --arg backup=<file>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun agent supprimé à restaurer. Indiquez-le avec --arg backup=<file>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun agente rimosso da ripristinare. Indicalo con --arg backup=<file>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元する削除済みエージェントはありません。--arg backup=<file> でバックアップファイルを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានភ្នាក់ងារដែលបានលុបដើម្បីស្ដារទេ។ ដាក់ឈ្មោះវាដោយ --arg backup=<file>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "복원할 제거된 에이전트가 없습니다. --arg backup=<file>로 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fjernet agent å gjenopprette. Angi den med --arg backup=<file>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak usuniętego agenta do przywrócenia. Wskaż go przez --arg backup=<file>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum agente removido para restaurar. Informe-o com --arg backup=<file>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет удалённого агента для восстановления. Укажите его: --arg backup=<file>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเอเจนต์ที่ลบให้กู้คืน ระบุด้วย --arg backup=<file>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri yüklenecek kaldırılmış aracı yok. --arg backup=<file> ile belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає видаленого агента для відновлення. Укажіть його: --arg backup=<file>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tác tử đã xóa để khôi phục. Chỉ định bằng --arg backup=<file>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可恢复的已移除智能体。请用 --arg backup=<file> 指定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可還原的已移除代理。請用 --arg backup=<file> 指定。"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.unsupported": {
+      "comment": "Agent harness action refusals; keep commands and --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع acpmux هذا إضافة الوكلاء أو إزالتهم من التطبيق. استخدم cmux harness add أو cmux harness doctor في طرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj acpmux ne može dodavati ni uklanjati agente iz aplikacije. Koristi cmux harness add ili cmux harness doctor u terminalu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne acpmux kan ikke tilføje eller fjerne agenter fra appen. Brug cmux harness add eller cmux harness doctor i en terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses acpmux kann in der App keine Agenten hinzufügen oder entfernen. Nutze cmux harness add oder cmux harness doctor im Terminal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This acpmux cannot add or remove agents from the app. Use cmux harness add or cmux harness doctor in a terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este acpmux no puede añadir ni quitar agentes desde la app. Usa cmux harness add o cmux harness doctor en una terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet acpmux ne peut pas ajouter ni supprimer d’agents depuis l’app. Utilisez cmux harness add ou cmux harness doctor dans un terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo acpmux non può aggiungere o rimuovere agenti dall’app. Usa cmux harness add o cmux harness doctor in un terminale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このacpmuxはアプリからエージェントを追加・削除できません。ターミナルでcmux harness addまたはcmux harness doctorを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux នេះមិនអាចបន្ថែម ឬលុបភ្នាក់ងារពីកម្មវិធីបានទេ។ ប្រើ cmux harness add ឬ cmux harness doctor ក្នុងស្ថានីយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 acpmux는 앱에서 에이전트를 추가하거나 제거할 수 없습니다. 터미널에서 cmux harness add 또는 cmux harness doctor를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne acpmux kan ikke legge til eller fjerne agenter fra appen. Bruk cmux harness add eller cmux harness doctor i en terminal."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten acpmux nie może dodawać ani usuwać agentów z aplikacji. Użyj cmux harness add lub cmux harness doctor w terminalu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este acpmux não pode adicionar nem remover agentes pelo app. Use cmux harness add ou cmux harness doctor em um terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот acpmux не может добавлять или удалять агентов из приложения. Используйте cmux harness add или cmux harness doctor в терминале."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux นี้เพิ่มหรือลบเอเจนต์จากแอปไม่ได้ ใช้ cmux harness add หรือ cmux harness doctor ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu acpmux uygulamadan aracı ekleyemez veya kaldıramaz. Bir terminalde cmux harness add veya cmux harness doctor kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей acpmux не може додавати чи видаляти агентів із застосунку. Використовуйте cmux harness add або cmux harness doctor у терміналі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux này không thể thêm hoặc xóa tác tử từ ứng dụng. Dùng cmux harness add hoặc cmux harness doctor trong terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 acpmux 无法在应用中添加或移除智能体。请在终端中使用 cmux harness add 或 cmux harness doctor。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 acpmux 無法在 App 中新增或移除代理。請在終端機中使用 cmux harness add 或 cmux harness doctor。"
+          }
+        }
+      }
+    },
     "handlers.agent.addHarness.needsFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -7259,6 +8706,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "「新增 Harness…」會從命令面板、選單或新分頁頁面開啟聊天。自動化請改為執行 cmux harness guide。"
+          }
+        }
+      }
+    },
+    "handlers.misc.defaultBrowserIsCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux هو المتصفح الافتراضي، لذا يُفتح الرابط في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je zadani preglednik, pa se link otvara u cmuxu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er standardbrowseren, så linket åbner i cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ist der Standardbrowser, daher öffnet sich der Link in cmux"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is the default browser, so the link opens in cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux es el navegador predeterminado, así que el enlace se abre en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux est le navigateur par défaut : le lien s’ouvre dans cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è il browser predefinito, quindi il link si apre in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がデフォルトのブラウザのため、リンクは cmux で開きます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux គឺជាកម្មវិធីរុករកលំនាំដើម ដូច្នេះតំណបើកក្នុង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 기본 브라우저이므로 링크가 cmux에서 열립니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er standardnettleseren, så lenken åpnes i cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux jest domyślną przeglądarką, więc link otworzy się w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o cmux é o navegador padrão, então o link abre no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux — браузер по умолчанию, поэтому ссылка откроется в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เป็นเบราว์เซอร์เริ่มต้น ลิงก์จึงเปิดใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux varsayılan tarayıcı olduğundan bağlantı cmux’ta açılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux — браузер за замовчуванням, тому посилання відкриється в cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux là trình duyệt mặc định nên liên kết mở trong cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 是默认浏览器，因此链接会在 cmux 中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 是預設瀏覽器，因此連結會在 cmux 中開啟"
+          }
+        }
+      }
+    },
+    "handlers.misc.noDefaultBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد تطبيق يفتح هذا الرابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna aplikacija ne otvara ovaj link"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen app åbner dette link"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine App öffnet diesen Link"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No app opens this link"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna app abre este enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune app n’ouvre ce lien"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna app apre questo link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリンクを開けるアプリがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានកម្មវិធីបើកតំណនេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 링크를 여는 앱이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen app åpner denne lenken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadna aplikacja nie otwiera tego linku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum app abre este link"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет приложения, которое открывает эту ссылку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีแอปที่เปิดลิงก์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu bağlantıyı açan uygulama yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає програми, що відкриває це посилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có ứng dụng nào mở liên kết này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可打开此链接的应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可開啟此連結的 App"
           }
         }
       }

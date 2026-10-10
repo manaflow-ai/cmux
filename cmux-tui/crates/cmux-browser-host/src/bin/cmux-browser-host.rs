@@ -235,6 +235,11 @@ mod unix {
     }
 
     fn serve_command(options: &Options) -> i32 {
+        // No descriptor this process inherited reaches a browser it starts.
+        if let Err(error) = cmux_browser_host::server::seal_inherited_descriptors() {
+            eprintln!("cmux-browser-host: sealing inherited descriptors: {error}");
+            return 1;
+        }
         // The secret fd is read before anything else is opened, so a wrong
         // fd number cannot take the socket or its lock file.
         let secret = match options.provider_secret_fd.map(read_secret_fd).transpose() {
@@ -258,8 +263,14 @@ mod unix {
         };
         let cwd =
             std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "/".into());
-        let engines = Arc::new(HostEngines::new(agent_bundle()));
-        let host = Arc::new(Host::new(engines.clone(), cwd));
+        // A Cloud machine is isolated (cx-d0d.7): every caller is refused
+        // metadata, link-local and private ranges on every connection.
+        let (egress, warnings) = cmux_browser_host::egress_scope::EgressScope::from_env();
+        for warning in warnings {
+            eprintln!("cmux-browser-host: {warning}");
+        }
+        let engines = Arc::new(HostEngines::new(agent_bundle()).with_egress(egress.clone()));
+        let host = Arc::new(Host::new(engines.clone(), cwd).with_egress(egress));
         let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
             let (probe_host, slot) = (Arc::downgrade(&host), engines.provider_slot());
             let busy = move || {

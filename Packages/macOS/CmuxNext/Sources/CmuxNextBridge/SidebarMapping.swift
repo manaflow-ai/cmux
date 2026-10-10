@@ -38,6 +38,8 @@ public struct SidebarMapping {
                     name: group.name,
                     color: color(group.color) ?? .grey,
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
+                    isPinned: group.pinned,
+                    icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
@@ -91,7 +93,9 @@ public struct SidebarMapping {
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
-            isClosable: workspace.kind != Self.homeKind
+            isClosable: workspace.kind != Self.homeKind,
+            // Group by Folder's bucket: the front tab's folder, else any tab's.
+            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
         )
     }
 

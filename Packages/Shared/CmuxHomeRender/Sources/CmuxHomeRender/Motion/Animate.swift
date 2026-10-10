@@ -87,7 +87,8 @@ enum Animate {
     static func sampledPulse(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double,
                              begin: CFTimeInterval) {
         let rate = 240.0
-        let n = max(2, Int(element.settleTime * rate))
+        // At most 60 s of samples: a non-finite settle time would never end the map.
+        let n = max(2, CrashGuard.int(element.settleTime * rate, in: 0...14_400))
         // motion-allow: the render core's motion module (motion.md rule 1)
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = (0...n).map { NSNumber(value: min(1, max(0, element.value(Double($0) / rate, from: base, to: base)))) }

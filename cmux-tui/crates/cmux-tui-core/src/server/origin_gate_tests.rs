@@ -718,3 +718,6 @@ fn only_a_verified_app_sets_a_workspace_agent_folder() {
     let reply: Value = serde_json::from_str(&agent.outbound.try_pop().unwrap()).unwrap();
     assert_a2_refusal(&reply, "agent");
 }
+
+#[path = "mutation_actor_tests.rs"]
+mod mutation_actor;

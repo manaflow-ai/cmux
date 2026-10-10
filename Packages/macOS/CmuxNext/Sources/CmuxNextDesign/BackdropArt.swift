@@ -153,8 +153,8 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
 
     private static func nga(_ id: String) -> URL { page("https://www.nga.gov/collection/art-object-page.\(id).html") }
 
-    /// A constant museum URL with a numeric id.
-    private static func page(_ string: String) -> URL { URL(string: string)! }
+    /// A constant museum URL with a numeric id; /dev/null stands in rather than a trap.
+    private static func page(_ string: String) -> URL { URL(string: string) ?? URL(fileURLWithPath: "/dev/null") }
 
     /// Loads the packaged image. A missing resource safely paints no art.
     /// - Returns: The painting image, or nil if the bundle is incomplete.

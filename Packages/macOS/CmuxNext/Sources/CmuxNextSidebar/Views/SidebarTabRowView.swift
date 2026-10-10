@@ -12,6 +12,8 @@ final class SidebarTabRowView: SidebarRowView {
     private var unread = false
     private var kind: SidebarTabKind = .terminal
     private var groupColor: GroupColor?
+    /// Activates this tab from an accessibility AXPress.
+    var onSelect: (() -> Void)?
 
     private struct Content: Hashable {
         var tab: SidebarTab
@@ -31,6 +33,7 @@ final class SidebarTabRowView: SidebarRowView {
         unread = false
         kind = .terminal
         groupColor = nil
+        onSelect = nil
     }
 
     func configure(_ tab: SidebarTab, row: SidebarRow) {
@@ -44,9 +47,18 @@ final class SidebarTabRowView: SidebarRowView {
         icon.image = NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
+        let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
+        setAccessibilityIdentifier("cmux.sidebar.tab.\(workspaceIdentifier).\(tab.id.rawValue)")
         setAccessibilityLabel(tab.title)
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Routes AXPress through the sidebar's shared tab selection action.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onSelect else { return false }
+        onSelect()
+        return true
     }
 
     override func updateLayer() {

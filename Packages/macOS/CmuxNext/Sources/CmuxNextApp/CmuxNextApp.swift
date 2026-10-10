@@ -3,6 +3,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
+import CmuxNextTerminal
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -24,7 +25,9 @@ public struct CmuxNextApp {
         // cannot pick this app's socket, tag, or daemon session.
         // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
         CloudAuth.captureLaunchEnvironment()
-        LaunchIdentity.stripInheritedEnvironment()
+        // This process's only environment writes, then the freeze: a write
+        // after it stops a debug build (ProcessEnvironmentGuard).
+        Self.prepareLaunchEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         var environment = AppEnvironment.current()

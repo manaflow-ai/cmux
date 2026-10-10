@@ -211,7 +211,8 @@ export async function verifyRequest(
   env: AuthEnv,
   options: { readonly fresh?: boolean } = {},
 ): Promise<AuthedUser | null> {
-  if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
+  // The publishable key is optional (stackHeaders omits it when unset).
+  if (!env.STACK_PROJECT_ID) return null;
   const token = bearerToken(request);
   if (!token) return null;
 

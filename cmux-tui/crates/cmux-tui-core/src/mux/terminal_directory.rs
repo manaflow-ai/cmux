@@ -12,7 +12,7 @@ impl Mux {
     ) -> anyhow::Result<bool> {
         let Some(id) = source.terminal_public_id() else { return Ok(true) };
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(true);
@@ -43,16 +43,16 @@ impl Mux {
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => return Ok(true),
         }
-        let topology = registry.resource_topology_snapshot()?;
-        let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs =
-            terminal_tab_ids_in_canonical_order(
-                topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
-                    (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
-                }),
-            )
-            .remove(id)
-            .unwrap_or_default();
+        // Only this terminal's tab rows: a full topology read here made each
+        // cwd report O(session) under the registry lock.
+        let tabs = terminal_tab_ids_in_canonical_order(
+            registry
+                .resource_tabs_of_content(id.as_str())?
+                .into_iter()
+                .map(|tab| (id.clone(), tab.pane_id, tab.position, tab.public_id)),
+        )
+        .remove(id)
+        .unwrap_or_default();
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
@@ -65,7 +65,7 @@ impl Mux {
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
-        let mutation = WorkspaceMutation::local("terminal.cwd");
+        let mutation = WorkspaceMutation::daemon_local("terminal.cwd");
         let commit = registry.commit_resource_patch(
             &mutation,
             "terminal.cwd",
