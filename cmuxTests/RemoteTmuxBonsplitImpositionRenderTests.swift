@@ -1553,6 +1553,245 @@ import Testing
         #expect(mirror.hostProbeView === old)
     }
 
+    private func makeDisplayChangeMirror(mounted: Bool = true) throws -> (
+        mirror: RemoteTmuxWindowMirror,
+        connection: RemoteTmuxControlConnection,
+        window: DisplayChangeProbeWindow,
+        probe: MirrorHostProbeView
+    ) {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "display-change-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0, panelId: UUID(), connection: connection,
+            layout: node(.pane(1), w: 120, h: 40, x: 0, y: 0),
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0, scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        let window = DisplayChangeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false
+        )
+        let probe = MirrorHostProbeView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        probe.mirror = mirror
+        if mounted {
+            try #require(window.contentView).addSubview(probe)
+            window.orderFront(nil)
+            mirror.isVisibleForSizing = true
+            mirror.noteContainerSize(pointSize: probe.bounds.size, scale: window.backingScaleFactor)
+            mirror.performSizingPassNow()
+        }
+        return (mirror, connection, window, probe)
+    }
+
+    /// A never-selected mirror must claim before its probe has a window.
+    @Test func windowlessHiddenMirrorClaimsItsFirstMeasuredRegion() async throws {
+        let (mirror, connection, _, _) = try makeDisplayChangeMirror(mounted: false)
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let host = NSHostingView(rootView: RemoteTmuxWindowMirrorSplitView(
+            mirror: mirror, appearance: appearance, isOuterFocused: false,
+            isVisibleInUI: false, portalPriority: 0, onOuterFocus: {}
+        ).environment(\.displayScale, 2))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            await drainDisplayChangeCallbacks()
+        }
+        let probe = try #require(mirror.hostProbeView as? MirrorHostProbeView)
+        #expect(probe.window == nil)
+        #expect(probe.bounds.width > 1 && probe.bounds.height > 1)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        #expect(mirror.containerScale == 2)
+        let claim = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: probe.bounds.size))
+        #expect(claim.0 == expected.columns && claim.1 == expected.rows)
+
+        // Later detached geometry cannot overwrite the initial useful reading.
+        let accepted = mirror.containerSizePt
+        probe.setFrameSize(CGSize(width: 1200, height: 900))
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == accepted)
+        #expect(connection.lastWindowSizes[0]?.0 == claim.0)
+        #expect(connection.lastWindowSizes[0]?.1 == claim.1)
+        withExtendedLifetime(host) {}
+    }
+
+    /// Invalid or stale probes cannot consume the initial sizing opportunity.
+    @Test func firstWindowlessClaimRejectsInvalidAndReplacedProbes() throws {
+        let (mirror, connection, _, probe) = try makeDisplayChangeMirror(mounted: false)
+        probe.initialDisplayScale = 2
+        mirror.hostProbeView = probe
+        probe.setFrameSize(.zero)
+        mirror.refreshContainerSizeFromHost(probe, initialScale: 2)
+        #expect(mirror.containerSizePt == nil)
+        #expect(connection.lastWindowSizes[0] == nil)
+        let stale = MirrorHostProbeView()
+        stale.mirror = mirror
+        stale.initialDisplayScale = 2
+        stale.setFrameSize(CGSize(width: 1200, height: 900))
+        #expect(mirror.containerSizePt == nil)
+        probe.setFrameSize(CGSize(width: 900, height: 700))
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        #expect(mirror.containerScale == 2)
+        #expect(connection.lastWindowSizes[0] != nil)
+    }
+
+    /// Height-only changes must update rows without changing columns.
+    @Test func probeHeightShrinkAndGrowthRefreshTheClaim() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let original = try #require(connection.lastWindowSizes[0])
+        probe.setFrameSize(CGSize(width: 900, height: 480))
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let shorter = try #require(connection.lastWindowSizes[0])
+        #expect(shorter.0 == original.0 && shorter.1 < original.1)
+        #expect(mirror.containerSizePt?.height == 480)
+        probe.setFrameSize(CGSize(width: 900, height: 700))
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let taller = try #require(connection.lastWindowSizes[0])
+        #expect(taller.0 == original.0 && taller.1 == original.1)
+        #expect(mirror.containerSizePt?.height == 700)
+    }
+
+    private func drainDisplayChangeCallbacks() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    /// Final geometry may arrive after an earlier sizing pass has settled.
+    /// The region itself must refresh the claim.
+    @Test func lateProbeGeometryRefreshesAfterAnEarlierSizingPass() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        let settledRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(settledRegion)
+        probe.needsLayout = true
+        probe.layoutSubtreeIfNeeded()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerSizePt == settledRegion)
+        let requested = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: settledRegion))
+        #expect(requested.0 == expected.columns && requested.1 == expected.rows)
+    }
+
+    /// The view's backing lifecycle delivers scale changes even when its
+    /// point dimensions remain unchanged.
+    @Test func probeBackingChangeRefreshesScaleWithoutAWindowObserver() throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        window.reportedScale = 1
+        probe.viewDidChangeBackingProperties()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerScale == 1)
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        withExtendedLifetime(connection) {}
+    }
+
+    @Test func displayChangeRefreshesTheMirrorRegionWithoutALiveResize() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+
+        // Display removal need not end a mouse-driven live resize. AppKit
+        // may deliver a transient region followed by its final layout.
+        window.setContentSize(CGSize(width: 650, height: 500))
+        probe.setFrameSize(CGSize(width: 580, height: 430))
+        window.reportedScale = 1
+        probe.viewDidChangeBackingProperties()
+        probe.viewDidChangeBackingProperties()
+        // The final region arrives later and must replace the transient one.
+        let settledRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(settledRegion)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerSizePt == settledRegion)
+        #expect(mirror.containerScale == 1)
+        let requested = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: settledRegion))
+        #expect(requested.0 == expected.columns && requested.1 == expected.rows)
+        #expect(requested.0 < previous.0 && requested.1 < previous.1)
+    }
+
+    @Test func displayScaleChangeRefreshesAnUnchangedRegion() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+        window.reportedScale = 1
+        probe.viewDidChangeBackingProperties()
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerScale == 1)
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        // Cell dimensions in points are unchanged by this fixture's scale move.
+        let requested = try #require(connection.lastWindowSizes[0])
+        #expect(requested.0 == previous.0 && requested.1 == previous.1)
+    }
+
+    @Test func hiddenMirrorAdoptsTheDisplayRegionWhenShown() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+        mirror.isVisibleForSizing = false
+        let smallerRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(smallerRegion)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let hiddenClaim = try #require(connection.lastWindowSizes[0])
+        #expect(hiddenClaim.0 == previous.0 && hiddenClaim.1 == previous.1)
+
+        mirror.isVisibleForSizing = true
+        mirror.setNeedsSizingPassIgnoringInputs()
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == smallerRegion)
+        let visibleClaim = try #require(connection.lastWindowSizes[0])
+        #expect(visibleClaim.0 < previous.0 && visibleClaim.1 < previous.1)
+    }
+
+    @Test func displayChangeFromAReplacedOrDetachedProbeIsIgnored() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let originalRegion = mirror.containerSizePt
+        let replacement = MirrorHostProbeView()
+        replacement.mirror = mirror
+        mirror.hostProbeView = replacement
+        probe.setFrameSize(CGSize(width: 560, height: 410))
+        probe.viewDidChangeBackingProperties()
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+
+        mirror.hostProbeView = probe
+        probe.removeFromSuperview()
+        probe.setFrameSize(CGSize(width: 540, height: 400))
+        probe.viewDidChangeBackingProperties()
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+        withExtendedLifetime(connection) {}
+    }
+
     /// A deselected mirror tab's split tree must be hidden at the APPKIT
     /// level, not just faded out. The workspace bonsplit keeps every tab's
     /// content alive (`contentViewLifecycle: .keepAllAlive`) and hides
@@ -1776,6 +2015,11 @@ import Testing
 private final class LiveResizeProbeWindow: NSWindow {
     var liveResizeActive = false
     override var inLiveResize: Bool { liveResizeActive }
+}
+
+private final class DisplayChangeProbeWindow: NSWindow {
+    var reportedScale: CGFloat = 2
+    override var backingScaleFactor: CGFloat { reportedScale }
 }
 
 private func node(

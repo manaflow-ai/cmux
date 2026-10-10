@@ -88,21 +88,23 @@ extension RemoteTmuxSizingUITests {
         return nil
     }
 
-    /// Selects the tab titled `name` via `surface.focus` — the socket twin of
-    /// clicking the tab bar. It flips the same tab-visibility state a click
-    /// does (the mirror re-owns its size on selection), without routing a
-    /// mouse event through whatever else is on the desktop.
+    /// Resolve a tmux window to one of its projected pane surfaces. Surface
+    /// titles belong to shells, so they cannot identify the outer window tab.
     @discardableResult
     func selectTab(named name: String) -> Bool {
-        // Poll: surface titles arrive over the control stream shortly after
-        // the mirror window opens, so the first lookups can race them.
+        guard let window = windowId(named: name) else { return false }
+        return selectMirrorWindow(window)
+    }
+
+    @discardableResult
+    func selectMirrorWindow(_ window: Int) -> Bool {
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline {
-            if let list = socketJSON(method: "surface.list", params: [:]),
-               let surfaces = list["surfaces"] as? [[String: Any]],
-               let surfaceId = surfaces.first(where: { $0["title"] as? String == name })?["id"] as? String {
-                let response = socketJSON(method: "surface.focus", params: ["surface_id": surfaceId])
-                return response?["ok"] as? Bool == true
+            if let response = socketJSON(method: "remote.tmux.pane_surfaces", params: [
+                "host": "e2e-shim-host", "session": sessionName,
+            ]), let panes = response["panes"] as? [[String: Any]],
+               let surface = panes.first(where: { $0["window_id"] as? String == "@\(window)" })?["surface_id"] as? String {
+                return socketJSON(method: "surface.focus", params: ["surface_id": surface])?["ok"] as? Bool == true
             }
             Thread.sleep(forTimeInterval: 0.4)
         }
@@ -126,6 +128,9 @@ extension RemoteTmuxSizingUITests {
         XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.mirror failed: \(response ?? [:])")
         XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
         mirrorWindowId = response?["window_id"] as? String
+        if activate {
+            XCTAssertTrue(selectMirrorWindow(0), "could not select the initial tmux window")
+        }
         return (response?["workspace_ids"] as? [Any])?.compactMap { $0 as? String }.first
     }
 

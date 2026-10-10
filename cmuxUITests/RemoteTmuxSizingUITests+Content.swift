@@ -132,7 +132,7 @@ extension RemoteTmuxSizingUITests {
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        XCTFail("ruler never reached \(marker) \(context); last line: \(last)")
+        XCTFail("ruler never reached \(marker) \(context); last line: \(last); grids: \(paneGridsWindows() ?? [])")
     }
 
     /// The tmux pane id → cmux surface id map (on-screen panes only), from
@@ -312,7 +312,9 @@ extension RemoteTmuxSizingUITests {
         defer { app.terminate() }
         try buildContentLab()
         attachSession()
-        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        // The 99-column server resize must fit below the client's ceiling.
+        // At 1000pt the client claims only 93 columns, so tmux clamps 99 to 93.
+        setMirrorWindowSize(CGSize(width: 1200, height: 700))
         let solo = try XCTUnwrap(windowId(named: "solo"), "no solo window")
         XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
         try waitWindowSizeStable(window: solo, within: 10, context: "solo before churn")

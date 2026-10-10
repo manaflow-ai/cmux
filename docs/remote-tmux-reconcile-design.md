@@ -42,7 +42,7 @@ itself, not by time.
 ## The model
 
 Every mirror (`RemoteTmuxWindowMirror`, one per tmux window) carries a dirty
-generation. Events — the SwiftUI geometry callback, `%layout-change`,
+generation. Events — AppKit host geometry callbacks, `%layout-change`,
 calibration samples, visibility flips, drag begin and end, portal
 notifications, command replies dequeuing — do exactly two things: update the
 durable fact they own (the connection stores the new layout tree, the
