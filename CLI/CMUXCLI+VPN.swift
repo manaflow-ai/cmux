@@ -5,6 +5,9 @@ import Foundation
 /// need this command; it exists for other apps on this Mac.
 extension CMUXCLI {
     func runVPNCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        guard commandArgs.count <= 1 else {
+            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke>")
+        }
         let subcommand = commandArgs.first?.lowercased() ?? "status"
         switch subcommand {
         case "up", "on":
