@@ -544,14 +544,19 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 }
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
-    use std::os::unix::fs::PermissionsExt;
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    // Windows port: no mode bits; the owner-only ACL lands with the
+    // daemon's private folders (a later landing).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
     std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
@@ -731,6 +736,14 @@ fn reference_value(secret: &str) -> String {
 /// per family per router run (minting the same id again would revoke the key
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
+#[cfg(not(unix))]
+pub fn local_router(_home: &Path, _family: &str) -> Result<(String, String), RouteError> {
+    Err(RouteError::Unavailable(
+        crate::platform::unsupported("the local CodeRouter's admin socket").to_string(),
+    ))
+}
+
+#[cfg(unix)]
 pub fn local_router(home: &Path, family: &str) -> Result<(String, String), RouteError> {
     local_router_with(home, family, false)
 }
