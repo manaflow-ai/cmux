@@ -244,9 +244,9 @@
 .acpmux-project-inline .acpmux-project-button:hover>span,.acpmux-project-inline .acpmux-project-button[aria-expanded="true"]>span{text-decoration-color:currentColor}
 .acpmux-project-inline .acpmux-project-button:hover,.acpmux-project-inline .acpmux-project-button[aria-expanded="true"]{color:inherit}
 .acpmux-project-inline .acpmux-project-button svg{flex:none;color:var(--acpmux-composer-placeholder)}
-.acpmux-empty-choose .acpmux-project-button{font-size:13px;line-height:20px;color:var(--agent-muted)}
+.acpmux-empty-choose .acpmux-project-button{font-size:var(--text-body);line-height:var(--text-body--line-height);color:var(--agent-muted)}
 .acpmux-empty-choose .acpmux-project-button>span{text-decoration:none}
-.acpmux-project-host{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:110px;color:var(--acpmux-composer-dim);font-size:11px}
+.acpmux-project-host{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:110px;color:var(--acpmux-composer-dim);font-size:var(--text-caption)}
 .acpmux-project-host>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-none-icon{margin:0 3px}
 .acpmux-project-browse{display:flex;align-items:center;gap:8px}
