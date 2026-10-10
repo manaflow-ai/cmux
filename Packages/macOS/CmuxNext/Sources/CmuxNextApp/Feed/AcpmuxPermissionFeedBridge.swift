@@ -71,7 +71,8 @@ final class AcpmuxPermissionFeedBridge {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
-    private var replies: [Int: CheckedContinuation<[String: Any]?, Never>] = [:]
+    /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
+    private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
@@ -156,10 +157,11 @@ final class AcpmuxPermissionFeedBridge {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         data.append(0x0A)
-        return await withCheckedContinuation { waiter in
+        let reply: Data? = await withCheckedContinuation { waiter in
             replies[id] = waiter
             connection.send(data)
         }
+        return reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
     }
 
     private func handle(_ data: Data) {
@@ -177,7 +179,9 @@ final class AcpmuxPermissionFeedBridge {
                     if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
                 }
             } else if let waiter = replies.removeValue(forKey: id) {
-                waiter.resume(returning: message["error"] == nil ? (message["result"] as? [String: Any] ?? [:]) : nil)
+                let result = message["error"] == nil
+                    ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
+                waiter.resume(returning: result)
             }
             return
         }
