@@ -285,7 +285,8 @@ final class CloudBrowserAccessState {
             error = nil
             desktopFailure = nil
             dismissedFailure = nil
-        } else if !hasConnectedOnRoute, desktopRetries < Self.desktopRetryDelays.count, navigate != nil {
+        } else if !hasConnectedOnRoute, desktopRetries < Self.desktopRetryDelays.count,
+                  navigate != nil || navigateRequest != nil {
             let delay = Self.desktopRetryDelays[desktopRetries]
             desktopRetries += 1
             desktopConnected = false
