@@ -2149,11 +2149,13 @@ fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
             }
             "--state-dir" => {
                 require_unique_flag(&mut seen, "--state-dir")?;
-                parsed.state_dir = Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
             }
             "--mux-socket" => {
                 require_unique_flag(&mut seen, "--mux-socket")?;
-                parsed.mux_socket = Some(strict_option_value(args, &mut index, "--mux-socket")?.into());
+                parsed.mux_socket =
+                    Some(strict_option_value(args, &mut index, "--mux-socket")?.into());
             }
             "--link-socket" => {
                 require_unique_flag(&mut seen, "--link-socket")?;
