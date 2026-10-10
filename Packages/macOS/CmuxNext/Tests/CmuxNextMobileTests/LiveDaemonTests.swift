@@ -85,10 +85,15 @@ enum LiveDaemon {
         return Set(String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { Int32($0) })
     }
 
+    /// `proc_pidinfo(PROC_PIDTBSDINFO)` fails with ESRCH for a zombie, so it
+    /// reported an exited, unreaped host as live; `sysctl(KERN_PROC_PID)`
+    /// still returns a zombie's `p_stat`.
     static func isZombie(_ pid: Int32) -> Bool {
-        var info = proc_bsdinfo()
-        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-        return size > 0 && info.pbi_status == UInt32(SZOMB)
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return false }
+        return Int32(info.kp_proc.p_stat) == SZOMB
     }
 }
 
