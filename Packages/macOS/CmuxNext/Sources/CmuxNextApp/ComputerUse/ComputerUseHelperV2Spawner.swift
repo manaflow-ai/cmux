@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A started helper v2 process: its pid, the write end of its stdin (the
 /// control and liveness pipe) and its stdout lines.
