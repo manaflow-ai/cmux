@@ -338,3 +338,100 @@ Open:
   cmux-pty, HostShared), HostChild, PtyPollHandle and the readiness wait
   (PeekNamedPipe on the ConPTY output), the `__terminal-host` entry in
   main.rs (open_bootstrap_pipes), and the mux/surface hooks.
+
+## Handoff (2026-10-10, continuation agent at its context limit)
+
+Branch `gpui-windows-terminal-hosts-2` (only this lane pushes it; rebased on
+feat-cmux-next after the split finished). Bead cx-ko2e (in_progress). No push
+to feat-cmux-next without a relayed token (CORE) and a gate receipt
+(`/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/nx-worker/gate-run.sh`,
+SAFE_PUSH_GATED_HEAD + SAFE_PUSH_GATE_RECEIPT). Rule: no unit tests; behavior
+tests only (daemon socket / CLI / hosted e2e), red commit first.
+
+Seam list (every signature sys/windows must provide): cmuxterm-hq
+`.cmux-scratch/cx-ko2e-split-items.md`, section FINAL NAMES (split B1-B18
+done). Windows code: `cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/windows/`
+(`seams.rs` real seams, `standby.rs` host spawn with named-pipe bootstrap and
+breakaway/job logic, `endpoint.rs`, `jobs.rs`, `liveness.rs`); the remaining
+fail-closed placeholders are `mod windows_stubs` in
+`terminal_host_runtime/sys.rs`. Declared in `sys.rs`; the split lane adds no
+`mod windows` line (coordinator, final).
+
+Done on the branch: tab JSON `terminal_host_fallback` (`breakaway_denied` =
+host inside the daemon's kill-on-close job; `host_start_failed` = in-process),
+spec + sdk-schema + bindings, strings `terminal.link.endsWithStarter` and
+`terminal.link.inProcess`; host spawn (no inherited handle; breakaway, else
+inside the daemon's job, `HostProcess::ends_with_daemon_job`); seams (owner-only
+dir proof, record opens, LockFileEx leases, liveness lease, rename, connect,
+accept waker, endpoint_dir); Job Object stop (`signal_terminal_process_groups`
+-> `cmux_pty::windows_jobs::terminate_every_job`), `kill_process_group`;
+`adopt_pty_fd` -> Ok(None).
+
+Remaining, in order:
+1. `StandbyTerminalHost` on Windows (`sys.rs` stub -> `sys/windows`): wrap
+   `standby::spawn_host_process(current_exe, ["__terminal-host",
+   "--bootstrap-stdio"])`. The shared struct expects `io::PipeWriter`/
+   `io::PipeReader` and `SpawnedHostProcess` (std `Child`); the spawn returns
+   a raw process handle and named-pipe `File`s, so give Windows its own struct
+   and check every shared use in `shared/attachment/launch.rs`.
+2. Host entry `__terminal-host` in `cmux-tui/crates/cmux-tui/src/main.rs` on
+   Windows: `standby::open_bootstrap_pipes(last arg)` in place of stdio, then
+   the shared serve path.
+3. `HostListener` (bind via `endpoint::bind` / `cmux::local_socket::listen`,
+   nonblocking accept, `wait(waker, timeout)`: WSAEventSelect(FD_ACCEPT) on
+   the listener socket + WaitForMultipleObjects with the AcceptWaker event).
+4. Publication lock (`reserve_terminal_host_publication`,
+   `acquire_terminal_host_publication_lock`): LockFileEx shared on
+   `<root>/.publication.lock` (`liveness::lock_file`), reset exclusive; mirror
+   `sys/unix/lease.rs`.
+5. `adopt_launch::decode` / `start`: decode the launch frame (no adopt), spawn
+   the ConPTY child through cmux-pty, build `HostShared`; `HostChild`
+   (process_id, clone_killer, adopted_session None, wait_exit_observed via
+   WaitForSingleObject, wait_and_disarm -> TerminalExit).
+6. `PtyPollHandle` / `wait_for_pty_readable_or_forced_drain`: PeekNamedPipe
+   on the ConPTY output pipe with a short sleep, plus the drain waker.
+7. Mux hooks: `mux/surface_spawn.rs` `use_host_runtime` and
+   `adopt_terminal_hosts` on Windows; on `spawn_host_process` success with
+   `ends_with_daemon_job()` call `Surface::mark_terminal_host_fallback(
+   BreakawayDenied)`; on spawn error run in-process and mark
+   `HostStartFailed` (before publication).
+8. Named terminal job for a restarted daemon (`cmux-pty/src/windows_jobs.rs`,
+   `jobs::job_name`, record field `job_name`) and `windows_processes.rs`
+   reading by name.
+9. Behavior proof of the breakaway job through a real child: extend
+   `cmux-tui/crates/cmux-tui/tests/windows_terminal_hosts.rs` (daemon in a
+   kill-on-close job: close the job, the terminal ends; daemon in a plain
+   no-breakaway job: stop the daemon, the terminal survives and is adopted).
+10. GPUI banner (cmux2-gpui) after the cmux change lands and the pin moves.
+
+Decision needed: the host's terminal job sets no kill-on-close today. If the
+daemon kills an unadoptable host (`kill_process_group`), or the host crashes,
+its shell tree survives orphaned. Kill-on-close on the host's terminal job
+fixes that for hosts, but changes the in-process daemon too unless it is set
+only in host processes.
+
+Shortcuts taken: (1) the new Windows code has a temporary `#[allow(dead_code)]`
+on `mod windows` in `sys.rs` until the shared runtime calls it; (2) the host's
+terminal job has no kill-on-close (above). Also: `sync_dir` is a no-op on
+Windows, `has_single_link` is true (owner-only DACL), `is_endpoint_file`
+accepts any non-directory reparse point, a failed job-limit query counts as
+kill-on-close (shows the notice).
+
+CI (hosted `cmux-tui.yml` full mode: `gh workflow run cmux-tui.yml --ref
+gpui-windows-terminal-hosts-2 -f commit=<sha> -f mode=full -f
+request_id=<token>`; wait with `glaeda-gh wait run manaflow-ai/cmux/<id>`):
+last run 38022719138 at b61b7bbd8b2: lint (linux, clippy) green; test
+(windows) builds; expected reds: `a_terminal_survives_a_fenced_daemon_restart_on_windows`
+and `a_terminal_in_a_kill_on_close_job_without_breakaway_says_so` (no Windows
+host runtime yet); not ours: test (linux)
+`cli::mcp::tests::every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is`,
+macOS lint (unused import in `chatmux-relay/src/pty.rs`), and earlier the
+Linux package jobs ("npm package archive exceeds expanded size limit").
+Earlier runs: 37938711110 (runner job forbids breakaway), 37975463447,
+37979232196, 38006094082, 38008073080.
+
+Windows VM check (gpuitest session only; log off only with
+`scripts/windows/logoff-gpuitest.sh`; never the demo session), in
+~/fun/cmux2-gpui: `scripts/windows/daemon-terminal-test.ps1 -Scenarios restart`
+(then `quit`, `resources`, `owner`). Leftovers on the VM: `C:\build-wb\wd-dist`,
+`wd-dist-nobin`, `wd-tui`.
