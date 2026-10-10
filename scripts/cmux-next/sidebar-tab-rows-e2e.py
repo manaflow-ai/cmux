@@ -13,6 +13,7 @@ launches or quits the app.
 Usage: sidebar-tab-rows-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--out DIR]
 Exit status 0 when every check passes.
 """
+from collections import Counter
 import argparse, json, os, re, socket, sys, time
 
 parser = argparse.ArgumentParser()
@@ -68,14 +69,20 @@ def rows(kind):
     return [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith(kind + "(")]
 
 
+def key_ids(row_):
+    """(workspace, tab) ids from a row key: `tab(<ws>, <tab>)`, `workspace(<ws>)`, or their
+    `WorkspaceID(rawValue: "…")` / `TabID(rawValue: "…")` spellings."""
+    match = re.match(r'(?:tab|workspace)\((.*)\)$', str(row_.get("key", "")))
+    parts = [re.sub(r'^\w+\(rawValue: "(.*)"\)$', r'\1', part.strip()) for part in match.group(1).split(",")] if match else []
+    return (parts + [None, None])[:2]
+
+
 def workspace_of(row_):
-    match = re.search(r'WorkspaceID\(rawValue: "([^"]+)"\)', str(row_.get("key", "")))
-    return match.group(1) if match else None
+    return key_ids(row_)[0]
 
 
 def tab_of(row_):
-    match = re.search(r'TabID\(rawValue: "([^"]+)"\)', str(row_.get("key", "")))
-    return match.group(1) if match else None
+    return key_ids(row_)[1]
 
 
 def center(row_):
@@ -103,10 +110,13 @@ def setup():
         sys.exit(f"no tab rows: {json.dumps(sidebar())[:800]}")
     print("newTab:", action("newTab"), flush=True)
     action("workspace.selectFirst")
-    shown = wait(lambda: (sidebar().get("selection") or [None])[0], 15)
+    wait(lambda: sidebar().get("selection"), 15)
+    counts = Counter(workspace_of(r) for r in rows("tab"))  # the selection names a row; ids come from row keys
     print("newSurface:", action("newSurface"), flush=True)
-    if not wait(lambda: len([r for r in rows("tab") if workspace_of(r) == shown]) >= 2, 15):
-        sys.exit(f"no second tab row under {shown}: {[r.get('key') for r in rows('tab')]}")
+    grown = lambda: next((w for w, n in Counter(workspace_of(r) for r in rows("tab")).items() if n > counts[w] and n >= 2), None)
+    shown = wait(grown, 15)
+    if not shown:
+        sys.exit(f"no workspace gained a second tab row: {[r.get('key') for r in rows('tab')]}")
     time.sleep(1)  # test harness: the list settles
     return shown
 
