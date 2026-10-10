@@ -49,6 +49,12 @@ final class TabFaviconStore {
         return nil
     }
 
+    /// The icon at `address` for `profile` when it is already here; never fetches (a list
+    /// of every bookmark must not fetch every site's icon).
+    func cachedImage(for address: String, profile: BrowserProfileID) -> TabImage? {
+        URL(string: address).flatMap { images.peek(Key(profile: profile, url: $0)) }
+    }
+
     /// True while the icon at `address` for `profile` is being fetched.
     func isFetching(_ address: String, profile: BrowserProfileID) -> Bool {
         guard let url = URL(string: address) else { return false }
