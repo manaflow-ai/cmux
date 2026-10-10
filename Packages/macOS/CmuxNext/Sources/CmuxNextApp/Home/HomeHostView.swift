@@ -153,7 +153,7 @@ final class HomeHostView: NSView {
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
-                // H17: offline the user can type, but Send is off.
+                // H17: offline the user can type; tapbacks are off and a send waits as "sending".
                 self?.transcript.isSendEnabled = online
             }
         }
