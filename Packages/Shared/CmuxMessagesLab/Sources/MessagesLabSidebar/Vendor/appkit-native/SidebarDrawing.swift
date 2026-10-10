@@ -114,9 +114,11 @@ enum SidebarDraw {
     static let timeFont = uiFont(.system, SidebarMetrics.timeSize)
     static let pinNameFont = uiFont(.system, SidebarMetrics.pinNameSize)
     static let bubbleFont = uiFont(.system, 11)
+    static let sectionFont = uiFont(.emphasizedSystem, 11)
 
     // the UI font, or Helvetica at that size when Core Text returns none.
     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
+        // crash-allow: a factory for the static lets and the held monogram cache only (never per draw; cx-qpqs)
         CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
     }
 
@@ -124,6 +126,18 @@ enum SidebarDraw {
     // concurrentPerform threads, and a font made and dropped per draw can come
     // back nil there (cx-qpqs).
     private static let monogramFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
+    // emoji avatar fonts held per exact size, like the monogram fonts (avatar diameters are a few
+    // fixed sizes, so the store stays small).
+    private static let emojiFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
+    static func emojiFont(_ size: CGFloat) -> CTFont {
+        emojiFonts.withLock { fonts in
+            if let held = fonts[size] { return held }
+            // crash-allow: made once under the emojiFonts lock and held for the process (cx-qpqs)
+            let font = CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil)
+            fonts.updateValue(font, forKey: size) // dictionary write
+            return font
+        }
+    }
     static func monogramFont(_ size: CGFloat) -> CTFont {
         let key = (size * 2).rounded() / 2
         return monogramFonts.withLock { fonts in
@@ -222,7 +236,7 @@ enum SidebarDraw {
         case let .emoji(e):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
-            let font = CTFontCreateWithName("AppleColorEmoji" as CFString, r.width * 0.5, nil)
+            let font = emojiFont(r.width * 0.5) // held, not made per draw (cx-qpqs)
             let l = line(e, font, CGColor(gray: 0, alpha: 1))
             var asc: CGFloat = 0, desc: CGFloat = 0
             let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
@@ -379,7 +393,7 @@ enum SidebarDraw {
     /// The title of the host's extra search section: 11 pt semibold, secondary, at the row
     /// text's x, baseline 20 pt in a 28 pt band (to verify against Messages' search sections).
     static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
-        let font = uiFont(.emphasizedSystem, 11) // no force unwrap (cx-qpqs)
+        let font = sectionFont
         let l = truncated(line(title, font, ctx.palette.secondary), width - 2 * SidebarMetrics.selectionInsetX - 10, font, ctx.palette.secondary)
         return bitmap(size: CGSize(width: max(1, width), height: 28), ctx: ctx) { g in
             draw(l, x: SidebarMetrics.selectionInsetX + 10, baseline: 20, g)

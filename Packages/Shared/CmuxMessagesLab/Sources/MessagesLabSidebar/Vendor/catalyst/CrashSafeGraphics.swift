@@ -17,6 +17,7 @@ enum LabColorSpace {
 /// The system UI font of a kind and size; the system font by name if Core Text
 /// returns none for the kind.
 func labUIFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
+    // crash-allow: a factory for held fonts only (static lets and locked caches, never per draw); Core Text returns an optional and the nil falls back
     CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName(".AppleSystemUIFont" as CFString, size, nil)
 }
 

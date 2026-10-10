@@ -34,10 +34,14 @@ enum HomeFonts {
     static let code: UIFont = {
         let size = Fixture.bodyFont.pointSize - 1
         #if canImport(UIKit)
+        // crash-allow: made once in this static let and held for the process (the cx-qpqs cache itself)
         if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced) { return UIFont(descriptor: d, size: size) }
+        // crash-allow: made once in this static let and held for the process (the cx-qpqs cache itself)
         return UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
         #else
+        // crash-allow: made once in this static let and held for the process (the cx-qpqs cache itself)
         if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = UIFont(descriptor: d, size: size) { return f }
+        // crash-allow: made once in this static let and held for the process (the cx-qpqs cache itself)
         return NSFont.userFixedPitchFont(ofSize: size) ?? Fixture.bodyFont
         #endif
     }()
@@ -55,12 +59,15 @@ enum HomeFonts {
 
     /// Not cached: `cached` calls it under the store's lock (not reentrant).
     private static func makeSystem(_ size: CGFloat, _ weight: Weight) -> UIFont {
+        // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         if let font = unannotated(UIFont.systemFont(ofSize: size, weight: weight)) { return font }
         #if canImport(UIKit)
         let d = Fixture.bodyFont.fontDescriptor.addingAttributes([.traits: [UIFontDescriptor.TraitKey.weight: weight.rawValue]])
+        // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         return UIFont(descriptor: d, size: size)
         #else
         let d = Fixture.bodyFont.fontDescriptor.addingAttributes([.traits: [UIFontDescriptor.TraitKey.weight: weight.rawValue]])
+        // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         return NSFont(descriptor: d, size: size) ?? Fixture.bodyFont
         #endif
     }
@@ -69,12 +76,16 @@ enum HomeFonts {
     static func monospaced(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
         let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: true)
         return cached(key) {
+            // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
             if let font = unannotated(UIFont.monospacedSystemFont(ofSize: key.size, weight: weight)) { return font }
             #if canImport(UIKit)
+            // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
             if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced) { return UIFont(descriptor: d, size: key.size) }
             return Fixture.bodyFont
             #else
+            // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
             if let d = Fixture.bodyFont.fontDescriptor.withDesign(.monospaced), let f = UIFont(descriptor: d, size: key.size) { return f }
+            // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
             return NSFont.userFixedPitchFont(ofSize: key.size) ?? Fixture.bodyFont
             #endif
         }
@@ -84,6 +95,7 @@ enum HomeFonts {
     static func monospacedDigit(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
         let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: false, name: "digits")
         return cached(key) {
+            // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
             unannotated(UIFont.monospacedDigitSystemFont(ofSize: key.size, weight: weight)) ?? makeSystem(key.size, weight)
         }
     }
@@ -98,13 +110,15 @@ enum HomeFonts {
         if let hit = store.withLock({ $0[key] }) { return hit }
         #if canImport(UIKit)
         guard let d = base.fontDescriptor.withSymbolicTraits(all) else { return nil }
+        // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         let font = UIFont(descriptor: d, size: key.size)
         #else
+        // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = UIFont(descriptor: d, size: key.size) else { return nil }
         #endif
         return store.withLock { fonts in
             if let held = fonts[key] { return held }
-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } // dictionary write
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
             return font
         }
     }
@@ -123,8 +137,17 @@ enum HomeFonts {
     /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
     /// instead, so sizes computed from frames cannot grow it without bound.
     private static func quantized(_ size: CGFloat) -> CGFloat { size }
-    /// At most this many held fonts; past it a font is made and returned unheld.
+    /// At most this many held fonts; past it a font is made and returned unheld, so a lookup can
+    /// race its release again (cx-qpqs; the fallbacks above keep a nil out of the attributes).
+    /// The first time the store is full a process logs a fault (a full store means a caller
+    /// passes sizes that change per frame).
     private static let limit = 512
+    private static let fullLogged = OSAllocatedUnfairLock(initialState: false)
+    private static func full() {
+        guard fullLogged.withLock({ logged in defer { logged = true }; return !logged }) else { return }
+        Logger(subsystem: "com.cmux.prototype.messageslab", category: "fonts")
+            .fault("HomeFonts store is full (\(limit, privacy: .public) fonts): later fonts are not held")
+    }
 
     private static func cached(_ key: Key, make: () -> UIFont) -> UIFont {
         // Made under the lock: one creation per key, and no thread drops it.
@@ -132,7 +155,7 @@ enum HomeFonts {
         store.withLock { fonts in
             if let held = fonts[key] { return held }
             let font = make()
-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } // dictionary write
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
             return font
         }
     }

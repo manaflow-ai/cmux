@@ -67,8 +67,8 @@
   },
   "render_font": {
    "CmuxHomeRender": 4,
-   "MessagesLabHome": 30,
-   "MessagesLabSidebar": 6
+   "MessagesLabHome": 14,
+   "MessagesLabSidebar": 1
   },
   "unchecked": {
    "CMUXAuthCore": 3,
