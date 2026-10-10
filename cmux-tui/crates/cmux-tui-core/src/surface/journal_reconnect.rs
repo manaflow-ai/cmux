@@ -7,6 +7,11 @@
 //! terminal for the coalesced checkpoint (mux/journal_retention.rs).
 //! Capturing a session checkpoint inline here made a wave of N reconnects
 //! O(N^2).
+//!
+//! A respawned terminal (cx-6so.49 L2: its shell was lost with its host)
+//! records the same gap with reason `host_respawn` at the start of its new
+//! generation: output the lost host read but never delivered is not in the
+//! journal, and history must say so.
 
 use std::sync::Arc;
 use std::sync::PoisonError;
@@ -22,6 +27,10 @@ impl PtyTerminalRuntime {
     /// capture gate (so a shutdown's final barrier follows it, or it is not
     /// sent), and a wait for queue space with the gate released.
     pub(super) fn journal_host_reconnect_gap(&self, mux: &Arc<Mux>) {
+        self.journal_output_gap(mux, "host_reconnect");
+    }
+
+    fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) {
         if !mux.terminal_journal_enabled() || !self.journal_capture_supported {
             return;
         }
@@ -38,7 +47,7 @@ impl PtyTerminalRuntime {
                     terminal_id: terminal_id.clone(),
                     generation: self.journal_generation.clone(),
                     occurred_at_ms,
-                    reason: "host_reconnect",
+                    reason,
                 };
                 match mux.try_journal_terminal_event(gap) {
                     Ok(()) => break,
@@ -51,5 +60,15 @@ impl PtyTerminalRuntime {
             }
         }
         mux.note_terminal_host_reconnect(TerminalPublicId::clone(&terminal_id));
+    }
+}
+
+impl super::Surface {
+    /// Record the `host_respawn` gap at the start of a respawned terminal's
+    /// generation (cx-6so.49).
+    pub(crate) fn journal_respawn_gap(&self, mux: &Arc<Mux>) {
+        if let Some(pty) = self.as_pty() {
+            pty.journal_output_gap(mux, "host_respawn");
+        }
     }
 }
