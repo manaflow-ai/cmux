@@ -33,13 +33,45 @@ struct CoderouterProvider: Hashable {
         String(format: String(localized: "coderouter.newAccount", defaultValue: "New %@ Account"), title)
     }
 
-    /// The command a New Account row submits in a terminal; the CLI adds the
-    /// account to its active organization, which the sidebar reads.
+    /// The unscoped command shown in the guide and used by ordinary terminal
+    /// users. Sidebar setup uses the scoped overload below.
     var addCommand: String {
         switch id {
         case "opencode-go": return "cmux cr add opencode"
         default: return "cmux cr add \(id)"
         }
+    }
+
+    /// Builds the command used by the sidebar for one mapped organization.
+    /// Newer CLIs accept `--team`; older ones run the whole switch-and-add
+    /// sequence against a temporary copy of the CodeRouter config.
+    func addCommand(
+        for organizationID: String?,
+        scope: CoderouterTeamScope = .isolatedConfiguration,
+        cmuxExecutable: String = "cmux"
+    ) -> String {
+        let cli = cmuxExecutable == "cmux" ? "cmux" : Self.shellQuote(cmuxExecutable)
+        let provider = id == "opencode-go" ? "opencode" : id
+        let addCommand = "\(cli) cr add \(provider)"
+        guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !organizationID.isEmpty else {
+            return addCommand
+        }
+
+        let quotedOrganization = Self.shellQuote(organizationID)
+        switch scope {
+        case .teamOption:
+            return "\(addCommand) --team \(quotedOrganization)"
+        case .isolatedConfiguration:
+            // Keep the user's saved org untouched when an older CLI has no
+            // team option. The temporary config is deleted on every exit.
+            let script = "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\") || exit 1; cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'This account is not signed in on this Mac.' >&2; exit 1; fi; if ! mkdir -p \"$tmp/coderouter\"; then exit 1; fi; if ! cp \"$source_config\" \"$tmp/coderouter/config.json\"; then exit 1; fi; result=0; if CODEROUTER_DATA_DIR=\"$tmp\" \(cli) cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || result=$?; else result=$?; fi; exit \"$result\""
+            return "/bin/sh -c \(Self.shellQuote(script))"
+        }
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
