@@ -6,7 +6,8 @@ import QuartzCore
 
 /// Workspace icon: the user's choice, an SF Symbol (tinted with the
 /// workspace color), one emoji (on a chip of the workspace color) or a color
-/// alone shown as a small dot; else the row's type glyph from the icon
+/// alone shown as a small dot; a browser workspace's page icon, untinted;
+/// else the row's type glyph from the icon
 /// registry, or the brand mark of the agent it shows, at row size.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
@@ -63,6 +64,9 @@ final class SidebarIconView: NSView {
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            imageView.isHidden = false
+        case let .favicon(favicon)?:
+            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
             imageView.isHidden = false
         case .swatch?:
             imageView.isHidden = true
