@@ -113,7 +113,7 @@ impl Mux {
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.state.lock().unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap();
         let surface =
             state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id));
         let identity_matches = surface
@@ -180,7 +180,7 @@ impl Mux {
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.state.lock().unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap();
         let surface = state
             .surfaces
             .get(&surface_id)

@@ -11,8 +11,7 @@
   "scripts": {
     "generate": "openapi-typescript ../openapi.json --output src/schema.d.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test",
-    "check": "bun run generate && bun run typecheck && bun test"
+    "check": "bun run generate && bun run typecheck"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0"

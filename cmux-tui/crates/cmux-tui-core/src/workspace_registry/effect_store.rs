@@ -1,3 +1,4 @@
+mod creation_lookup;
 use super::resource_store::{
     apply_resource_patch, apply_resource_patch_timed, complete_terminal_close_patch,
     validate_resource_patch,
@@ -8,8 +9,10 @@ use crate::resource::ResourceError;
 use serde_json::json;
 
 mod creation_record;
+mod effect_intent;
 mod input_receipts;
 use creation_record::read_creation_record;
+pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
@@ -246,117 +249,7 @@ impl WorkspaceRegistry {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
-        read_effect_preparation(&self.connection, idempotency_key, operation, &fingerprint)
-    }
-
-    pub fn lookup_resource_creation(
-        &self,
-        correlation_key: &str,
-        idempotency_key: &str,
-        operation: &str,
-        fingerprint: &Value,
-        effectful: bool,
-    ) -> anyhow::Result<Option<ResourceCreationPreparation>> {
-        validate_correlation_key(correlation_key)?;
-        validate_identifier("idempotency key", idempotency_key)?;
-        validate_identifier("resource operation", operation)?;
-        let fingerprint = self.stored_fingerprint(fingerprint)?;
-        let Some(stored) = read_creation_record(&self.connection, correlation_key)? else {
-            return Ok(None);
-        };
-        require_creation_identity(
-            correlation_key,
-            operation,
-            &fingerprint,
-            &stored.operation,
-            &stored.fingerprint,
-        )?;
-        anyhow::ensure!(
-            stored.execution_kind == if effectful { "effect" } else { "pure" },
-            "creation receipt {correlation_key:?} changed execution kind"
-        );
-        if effectful
-            && stored.idempotency_key != idempotency_key
-            && let Some(ResourceEffectPreparation::Committed {
-                outcome: ResourceEffectOutcome::Failure(error),
-                revision,
-            }) =
-                read_effect_preparation(&self.connection, idempotency_key, operation, &fingerprint)?
-        {
-            return Ok(Some(ResourceCreationPreparation::Failed { error, revision }));
-        }
-        let preparation = match stored.state.as_str() {
-            "created" => ResourceCreationPreparation::Created {
-                created_path: serde_json::from_str(
-                    stored
-                        .created_path_json
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
-                )?,
-                generation: stored
-                    .generation
-                    .ok_or_else(|| anyhow::anyhow!("created resource omitted its generation"))?,
-                revision: u64::try_from(
-                    stored
-                        .committed_revision
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its revision"))?,
-                )
-                .context("stored creation revision is negative")?,
-            },
-            "prepared" if stored.idempotency_key == idempotency_key => {
-                if effectful {
-                    match read_effect_preparation(
-                        &self.connection,
-                        idempotency_key,
-                        operation,
-                        &fingerprint,
-                    )? {
-                        Some(ResourceEffectPreparation::Execute { .. }) => {}
-                        Some(
-                            ResourceEffectPreparation::Committed { .. }
-                            | ResourceEffectPreparation::Indeterminate,
-                        ) => {
-                            return Ok(Some(ResourceCreationPreparation::Blocked {
-                                idempotency_key: stored.idempotency_key,
-                                operation: stored.operation,
-                            }));
-                        }
-                        None => {
-                            anyhow::bail!("creation effect receipt {idempotency_key:?} is missing");
-                        }
-                    }
-                }
-                ResourceCreationPreparation::Execute {
-                    idempotency_key: stored.idempotency_key,
-                    intent: serde_json::from_str(&stored.intent_json)?,
-                    resumed: true,
-                }
-            }
-            "not_applied" if stored.idempotency_key == idempotency_key => {
-                let Some(ResourceEffectPreparation::Committed {
-                    outcome: ResourceEffectOutcome::Failure(error),
-                    revision,
-                }) = read_effect_preparation(
-                    &self.connection,
-                    idempotency_key,
-                    operation,
-                    &fingerprint,
-                )?
-                else {
-                    anyhow::bail!(
-                        "not-applied creation {correlation_key:?} omitted its failed effect receipt"
-                    );
-                };
-                ResourceCreationPreparation::Failed { error, revision }
-            }
-            "not_applied" => return Ok(None),
-            "prepared" | "executing" | "indeterminate" => ResourceCreationPreparation::Blocked {
-                idempotency_key: stored.idempotency_key,
-                operation: stored.operation,
-            },
-            other => anyhow::bail!("invalid resource creation state {other:?}"),
-        };
-        Ok(Some(preparation))
+        read_effect_preparation(&self.connection.get(), idempotency_key, operation, &fingerprint)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -377,7 +270,8 @@ impl WorkspaceRegistry {
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
         let execution_kind = if effectful { "effect" } else { "pure" };
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(stored) = read_creation_record(&tx, correlation_key)? {
             require_creation_identity(
                 correlation_key,
@@ -558,7 +452,7 @@ impl WorkspaceRegistry {
 
     pub fn resolve_resource_creation(&self, correlation_key: &str) -> anyhow::Result<Value> {
         validate_correlation_key(correlation_key)?;
-        let Some(stored) = read_creation_record(&self.connection, correlation_key)? else {
+        let Some(stored) = read_creation_record(&self.connection.get(), correlation_key)? else {
             return Ok(json!({
                 "correlation_key":correlation_key,
                 "state":"not_applied",
@@ -619,7 +513,7 @@ impl WorkspaceRegistry {
         correlation_key: &str,
     ) -> anyhow::Result<Option<ResourceCreationRecovery>> {
         validate_correlation_key(correlation_key)?;
-        let Some(stored) = read_creation_record(&self.connection, correlation_key)? else {
+        let Some(stored) = read_creation_record(&self.connection.get(), correlation_key)? else {
             return Ok(None);
         };
         if stored.state != "executing" || stored.execution_kind != "effect" {
@@ -640,7 +534,8 @@ impl WorkspaceRegistry {
     pub fn interrupted_resource_creation_recoveries(
         &self,
     ) -> anyhow::Result<Vec<ResourceCreationRecovery>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT correlation_key
              FROM resource_creation_receipts
              WHERE state = 'executing' AND execution_kind = 'effect'
@@ -683,7 +578,8 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let created_path_json = canonical_json(created_path)?;
         let generation = self.generation.clone();
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let stored = read_creation_record(&tx, correlation_key)?.ok_or_else(|| {
             anyhow::anyhow!("resource creation intent {correlation_key:?} is missing")
         })?;
@@ -787,7 +683,8 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(preparation) =
             read_effect_preparation(&tx, idempotency_key, operation, &fingerprint)?
         {
@@ -829,7 +726,8 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let generation = self.generation.clone();
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let (stored_operation, stored_fingerprint, state, intent_json) =
             read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
                 anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
@@ -870,6 +768,9 @@ impl WorkspaceRegistry {
         Ok(serde_json::from_str(&intent_json)?)
     }
 
+    /// Commit an effect outcome in a request-side transaction. Mux callers
+    /// send the same intent to the journal writer instead
+    /// (`Mux::commit_effect_intent`).
     pub fn commit_resource_effect(
         &mut self,
         idempotency_key: &str,
@@ -878,109 +779,15 @@ impl WorkspaceRegistry {
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
     ) -> anyhow::Result<u64> {
-        validate_identifier("idempotency key", idempotency_key)?;
-        validate_identifier("resource operation", operation)?;
-        let fingerprint = self.stored_fingerprint(fingerprint)?;
-        let outcome_value = serde_json::to_value(outcome)?;
-        let outcome_json = canonical_json(&outcome_value)?;
-        let generation = self.generation.clone();
-        let tx = self.connection.transaction()?;
-        let (stored_operation, stored_fingerprint, state, intent_json) =
-            read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
-                anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
-            })?;
-        require_effect_identity(
+        let (intent, finish) = self.prepare_effect_outcome_intent(
             idempotency_key,
             operation,
-            &fingerprint,
-            &stored_operation,
-            &stored_fingerprint,
+            fingerprint,
+            outcome,
+            deltas,
         )?;
-        anyhow::ensure!(
-            state == "executing",
-            "resource effect {idempotency_key:?} cannot commit from state {state:?}"
-        );
-        let previous_revision = transaction_resource_revision(&tx)?;
-        let revision = if let Some(deltas) = deltas {
-            let revision = previous_revision
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-                [revision.to_string()],
-            )?;
-            append_resource_journal_record(
-                &tx,
-                revision,
-                previous_revision,
-                "resource-api",
-                idempotency_key,
-                operation,
-                None,
-                &outcome_value,
-                deltas,
-            )?;
-            resource_store::prune_resource_mutations(&tx)?;
-            revision
-        } else {
-            append_resource_effect_journal_record(
-                &tx,
-                idempotency_key,
-                operation,
-                &serde_json::from_str(&intent_json)?,
-                Some(&outcome_value),
-                match outcome {
-                    ResourceEffectOutcome::Success(_) => ResourceEffectJournalState::Succeeded,
-                    ResourceEffectOutcome::Failure(_) => ResourceEffectJournalState::Failed,
-                },
-            )?;
-            previous_revision
-        };
-        tx.execute(
-            "UPDATE resource_effect_receipts
-             SET state = 'committed', outcome_json = ?2, committed_revision = ?3
-             WHERE idempotency_key = ?1 AND state = 'executing'",
-            params![
-                idempotency_key,
-                outcome_json,
-                i64::try_from(revision).context("resource revision exceeds SQLite range")?,
-            ],
-        )?;
-        let correlated = match outcome {
-            ResourceEffectOutcome::Success(created_path) => tx.execute(
-                "UPDATE resource_creation_receipts
-                 SET state = 'created', execution_generation = NULL,
-                     created_path_json = ?2, generation = ?3, committed_revision = ?4
-                 WHERE idempotency_key = ?1 AND execution_kind = 'effect'
-                   AND state = 'executing'",
-                params![
-                    idempotency_key,
-                    canonical_json(created_path)?,
-                    generation,
-                    i64::try_from(revision).context("resource revision exceeds SQLite range")?,
-                ],
-            )?,
-            ResourceEffectOutcome::Failure(_) => tx.execute(
-                "UPDATE resource_creation_receipts
-                 SET state = 'not_applied', execution_generation = NULL,
-                     created_path_json = NULL, generation = NULL, committed_revision = NULL
-                 WHERE idempotency_key = ?1 AND execution_kind = 'effect'
-                   AND state = 'executing'",
-                [idempotency_key],
-            )?,
-        };
-        let creation_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
-            [idempotency_key],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            creation_count == 0 || correlated == 1,
-            "correlated resource effect could not commit its outcome"
-        );
-        record_resource_input_receipt_completion(&tx, idempotency_key, operation)?;
-        tx.commit()?;
-        Ok(revision)
+        let receipt = self.commit_effect_intent_locally(&intent)?;
+        Ok(self.finish_effect_commit(finish, receipt)?.revision())
     }
 
     /// Atomically persists the durable topology produced by an external
@@ -1004,45 +811,17 @@ impl WorkspaceRegistry {
         deltas: &Value,
         restates_all: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        validate_identifier("idempotency key", idempotency_key)?;
-        validate_identifier("resource operation", operation)?;
-        validate_resource_patch(patch)?;
-        #[cfg(test)]
-        if self.resource_patch_failures_remaining.get() > 0 {
-            self.resource_patch_failures_remaining
-                .set(self.resource_patch_failures_remaining.get() - 1);
-            anyhow::bail!("forced one-shot resource patch failure");
-        }
-        let fingerprint = self.stored_fingerprint(fingerprint)?;
-        let outcome = ResourceEffectOutcome::Success(result.clone());
-        let outcome = serde_json::to_value(&outcome)?;
-        let outcome_json = canonical_json(&outcome)?;
-        let generation = self.generation.clone();
-        let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
-        let deltas = &self.prune_stated_topology_deltas(deltas)?;
-        let tx = self.connection.transaction()?;
-        let commit = commit_resource_effect_patch_in_transaction(
-            &tx,
-            &generation,
+        let (intent, finish) = self.prepare_effect_patch_intent(
             idempotency_key,
             operation,
-            &fingerprint,
+            fingerprint,
             patch,
             result,
-            &outcome,
-            &outcome_json,
-            deltas,
-            &mut spans,
-        )?;
-        tx.commit()?;
-        self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
-        self.record_public_fold(
-            commit.revision.saturating_sub(1),
-            commit.revision,
             deltas,
             restates_all,
-        );
-        Ok(commit)
+        )?;
+        let receipt = self.commit_effect_intent_locally(&intent)?;
+        self.finish_effect_commit(finish, receipt)?.into_patch_commit()
     }
 
     #[cfg(test)]
@@ -1069,7 +848,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let actor = mutation_ledger::effect_receipt_actor(&self.connection, idempotency_key)?;
+        let actor = mutation_ledger::effect_receipt_actor(&self.connection.get(), idempotency_key)?;
         let mutation = WorkspaceMutation::new(idempotency_key, "resource-api", actor)?;
         validate_terminal_batch_close(&mutation, terminals)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
@@ -1079,7 +858,8 @@ impl WorkspaceRegistry {
         let generation = self.generation.clone();
         let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
         let deltas = &self.prune_stated_topology_deltas(deltas)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
         // A terminal close can empty a workspace: both commit here.
@@ -1121,6 +901,8 @@ impl WorkspaceRegistry {
             &mut spans,
         )?;
         tx.commit()?;
+        drop(db);
+        self.connection.write_path_stats().request_effect_committed();
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         self.record_public_fold(
             resource.revision.saturating_sub(1),
@@ -1136,7 +918,8 @@ impl WorkspaceRegistry {
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
         validate_identifier("idempotency key", idempotency_key)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let Some((operation, _, state, intent_json)) = read_effect_record(&tx, idempotency_key)?
         else {
             anyhow::bail!("resource effect intent {idempotency_key:?} is missing");

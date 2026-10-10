@@ -119,13 +119,24 @@ const constIndex = (reader: SourceReader): Map<string, Array<{ file: string; val
   return index
 }
 
-/** The module files a Rust path (`crate::a::b`, `a::b` relative to server) can name. */
-const moduleFiles = (segments: Array<string>): Array<string> => {
+/** The module files a Rust path (`crate::a::b`, `a::b` relative to server) can name. A
+ * `crate::a` that the core's lib.rs re-exports from another workspace crate
+ * (`use cmux_tui_image_paste::image_paste;`) names that crate's module file. */
+const moduleFiles = (segments: Array<string>, reader: SourceReader): Array<string> => {
   const rel = segments.filter((s) => s !== "crate" && s !== "super" && s !== "self")
   if (rel.length === 0) return []
   const p = rel.join("/")
   const roots = segments[0] === "crate" ? [CORE] : [`${CORE}/server`, CORE]
-  return roots.flatMap((r) => [`${r}/${p}.rs`, `${r}/${p}/mod.rs`])
+  const files = roots.flatMap((r) => [`${r}/${p}.rs`, `${r}/${p}/mod.rs`])
+  if (segments[0] === "crate") {
+    const lib = stripComments(reader.read(`${CORE}/lib.rs`) ?? "")
+    const reexport = lib.match(new RegExp(`\\buse\\s+(\\w+)::${rel[0]}\\s*;`))
+    if (reexport && !["crate", "self", "super"].includes(reexport[1]!)) {
+      const src = `${CRATES}/${reexport[1]!.replace(/_/g, "-")}/src`
+      files.push(`${src}/${p}.rs`, `${src}/${p}/mod.rs`)
+    }
+  }
+  return files
 }
 
 const resolveToken = (token: string, index: Map<string, Array<{ file: string; value: string }>>, reader: SourceReader, depth = 0): string => {
@@ -135,7 +146,7 @@ const resolveToken = (token: string, index: Map<string, Array<{ file: string; va
   const name = segments.pop()!
   const found = index.get(name) ?? []
   const distinct = (list: Array<{ value: string }>) => [...new Set(list.map((c) => c.value))]
-  const files = moduleFiles(segments)
+  const files = moduleFiles(segments, reader)
   if (files.length) {
     const inModule = found.filter((c) => files.includes(c.file) || files.some((f) => f.endsWith("/mod.rs") && c.file.startsWith(f.slice(0, -"mod.rs".length))) || files.some((f) => c.file.startsWith(f.slice(0, -".rs".length) + "/")))
     if (distinct(inModule).length === 1) return inModule[0]!.value

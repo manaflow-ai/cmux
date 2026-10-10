@@ -21,7 +21,7 @@ extension SidebarListView {
             target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
         case .group?:
             return nil
-        case let .section(id)?, let .emptySection(id)?:
+        case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)

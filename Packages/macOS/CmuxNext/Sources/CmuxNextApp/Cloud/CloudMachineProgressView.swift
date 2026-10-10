@@ -104,7 +104,7 @@ final class CloudMachineProgressView: NSView {
     /// note under the steps says so (it is always shown), and no beep.
     override func keyDown(with event: NSEvent) {
         guard creation.stage.failure == nil else { return super.keyDown(with: event) }
-        typingLabel.textColor = Palette.textPrimary
+        performWithTheme { typingLabel.textColor = Palette.textPrimary }
     }
 
     override func viewDidMoveToWindow() {

@@ -164,7 +164,7 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 #[cfg(test)]
-use cmd_server::{machine_listening_tcp_json, stamped_build_commit, stamped_ghostty_commit};
+use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
 mod cmd_subscribe;
@@ -1267,6 +1267,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `split-client-keys-v1`: caller-minted ids of the pane and its tab.
+        #[serde(default)]
+        pane_id: Option<String>,
+        #[serde(default)]
+        tab_id: Option<String>,
     },
     NewPaneRight(split_kind::NewPaneRightParams),
     Split(split_kind::SplitParams),
@@ -3299,21 +3304,7 @@ fn handle_command_with_cancellation(
         Command::ReopenSavedScreenGroup { saved, workspace } => {
             cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            cmd_panes::new_pane(
-                mux,
-                client,
-                actor,
-                pane,
-                cols,
-                rows,
-                cwd,
-                env,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        command @ Command::NewPane { .. } => cmd_panes::new_pane(mux, client, actor, command),
         Command::NewPaneRight(params) => cmd_panes::new_pane_right(mux, client, params),
         Command::Split(params) => cmd_panes::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {

@@ -70,7 +70,7 @@ export function createDiffWrites(): DiffWrites {
 /**
  * The mounted viewer's outbox: created with the component, disposed when it unmounts (the page
  * shell's reset), so nothing pending or refused outlives the page it came from. The effect is
- * only the unmount cleanup; test/diff-writes-shell.test.tsx covers it.
+ * only the unmount cleanup.
  */
 export function useDiffWrites(): DiffWrites {
   const [writes] = useState(createDiffWrites);

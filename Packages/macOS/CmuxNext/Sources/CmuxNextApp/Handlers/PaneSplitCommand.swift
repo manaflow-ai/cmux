@@ -21,4 +21,39 @@ struct PaneSplitCommand: Sendable {
             return created
         }
     }
+
+    /// The optimistic split (`split-client-keys-v1`, plans/cmux-next/remote-state-ownership.md
+    /// S3): the store shows `provisional` beside the pane at once (its intent log), and the split
+    /// goes out under the provisional pane's client-minted ids, so the daemon's pane replaces it
+    /// under the same public id. A refusal removes it exactly.
+    func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> SurfaceCreated {
+        var options = options
+        options.paneID = provisional.paneID
+        options.tabID = provisional.tabID
+        options.terminalID = TerminalID(rawValue: provisional.terminalID)
+        let pane = pane, direction = direction, sent = options
+        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        let created = await daemon.intend("split", intent, transaction: .generate()) { connection in
+            try await connection.split(pane, direction: direction, options: sent)
+        }
+        guard let created else { throw PaneSplitFailure() }
+        return created
+    }
+
+    /// The optimistic split is off (cx-wb5.72): keys typed right after Cmd+D lost the tail of the
+    /// line in 1 of 8 proof runs. The landing that fixes the ordering sets this back to true.
+    static let optimisticSplitEnabled = false
+
+    /// Whether `daemon` takes the optimistic split for this command: the fast path is on, it serves
+    /// the client keys, and the split does not swap (a left or up split moves the original pane
+    /// afterwards).
+    @MainActor func isOptimistic(on daemon: DaemonService) -> Bool {
+        Self.optimisticSplitEnabled && swapTowards == nil
+            && daemon.supports(DaemonCapabilities.shared.splitClientKeys)
+    }
+}
+
+/// An optimistic split the daemon refused (the intent log logged the cause and removed the pane).
+struct PaneSplitFailure: Error, CustomStringConvertible {
+    var description: String { "the daemon refused the split" }
 }
