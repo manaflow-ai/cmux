@@ -40,9 +40,9 @@ struct PaneSplitCommand: Sendable {
         return created
     }
 
-    /// The optimistic split is off (cx-wb5.72): keys typed right after Cmd+D lost the tail of the
-    /// line in 1 of 8 proof runs. The landing that fixes the ordering sets this back to true.
-    static let optimisticSplitEnabled = false
+    /// The optimistic split (cx-wb5.72). It was off while keys typed after Cmd+D could be lost;
+    /// the key route of a pending creation (cx-wb5.76, `CreationInputCoordinator`) fixed the loss.
+    static let optimisticSplitEnabled = true
 
     /// Whether `daemon` takes the optimistic split for this command: the fast path is on, it serves
     /// the client keys, and the split does not swap (a left or up split moves the original pane

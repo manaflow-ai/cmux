@@ -478,6 +478,11 @@ public abstract class GeneratedCmuxClient {
         return GetSizeStateResult.fromWire(result);
     }
 
+    public final HistorySearchResult historySearch(HistorySearchRequest request) throws CmuxException {
+        Object result = execute(Commands.HISTORY_SEARCH, request.toWire());
+        return HistorySearchResult.fromWire(result);
+    }
+
     public final IdentifyResult identify() throws CmuxException {
         Object result = execute(Commands.IDENTIFY, Map.of());
         return IdentifyResult.fromWire(result);

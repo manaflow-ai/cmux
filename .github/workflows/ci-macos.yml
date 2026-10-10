@@ -815,6 +815,18 @@ jobs:
           if cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh --optional)" && [[ -n "$cef_dir" ]]; then
             echo "Chromium engine readable at $cef_dir; admission embeds it"
             echo "CMUX_NEXT_SKIP_CEF=0" >> "$GITHUB_ENV"
+            # The Embed remote browser host phase fails a DEV build whose pinned
+            # host is unavailable. Fetch it here with the same key; without it the
+            # admission build opts out explicitly (logged, and recorded in About).
+            if [[ ! -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+              :
+            elif host="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-remote-browser-host.sh)" && [[ -n "$host" ]]; then
+              echo "remote browser host readable at $host; admission embeds it"
+              echo "CMUX_NEXT_SKIP_RB_HOST=0" >> "$GITHUB_ENV"
+            else
+              echo "::warning title=No remote browser host::the pinned remote browser host was not readable; admission builds with CMUX_NEXT_SKIP_RB_HOST=1"
+              echo "CMUX_NEXT_SKIP_RB_HOST=1" >> "$GITHUB_ENV"
+            fi
           else
             echo "Chromium engine artifact not readable here; admission builds without it"
             echo "CMUX_NEXT_SKIP_CEF=1" >> "$GITHUB_ENV"

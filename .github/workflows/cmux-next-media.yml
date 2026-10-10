@@ -18,15 +18,9 @@ name: cmux-next media
 # branch here could edit these jobs, and forks never reach them.
 
 on:
-  pull_request:
-    branches: [feat-cmux-next, feat-cmux-next-acpmux]
-    types: [opened, synchronize, reopened]
-    paths:
-      - Packages/macOS/CmuxNext/Sources/**
-      - webviews/src/**
-      - scripts/cmux-next/media/**
-      - scripts/ci/cmux_next_media_runner.py
-      - .github/workflows/cmux-next-media.yml
+  # Dispatch-only on feat-cmux-next (chief, 2026-10-10): the PR media tours held the
+  # glaeda-side pool while the tip Release compile queued 33 min.
+  workflow_dispatch:
 
 permissions: {}
 

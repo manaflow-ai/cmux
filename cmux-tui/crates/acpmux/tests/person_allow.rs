@@ -465,3 +465,52 @@ async fn an_agent_side_client_never_calls_a_harness_method_acpmux_does_not_handl
     assert_ne!(reason(&r), REASON, "{r}");
     assert!(r["error"]["message"].as_str().unwrap_or_default().contains("no such method"), "{r}");
 }
+
+/// cx-aocz: the person's app answers for a device the person answered on
+/// (the feed bridge) and says so; the claim is recorded, never sent to the
+/// agent, and only the person's connection may make it.
+#[tokio::test]
+async fn the_person_records_which_device_answered() {
+    let d = Daemon::start("answered", Some(KEY));
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut agent = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut agent, &d).await;
+    let rid = agent.send("session/prompt", prompt(&id, "ask: deploy")).await;
+    let pending = agent.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let by = json!({"device": "ios-device:7f3a", "feedItem": "fi_01k2abc"});
+    let answer = |option: &str, by: Value| {
+        json!({"sessionId": id, "permissionId": pid, "optionId": option,
+               "_meta": {"acpmux": {"answeredBy": by}}})
+    };
+    // Only the person's connection may name who answered, also on a deny.
+    let r = agent.call("_acpmux/permission_respond", answer("no", by.clone())).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    // A malformed claim is refused and answers nothing.
+    for bad in [
+        json!({"device": "ios-device:7f3a"}),
+        json!({"device": "", "feedItem": "fi"}),
+        json!({"device": "a b", "feedItem": "fi"}),
+        json!({"device": "d", "feedItem": "fi", "extra": "x"}),
+        json!("ios-device:7f3a"),
+    ] {
+        let r = app.call("_acpmux/permission_respond", answer("yes", bad.clone())).await;
+        assert_eq!(r["error"]["code"], -32602, "{bad}: {r}");
+    }
+    assert_eq!(pending_ids(&mut agent, &id).await, vec![pid.clone()]);
+    app.ok("_acpmux/permission_respond", answer("yes", by.clone())).await;
+    assert_eq!(turn_said(&mut agent, rid).await, "chose yes");
+    let events = agent.ok("_acpmux/events", json!({"sessionId": id, "limit": 500})).await;
+    let events = events["events"].as_array().unwrap();
+    let decision = events
+        .iter()
+        .find(|e| e["kind"] == "permission_decision")
+        .unwrap_or_else(|| panic!("no permission_decision: {events:?}"));
+    assert_eq!(decision["msg"]["answeredBy"], by, "{decision}");
+    assert_eq!(decision["msg"]["outcome"]["optionId"], "yes", "{decision}");
+    // The agent's own messages never carry the claim.
+    for e in events.iter().filter(|e| e["kind"] != "permission_decision") {
+        let text = e.to_string();
+        assert!(!text.contains("fi_01k2abc") && !text.contains("_acpmuxAnsweredBy"), "{e}");
+    }
+}

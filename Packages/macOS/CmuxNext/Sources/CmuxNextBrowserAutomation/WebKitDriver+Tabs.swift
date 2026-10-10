@@ -141,45 +141,4 @@ extension WebKitDriver {
         guard let url = tab.webView.url, let status = tab.mainFrameStatuses.status(for: url) else { return [:] }
         return ["status": .number(Double(status))]
     }
-
-    func cookiesGet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
-        let urls = try params.strings("urls").compactMap(URL.init(string:))
-        let cookies = await store.allCookies()
-        return .array(cookies.filter { cookie in urls.isEmpty || urls.contains { Self.cookie(cookie, matches: $0) } }.map(Self.json))
-    }
-
-    func cookiesClear(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in await store.allCookies() { await store.deleteCookie(cookie) }
-        return .null
-    }
-
-    /// Cookie calls have no target; the session's first tab names the profile.
-    private func anyTab(_ params: DriverParams) throws(DriverError) -> WebKitTab {
-        if params.has("targetId") { return try target(params).0 }
-        guard let tab = provider?.automationTabs(all: false).first?.tab else {
-            throw DriverError(.notFound, "\(params.method): no tab to read cookies from")
-        }
-        return tab
-    }
-
-    private static func cookie(_ cookie: HTTPCookie, matches url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return false }
-        let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard host == domain || host.hasSuffix("." + domain) else { return false }
-        if cookie.isSecure, url.scheme != "https" { return false }
-        let path = url.path.isEmpty ? "/" : url.path
-        return path == cookie.path || (path.hasPrefix(cookie.path) && (cookie.path.hasSuffix("/") || path.dropFirst(cookie.path.count).hasPrefix("/")))
-    }
-
-    private static func json(_ cookie: HTTPCookie) -> DriverJSON {
-        var row: [String: DriverJSON] = [
-            "name": .string(cookie.name), "value": .string(cookie.value), "domain": .string(cookie.domain),
-            "path": .string(cookie.path), "httpOnly": .bool(cookie.isHTTPOnly), "secure": .bool(cookie.isSecure),
-            "expires": .number(cookie.expiresDate.map { $0.timeIntervalSince1970 } ?? -1),
-        ]
-        if let sameSite = cookie.sameSitePolicy?.rawValue { row["sameSite"] = .string(sameSite.capitalized) }
-        return .object(row)
-    }
 }

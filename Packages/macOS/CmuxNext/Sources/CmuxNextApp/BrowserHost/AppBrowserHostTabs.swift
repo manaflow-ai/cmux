@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Observation
+import WebKit
 
 /// The app's browser tabs for the browser host: the tab list (`hello`,
 /// `tab.announced`/`navigated`/`gone`), each Chromium tab's extension access
@@ -215,6 +216,22 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func keepRendering(_ tab: WebKitTab) async -> Bool {
         guard let services, let entry = services.cache.existingBrowser(tab.id.rawValue), (entry.tab as? WebKitTab) === tab else { return false }
         return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
+    }
+
+    /// A persistent WebKit profile's cookie store (`cookies.restore`): the
+    /// built-in profile, one the profile book still holds, or the store of
+    /// an open tab of the profile; never a private one.
+    func cookieStore(profile: BrowserProfileID) -> WKHTTPCookieStore? {
+        guard let services else { return nil }
+        let profileStore = services.cache.webKit.profileStore
+        guard !profileStore.isOffTheRecord(profile) else { return nil }
+        let book = services.browserProfiles.book
+        if profile == .default || book.profiles.contains(where: { book.engineProfile(for: $0.id) == profile }) {
+            return profileStore.dataStore(for: profile).httpCookieStore
+        }
+        return automationTabs(all: true).map(\.tab).first {
+            $0.profileID == profile && $0.webView.configuration.websiteDataStore.isPersistent
+        }?.webView.configuration.websiteDataStore.httpCookieStore
     }
 
     /// Tabs belong to the person's layout: the provider never closes one.

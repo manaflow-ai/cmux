@@ -72,6 +72,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
+| `pinDrag` | 0.351 / 0.839 | 375 ms | 525 ms | Home list pin drag: tiles making room, rows below the grid, a dropped tile landing (MessagesLab `SidebarPinDragging.spring`: stiffness 320, damping 30, mass 1; about 1.6 pt overshoot on 200 pt) |
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
@@ -83,6 +84,9 @@ nxmot (MacBook Pro, 120 Hz).
 | `lift` | 0.12 s | sidebar drag lift shadow |
 | `theme` | 0.16 s | space, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
 | `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.36 s at normal speed, under 400 ms; a plain fade under Reduce Motion |
+| `pinLift` | 0.15 s, linear | Home list pin drag: the tile scaling up to the lift (MessagesLab `beginPinDrag`, a `CABasicAnimation` with no timing function) |
+| `pinSettle` | 0.25 s, linear | Home list pin drag: a dropped tile scaling back (`landPinDrag`, the same) |
+| `pinShrink` | 0.22 s | Home list pin drag: a ghost shrinking onto its row's avatar and fading out (`landPinDrag`) |
 | `highlight` | 1.20 s | Settings row highlight after a search jump or `openSettings setting:` deep link fades out; under Reduce Motion it holds this long and goes in one frame |
 
 | Loop | Period | Used by |

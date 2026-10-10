@@ -15,13 +15,13 @@ export const HOME_ROWS = 3;
 
 /// What a new chat's home offers besides the composer (its welcome screen):
 /// the other sessions waiting on the user, and the open pull requests ready for
-/// review. A session can sit in both lists. The current session never shows.
+/// review. A session can sit in both lists. The current session and archived ones never show.
 export function homeLists(
   sessions: AcpmuxSessionEntry[],
   currentId?: string,
 ): { input: AcpmuxSessionEntry[]; review: AcpmuxSessionEntry[] } {
   const others = sessions
-    .filter((session) => session.sessionId !== currentId)
+    .filter((session) => session.sessionId !== currentId && !session.archived)
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   return {
     input: others.filter((session) => sessionMark(session, false) === "input").slice(0, HOME_ROWS),

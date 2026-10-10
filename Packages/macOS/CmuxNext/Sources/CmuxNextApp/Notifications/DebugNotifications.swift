@@ -6,6 +6,8 @@ import CmuxNextSettings
 /// each window draws, banners asked for, the arrival and dismissal log, and
 /// the live preferences. `{"action": "click", "surface": <handle>}` runs the
 /// banner click path (`DesktopNotifier.open`), for windows no one can click.
+/// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
+/// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
     @MainActor
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -15,6 +17,11 @@ enum DebugNotifications {
             center.desktop.open(id: params["id"]?.stringValue ?? "debug", surface: surface)
         }
         let store = services.daemon.store
+        // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
+        if params["action"]?.stringValue == "dismiss_highlight", let id = params["workspace"]?.stringValue,
+           let workspace = store.workspaces.first(where: { $0.id == id }) {
+            center.dismissHighlight(workspace)
+        }
         var unread: [JSONValue] = []
         for workspace in store.workspaces {
             for screen in workspace.screens {
@@ -48,6 +55,8 @@ enum DebugNotifications {
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedBridge?.log ?? []).map(JSONValue.string)),
             "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
+            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),
                 "sound": .string(prefs.sound), "muted_workspaces": .array(prefs.mutedWorkspaces.sorted().map(JSONValue.string)),

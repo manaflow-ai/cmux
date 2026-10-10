@@ -98,7 +98,14 @@ enum PaneHandlers {
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
         if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
+        // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
+        // focus moves only after the reply, and on the optimistic path the swap to the daemon's
+        // pane remounts the view; keys typed in either gap went to the old pane.
+        let window = content == nil ? nil : controller?.view.window
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         ctx.registry.track(Task {
+            var landed = false
+            defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let created = if let provisional {
                     try await command.sendIntended(on: daemon, provisional: provisional)
@@ -106,6 +113,7 @@ enum PaneHandlers {
                     try await command.send(on: daemon)
                 }
                 content?.expectFocus(on: created.surface, generation: intent)
+                landed = true
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil
             } catch {

@@ -48,6 +48,9 @@ public protocol AutomationTabProvider: AnyObject {
     func keepRendering(_ tab: WebKitTab) async -> Bool
     /// Whether agents may drive tab `targetID` (either engine).
     func isDrivable(_ targetID: String) -> Bool
+    /// The cookie store of a persistent WebKit profile (`cookies.restore`),
+    /// or nil when the profile is gone or private.
+    func cookieStore(profile: BrowserProfileID) -> WKHTTPCookieStore?
 }
 
 public extension AutomationTabProvider {
@@ -55,4 +58,10 @@ public extension AutomationTabProvider {
     func keepRendering(_ tab: WebKitTab) async -> Bool { false }
     /// An App that lists only WebKit tabs.
     func isDrivable(_ targetID: String) -> Bool { automationTabs(all: true).contains { $0.tab.id.rawValue == targetID } }
+    /// An App that knows only its tabs: the store of an open tab of the profile.
+    func cookieStore(profile: BrowserProfileID) -> WKHTTPCookieStore? {
+        automationTabs(all: true).map(\.tab).first {
+            $0.profileID == profile && $0.webView.configuration.websiteDataStore.isPersistent
+        }?.webView.configuration.websiteDataStore.httpCookieStore
+    }
 }

@@ -1486,6 +1486,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-history",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
