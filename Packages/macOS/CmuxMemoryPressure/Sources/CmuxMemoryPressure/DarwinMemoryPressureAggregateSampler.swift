@@ -60,12 +60,8 @@ public struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampl
         var missingProcessCount = snapshot.enumerationMissingProcessCount
         var missingReason: MemoryPressureAggregateMissingReason?
         if !snapshot.enumerationIsComplete {
-            if missingProcessCount == 0 {
-                missingProcessCount = 1
-                missingReason = .incompleteEnumeration
-            } else {
-                missingReason = .processExitRace
-            }
+            missingProcessCount = max(missingProcessCount, 1)
+            missingReason = .incompleteEnumeration
         }
 
         for pid in descendantPIDs {
