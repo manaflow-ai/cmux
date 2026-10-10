@@ -136,6 +136,58 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarImmediateObservationPublisherDeliversDirectTitleChangeSynchronously() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        // Remote reconciliation and automatic title ownership can update the
+        // published display title without changing customTitle. The sidebar
+        // snapshot owner must still rebuild the row for that mutation.
+        workspace.title = "Authoritative rename"
+
+        #expect(
+            publishCount == 1,
+            "A direct published workspace-title change must reach the sidebar in the same run-loop turn."
+        )
+    }
+
+    @Test func directTitleChangeRefreshesTheCachedSidebarRow() throws {
+        let workspace = Workspace()
+        let suiteName = "WorkspaceSidebarObservationTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let cache = SidebarRowSnapshotCache()
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        )
+        cache.replace(with: [workspace.id: factory.makeSnapshot()])
+
+        let cancellable = workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
+            .sink {
+                cache.refresh(workspaceIds: [workspace.id]) { id in
+                    guard id == workspace.id else { return nil }
+                    return factory.makeSnapshot()
+                }
+            }
+        defer {
+            cancellable.cancel()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        workspace.title = "Authoritative rename"
+
+        #expect(cache.value(for: workspace.id)?.title == "Authoritative rename")
+    }
+
     @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
