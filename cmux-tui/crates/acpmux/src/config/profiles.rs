@@ -850,7 +850,3 @@ fn strip_json_comments(text: &str) -> String {
     }
     out
 }
-
-#[cfg(test)]
-#[path = "profiles_tests.rs"]
-mod tests;

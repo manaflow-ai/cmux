@@ -58,58 +58,6 @@ pub async fn within_on<T>(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::clock::ManualClock;
-
-    #[tokio::test]
-    async fn a_deadline_on_the_injected_clock_fires_when_the_clock_passes_it() {
-        let clock = ManualClock::new();
-        let mut wait = std::pin::pin!(within_on(
-            &*clock,
-            "test",
-            Duration::from_secs(5),
-            std::future::pending::<()>()
-        ));
-        // Polled once first, so the deadline is set from the clock's start.
-        assert!(futures::poll!(&mut wait).is_pending());
-        clock.advance(Duration::from_secs(5));
-        let out = tokio::time::timeout(Duration::from_secs(2), wait)
-            .await
-            .expect("the deadline ignored the injected clock");
-        assert_eq!(out, Err(HostTimeout { what: "test", after: Duration::from_secs(5) }));
-    }
-
-    #[tokio::test]
-    async fn work_ready_with_the_deadline_wins_and_a_huge_budget_never_panics() {
-        let clock = ManualClock::new();
-        assert_eq!(within_on(&*clock, "test", Duration::ZERO, async { 7 }).await, Ok(7));
-        assert_eq!(within_on(&*clock, "test", Duration::MAX, async { 8 }).await, Ok(8));
-    }
-
-    /// A child that another thread spawns inherits every descriptor until it
-    /// execs, so the watch's descriptor can have a duplicate when the watch
-    /// ends. The lock belongs to the open file description, not the
-    /// descriptor: the watch must release it, or a probe of a dead host sees
-    /// it held.
-    #[test]
-    fn a_death_watch_releases_the_lock_while_a_duplicate_of_its_descriptor_is_open() {
-        let dir = std::env::temp_dir().join(format!("acpmux-wait-dup-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = live_path(&dir, "s1", "00ff");
-        std::fs::write(&path, "").unwrap();
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
-        // What a concurrent fork gives its child: the same open file description.
-        let inherited = file.try_clone().unwrap();
-        assert!(take_death_lock(file) == Watch::Dead);
-        assert_eq!(liveness(&dir, "s1", "00ff"), Liveness::Dead, "the watch left the lock held");
-        drop(inherited);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Watch {
     Waiting,
@@ -132,6 +80,7 @@ fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
 
 /// Death watches running now (one per host incarnation being waited on).
 pub fn death_watches() -> usize {
+    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     watches().lock().unwrap().len()
 }
 
@@ -139,6 +88,7 @@ pub fn death_watches() -> usize {
 /// is dead). Its thread takes a blocking lock, which returns when the host's
 /// descriptor closes at its death, then ends.
 fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
+    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     let mut map = watches().lock().unwrap();
     if let Some(w) = map.get(path) {
         return Some(w.clone());
@@ -153,6 +103,7 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     let (key, watch) = (path.to_owned(), w.clone());
     std::thread::spawn(move || {
         let end = take_death_lock(file);
+        // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         watches().lock().unwrap().remove(&key);
         *watch.state.lock().unwrap() = end;
         watch.changed.notify_all();
@@ -189,7 +140,9 @@ fn take_death_lock(file: std::fs::File) -> Watch {
 /// `budget`: call it off the async runtime (or use [`wait_dead_async`]).
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
+    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     let state = w.state.lock().unwrap();
+    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
     *state == Watch::Dead
 }

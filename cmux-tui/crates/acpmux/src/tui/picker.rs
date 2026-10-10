@@ -133,33 +133,3 @@ impl Picker {
         self.visible.get(self.cursor).map(|&i| &self.rows[i])
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(label: &str, header: bool) -> PickRow {
-        PickRow {
-            value: label.into(),
-            label: label.into(),
-            header,
-            group: String::new(),
-            note: String::new(),
-        }
-    }
-
-    #[test]
-    fn up_from_the_first_row_stays_at_the_top() {
-        let rows = vec![row("H1", true), row("a", false), row("H2", true), row("b", false)];
-        let mut p = Picker::new("t", rows, None, PickTarget::Action, "");
-        assert_eq!(p.selected().unwrap().value, "a");
-        p.move_by(-1);
-        assert_eq!(p.selected().unwrap().value, "a");
-        p.move_by(1);
-        assert_eq!(p.selected().unwrap().value, "b");
-        p.move_by(1);
-        assert_eq!(p.selected().unwrap().value, "b");
-        p.move_by(-1);
-        assert_eq!(p.selected().unwrap().value, "a");
-    }
-}

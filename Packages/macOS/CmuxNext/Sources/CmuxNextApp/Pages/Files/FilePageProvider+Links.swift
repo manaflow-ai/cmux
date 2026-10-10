@@ -40,17 +40,23 @@ extension FilePageProvider {
         let root = canonical(base.deletingLastPathComponent())
         let directory = folderPart.isEmpty ? root : canonical(root.appending(path: folderPart, directoryHint: .isDirectory))
         guard directory.path == root.path || directory.path.hasPrefix(root.path + "/") else { return [] }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names
-            .filter { !$0.hasPrefix(".") && $0 != "node_modules" && $0.lowercased().hasPrefix(start) }
-            .map { name -> (String, Bool) in
-                var isDirectory: ObjCBool = false
-                FileManager.default.fileExists(atPath: directory.appending(path: name).path, isDirectory: &isDirectory)
-                return (name, isDirectory.boolValue)
-            }
-            .sorted { $0.1 != $1.1 ? $0.1 : $0.0.localizedStandardCompare($1.0) == .orderedAscending }
-            .prefix(listLimit)
-            .map { folderPart + $0.0 + ($0.1 ? "/" : "") }
+        let names: [String] = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        // Typed steps: the one chain took 0.4 s to type-check on Xcode 26.6.
+        let shown: [String] = names.filter { (name: String) -> Bool in
+            !name.hasPrefix(".") && name != "node_modules" && name.lowercased().hasPrefix(start)
+        }
+        let entries: [(name: String, isDirectory: Bool)] = shown.map { (name: String) -> (name: String, isDirectory: Bool) in
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: directory.appending(path: name).path, isDirectory: &isDirectory)
+            return (name, isDirectory.boolValue)
+        }
+        let ordered = entries.sorted { (a: (name: String, isDirectory: Bool), b: (name: String, isDirectory: Bool)) -> Bool in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        return ordered.prefix(listLimit).map { (entry: (name: String, isDirectory: Bool)) -> String in
+            "\(folderPart)\(entry.name)\(entry.isDirectory ? "/" : "")"
+        }
     }
 
     /// What `resolveLinks` found for each relative path, and the real paths of the Markdown files

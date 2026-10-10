@@ -3800,6 +3800,661 @@
         }
       }
     },
+    "remote.refusal.protocolOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there is too old for this connection. Install cmux-tui to update it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux-tui هناك قديم جدًا لهذا الاتصال. ثبّت cmux-tui لتحديثه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo je prestar za ovu vezu. Instalirajte cmux-tui da ga ažurirate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er for gammel til denne forbindelse. Installér cmux-tui for at opdatere den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort ist für diese Verbindung zu alt. Installiere cmux-tui, um es zu aktualisieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí es demasiado antiguo para esta conexión. Instala cmux-tui para actualizarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent est trop ancien pour cette connexion. Installez cmux-tui pour le mettre à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì è troppo vecchio per questa connessione. Installa cmux-tui per aggiornarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこの cmux-tui はこの接続には古すぎます。更新するには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះចាស់ពេកសម្រាប់ការតភ្ជាប់នេះ។ ដំឡើង cmux-tui ដើម្បីធ្វើបច្ចុប្បន្នភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui는 이 연결에 너무 오래되었습니다. 업데이트하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er for gammel for denne tilkoblingen. Installer cmux-tui for å oppdatere den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui jest za stary dla tego połączenia. Zainstaluj cmux-tui, aby go zaktualizować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá é antigo demais para esta conexão. Instale o cmux-tui para atualizá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там слишком старый для этого подключения. Установите cmux-tui, чтобы обновить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นเก่าเกินไปสำหรับการเชื่อมต่อนี้ ติดตั้ง cmux-tui เพื่ออัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui bu bağlantı için çok eski. Güncellemek için cmux-tui'yi yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там застарий для цього з'єднання. Установіть cmux-tui, щоб оновити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó quá cũ cho kết nối này. Hãy cài đặt cmux-tui để cập nhật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 版本太旧，无法用于此连接。请安装 cmux-tui 以更新它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 版本太舊，無法用於此連線。請安裝 cmux-tui 以更新它。"
+          }
+        }
+      }
+    },
+    "remote.refusal.protocolNewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there is newer than this app. Update cmux on this Mac to connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux-tui هناك أحدث من هذا التطبيق. حدّث cmux على هذا الـ Mac للاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo je noviji od ove aplikacije. Ažurirajte cmux na ovom Macu da se povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er nyere end denne app. Opdater cmux på denne Mac for at forbinde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort ist neuer als diese App. Aktualisiere cmux auf diesem Mac, um dich zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí es más reciente que esta app. Actualiza cmux en este Mac para conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent est plus récent que cette app. Mettez à jour cmux sur ce Mac pour vous connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì è più recente di questa app. Aggiorna cmux su questo Mac per connetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこの cmux-tui はこのアプリより新しいです。接続するには、この Mac の cmux を更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះថ្មីជាងកម្មវិធីនេះ។ ធ្វើបច្ចុប្បន្នភាព cmux នៅលើ Mac នេះ ដើម្បីតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui가 이 앱보다 최신입니다. 연결하려면 이 Mac의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er nyere enn denne appen. Oppdater cmux på denne Macen for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui jest nowszy niż ta aplikacja. Zaktualizuj cmux na tym Macu, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá é mais novo que este app. Atualize o cmux neste Mac para conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там новее этого приложения. Обновите cmux на этом Mac, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นใหม่กว่าแอปนี้ อัปเดต cmux บน Mac เครื่องนี้เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui bu uygulamadan daha yeni. Bağlanmak için bu Mac'teki cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там новіший за цей застосунок. Оновіть cmux на цьому Mac, щоб під'єднатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó mới hơn ứng dụng này. Hãy cập nhật cmux trên máy Mac này để kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 比此应用更新。请更新这台 Mac 上的 cmux 以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 比此 App 更新。請更新這台 Mac 上的 cmux 以連線。"
+          }
+        }
+      }
+    },
+    "remote.refusal.wrongApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another program is at the cmux-tui path there. Install cmux-tui to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوجد برنامج آخر في مسار cmux-tui هناك. ثبّت cmux-tui لاستبداله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na putanji cmux-tui tamo je drugi program. Instalirajte cmux-tui da ga zamijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et andet program ligger på cmux-tui-stien der. Installér cmux-tui for at erstatte det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Am cmux-tui-Pfad dort liegt ein anderes Programm. Installiere cmux-tui, um es zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hay otro programa en la ruta de cmux-tui de allí. Instala cmux-tui para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un autre programme se trouve au chemin de cmux-tui. Installez cmux-tui pour le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nel percorso di cmux-tui lì c'è un altro programma. Installa cmux-tui per sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこの cmux-tui のパスには別のプログラムがあります。置き換えるには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានកម្មវិធីផ្សេងនៅផ្លូវ cmux-tui នៅទីនោះ។ ដំឡើង cmux-tui ដើម្បីជំនួសវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui 경로에 다른 프로그램이 있습니다. 교체하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et annet program ligger på cmux-tui-stien der. Installer cmux-tui for å erstatte det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W ścieżce cmux-tui jest inny program. Zainstaluj cmux-tui, aby go zastąpić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Há outro programa no caminho do cmux-tui lá. Instale o cmux-tui para substituí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По пути cmux-tui там находится другая программа. Установите cmux-tui, чтобы заменить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีโปรแกรมอื่นอยู่ที่พาธของ cmux-tui ที่นั่น ติดตั้ง cmux-tui เพื่อแทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui yolunda başka bir program var. Değiştirmek için cmux-tui'yi yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За шляхом cmux-tui там інша програма. Установіть cmux-tui, щоб замінити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có một chương trình khác ở đường dẫn cmux-tui tại đó. Hãy cài đặt cmux-tui để thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 路径上是另一个程序。请安装 cmux-tui 以替换它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 路徑上是另一個程式。請安裝 cmux-tui 以取代它。"
+          }
+        }
+      }
+    },
+    "remote.refusal.distributionMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there is a different release than this app uses. Install cmux-tui to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux-tui هناك مختلف عن الإصدار الذي يستخدمه هذا التطبيق. ثبّت cmux-tui لاستبداله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo je drugo izdanje od onog koje koristi ova aplikacija. Instalirajte cmux-tui da ga zamijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er en anden udgivelse end den, denne app bruger. Installér cmux-tui for at erstatte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort ist ein anderes Release als das, das diese App nutzt. Installiere cmux-tui, um es zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí es una versión distinta de la que usa esta app. Instala cmux-tui para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent est une autre version que celle de cette app. Installez cmux-tui pour le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì è una versione diversa da quella usata da questa app. Installa cmux-tui per sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこの cmux-tui は、このアプリが使うリリースとは異なります。置き換えるには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះជាការចេញផ្សាយខុសពីកម្មវិធីនេះប្រើ។ ដំឡើង cmux-tui ដើម្បីជំនួសវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui는 이 앱이 사용하는 릴리스와 다릅니다. 교체하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er en annen utgivelse enn den denne appen bruker. Installer cmux-tui for å erstatte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui to inne wydanie niż używane przez tę aplikację. Zainstaluj cmux-tui, aby go zastąpić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá é uma versão diferente da usada por este app. Instale o cmux-tui para substituí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там — другой выпуск, чем использует это приложение. Установите cmux-tui, чтобы заменить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นเป็นรุ่นต่างจากที่แอปนี้ใช้ ติดตั้ง cmux-tui เพื่อแทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui, bu uygulamanın kullandığından farklı bir sürüm. Değiştirmek için cmux-tui'yi yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там — інший випуск, ніж використовує цей застосунок. Установіть cmux-tui, щоб замінити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó là bản phát hành khác với bản ứng dụng này dùng. Hãy cài đặt cmux-tui để thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 与此应用使用的发行版不同。请安装 cmux-tui 以替换它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 與此 App 使用的發行版不同。請安裝 cmux-tui 以取代它。"
+          }
+        }
+      }
+    },
+    "remote.refusal.buildMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there is a different build than this app uses. Install cmux-tui to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بنية cmux-tui هناك مختلفة عن البنية التي يستخدمها هذا التطبيق. ثبّت cmux-tui لاستبدالها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo je drugi build od onog koji koristi ova aplikacija. Instalirajte cmux-tui da ga zamijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er et andet build end det, denne app bruger. Installér cmux-tui for at erstatte det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort ist ein anderer Build als der, den diese App nutzt. Installiere cmux-tui, um es zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí es una compilación distinta de la que usa esta app. Instala cmux-tui para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent est un autre build que celui de cette app. Installez cmux-tui pour le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì è una build diversa da quella usata da questa app. Installa cmux-tui per sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこの cmux-tui は、このアプリが使うビルドとは異なります。置き換えるには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះជាការបង្កើតខុសពីកម្មវិធីនេះប្រើ។ ដំឡើង cmux-tui ដើម្បីជំនួសវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui는 이 앱이 사용하는 빌드와 다릅니다. 교체하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der er et annet bygg enn det denne appen bruker. Installer cmux-tui for å erstatte det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui to inna kompilacja niż używana przez tę aplikację. Zainstaluj cmux-tui, aby go zastąpić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá é uma build diferente da usada por este app. Instale o cmux-tui para substituí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там — другая сборка, чем использует это приложение. Установите cmux-tui, чтобы заменить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นเป็นบิลด์ต่างจากที่แอปนี้ใช้ ติดตั้ง cmux-tui เพื่อแทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui, bu uygulamanın kullandığından farklı bir derleme. Değiştirmek için cmux-tui'yi yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там — інша збірка, ніж використовує цей застосунок. Установіть cmux-tui, щоб замінити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó là bản dựng khác với bản ứng dụng này dùng. Hãy cài đặt cmux-tui để thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 与此应用使用的构建版本不同。请安装 cmux-tui 以替换它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 與此 App 使用的建置版本不同。請安裝 cmux-tui 以取代它。"
+          }
+        }
+      }
+    },
     "remote.status.authFailed": {
       "extractionState": "manual",
       "localizations": {

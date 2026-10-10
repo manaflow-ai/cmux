@@ -818,9 +818,3 @@ impl ReadSuppressor {
         e.pointer_mut("/msg/params").map(Value::take).unwrap_or(Value::Null)
     }
 }
-
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod target_tests;

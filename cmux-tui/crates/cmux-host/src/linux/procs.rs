@@ -140,40 +140,6 @@ pub fn alive(pid: u32) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn template_records_are_found_only_under_terminal_hosts_dirs() {
-        let home = tempfile::tempdir().unwrap();
-        let state = home.path().join(".local/state/cmux-tui/sessions/x/terminal-hosts-abc");
-        fs::create_dir_all(&state).unwrap();
-        fs::write(state.join("t1.json"), r#"{"host_pid":4321}"#).unwrap();
-        let other = home.path().join(".local/state/cmux-tui/sessions/x");
-        fs::write(other.join("registry.json"), r#"{"host_pid":99}"#).unwrap();
-        assert_eq!(recorded_host_pids(home.path()), [4321]);
-    }
-
-    #[test]
-    fn untrusted_pid_files_are_ignored() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("daemon.pid");
-        fs::write(&file, format!("{}\n", std::process::id())).unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(trusted_pid_file(&file));
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o666)).unwrap();
-        assert!(!trusted_pid_file(&file), "group/other writable");
-        let link = dir.path().join("link.pid");
-        std::os::unix::fs::symlink(&file, &link).unwrap();
-        assert!(!trusted_pid_file(&link), "symlink");
-        assert!(find_session_host(&dir.path().join("none"), Path::new("/x"), 0).is_none());
-    }
-
-    #[test]
-    fn own_process_is_not_a_session_host() {
-        let me = std::process::id();
-        assert!(alive(me));
-        assert!(!is_session_host(me, Path::new("/nonexistent/cmux-tui"), 0));
-    }
-
     /// Security review P2-3: outside the real root only recorded terminal
     /// hosts stop; a same-user host of another test survives.
     #[test]

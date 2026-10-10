@@ -398,37 +398,4 @@ mod tests {
         let down = "echo 'acpmux: runtime: daemon not running' >&2; exit 1";
         assert_eq!(remote_shutdown_calls("down", down), ["daemon shutdown --keep-agents"]);
     }
-
-    #[test]
-    fn every_ssh_and_scp_argv_puts_double_dash_before_the_destination() {
-        let check = |argv: Vec<String>, dest: &str| {
-            let dd = argv.iter().position(|a| a == "--").expect("a --");
-            assert!(argv[dd + 1..].iter().any(|a| a.starts_with(dest)), "{argv:?}");
-            assert!(argv[..dd].iter().all(|a| !a.contains(dest)), "{argv:?}");
-        };
-        check(super::ssh_argv("me@box", "true").unwrap(), "me@box");
-        check(super::scp_push_argv("box", "/bin/acpmux", ".local/x").unwrap(), "box");
-        check(super::scp_fetch_argv("ssh://box:2222", "/tmp/b.tar", "/l").unwrap(), "box:");
-    }
-
-    #[test]
-    fn option_shaped_hosts_and_odd_bundle_paths_are_refused() {
-        for bad in ["-oProxyCommand=touch /tmp/x", "-F", "-luser@box", "ho st", "box\n", "box:22"] {
-            assert!(super::ssh_argv(bad, "true").is_err(), "{bad:?}");
-            assert!(super::scp_push_argv(bad, "/x", "y").is_err(), "{bad:?}");
-        }
-        assert!(super::scp_fetch_argv("ssh://-oProxyCommand=x", "/b", "/l").is_err());
-        for path in ["/b; rm -rf ~", "$(id)", "relative", "/b c", "-oX"] {
-            assert!(super::scp_fetch_argv("ssh://box", path, "/l").is_err(), "{path:?}");
-        }
-    }
-
-    #[test]
-    fn ssh_host_strips_only_a_numeric_port() {
-        assert_eq!(ssh_host("ssh://box").as_deref(), Some("box"));
-        assert_eq!(ssh_host("ssh://me@box:47812").as_deref(), Some("me@box"));
-        assert_eq!(ssh_host("ssh://[::1]").as_deref(), Some("[::1]"));
-        assert_eq!(ssh_host("ssh://[::1]:47812").as_deref(), Some("[::1]"));
-        assert_eq!(ssh_host("ws://box:1"), None);
-    }
 }

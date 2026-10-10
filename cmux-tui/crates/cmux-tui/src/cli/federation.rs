@@ -185,10 +185,10 @@ const AGENT_MARKERS: [&str; 3] =
 /// The OS boundary is still the user: an agent that clears its env, or
 /// names another session with `--socket`, `--session` or `<session>:<id>`,
 /// still reaches it. This is the default that keeps a person's other apps
-/// out of an agent's answers, not a sandbox. A detached owner that an agent
-/// started drops these variables (local_owner.rs), so a person's terminal
-/// there is not refused. A foreground owner an agent started (`server
-/// start`, `--headless`) still passes them on: that terminal fails closed.
+/// out of an agent's answers, not a sandbox. An owner that an agent started,
+/// detached or in the foreground, drops these variables
+/// (startup_env.rs `AGENT_CALLER_ENV`), so a person's terminal there is not
+/// refused.
 pub(super) fn agent_marker(env: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
     AGENT_MARKERS.into_iter().find(|key| env(key).is_some_and(|value| !value.trim().is_empty()))
 }

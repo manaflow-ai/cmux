@@ -203,6 +203,24 @@ enum RemoteStrings {
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:
             return unsupportedPlatform(session.host.label)
+        case .refused(let refusal):
+            return refusalText(refusal)
+        }
+    }
+
+    /// The one table from the bundled cmux-tui's typed refusal codes to text.
+    static func refusalText(_ refusal: RemoteRefusal) -> String {
+        switch refusal {
+        case .protocolOlder:
+            String(localized: "remote.refusal.protocolOlder", defaultValue: "The cmux-tui there is too old for this connection. Install cmux-tui to update it.", table: "Remote", bundle: .module)
+        case .protocolNewer:
+            String(localized: "remote.refusal.protocolNewer", defaultValue: "The cmux-tui there is newer than this app. Update cmux on this Mac to connect.", table: "Remote", bundle: .module)
+        case .wrongApp:
+            String(localized: "remote.refusal.wrongApp", defaultValue: "Another program is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .distributionMismatch:
+            String(localized: "remote.refusal.distributionMismatch", defaultValue: "The cmux-tui there is a different release than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .buildMismatch:
+            String(localized: "remote.refusal.buildMismatch", defaultValue: "The cmux-tui there is a different build than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
         }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -107,7 +108,7 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown) in Observations({
+            for await (sections, launching, failed, profiles, active, shown) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
@@ -133,7 +134,7 @@ final class SidebarBridge {
         let state = windowState
         let model = model
         widthObservation = Task { [weak self] in
-            for await (width, presentation) in Observations({ (model.width, model.presentation) }) {
+            for await (width, presentation) in ObservationStream({ (model.width, model.presentation) }) {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
                 state.sidebarHidden = presentation == .hidden
@@ -142,7 +143,7 @@ final class SidebarBridge {
         }
         selectionObservation = Task { [weak self] in
             // One selection: the shown page's top item, else the shown workspace.
-            for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
+            for await selected in ObservationStream({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                                                 creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                                                 layout: layout.document, room: state.profileID.rawValue,
                                                                                 refs: WorkspaceLayoutRefs(machines: machines)) }) {

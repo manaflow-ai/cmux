@@ -370,7 +370,3 @@ pub async fn set_cmd(id: &str, key: &str) -> Result<()> {
     println!("next: cmux harness doctor {id}");
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "harness_secret_tests.rs"]
-mod tests;

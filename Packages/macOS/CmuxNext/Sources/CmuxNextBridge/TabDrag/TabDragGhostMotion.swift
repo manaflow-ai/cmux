@@ -99,8 +99,8 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     }
 
     public var isSettled: Bool {
-        [dx, dy, dw, dh].allSatisfy { $0.value == $0.target && $0.velocity == 0 }
-            && [cardness, opacity, scale].allSatisfy { $0.value == $0.target && $0.velocity == 0 }
+        let springs: [SpringValue] = [dx, dy, dw, dh, cardness, opacity, scale]
+        return springs.allSatisfy { (spring: SpringValue) -> Bool in spring.value == spring.target && spring.velocity == 0 }
     }
 
     public mutating func snap() {
