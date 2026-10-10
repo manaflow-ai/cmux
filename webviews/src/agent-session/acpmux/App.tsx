@@ -28,6 +28,7 @@ import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
+import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -180,6 +181,8 @@ declare global {
       applyPreview?(on: boolean): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
       applyDeviceChats?(chats: unknown): void;
+      /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
+      applyRecentlyClosed?(items: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -1957,6 +1960,9 @@ function AcpmuxPane() {
       },
       applyDeviceChats(chats) {
         setDeviceChats(chats);
+      },
+      applyRecentlyClosed(items) {
+        setRecentlyClosed(items);
       },
       revealTurn(turnId) {
         void revealTurnWhenShown(turnId);

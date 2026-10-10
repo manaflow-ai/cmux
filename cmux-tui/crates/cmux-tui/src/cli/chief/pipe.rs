@@ -44,7 +44,8 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     };
     let json = json_output(output);
     let stream = !json && std::io::stdout().is_terminal();
-    let mut out = Printer { streamed: String::new(), wrote: false, json };
+    let links = !json && super::hyperlink::enabled();
+    let mut out = Printer { streamed: String::new(), wrote: false, json, links };
     let mut watch = TurnWatch::new(seq);
     let mut drafts = Drafts::default();
     let started = Instant::now();
@@ -128,6 +129,8 @@ struct Printer {
     streamed: String,
     wrote: bool,
     json: bool,
+    /// Subagent links become terminal hyperlinks (`hyperlink`).
+    links: bool,
 }
 
 impl Printer {
@@ -147,6 +150,7 @@ impl Printer {
         }
         let text = message_text(message);
         let rest = finish_text(&self.streamed, &text, self.wrote);
+        let rest = if self.links { super::hyperlink::render(&rest) } else { rest };
         self.write(&rest);
         self.write("\n");
         self.streamed.clear();

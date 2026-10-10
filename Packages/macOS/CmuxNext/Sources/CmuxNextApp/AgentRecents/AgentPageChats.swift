@@ -10,6 +10,8 @@ import CmuxNextSidebar
 @MainActor
 final class AgentPageChats {
     private(set) var chats: [AgentPaneDeviceChat] = []
+    /// The Recently Closed section's newest items (NewTabClosed).
+    var closed: [AgentPaneClosedItem] = []
     private(set) var open: (@MainActor (String) -> Void)?
     private(set) var openInTerminal: (@MainActor (String) -> Void)?
     private(set) var page: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)?
@@ -45,6 +47,12 @@ final class AgentPageChats {
         }
         feed.observe(self) { push() }
         push()
+    }
+
+    /// A new page starts with the current chats and closed items.
+    func seed(_ view: AgentPaneView) {
+        view.deviceChats = chats
+        view.recentlyClosed = closed
     }
 
     /// The newest chats, as the page cards take them.

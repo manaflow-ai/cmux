@@ -135,6 +135,8 @@ final class ClosedTabTracker {
 
     /// Closed tabs, oldest first (history lists).
     var records: [ClosedTabHistory.Record] { history.closed }
+    /// Whether the tab `tabID` closed in an incognito window.
+    func isIncognito(_ tabID: String) -> Bool { incognitoRecords.contains(tabID) }
 
     /// Takes one record out to reopen it.
     func take(_ tabID: String) -> ClosedTabHistory.Record? {
