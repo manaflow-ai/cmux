@@ -329,7 +329,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        PopupMotion.open(self, pivot: PopupMotion.pivot(toward: anchor, in: self))
+        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -353,12 +353,12 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         onClose?()
         generation += 1
         let closing = generation
-        PopupMotion.close(self, pivot: PopupMotion.pivot(toward: anchor, in: self)) { [weak self] in
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
             // A reopen during the close keeps the panel.
             guard let self, self.dismissing, self.generation == closing else { return }
             self.parent?.removeChildWindow(self)
             self.orderOut(nil)
-            PopupMotion.reset(self)
+            self.resetPopupScale()
         }
     }
 
