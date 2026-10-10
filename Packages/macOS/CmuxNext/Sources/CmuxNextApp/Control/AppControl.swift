@@ -294,6 +294,16 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
             },
+            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
+            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
+            .mainActor("debug.view_key") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.send(call.params, services: services))
+            },
+            .mainActor("debug.focus_ring") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.focusRingReport(call.params, services: services))
+            },
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
             },
