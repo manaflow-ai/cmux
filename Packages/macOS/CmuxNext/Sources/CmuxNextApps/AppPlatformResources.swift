@@ -64,12 +64,12 @@ public nonisolated struct BundledAppResources: AppResourceLoading {
 }
 
 extension AppPlatformResources {
-    /// Loads the bundled package directories once, off the main actor (app
-    /// start). Until it finishes, icons of apps the
-    /// supervisor sent no `bundle_dir` for fall back to a symbol; nothing on
-    /// the main actor waits for it.
+    /// The bundled package directory per app id, read off the main actor
+    /// (app start; ``AppsClient/useBundledDirectories(_:)`` takes the result).
+    /// Until it lands, icons of apps the supervisor sent no `bundle_dir` for
+    /// fall back to a symbol; nothing on the main actor waits for it.
     @concurrent
-    public static func preload(using loader: some AppResourceLoading = BundledAppResources()) async {
-        AppBundleLocator.store(loader.sampleDirectories())
+    public static func bundledDirectories(using loader: some AppResourceLoading = BundledAppResources()) async -> [String: URL] {
+        loader.sampleDirectories()
     }
 }

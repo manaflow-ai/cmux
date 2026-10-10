@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPages
@@ -83,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // A main-thread hang still running after 2 s goes to crash reporting with its stack.
+        let reporter = services.crashReporting.reporter
+        control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
