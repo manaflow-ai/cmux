@@ -44,7 +44,15 @@ final class AcpmuxPermissionFeedBridge {
         let session: String
         let permission: String
         let digest: String
+        /// sha256 of the shown text this Mac posted (FeedApproveShownText):
+        /// what the phone's proof must cover.
+        let shown: String
     }
+
+    /// This Mac's context and the owner's presence keys, read fresh for each
+    /// allow (FeedApproveProofCheck).
+    typealias PresenceKeys = @MainActor () async throws
+        -> (context: FeedApproveProofCheck.Context, keys: [String: FeedApproveProofCheck.Key])
 
     /// One feed call to the API Worker as the signed-in person.
     typealias Owner = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
@@ -54,12 +62,11 @@ final class AcpmuxPermissionFeedBridge {
     private let isSignedIn: @MainActor () -> Bool
     /// This Mac's own install id (the `inst` claim of its install token).
     private let ownInstall: @Sendable () async -> String?
-    /// Whether the answer carries a valid signature by a key that only the
-    /// person's real phone holds (cx-aocz design delta: an App-Attested
-    /// presence key). Install kind alone is not proof of a phone: a process
-    /// with the user's session can register an "ios" install. Until a verifier
-    /// lands, every answer is refused and the bridge answers nothing.
-    private let verify: @MainActor (_ item: String, _ entry: Posted, _ option: String, _ answer: FeedAnswerRecord) async -> Bool
+    /// An allow counts only with a valid signature by a key that only the
+    /// person's real phone holds (cx-aocz: an App-Attested presence key).
+    /// Install kind alone is not proof of a phone: a process with the user's
+    /// session can register an "ios" install. A deny needs no proof.
+    private let presenceKeys: PresenceKeys
     private var connection: AgentActivityLineConnection?
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -73,12 +80,12 @@ final class AcpmuxPermissionFeedBridge {
 
     init(socketPath: String, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
-         verify: @escaping @MainActor (_ item: String, _ entry: Posted, _ option: String, _ answer: FeedAnswerRecord) async -> Bool) {
+         presenceKeys: @escaping PresenceKeys) {
         socket = socketPath
         self.owner = owner
         self.isSignedIn = isSignedIn
         self.ownInstall = ownInstall
-        self.verify = verify
+        self.presenceKeys = presenceKeys
     }
 
     /// Starts the watch (idempotent).
@@ -253,12 +260,15 @@ final class AcpmuxPermissionFeedBridge {
     private func post(session: String, permission: String, request: [String: Any]) async {
         guard isSignedIn(), postedPermissions.insert(permission).inserted else { return }
         do {
-            let reply = try await owner("v1/ops", Self.postBody(session: session, permission: permission, request: request))
+            let body = Self.postBody(session: session, permission: permission, request: request)
+            let reply = try await owner("v1/ops", body)
             guard let id = ((reply["value"] as? [String: Any])?["item"] as? [String: Any])?["id"] as? String else {
                 postedPermissions.remove(permission)
                 return logger.error("feed bridge: the owner returned no item for \(permission, privacy: .public)")
             }
-            posted[id] = Posted(session: session, permission: permission, digest: Self.digest(request))
+            let action = ((body["params"] as? [String: Any])?["prompt"] as? [String: Any])?["action"] as? [String: Any] ?? [:]
+            posted[id] = Posted(session: session, permission: permission, digest: Self.digest(request),
+                                shown: FeedApproveProofCheck.shownSHA256(action: action))
             logger.info("feed bridge: posted \(id, privacy: .public) for \(permission, privacy: .public)")
         } catch {
             postedPermissions.remove(permission)
@@ -301,7 +311,6 @@ final class AcpmuxPermissionFeedBridge {
         case changed
         case notOffered
         case scope
-        case unsigned
     }
 
     /// The acpmux option a decision maps to, from what the prompt offers now.
@@ -344,8 +353,20 @@ final class AcpmuxPermissionFeedBridge {
         case .failure(let refusal):
             return logger.error("feed bridge: \(item, privacy: .public): \(String(describing: refusal), privacy: .public); nothing answered")
         }
-        guard await verify(item, entry, option, record) else {
-            return logger.error("feed bridge: \(item, privacy: .public) answered by \(by, privacy: .public) without a valid phone signature; nothing answered")
+        if decision.outcome == .allow {
+            let presence: (context: FeedApproveProofCheck.Context, keys: [String: FeedApproveProofCheck.Key])
+            do { presence = try await presenceKeys() } catch {
+                return logger.error("feed bridge: \(item, privacy: .public): the presence keys could not be read; nothing answered")
+            }
+            // The context comes from this Mac's own token: the proof must name this Mac.
+            guard own == nil || presence.context.macInstall == own else {
+                return logger.error("feed bridge: \(item, privacy: .public): this Mac's install changed; nothing answered")
+            }
+            if case .failure(let failure) = FeedApproveProofCheck.check(
+                decision, by: by, item: item, shownSHA256: entry.shown, context: presence.context,
+                keys: presence.keys, now: Date()) {
+                return logger.error("feed bridge: \(item, privacy: .public) answered by \(by, privacy: .public) without a valid phone signature (\(String(describing: failure), privacy: .public)); nothing answered")
+            }
         }
         let params: [String: Any] = [
             "sessionId": entry.session, "permissionId": entry.permission, "optionId": option,

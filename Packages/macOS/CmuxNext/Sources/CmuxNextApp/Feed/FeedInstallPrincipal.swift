@@ -55,6 +55,18 @@ final class FeedInstallPrincipal {
         return reply
     }
 
+    /// This Mac's context (environment, user, install from its token) and the
+    /// owner's presence keys (`user.presence_key.list`, owner Mac installs
+    /// only), for the agent permission bridge's allow check (cx-aocz).
+    func presenceKeys() async throws
+        -> (context: FeedApproveProofCheck.Context, keys: [String: FeedApproveProofCheck.Key]) {
+        let token = try await identity.installToken()
+        guard let context = FeedApproveProofCheck.context(ofToken: token) else { throw FeedServiceError.badReply }
+        let reply = try await call("v1/read", ["op": "user.presence_key.list", "params": [String: Any]()])
+        guard let value = reply["value"] as? [String: Any] else { throw FeedServiceError.badReply }
+        return (context, FeedApproveProofCheck.keys(from: value))
+    }
+
     /// The `inst` claim of an install token (the owner's install id).
     nonisolated static func install(ofToken token: String) -> String? {
         let parts = token.split(separator: ".")
