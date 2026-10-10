@@ -6,6 +6,12 @@ import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+// Three prompts waiting for the running turn.
+const waiting = [
+  { id: "q1", prompt: "Then add a test for the 429 path" },
+  { id: "q2", prompt: "And update the README" },
+  { id: "q3", prompt: "Run the whole suite" },
+];
 
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
@@ -182,6 +188,23 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    "pdf-attached": {
+      note: "A pasted PDF shows a preview card, its file name, and the detected page count before sending.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
+        const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
+        await ctx.click({ selector: ".acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
@@ -250,6 +273,30 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ text: /^Once the retries land/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-send-remove": {
+      note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
+      snapshot: chat(working, { isWorking: true, queue: waiting }),
+      native: { "chat.queue.remove": { removed: true } },
+      afterCall: {
+        // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
+        "chat.cancel": chat(
+          [
+            working[0]!,
+            { ...working[1]!, version: 2, streaming: false },
+            user("And update the README", 0),
+            assistant("Looking at the README…", 0, { streaming: true }),
+          ],
+          { isWorking: true, queue: waiting.slice(2) },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
       },
     },
     "codex-model": {

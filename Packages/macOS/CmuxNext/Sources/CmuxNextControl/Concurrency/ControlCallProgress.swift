@@ -1,5 +1,5 @@
 import CmuxNextSettings
-import Synchronization
+import CmuxNextCompat
 
 /// Whether a request's work started, decided exactly once, so a timeout can
 /// say `not_run` (the work never started and never will) or `in_progress`

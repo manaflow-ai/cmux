@@ -228,3 +228,92 @@ fn a_page_fetch_works_on_an_insecure_http_page() {
     assert_eq!(fetched["status"], 200, "{fetched}");
     let _ = local.driver_call("tabs.close", json!({"targetId": tab}));
 }
+
+/// One session's after-the-fact rule never stops another session's popup
+/// (cx-m0do). On a shared headless browser every session sees every tab's
+/// responses. A remote session refuses loopback; a local session browses
+/// through its loopback proxy (127.0.0.2), and its page opens a popup, which
+/// stays in the session's proxy store. The popup's response reports the
+/// proxy's loopback address, which the remote rule refuses. The popup is
+/// the local session's from its first request, so the remote session's
+/// gate neither logs nor stops it, and the popup loads.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_remote_session_never_stops_another_sessions_popup() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let (proxy_port, _) = forward_proxy(port);
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let (remote, _) = gated_session(&source, &browsers, "remote", true);
+    let (local, events) = gated_session(&source, &browsers, "local", false);
+    local
+        .driver_call(
+            "session.configure",
+            json!({"proxy": {"server": format!("http://127.0.0.2:{proxy_port}")}}),
+        )
+        .expect("a local session may use a loopback proxy");
+    let opener = local
+        .driver_call("tabs.open", json!({"url": "http://inner.test/second"}))
+        .expect("open the local page")["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let popup_url = "http://inner.test/";
+    local
+        .driver_call(
+            "frame.evaluate",
+            json!({"targetId": opener, "world": "page", "source": format!("() => {{ window.open({popup_url:?}); }}")}),
+        )
+        .expect("open the popup");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let popup = loop {
+        let found = events.lock().unwrap().iter().find_map(|event| {
+            (event.name == "tab.created"
+                && event.payload["openerTargetId"].as_str() == Some(opener.as_str()))
+            .then(|| event.payload["targetId"].as_str().unwrap_or("").to_owned())
+        });
+        if let Some(popup) = found {
+            break popup;
+        }
+        assert!(Instant::now() < deadline, "the popup never opened");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // The popup's document response, before any call on the popup (a call
+    // would make it the local session's by itself). The remote session
+    // subscribed first, so its gate saw this response before this sink did.
+    let response = loop {
+        let found = events.lock().unwrap().iter().find_map(|event| {
+            (event.name == "response"
+                && event.payload["targetId"].as_str() == Some(popup.as_str())
+                && event.payload["url"].as_str() == Some(popup_url))
+            .then(|| event.payload["remoteIPAddress"].clone())
+        });
+        if let Some(found) = found {
+            break found;
+        }
+        assert!(Instant::now() < deadline, "no response for the popup");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(response, "127.0.0.2", "the popup's response comes through the proxy");
+    let log = remote.native("policy", json!({"op": "log"})).expect("the remote policy log");
+    let title = local.driver_call(
+        "frame.evaluate",
+        json!({"targetId": popup, "world": "page", "timeoutMs": 10000, "source":
+            "() => new Promise((done) => document.readyState === 'complete' && location.protocol === 'http:' ? done(document.title) : addEventListener('load', () => done(document.title)))"}),
+    );
+    let stopped: Vec<&Value> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["url"].as_str().is_some_and(|url| url.contains("inner.test")))
+        .collect();
+    assert!(stopped.is_empty(), "the remote session stopped the local popup: {stopped:?}");
+    assert_eq!(title.expect("the popup loads"), "Host test", "the popup's page");
+    let _ = local.driver_call("tabs.close", json!({"targetId": popup}));
+    let _ = local.driver_call("tabs.close", json!({"targetId": opener}));
+}

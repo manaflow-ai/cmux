@@ -18,6 +18,10 @@ env_of() { /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$2" "$LA/ai.m
 brain="$HOME/.cmux/brains/chief"
 fail() { echo "FAIL: $*"; exit 1; }
 [[ "$(env_of acpmux ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "acpmux agent ACPMUX_HOME"
+# The built-in Chief presets read these from acpmux's own environment.
+[[ "$(env_of acpmux ACPMUX_CHIEF_MUX_HOME)" == "$brain/mux" ]] || fail "acpmux agent ACPMUX_CHIEF_MUX_HOME"
+[[ "$(env_of acpmux CMUX_TUI_SOCKET)" == "$brain/daemon/cmux.sock" ]] || fail "acpmux agent CMUX_TUI_SOCKET"
+[[ "$(env_of acpmux CMUX_CHIEF_OWNER_SOCKET)" == "$brain/daemon/cmux.sock" ]] || fail "acpmux agent CMUX_CHIEF_OWNER_SOCKET"
 [[ "$(env_of daemon ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "daemon agent has no ACPMUX_HOME=$brain/acpmux (got '$(env_of daemon ACPMUX_HOME)')"
 [[ "$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)" == "$brain/mux/optchat/tools.sock" ]] || fail "daemon agent has no CMUX_TUI_CHIEF_TOOLS_SOCKET (got '$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)')"
 [[ "$(env_of host OPTCHAT_ACPMUX_SUPERVISED)" == "1" ]] || fail "host agent OPTCHAT_ACPMUX_SUPERVISED"

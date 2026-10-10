@@ -103,12 +103,12 @@ async fn dispatch_request(
                 "person": conn.is_person(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -688,6 +688,22 @@ async fn dispatch_request(
                     // Checked against the profile the preset resolves to now.
                     let profile =
                         cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    // A built-in Chief preset without a client env gets its
+                    // env from the definition (`config/chief_builtins.rs`),
+                    // whoever installs it; a client env is the person's
+                    // (`hub/person.rs` refused it from anyone else).
+                    if let Some(builtin) = crate::config::chief_builtins::parse(&name)
+                        && obj.get("env").is_none()
+                    {
+                        let family =
+                            crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
+                        p.env = crate::config::chief_builtins::env(
+                            &builtin,
+                            &family,
+                            &crate::config::chief_builtins::Context::current(),
+                        )
+                        .map_err(RpcError::invalid_params)?;
+                    }
                     let kind = cfg.harnesses[&profile].kind;
                     crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
@@ -889,6 +905,13 @@ async fn dispatch_request(
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
+        method::MUX_QUEUE_REMOVE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = str_param(&params, "promptId")
+                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            let removed = hub.remove_queued(&s, prompt_id);
+            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.permission_groups(&s, &params)
@@ -908,8 +931,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
+            let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, control).await?;
+            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

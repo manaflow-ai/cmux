@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Recycler.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Recycler.swift
-@@ -63,7 +63,7 @@
+@@ -66,7 +66,7 @@
      var visibleCells: [UICollectionViewCell] { Array(visible.values) }
  
      func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
@@ -9,7 +9,7 @@
      }
  
      /// All rows may have changed: reconfigure every visible cell on the next pass.
-@@ -113,7 +113,7 @@
+@@ -116,7 +116,7 @@
              }
              if cell.frame != a.frame { cell.frame = a.frame }
              cell.layer.zPosition = CGFloat(a.zIndex)

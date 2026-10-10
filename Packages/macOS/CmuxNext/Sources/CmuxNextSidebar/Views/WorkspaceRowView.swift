@@ -149,7 +149,7 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
         // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
-        // only a user's icon draws; without one the title takes the place.
+        // only a user's icon or a page's favicon draws; else the title leads.
         let shown = row.content ?? WorkspaceRowContent()
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
@@ -271,7 +271,8 @@ final class WorkspaceRowView: SidebarRowView {
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
         let barWidth = SidebarStyle.groupBarWidth
         let barBottom = lastInGroup ? Metrics.space2 : 0
-        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: 0, width: barWidth, height: max(0, b.height - barBottom))
+        let gapAbove = Metrics.space1 // up through the row spacing above: one unbroken bar (cx-qno.17)
+        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: -gapAbove, width: barWidth, height: max(0, b.height - barBottom + gapAbove))
         groupRail.isHidden = !grouped
         performWithTheme {
             groupRail.backgroundColor = (groupColor ?? .grey).headerFill.cgColor
@@ -285,7 +286,7 @@ final class WorkspaceRowView: SidebarRowView {
         switch iconKind {
         case nil: side = 0
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 

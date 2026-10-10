@@ -27,6 +27,20 @@ final class AppBrowserHost {
     private var inputObservation: ProviderInputObservation?
     private var inputLeaseObservation: ProviderLeaseObservation?
 
+    /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
+    /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
+    /// builds take `CMUX_NEXT_COOKIE_BACKUP_KEY_FILE` instead, so fleet tests
+    /// run without the Keychain; Release builds never read it.
+    static func cookieBackups(bundleID: String?) -> CookieBackups {
+        let directory = CookieBackups.defaultDirectory(bundleID: bundleID)
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_COOKIE_BACKUP_KEY_FILE"], !path.isEmpty {
+            return CookieBackups(directory: directory, keySource: FileCookieBackupKey(url: URL(filePath: path)))
+        }
+        #endif
+        return CookieBackups(directory: directory, keySource: KeychainCookieBackupKey(bundleID: bundleID))
+    }
+
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
         let tabs = AppBrowserHostTabs(services: services)
@@ -34,6 +48,7 @@ final class AppBrowserHost {
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         relay.renderWindows = tabs.renderWindows
         let driver = WebKitDriver(provider: tabs)
+        driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs

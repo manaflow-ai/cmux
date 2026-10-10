@@ -103,6 +103,14 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
+        let actionReadiness = await waitForSceneAnimation()
+        guard case .object(let actionReadinessReport) = actionReadiness,
+              actionReadinessReport["error"] == nil,
+              actionReadinessReport["animations_pending"]?.boolValue == false else {
+            return .object(["error": .string("scene popover did not become opaque before capture"),
+                            "scene": .string(definition.name), "readiness": actionReadiness,
+                            "scene_action": sceneAction])
+        }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -123,6 +131,7 @@ final class CaptureSceneRegistry {
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         result["turn"] = turn
         result["readiness"] = readiness
+        result["action_readiness"] = actionReadiness
         result["scene_action"] = sceneAction
         if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
             _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
@@ -131,6 +140,12 @@ final class CaptureSceneRegistry {
     }
 
     private func applySceneAction(_ name: String) async -> JSONValue {
+        // Keep each scene independent when render-scenes.sh reuses one app.
+        // The tile scene opts into the real tray look; the other scenes use the
+        // ordinary quiet rows so a previous scene cannot leak its appearance.
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
+                                   "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
+        _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -152,6 +167,10 @@ final class CaptureSceneRegistry {
         default:
             return .object(["scene": .string(name)])
         }
+    }
+
+    private func waitForSceneAnimation() async -> JSONValue {
+        await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
 
     private static let definitions: [CaptureSceneDefinition] = [

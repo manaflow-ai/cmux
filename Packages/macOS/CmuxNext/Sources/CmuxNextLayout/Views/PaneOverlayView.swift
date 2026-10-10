@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 import QuartzCore
 
 /// Non-interactive pane overlay, framed on the pane's cell: the subtle
@@ -35,6 +36,10 @@ final class PaneOverlayView: NSView {
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
+    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
+    private var attentionLook = AttentionHighlightLook.tunable.defaultValue
+    /// One observation of the look is registered at a time.
+    private var observesAttentionLook = false
     private var borderStyle = Border(shows: false)
     private var excluded: [CGRect] = []
     private var excludedBounds: CGRect = .zero
@@ -191,7 +196,9 @@ final class PaneOverlayView: NSView {
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
         let style = showsRing ? focusRing.effectiveStyle : .none
+        // A ring that rests invisible (the flash look) keeps the border.
         let marksAttention = mark != nil && attentionSettings.style != .none
+            && Motion.attentionRestingOpacity(attentionSettings, look: AttentionHighlightLook.tunable.value) > 0
         Motion.transaction(animated ? .focus : nil) {
             ring.opacity = style == .ring ? 1 : 0
             glowClip.opacity = style == .glow ? 1 : 0
@@ -202,9 +209,31 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
+    /// Reads the highlight look and applies a Debug Settings change once,
+    /// without replaying the ring's animation (no polling).
+    private func observedAttentionLook() -> AttentionHighlightLook {
+        guard !observesAttentionLook else { return attentionLook }
+        observesAttentionLook = true
+        return withObservationTracking {
+            AttentionHighlightLook.tunable.value
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.attentionLookChanged() }
+        }
+    }
+
+    private func attentionLookChanged() {
+        observesAttentionLook = false
+        attentionLook = observedAttentionLook()
+        if attentionMark != nil, attentionSettings.style != .none {
+            Motion.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
+        }
+        applyColors()
+    }
+
     private func applyAttention(_ mark: AttentionMark?, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
+        attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
             Motion.transaction(animated ? .focus : nil) { attention.opacity = 0 }
@@ -215,9 +244,9 @@ final class PaneOverlayView: NSView {
         // rest at its final opacity.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        attention.opacity = Motion.attentionRestingOpacity(attentionSettings)
+        attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.attentionAnimation(attentionSettings) {
+        if let animation = Motion.attentionAnimation(attentionSettings, look: attentionLook) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
@@ -229,7 +258,7 @@ final class PaneOverlayView: NSView {
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
-            let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
+            let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
             // In glass windows the root backdrop owns the ground. An opaque

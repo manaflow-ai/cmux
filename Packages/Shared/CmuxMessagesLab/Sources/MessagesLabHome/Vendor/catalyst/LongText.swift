@@ -701,8 +701,12 @@ final class LongTextLayout: @unchecked Sendable {
                         out.append(r.offsetBy(dx: -Fixture.bubblePadX, dy: top - Fixture.bubblePadY))
                     }
                 }
-                line = first + max(1, bl.lineCount)
+                // Next block from the published counts, as the plain branch does: blockLayout reports
+                // a measured count to main later (report -> LongTextCenter), so until then
+                // first + lineCount can stop inside this block's estimated slot, and the loop drew
+                // this block again and again (duplicate rects; minutes for a 70 KB report, headless).
                 if b + 1 >= blockCount { break }
+                line = max(first + max(1, bl.lineCount), firstLine(ofBlock: b + 1))
                 continue
             }
             for (j, lr) in bl.lines.enumerated().dropFirst(max(0, line - first)) { // cmux: no range that can invert

@@ -160,10 +160,16 @@ final class DropHighlightView: NSView {
 
     private func apply(animated: Bool = false) {
         if let superview, frame != superview.bounds { frame = superview.bounds }
-        renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
-                                         zone: zone, bounds: bounds,
-                                         cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
-                                         refused: refused, animated: animated))
+        // A self-driven style (the outline ring) fades itself out on hide.
+        // Updating it after that would show its last target again: the
+        // layout's frames after a drop (the new split animating) brought
+        // the ring back, and it stayed (cx-ohle, cx-x7pl).
+        if isShowing || !renderer.drivesOwnMotion {
+            renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
+                                             zone: zone, bounds: bounds,
+                                             cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
+                                             refused: refused, animated: animated))
+        }
         alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
         if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }
     }
