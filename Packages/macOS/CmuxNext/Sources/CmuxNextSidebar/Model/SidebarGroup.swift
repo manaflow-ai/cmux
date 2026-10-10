@@ -5,7 +5,10 @@ import Foundation
 public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var id: GroupID
     public var name: String
+    /// The palette token; grey (none) when `custom` is set.
     public var color: GroupColor
+    /// A color picked outside the palette, as `#RRGGBB` (cx-25az): it draws instead of `color`.
+    public var custom: String?
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
     /// saved tab group, and clicking it while empty reopens it.
@@ -26,6 +29,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         id: GroupID,
         name: String,
         color: GroupColor = .grey,
+        custom: String? = nil,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
         icon: WorkspaceIcon? = nil,
@@ -36,8 +40,18 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.color = color
+        self.custom = custom
         self.isCollapsed = isCollapsed
         self.workspaces = workspaces
+    }
+
+    /// What the header and the members' line draw with.
+    public var tint: GroupTint {
+        get { custom.flatMap(GroupTint.init(wire:)) ?? .palette(color) }
+        set {
+            color = newValue.token
+            if case .custom = newValue { custom = newValue.wire } else { custom = nil }
+        }
     }
 
     /// Aggregate unread count shown on a collapsed group header.

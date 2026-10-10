@@ -863,7 +863,8 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
-  elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && ! tree_published "$key" "$legacy"; then
+  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
+      && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
     ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
