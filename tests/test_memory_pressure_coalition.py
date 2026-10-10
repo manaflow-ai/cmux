@@ -99,7 +99,7 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
         sample = self.probe("exiting-child")
         self.assertEqual(sample["coverage"], "lower_bound")
         self.assertEqual(sample["missing_process_count"], 2)
-        self.assertEqual(sample["missing_reason"], "process_exit_race")
+        self.assertEqual(sample["missing_reason"], "incomplete_enumeration")
         self.assertFalse(sample["actionable"])
 
     def test_reused_pid_outside_tree_is_not_counted(self):
