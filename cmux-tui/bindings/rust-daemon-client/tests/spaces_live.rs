@@ -131,6 +131,11 @@ fn space_writes_report_personal_changed_and_list_personal_reads_as_spaces_live_d
     // Move Workspace to Space (pin-workspace): the pinned workspace is in
     // that space only; another workspace of the same session stays in the
     // spaces that follow the session (default follows the local session).
+    let sdk = cmux::Client::connect(
+        cmux::Config::from_socket_path(&socket).with_timeout(Duration::from_secs(10)),
+    )
+    .unwrap();
+    sdk.current_session().create_workspace(Some("spaces-live".into())).unwrap();
     let tree = raw
         .request_raw(serde_json::Map::from_iter([(
             "cmd".to_string(),
@@ -139,7 +144,16 @@ fn space_writes_report_personal_changed_and_list_personal_reads_as_spaces_live_d
         .unwrap();
     let data = &tree["data"];
     let session = data["registry_id"].as_str().expect("registry_id").to_string();
-    let key = data["workspaces"][0]["key"].as_str().expect("a workspace key").to_string();
+    let first = &data["workspaces"][0];
+    // The workspace's stable key (else its id, as cmux-next's
+    // `WindowProfiles.qualified`).
+    let key = first["key"]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| {
+            first.get("id").map(|id| id.as_str().map_or_else(|| id.to_string(), str::to_string))
+        })
+        .expect("a workspace key");
     raw.pin_workspace(cmux::raw::PinWorkspaceRequest {
         session_id: session.clone(),
         workspace_key: key.clone(),
@@ -161,6 +175,7 @@ fn space_writes_report_personal_changed_and_list_personal_reads_as_spaces_live_d
     assert_eq!(pinned.spaces_of(&other), [DEFAULT_SPACE]);
     assert!(!pinned.closes(&other, "prof_live"));
     raw.close();
+    sdk.close().unwrap();
 
     client.stop();
     wait_for(&rx, "stopped", |e| *e == DaemonEvent::Stopped);
