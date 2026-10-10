@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CoreImage
 import UIKit
 
 /// Contact avatar: monogram on the Contacts periwinkle gradient, or the participant tint.
@@ -115,14 +116,53 @@ enum TapbackGlyph {
         return UIImage(named: name, in: chatKit, compatibleWith: nil)
     }
 
-    /// A transcript badge's glyph: ChatKit's art, or the drawn fallback.
-    static func badgeView(for reaction: ConversationReaction, size: CGFloat) -> UIView {
+    /// A transcript badge's glyph: ChatKit's art, or the drawn fallback. On
+    /// my own tapback (the blue platter) Messages recolors the art with a
+    /// color matrix on the image view (`CKTapbackClassicView`, selected):
+    /// the heart a touch brighter, the others to a white-to-blue ramp of
+    /// their luminance. The matrices are ChatKit's, read from the layer.
+    static func badgeView(for reaction: ConversationReaction, size: CGFloat, selected: Bool = false) -> UIView {
         if let image = chatKitImage(for: reaction) {
-            let view = UIImageView(image: image)
+            let view = UIImageView(image: selected ? (selectedImage(for: reaction, base: image) ?? image) : image)
             view.contentMode = .scaleAspectFit
             return view
         }
         return view(for: reaction, size: size)
+    }
+
+    /// CAFilter `colorMatrix` rows (r, g, b, a, bias) on a selected tapback,
+    /// iOS 27.0 Messages.
+    static func selectedMatrix(for reaction: ConversationReaction) -> [CGFloat]? {
+        switch reaction {
+        case .heart: return [0.988, 0, 0, 0, 0.089, 0, 0.988, 0, 0, 0.089, 0, 0, 0.988, 0, 0.089, 0, 0, 0, 1, 0]
+        case .thumbsup: return [0.482, 1.621, 0.164, 0, -0.881, 0.244, 0.822, 0.083, 0, 0.046, 0.120, 0.405, 0.041, 0, 0.530, 0, 0, 0, 1, 0]
+        case .thumbsdown: return [0.481, 1.618, 0.163, 0, -0.724, 0.240, 0.808, 0.082, 0, 0.142, 0.117, 0.393, 0.040, 0, 0.585, 0, 0, 0, 1, 0]
+        case .haha: return [0.205, 0.690, 0.070, 0, 0.197, 0.115, 0.386, 0.039, 0, 0.595, 0, 0, 0, 0, 1.095, 0, 0, 0, 1, 0]
+        case .exclamation: return [0.216, 0.726, 0.073, 0, 0.205, 0.120, 0.404, 0.041, 0, 0.595, 0, 0, 0, 0, 1.080, 0, 0, 0, 1, 0]
+        case .question: return [0.216, 0.726, 0.073, 0, 0.216, 0.120, 0.404, 0.041, 0, 0.599, 0, 0, 0, 0, 1.075, 0, 0, 0, 1, 0]
+        case .emoji: return nil
+        }
+    }
+
+    private static var selectedCache: [String: UIImage] = [:]
+
+    private static func selectedImage(for reaction: ConversationReaction, base: UIImage) -> UIImage? {
+        guard let name = chatKitImageName(for: reaction), let m = selectedMatrix(for: reaction) else { return nil }
+        if let cached = selectedCache[name] { return cached }
+        guard let cg = base.cgImage else { return nil }
+        let filter = CIFilter(name: "CIColorMatrix")
+        filter?.setValue(CIImage(cgImage: cg), forKey: kCIInputImageKey)
+        filter?.setValue(CIVector(x: m[0], y: m[1], z: m[2], w: m[3]), forKey: "inputRVector")
+        filter?.setValue(CIVector(x: m[5], y: m[6], z: m[7], w: m[8]), forKey: "inputGVector")
+        filter?.setValue(CIVector(x: m[10], y: m[11], z: m[12], w: m[13]), forKey: "inputBVector")
+        filter?.setValue(CIVector(x: m[15], y: m[16], z: m[17], w: m[18]), forKey: "inputAVector")
+        filter?.setValue(CIVector(x: m[4], y: m[9], z: m[14], w: m[19]), forKey: "inputBiasVector")
+        guard let output = filter?.outputImage,
+              let rendered = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
+                .createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
+        let image = UIImage(cgImage: rendered, scale: base.scale, orientation: base.imageOrientation)
+        selectedCache[name] = image
+        return image
     }
 
     /// Drawn glyph (color emoji, tinted lettering).
@@ -201,7 +241,7 @@ final class ReactionBadgeView: UIView {
         self.reactions = reactions
         self.mine = mine
         glyphViews.forEach { $0.removeFromSuperview() }
-        glyphViews = reactions.prefix(3).map { TapbackGlyph.badgeView(for: $0, size: ConversationTapbackGeometry.glyphSize) }
+        glyphViews = reactions.prefix(3).map { TapbackGlyph.badgeView(for: $0, size: ConversationTapbackGeometry.glyphSize, selected: mine) }
         for glyph in glyphViews.reversed() { addSubview(glyph) }
         updateColors()
         setNeedsLayout()
