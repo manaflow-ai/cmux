@@ -452,6 +452,12 @@
    "family": "computeruse"
   },
   {
+   "name": "computeruse.scroll",
+   "meaning": "Computer use: the agent scrolled (Agent Activity event rows).",
+   "sf": "scroll",
+   "family": "computeruse"
+  },
+  {
    "name": "config.json",
    "meaning": "cmux.json / JSON / advanced settings.",
    "sf": "curlybraces",

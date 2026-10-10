@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 struct AgentActivityDetailView: View {
@@ -52,15 +53,15 @@ struct AgentActivityDetailHeader: View {
             Spacer()
             if session.status.isLive {
                 let watching = model.watching.contains(session.id)
-                AgentActivityToolbarButton(title: AgentActivityStrings.watch, symbol: watching ? "eye.fill" : "eye", on: watching) {
+                AgentActivityToolbarButton(title: AgentActivityStrings.watch, icon: watching ? .actionWatching : .actionShow, on: watching) {
                     model.perform(.watch(session: session.id, on: !watching))
                 }
                 if session.status == .paused {
-                    AgentActivityToolbarButton(title: AgentActivityStrings.resume, symbol: "play.fill") { model.perform(.resume(session: session.id)) }
+                    AgentActivityToolbarButton(title: AgentActivityStrings.resume, icon: .actionResume) { model.perform(.resume(session: session.id)) }
                 } else {
-                    AgentActivityToolbarButton(title: AgentActivityStrings.pause, symbol: "pause.fill") { model.perform(.pause(session: session.id)) }
+                    AgentActivityToolbarButton(title: AgentActivityStrings.pause, icon: .actionPause) { model.perform(.pause(session: session.id)) }
                 }
-                AgentActivityToolbarButton(title: AgentActivityStrings.stop, symbol: "stop.fill", tint: colors.danger) {
+                AgentActivityToolbarButton(title: AgentActivityStrings.stop, icon: .actionStop, tint: colors.danger) {
                     model.perform(.stop(session: session.id))
                 }
             }
@@ -69,7 +70,7 @@ struct AgentActivityDetailHeader: View {
                 Button(AgentActivityStrings.openTarget) { model.perform(.openTarget(session: session.id)) }
                 Button(AgentActivityStrings.export) { model.perform(.export(session: session.id)) }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Icon(.actionMore, size: 16)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }

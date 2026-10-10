@@ -78,6 +78,7 @@ extension IconName {
         .computeruseClick,
         .computeruseDrag,
         .computeruseObserve,
+        .computeruseScroll,
         .configJson,
         .contextUsage,
         .controlPopup,

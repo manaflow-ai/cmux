@@ -904,6 +904,17 @@
    "replaces": [
     "checkmark.seal"
    ]
+  },
+  {
+   "name": "computeruse.scroll",
+   "meaning": "Computer use: the agent scrolled (Agent Activity event rows).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5V20.5M8.5 7L12 3.5L15.5 7M8.5 17L12 20.5L15.5 17'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5V20.5M8.5 7L12 3.5L15.5 7M8.5 17L12 20.5L15.5 17'/></svg>",
+   "alts": [],
+   "note": "Vertical double arrow: scroll either way. Open shape, so Solid is the same drawing at stroke 2.",
+   "replaces": [
+    "scroll"
+   ]
   }
  ]
 }
