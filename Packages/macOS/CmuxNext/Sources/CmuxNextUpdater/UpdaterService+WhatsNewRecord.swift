@@ -26,7 +26,9 @@ extension UpdaterService {
     }
 
     private func updateRecord(toBuild: String) -> WhatsNewLastUpdate? {
-        guard let changelog = stagedChangelog else { return nil }
+        // No changelog lines still records the update: the card then says
+        // only which version it updated to.
+        let changelog = stagedChangelog ?? UpdateChangelog(version: stagedVersion ?? toBuild, date: nil, lines: [])
         return WhatsNewLastUpdate(fromVersion: identity.shortVersion, fromBuild: identity.build,
                                   toVersion: stagedVersion ?? changelog.version ?? toBuild, toBuild: toBuild,
                                   stagedAt: now(), changelog: changelog)

@@ -32,9 +32,10 @@ public final class WhatsNewCenter {
     /// with or without notes, until the page opens or the x; never on a
     /// first install. `updates.showWhatsNew` off hides it too.
     public var showsUpdatedCard: Bool { isItemEnabled && isUpdated }
-    /// The update this build came from, with its changelog, as the old app
-    /// recorded it when the update staged; nil once seen, on a first
-    /// install, and after an update the old app did not record.
+    /// The update this build came from, with its changelog (its lines may
+    /// be empty), as the old app recorded it when the update staged. Only
+    /// ``dismissUpdated()`` clears it; nil on a first install and after an
+    /// update the old app did not record.
     public private(set) var lastUpdate: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
@@ -120,15 +121,17 @@ public final class WhatsNewCenter {
         let tracker = tracker ?? current.map { WhatsNewTracker(current: $0, lastSeen: $0) }
         presented = unseen.isEmpty ? (tracker?.recent(known) ?? []) : unseen
         if let current { seen.markSeen(current) }
-        markRecordSeen()
+        // Seen: the record leaves the disk so the next launch does not show
+        // it again; ``lastUpdate`` stays for this launch (only the card's x,
+        // ``dismissUpdated()``, clears it).
+        lastUpdates?.clear()
         unseen = []
         isUpdated = false
         return presented
     }
 
-    /// The update was seen: the record goes, so it shows once.
+    /// The card's x: the record goes, from memory and from disk.
     private func markRecordSeen() {
-        guard lastUpdate != nil else { return }
         lastUpdate = nil
         lastUpdates?.clear()
     }
