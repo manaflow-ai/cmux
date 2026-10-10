@@ -1132,6 +1132,7 @@
 		4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */; };
 		775ECED002DE499C96F792E7 /* CloudWorkspaceOperationController+TerminalNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15054BF8BBFD492AAFBE5F08 /* CloudWorkspaceOperationController+TerminalNavigation.swift */; };
 		15E5F36E592C4D2894AF93CF /* CloudWorkspaceOperationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */; };
+		2308193AC290BFE903473D9B /* CloudWorkspaceOptimisticShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */; };
 		A13296000000000000000402 /* CloudWorkspacePresenceHeadsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000401 /* CloudWorkspacePresenceHeadsTests.swift */; };
 		DF2AFF34D42A4505BC7EF20A /* CloudWorkspaceProjectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A9286A232F4C3FAD571015 /* CloudWorkspaceProjectionCoordinator.swift */; };
 		D59CC3EA15344B47915B3779 /* CloudWorkspaceProjectionEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */; };
@@ -5749,6 +5750,7 @@
 		F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceMembershipTests.swift; sourceTree = "<group>"; };
 		15054BF8BBFD492AAFBE5F08 /* CloudWorkspaceOperationController+TerminalNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController+TerminalNavigation.swift"; sourceTree = "<group>"; };
 		7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController.swift"; sourceTree = "<group>"; };
+		F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOptimisticShortcutTests.swift"; sourceTree = "<group>"; };
 		A13296000000000000000401 /* CloudWorkspacePresenceHeadsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspacePresenceHeadsTests.swift; sourceTree = "<group>"; };
 		A5A9286A232F4C3FAD571015 /* CloudWorkspaceProjectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionCoordinator.swift"; sourceTree = "<group>"; };
 		0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionEnvironment.swift"; sourceTree = "<group>"; };
@@ -13641,6 +13643,7 @@
 				096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */,
 				74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */,
 				AF0EA0EDB1794309910E7A5B /* WorkspaceProgramStatusTests.swift */,
+				F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */,
 				249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */,
 				41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */,
 			);
@@ -17930,6 +17933,7 @@
 				341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */,
 				04EA20A26351429BA2023F92 /* CloudWorkspaceLiveProjectionTests.swift in Sources */,
 				4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */,
+				2308193AC290BFE903473D9B /* CloudWorkspaceOptimisticShortcutTests.swift in Sources */,
 				A13296000000000000000402 /* CloudWorkspacePresenceHeadsTests.swift in Sources */,
 				1DCF35C8B8C57B45635CBAE1 /* CloudWorkspaceRenameRefreshTests.swift in Sources */,
 				C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */,
