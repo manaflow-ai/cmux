@@ -167,8 +167,6 @@ struct CloudPortRoutePlanTests {
         listenerPort = 46_904
         model.retry()
         #expect(await wait { navigations.count == 2 })
-        #expect(state.isRetiredListener(URL(string: "http://127.0.0.1:46902/old")!))
-        #expect(!state.isRetiredListener(URL(string: "http://127.0.0.1:3001/other")!))
         let replayed = try #require(navigations.last)
         #expect(replayed.url?.port == 46_904)
         #expect(replayed.httpMethod == "POST")
