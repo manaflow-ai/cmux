@@ -2377,7 +2377,7 @@ peer_push() {
     esac
   done
   [ -n "\$cmux_pp_local" ] && [ -n "\$cmux_pp_remote" ] || die "\$cmux_pp_usage" 2
-  reject_literal_tilde_path "\$cmux_pp_remote" || die "vm push: remote path contains an unexpanded '~' component" 1
+  reject_literal_tilde_path "\$cmux_pp_remote" || die_message 1 peerPushUnexpandedTilde
   file_mode_ok "\$cmux_pp_mode" || die "vm push: --mode takes an octal mode such as 600 or 755, got '\$cmux_pp_mode'" 2
   [ ! -d "\$cmux_pp_local" ] || die "vm push: \$cmux_pp_local is a directory; from inside a machine push one file at a time (tar it first)" 2
   [ -f "\$cmux_pp_local" ] && [ -r "\$cmux_pp_local" ] || die "vm push: cannot read \$cmux_pp_local" 2
