@@ -382,6 +382,7 @@ final class CloudWorkspaceCreationCoordinator {
         guard let catalog, let operation = operations[id], operation.failure != nil,
               !operation.isRunning, operation.retryTask == nil else { return }
         operation.isRunning = true
+        operation.wasPreAdmitted = false
         operation.retryTask = Task { @MainActor [weak self] in
             defer { operation.retryTask = nil }
             guard let self else { return }

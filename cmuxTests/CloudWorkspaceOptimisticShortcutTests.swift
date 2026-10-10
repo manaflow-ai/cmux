@@ -13,6 +13,10 @@ import Testing
 @MainActor
 @Suite(.serialized, .exclusiveAppContext)
 struct CloudWorkspaceOptimisticShortcutTests {
+    private func pendingWorkspace(manager: TabManager, machine: SurfaceMachineID) -> Workspace? {
+        manager.tabs.first { $0.cloudVMBinding?.vmID == machine.rawValue }
+    }
+
     @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
           arguments: ["stay", "beforeResolution", "beforeProvider", "providerDelay", "awayAndBack", "afterAdmission", "background"])
     func optimisticSelection(navigation: String) async throws {
@@ -102,7 +106,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
     }
 
     @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
-          arguments: ["failure", "cancel", "cancelAfterNavigation"])
+          arguments: ["failure", "retry", "cancel", "cancelAfterNavigation"])
     func unsuccessfulCreation(outcome: String) async throws {
         let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
         defer { fixture.close() }
@@ -127,13 +131,19 @@ struct CloudWorkspaceOptimisticShortcutTests {
             catalog: fixture.catalog
         )
         let entered = AsyncStream<Void>.makeStream()
+        let retryEntered = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
+        var attempts = 0
         defer { release.continuation.finish() }
         fixture.provider.beforeCreate = {
-            entered.continuation.yield(())
-            for await _ in release.stream { break }
-            if outcome == "failure" { throw CloudDiagnosticFailure.conflict }
-            throw CancellationError()
+            attempts += 1
+            if attempts == 1 {
+                entered.continuation.yield(())
+                for await _ in release.stream { break }
+                if outcome == "failure" || outcome == "retry" { throw CloudDiagnosticFailure.conflict }
+                throw CancellationError()
+            }
+            retryEntered.continuation.yield(())
         }
         #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager))
         for await _ in entered.stream { break }
@@ -151,6 +161,16 @@ struct CloudWorkspaceOptimisticShortcutTests {
             #expect(manager.selectedTabId == reservation.workspaceID)
             #expect(operation.failure != nil)
             #expect(reservation.retry != nil, "The failed pane exposes the shared reconnect action")
+        } else if outcome == "retry" {
+            let retry = try #require(reservation.retry)
+            retry()
+            for await _ in retryEntered.stream { break }
+            if let retryTask = operation.retryTask { await retryTask.value }
+            #expect(operation.wasPreAdmitted == false)
+            #expect(operation.isComplete)
+            #expect(operation.failure == nil)
+            #expect(reservation.retry == nil)
+            #expect(pendingWorkspace(manager: manager, machine: fixture.provider.machine)?.cloudVMBinding?.remoteWorkspaceID != nil)
         } else {
             #expect(manager.workspacesById[reservation.workspaceID] == nil)
             #expect(manager.selectedTabId == (outcome == "cancelAfterNavigation" ? other.id : original.id))
