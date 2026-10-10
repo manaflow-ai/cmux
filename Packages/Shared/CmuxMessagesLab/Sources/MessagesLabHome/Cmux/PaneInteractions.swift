@@ -87,18 +87,12 @@ enum TapbackMenuRows {
             return item
         }
         return [
-            palette(TapbackGlyph.all.map { (TapbackPickerView.stripGlyph(.tapback($0), on: false), Strings.tapbackName($0), Reaction.Kind.tapback($0)) }),
-            palette(recentEmoji.map { (emojiImage($0), $0, Reaction.Kind.emoji($0)) }
-                    + [(NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil) ?? NSImage(), Strings.menuTapback, nil)]),
+            // MessagesLab ced183d: Messages' own tapback art (drawn glyphs as the fallback), 20 pt
+            // palette images, fitted emoji and face sizes (MenuGlyphs.swift).
+            palette(TapbackGlyph.all.map { (MenuGlyphs.image(.tapback($0)), Strings.tapbackName($0), Reaction.Kind.tapback($0)) }),
+            palette(recentEmoji.map { (MenuGlyphs.image(.emoji($0)), $0, Reaction.Kind.emoji($0)) }
+                    + [(MenuGlyphs.emojiPickerGlyph(), Strings.menuTapback, nil)]),
         ]
-    }
-
-    static func emojiImage(_ e: String) -> NSImage {
-        NSImage(size: NSSize(width: TapbackPickerView.item, height: TapbackPickerView.item), flipped: true) { r in
-            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            PartRenderer.drawEmoji(e, in: r.insetBy(dx: 7, dy: 7), ctx: ctx)
-            return true
-        }
     }
 }
 
