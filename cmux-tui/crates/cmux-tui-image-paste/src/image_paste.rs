@@ -354,4 +354,5 @@ pub(crate) fn matches_mime(mime: &str, bytes: &[u8]) -> bool {
 }
 
 #[cfg(test)]
+#[path = "image_paste_tests.rs"]
 mod tests;
