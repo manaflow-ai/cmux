@@ -16815,6 +16815,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom In",
       "title_key" : "action.agentPaneZoomIn",
       "title_table" : "ActionCatalog"
@@ -16847,6 +16848,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom Out",
       "title_key" : "action.agentPaneZoomOut",
       "title_table" : "ActionCatalog"
@@ -16879,6 +16881,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Actual Size",
       "title_key" : "action.agentPaneZoomReset",
       "title_table" : "ActionCatalog"
@@ -25942,13 +25945,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 5
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 6,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
