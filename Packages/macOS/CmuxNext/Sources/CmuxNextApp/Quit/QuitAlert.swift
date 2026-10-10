@@ -49,7 +49,10 @@ final class QuitAlert {
 
     static func spec(_ content: QuitAlertContent, remember: Bool) -> CmuxDialogSpec {
         let buttons = content.buttons.map { id in
-            CmuxDialogButton(id: id.rawValue, title: QuitAlertContent.title(of: id), role: role(of: id))
+            // The end choices end programs (and End Everything deletes workspaces): only
+            // the person picks them (cx-zk9t). Keep, Quit and Cancel stay open to automation.
+            CmuxDialogButton(id: id.rawValue, title: QuitAlertContent.title(of: id), role: role(of: id),
+                             confirmKind: role(of: id) == .destructive ? .destructive : .none)
         }
         // Drawn left to right: the other choices, Cancel, then the primary one.
         let primary = buttons.prefix(1)
@@ -105,12 +108,38 @@ final class QuitAlert {
             finish(.quit(.endEverything, remember: false))
             return true
         }
-        let resolved = switch id {
+        return center.press(dialogID, button: Self.resolve(id, in: ids))
+    }
+
+    /// The button an automation id names ("quit" is Keep when the dialog has no Quit).
+    private static func resolve(_ id: String, in ids: [String]) -> String {
+        switch id {
         case "quit" where !ids.contains("quit"): "keep"
         case "end-keep-layout", "quit-everything": "confirm-quit-everything"
         default: id
         }
-        return center.press(dialogID, button: resolved)
+    }
+
+    /// `press` for automation (`debug.quit`), through `CmuxDialogCenter.automationRefusal`
+    /// (cx-zk9t): Keep, Quit and Cancel pass; the end choices (and End Everything, which
+    /// has no button) answer only to the person. "end" only reports.
+    @discardableResult
+    func automationPress(_ id: String) throws(CmuxDialogAutomationRefusal) -> Bool {
+        guard let dialogID, id != "end" else { return press(id) }
+        if id == QuitAlertContent.Button.endEverything.rawValue {
+            throw CmuxDialogAutomationRefusal(dialog: dialogID, kind: .destructive, step: "press \(id)")
+        }
+        if let refusal = center.automationRefusal(dialogID, button: Self.resolve(id, in: buttons.map(\.id))) { throw refusal }
+        return press(id)
+    }
+
+    /// "Don't ask again" for automation, through `CmuxDialogCenter.automationSetValue`.
+    func automationRemember(_ on: Bool) throws(CmuxDialogAutomationRefusal) {
+        guard let dialogID else {
+            remember = on
+            return
+        }
+        try center.automationSetValue(.bool(on), for: Self.rememberField, in: dialogID)
     }
 
     /// A second Cmd-Q while the dialog shows: its default (keep, or Quit).
