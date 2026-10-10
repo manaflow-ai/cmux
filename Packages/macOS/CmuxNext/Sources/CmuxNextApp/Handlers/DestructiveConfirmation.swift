@@ -22,12 +22,16 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// What the confirm grants; only the person answers it (cx-zk9t).
+        var kind: CmuxDialogConfirmKind = .destructive
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
+                // A person-only action never runs unasked, also when its own prompt has nothing to say (cx-zk9t).
+                guard let prompt = await prompt(for: id, invocation, services) ?? PersonOnlyConfirmation.prompt(for: id, services.registry)
+                else { return proceed() }
                 present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
             }
         }
@@ -76,7 +80,8 @@ enum DestructiveConfirmation {
                           body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
                           suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
-            return nil
+            // Every other person-only action asks too (cx-zk9t).
+            return PersonOnlyConfirmation.prompt(for: id, services.registry)
         }
     }
 
@@ -136,10 +141,10 @@ enum DestructiveConfirmation {
     static let suppressID = "dont-ask-again"
 
     static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
+        CmuxDialogSpec(title: prompt.title, lines: prompt.body.isEmpty ? [] : [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
                        buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
-                       identifier: "cmux.dialog.confirmation")
+                       identifier: "cmux.dialog.confirmation", confirmKind: prompt.kind)
     }
 
     private static func turnOff(_ path: [String], _ settings: SettingsController?) {

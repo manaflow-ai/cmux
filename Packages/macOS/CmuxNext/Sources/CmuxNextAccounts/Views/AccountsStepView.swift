@@ -28,9 +28,6 @@ public struct AccountsStepView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(rows, id: \.provider) { row in
                     StepRow(model: model, row: row, palette: palette)
-                    if model.confirmTarget == row.provider {
-                        ConnectConfirmation(model: model, provider: row.provider, palette: palette).padding(.bottom, Metrics.space3)
-                    }
                     if model.pasteTarget == row.provider {
                         PasteField(model: model, provider: row.provider, palette: palette).padding(.bottom, Metrics.space3)
                     }

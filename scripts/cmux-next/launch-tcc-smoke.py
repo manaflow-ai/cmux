@@ -20,7 +20,7 @@ Two detectors run together:
 
 What runs at launch depends on the Mac: agent model probes start every installed harness, so run it
 on a Mac that has the harnesses people use (cursor-agent, opencode, gemini, ...).
-`--launches 2` also checks a normal relaunch. The script quits the app (quitEndSessions) and ends the
+`--launches 2` also checks a normal relaunch. The script quits the app (debug.quit fixture_quit end-sessions) and ends the
 tag's daemons by exact PID (tag_teardown.py) after each launch.
 
 Exit 0 = PASS; 1 = failing reads or requests (listed); 2 = the run could not be done.
@@ -267,7 +267,7 @@ def launch_once(app, tag, seconds, out, index, marker):
     print("launch %d: app %s after %.0f s" % (index, "running" if alive else "exited %s" % proc.returncode,
                                               time.time() - started), flush=True)
     if alive:
-        rpc(sock_path, "action.run", {"id": "quitEndSessions"})
+        rpc(sock_path, "debug.quit", {"fixture_quit": "end-sessions"})
         try:
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
