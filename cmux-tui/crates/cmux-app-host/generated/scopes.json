@@ -905,9 +905,17 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "palette_usage.forget": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
     "palette_usage.get": {
       "scope": "palette_usage:read",
       "class": "read"
+    },
+    "palette_usage.hide": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
     },
     "palette_usage.import": {
       "scope": "palette_usage:write",

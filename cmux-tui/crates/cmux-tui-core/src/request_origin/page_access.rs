@@ -207,6 +207,8 @@ const fn access(operation: Op) -> Access {
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
+        | Op::PaletteUsageHide
+        | Op::PaletteUsageForget
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow

@@ -67,7 +67,8 @@ Lawrence 2026-10-09: "think from first principles how raycast does sorting/order
 - Learned picks (the strongest signal): every run records (normalized query, row) for each start of 1 to 8 characters of the query (lowercased, white space collapsed), with a decayed count (half-life 7 days) and the latest row per start. For a typed query the ranker takes the longest start that has picks and lifts its strongest row to the top, over any match class, when that row still matches the query and has at least 2 decayed picks, or is the latest pick for that start with at least 0.5 left (about a week). Prefix stability follows: after one pick of X for "co", "col" still puts X first. A faded pick (one pick 30 days ago) no longer beats a better text match, and a pick that no longer matches the query ("split d") lifts nothing.
 - Frecency: +1 per run, half-life 3 days, a capped boost inside a match class.
 - Recent (empty query): the most used rows of any kind (an action, a workspace, a tab, a setting), up to 5, then the categories. A row that matches only behind a query prefix never shows in Recent.
-- Next: Suggested on the empty query, aliases, pin, hide and Reset Ranking per row (all local), and a 30-day frequency half-life beside the 3-day one.
+- Row controls (local, in the daemon's history): a row's Actions offer Hide from Palette (a hidden row is gone from Recent and every match except a query that is its whole title, whose Actions then offer Show in Palette) and Reset Ranking (forgets the row's uses and learned picks). Ops `palette_usage.hide {key, hidden}` and `palette_usage.forget {key}`.
+- Next: Suggested on the empty query, aliases and pins (cmux.json), and a 30-day frequency half-life beside the 3-day one.
 
 The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replayHistory` in eval.ts models the daemon's record for the eval.
 
