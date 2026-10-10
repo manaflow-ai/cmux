@@ -662,6 +662,16 @@
               "key" : "settings.group.remote",
               "text" : "Remote Machines"
             }
+          },
+          {
+            "key" : "settings.group.iPhone",
+            "rows" : [
+              "browser.allowIPhoneAccess"
+            ],
+            "title" : {
+              "key" : "settings.group.iPhone",
+              "text" : "iPhone"
+            }
           }
         ],
         "id" : "browser",
@@ -14385,6 +14395,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.iPhone",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.browser.allowIPhoneAccess.help",
+        "text" : "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.allowIPhoneAccess",
+      "keywords" : [
+        "phone",
+        "mobile",
+        "devtools",
+        "remote debugging"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "allowIPhoneAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.allowIPhoneAccess",
+        "text" : "Allow cmux on iPhone to View Browser Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "google",
         "duckduckgo",
         "bing",
@@ -17942,7 +17998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8315c140d6282879e1eb545ac2335bccacba7e6c5c4bf43d90fc28a40109689c",
+  "schema_hash" : "4c18a38d4b3d7ab4d645ee9a3999ab77fa7fae71fb6145de3c3013a16b90cf64",
   "sections" : [
     {
       "id" : "general",
