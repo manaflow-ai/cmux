@@ -11,7 +11,7 @@ import os
 @MainActor final class ModelRouterLease {
     private let tokens: any CloudLeaseTokens
     private let apiBaseURL: URL
-    private let socketPath: String
+    private let router: LocalRouterClient
     private let clock: any Clock<Duration>
     private let logger: Logger
     private var loop: Task<Void, Never>?
@@ -25,7 +25,7 @@ import os
          logger: Logger) {
         self.tokens = tokens
         self.apiBaseURL = apiBaseURL
-        socketPath = LocalRouterClient.socketPath(home: acpmuxHome)
+        router = LocalRouterClient(acpmuxHome: acpmuxHome)
         self.clock = clock
         self.logger = logger
     }
@@ -33,10 +33,10 @@ import os
     /// The signed-in account changed (nil: signed out). Restarts the lease loop.
     func accountChanged(_ userID: String?) {
         loop?.cancel()
-        let socketPath = socketPath
+        let router = router
         guard userID != nil else {
             // task-owner: one clear_upstream; ends with the reply
-            loop = Task { try? await LocalRouterClient.clearUpstream(socketPath: socketPath) }
+            loop = Task { try? await router.clearUpstream() }
             return
         }
         // task-owner: lives while this account is signed in; each pass is one token read and one set_upstream, then a clock wait
@@ -58,7 +58,7 @@ import os
                 let token = try await tokens.accessToken(forceRefresh: forceRefresh)
                 let expiresAtMs = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
                 let expiresAt = expiresAtMs / 1000
-                try await LocalRouterClient.setUpstream(socketPath: socketPath, origin: origin, bearer: token, expiresAt: expiresAt)
+                try await router.setUpstream(origin: origin, bearer: token, expiresAt: expiresAt)
                 failures = 0
                 let remaining = TimeInterval(expiresAt) - Date().timeIntervalSince1970
                 forceRefresh = remaining <= Self.renewMargin * 2

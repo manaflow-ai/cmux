@@ -7,31 +7,32 @@ import Network
 /// signed-in account's bearer for the hosted cmux model router
 /// (`set_upstream`) and to take it back (`clear_upstream`). The bearer goes
 /// only to the relay; agents get the relay's own per-session keys.
-public nonisolated enum LocalRouterClient {
+public nonisolated struct LocalRouterClient: Sendable {
     public enum Failure: Error, Equatable {
         case refused(String)
         case closed
     }
 
-    /// The admin socket of the relay that the daemon in `home` starts.
-    public static func socketPath(home: URL) -> String {
-        home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+    /// The admin socket of the relay that the daemon in the acpmux home starts.
+    public let socketPath: String
+
+    public init(acpmuxHome home: URL) {
+        socketPath = home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
     }
 
     /// Hands the relay the hosted router's origin and a bearer valid until
     /// `expiresAt` (Unix seconds). Throws when no relay answers or it refuses.
-    @concurrent public static func setUpstream(socketPath: String, origin: String, bearer: String, expiresAt: UInt64,
-                                               deadline: Duration = .seconds(3)) async throws {
+    @concurrent public func setUpstream(origin: String, bearer: String, expiresAt: UInt64, deadline: Duration = .seconds(3)) async throws {
         let line = try JSONSerialization.data(withJSONObject: [
             "op": "set_upstream", "origin": origin, "bearer": bearer, "expires_at": NSNumber(value: expiresAt),
         ] as [String: Any])
-        _ = try await exchange(socketPath: socketPath, line: line, deadline: deadline)
+        _ = try await Self.exchange(socketPath: socketPath, line: line, deadline: deadline)
     }
 
     /// Takes the bearer back (sign-out): the relay then answers 503 until a new one.
-    @concurrent public static func clearUpstream(socketPath: String, deadline: Duration = .seconds(3)) async throws {
+    @concurrent public func clearUpstream(deadline: Duration = .seconds(3)) async throws {
         let line = try JSONSerialization.data(withJSONObject: ["op": "clear_upstream"])
-        _ = try await exchange(socketPath: socketPath, line: line, deadline: deadline)
+        _ = try await Self.exchange(socketPath: socketPath, line: line, deadline: deadline)
     }
 
     private static func exchange(socketPath: String, line: Data, deadline: Duration) async throws -> ResultBox {
