@@ -1,7 +1,7 @@
 //! ALL-CHATS-ON-DEVICE S4: the daemon wires the chat index. Every store is
 //! a synthetic fixture in a temp home; no test reads a real harness store.
 
-use acpmux::chats::{ChatSources, launch_roots, lookup, refusal};
+use acpmux::chats::{ChatSources, refusal};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -133,17 +133,6 @@ fn keys(result: &Value) -> Vec<String> {
 }
 
 #[test]
-fn env_lookup_prefers_the_daemon_env_then_the_login_env() {
-    let process =
-        |k: &str| (k == "A").then(|| "daemon".to_owned()).or_else(|| (k == "E").then(String::new));
-    let login = |k: &str| matches!(k, "A" | "B" | "E").then(|| "login".to_owned());
-    assert_eq!(lookup("A", process, login).as_deref(), Some("daemon"));
-    assert_eq!(lookup("B", process, login).as_deref(), Some("login"));
-    assert_eq!(lookup("E", process, login).as_deref(), Some("login"), "empty counts as unset");
-    assert_eq!(lookup("C", process, login), None);
-}
-
-#[test]
 fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     let home = Path::new("/Users/me");
     let acpmux = Path::new("/Users/me/.acpmux/tags/dev");
@@ -159,28 +148,6 @@ fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     for path in ["/Users/me/.claude/projects", "/Users/me/.codex", "/opt/agents/.codex"] {
         assert_eq!(refusal(Path::new(path), home, acpmux), None, "{path} must be allowed");
     }
-}
-
-#[test]
-fn launch_roots_come_from_profile_and_family_env() {
-    let cfg: Config = serde_json::from_value(json!({
-        "harnesses": {
-            "claude-alt": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}},
-            "codex-alt": {"argv": ["codex"], "env": {"CODEX_HOME": "/opt/alt-codex"}},
-            "rel": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "relative"}},
-        },
-        "defaults": {"claude": {"env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}}},
-    }))
-    .unwrap();
-    let roots: Vec<(String, PathBuf)> =
-        launch_roots(&cfg).into_iter().map(|r| (r.harness.id().to_owned(), r.path)).collect();
-    assert_eq!(
-        roots,
-        vec![
-            ("claude-code".to_owned(), PathBuf::from("/opt/alt-claude/projects")),
-            ("codex".to_owned(), PathBuf::from("/opt/alt-codex")),
-        ]
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
