@@ -15508,7 +15508,7 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.account) || shows(.mobileConnect) || shows(.help) || shows(.sessionHistory) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                         SidebarAccountMenuButton()
@@ -15518,6 +15518,9 @@ struct SidebarFooterButtons: View {
                     }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                    }
+                    if shows(.sessionHistory) {
+                        SidebarSessionHistoryButton(fileExplorerState: fileExplorerState)
                     }
                 }
             }
