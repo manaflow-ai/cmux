@@ -63,6 +63,6 @@ public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
             + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + MainPaneTunables.all
+            + ChromeTunables.mainPane
     }
 }

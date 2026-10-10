@@ -56,6 +56,9 @@ final class MainPaneCardView: NSView {
 /// over an opaque or a translucent window alike. Takes no clicks.
 final class MainPaneChromeShadeView: NSView {
     private let shade = CAShapeLayer()
+    private var card: CGRect = .zero
+    private var radius: CGFloat = 0
+    private var alpha: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -69,9 +72,24 @@ final class MainPaneChromeShadeView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The window resized (its autoresizing frame may land after the card's
+    /// in the same pass): the path follows these bounds.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        rebuild()
+    }
+
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
     func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
+        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds else { return }
+        self.card = card
+        self.radius = radius
+        self.alpha = alpha
+        rebuild()
+    }
+
+    private func rebuild() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
