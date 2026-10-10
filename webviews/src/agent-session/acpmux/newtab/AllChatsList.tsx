@@ -192,6 +192,7 @@ export function AllChatsList({
         clear();
       }
     };
+    // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onBring, selected, clear]);
