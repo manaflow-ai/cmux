@@ -75,6 +75,10 @@ extension CloudWorkspaceRenameService {
         workspaceNamesChanged: Bool = true
     ) {
         guard machine.tuiMachineID != nil, catalog.cloudStates[machine] == state else { return }
+        let acceptedTabIDs = Set(state.tabs.map(\.id))
+        rejectedAutomaticTabClears = rejectedAutomaticTabClears.filter { key, _ in
+            key.machine != machine || key.scope != .tab || acceptedTabIDs.contains(key.remoteID)
+        }
         if workspaceNamesChanged {
             let snapshot = catalog.snapshot
             let resources = snapshot.resources(on: machine)
@@ -124,7 +128,36 @@ extension CloudWorkspaceRenameService {
             guard let tabID = remoteTabID(for: projection, resource: resource),
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
+            let pending = catalog.pendingCloudRenameName(for: key)
+            let acceptedName = tab.name ?? ""
+            if resource.agent != nil,
+               self.rejectedAutomaticTabClears[key] != nil {
+                self.rejectedAutomaticTabClears.removeValue(forKey: key)
+            } else if let rejected = self.rejectedAutomaticTabClears[key],
+                      rejected.name != acceptedName || rejected.cursor != state.cursor {
+                self.rejectedAutomaticTabClears.removeValue(forKey: key)
+            }
+            if let pending, pending != (tab.name ?? "") { continue }
+            if pending == nil,
+               resource.agent == nil,
+               tab.nameAuthority?.source == .auto,
+               let name = tab.name,
+               !name.isEmpty,
+               (workspace.panelCustomTitleSources[projection.panelID] ?? .user) != .user,
+               self.rejectedAutomaticTabClears[key]
+                   != RejectedAutomaticTabClear(name: name, cursor: state.cursor) {
+                clearStaleAutomaticTabName(
+                    resource: resource,
+                    tabID: tabID,
+                    name: name,
+                    catalog: catalog
+                )
+                continue
+            }
+            if workspace.panelCustomTitleSources[projection.panelID] == .user,
+               tab.nameAuthority?.source != .user {
+                continue
+            }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
             if workspace.panelCustomTitles[projection.panelID] == tab.name,
                workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
@@ -132,6 +165,77 @@ extension CloudWorkspaceRenameService {
                     || (tab.name != nil && workspace.panelCustomTitleSources[projection.panelID] != .remote) else { continue }
             _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,
                                                propagateToRemoteTmux: false, propagateToCloud: false)
+        }
+    }
+
+    /// Agent-generated daemon names are durable tab metadata, so an agent end
+    /// event cannot clear them through the local hook state alone. Once the
+    /// accepted graph has no agent for that terminal, remove only automatic
+    /// names and leave explicit user names untouched.
+    @MainActor
+    private func clearStaleAutomaticTabName(
+        resource: SurfaceResource,
+        tabID: String,
+        name: String,
+        catalog: SurfaceCatalog
+    ) {
+        let key = CloudRenameCoordinator.Key.tab(machine: resource.machine, id: tabID)
+        guard catalog.pendingCloudRenameName(for: key) == nil,
+              catalog.provider(for: resource.machine) != nil else { return }
+        var matchingProjections: [SurfaceProjection] = []
+        var hasUserProjection = false
+        for projection in catalog.projections where projection.resource == resource.id {
+            guard let peerResource = catalog.resources[projection.resource],
+                  remoteTabID(for: projection, resource: peerResource) == tabID,
+                  let peerWorkspace = environment.workspace(projection.workspaceID),
+                  peerWorkspace.panels[projection.panelID] != nil else { continue }
+            if (peerWorkspace.panelCustomTitleSources[projection.panelID] ?? .user) == .user {
+                hasUserProjection = true
+            } else {
+                matchingProjections.append(projection)
+            }
+        }
+        guard !matchingProjections.isEmpty, !hasUserProjection else { return }
+        for peer in matchingProjections {
+            guard let peerWorkspace = environment.workspace(peer.workspaceID) else { continue }
+            _ = peerWorkspace.setPanelCustomTitle(
+                panelId: peer.panelID,
+                title: nil,
+                source: .remote,
+                propagateToRemoteTmux: false,
+                propagateToCloud: false
+            )
+        }
+        catalog.enqueueRemoteTabRename(
+            on: resource.machine,
+            id: tabID,
+            name: "",
+            expectedName: name
+        ) { [weak self] _ in
+            guard let self else { return }
+            guard let acceptedName = catalog.cloudStates[resource.machine]?
+                .lookupIndex.tab(id: tabID)?.name,
+                  !acceptedName.isEmpty else { return }
+            if acceptedName == name {
+                self.rejectedAutomaticTabClears[key] = RejectedAutomaticTabClear(
+                    name: acceptedName,
+                    cursor: catalog.cloudStates[resource.machine]?.cursor
+                )
+            } else {
+                self.rejectedAutomaticTabClears.removeValue(forKey: key)
+            }
+            for peer in matchingProjections {
+                guard let peerWorkspace = environment.workspace(peer.workspaceID),
+                      peerWorkspace.panelCustomTitles[peer.panelID] == nil,
+                      peerWorkspace.panelCustomTitleSources[peer.panelID] == nil else { continue }
+                _ = peerWorkspace.setPanelCustomTitle(
+                    panelId: peer.panelID,
+                    title: acceptedName,
+                    source: .remote,
+                    propagateToRemoteTmux: false,
+                    propagateToCloud: false
+                )
+            }
         }
     }
 }

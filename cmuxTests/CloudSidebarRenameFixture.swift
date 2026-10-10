@@ -38,7 +38,15 @@ final class CloudSidebarRenameFixture {
 
     var resourceID: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_main") }
 
-    func state(revision: UInt64 = 1, generation: String = "fixture", name: String? = nil, workspaceName: String = "Fixture workspace", nameSource: String = "user") throws -> CloudVMState {
+    func state(
+        revision: UInt64 = 1,
+        generation: String = "fixture",
+        name: String? = nil,
+        workspaceName: String = "Fixture workspace",
+        nameSource: String = "user",
+        includeAgent: Bool? = nil
+    ) throws -> CloudVMState {
+        let shouldIncludeAgent = includeAgent ?? (nameSource == "auto")
         let document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": [["id": "ws_main", "name": workspaceName, "index": 0]],
@@ -53,7 +61,11 @@ final class CloudSidebarRenameFixture {
                  "name": "Intentional other label", "content_kind": "terminal", "content_id": "term_other"]],
             "terminals": [["id": "term_main", "title": "terminal", "lifecycle": "running"],
                           ["id": "term_other", "title": "terminal", "lifecycle": "running"]],
-            "browsers": [], "agents": []
+            "browsers": [],
+            "agents": shouldIncludeAgent ? [[
+                "id": "agent_main", "terminal_id": "term_main", "state": "working",
+                "extra": ["agent": "claude", "agent_session_id": "session_main"]
+            ]] : []
         ]
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
     }
