@@ -19169,7 +19169,7 @@
         },
         "extra": false,
         "constraints": [
-          "Removes every schema key and every shortcut override; custom actions, unknown keys, the theme and terminal font, and managed keys stay. Origin mcp is settings.agent_refused."
+          "Removes every schema key and every shortcut override; custom actions, unknown keys, the theme and terminal font, and managed keys stay. Only origin user or app may reset everything; any other origin is settings.agent_refused."
         ]
       },
       "result": {
@@ -19317,7 +19317,7 @@
           }
         ],
         "constraints": [
-          "Edits the settings file (cmux-next.json, seeded from classic cmux.json) in place (comments and unknown keys stay) and publishes it atomically. A managed key, or a path inside or above one, is settings.managed on every write."
+          "Edits the settings file (cmux-next.json, seeded from classic cmux.json) in place (comments and unknown keys stay) and publishes it atomically. A managed key, or a path inside or above one, is settings.managed on every write. A user-only row (schema agent_settable false) changes only for origin user or app; origin mcp may change only agent-settable rows; a sandboxed app or remote peer is always origin mcp. Apps never get settings.set, settings.reset or settings.reset_all."
         ]
       },
       "result": {

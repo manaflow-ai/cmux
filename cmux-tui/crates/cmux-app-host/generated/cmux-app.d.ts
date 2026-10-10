@@ -1186,14 +1186,8 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
     /** `settings.list` (read, scope `settings:read`) */
     list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
-    /** `settings.reset` (mutation, scope `settings:write`) */
-    reset: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string>; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
-    /** `settings.reset_all` (mutation, scope `settings:write`) */
-    reset_all: CmuxOp<{ machine?: string; session?: string; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
     /** `settings.schema` (read, scope `settings:read`) */
     schema: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
-    /** `settings.set` (mutation, scope `settings:write`) */
-    set: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string>; value: Cmux.JsonValue; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
     /** `settings.snapshot` (read, scope `settings:read`) */
     snapshot: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
   }

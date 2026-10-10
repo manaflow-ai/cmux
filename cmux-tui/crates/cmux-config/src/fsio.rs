@@ -34,12 +34,23 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let temporary = directory.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
-        let mut file = File::create(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
+        // A fresh name (never follows a planted link) that has the existing
+        // file's permission bits before any byte is written.
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
         if let Ok(existing) = fs::metadata(path) {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            options.mode(existing.permissions().mode() & 0o7777);
+        }
+        let mut file = options.open(&temporary)?;
+        #[cfg(unix)]
+        if let Ok(existing) = fs::metadata(path) {
+            // The mode passed at create is masked by the umask; set it exactly.
             fs::set_permissions(&temporary, existing.permissions())?;
         }
+        file.write_all(bytes)?;
+        file.sync_all()?;
         fs::rename(&temporary, path)?;
         // The rename is durable only once the directory entry is on disk.
         #[cfg(unix)]
