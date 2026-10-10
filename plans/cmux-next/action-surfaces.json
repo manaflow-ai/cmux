@@ -8107,6 +8107,60 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "home tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.tab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Home in Tab",
+      "title_key" : "action.home.tab",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.channels",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Channels",
+      "title_key" : "action.home.channels",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "home attach",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -16653,6 +16707,33 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action notifications-dismiss-highlight",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.dismissHighlight",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Dismiss Highlight",
+      "title_key" : "action.notifications.dismissHighlight",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "notification toggle-banners",
       "context_menu" : "noObject",
@@ -20385,141 +20466,6 @@
       "palette_suggested" : null,
       "title" : "Upgrade to cmux Pro",
       "title_key" : "action.palette.pro.upgrade",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings onboarding",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.welcomeChecklist",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding…",
-      "title_key" : "action.palette.onboarding",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings continue-setup",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "onboarding.continueSetup",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Continue Setup…",
-      "title_key" : "action.onboarding.continueSetup",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "settings import-classic-sessions",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.importClassicSessions",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import Classic cmux Sessions…",
-      "title_key" : "action.palette.importClassicSessions",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action import-and-sync-show",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "importAndSync.show",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import and Sync…",
-      "title_key" : "action.importAndSync.show",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "settings onboarding-gallery",
-      "context_menu" : "devOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.onboardingGallery",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding Gallery",
-      "title_key" : "action.palette.onboardingGallery",
       "title_table" : "ActionCatalog"
     },
     {
@@ -33101,7 +33047,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.markWorkspaceUnread",
+              "id" : "notifications.dismissHighlight",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -33114,7 +33060,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "notifications.toggleWorkspaceMute",
+              "id" : "palette.markWorkspaceUnread",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -33127,7 +33073,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "clearWorkspaceNotifications",
+              "id" : "notifications.toggleWorkspaceMute",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -33140,7 +33086,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.addWorkspaceChecklistItem",
+              "id" : "clearWorkspaceNotifications",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -33152,14 +33098,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "palette.addWorkspaceChecklistItem",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 10
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browserProfile.setWorkspaceDefault",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33172,7 +33131,7 @@
               "enabled_when" : "can_perform",
               "id" : "browserProfile.clearWorkspaceDefault",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33183,13 +33142,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "reconnectWorkspace",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33202,7 +33161,7 @@
               "enabled_when" : "can_perform",
               "id" : "disconnectWorkspace",
               "kind" : "action",
-              "order" : 15,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33213,13 +33172,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 16
+              "order" : 17
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.workspaceTabs.toggle",
               "kind" : "action",
-              "order" : 17,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33720,10 +33679,6 @@
     {
       "name" : "homeTranscriptRow",
       "source" : "CmuxNextHome\/NativeTranscript\/HomeRowHostView.swift"
-    },
-    {
-      "name" : "onboardingImportProfile",
-      "source" : "CmuxNextOnboarding\/Variants\/Import\/ImportProfileMenu.swift"
     }
   ],
   "version" : 1

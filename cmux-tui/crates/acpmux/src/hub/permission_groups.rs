@@ -388,7 +388,3 @@ impl Hub {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "permission_groups/tests.rs"]
-mod tests;

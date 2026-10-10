@@ -6,10 +6,6 @@ enum OnboardingMetrics {
     static let windowSize = NSSize(width: 640, height: 520)
     /// Margin around everything.
     static let margin: CGFloat = 40
-    /// Top of the title (below the close button).
-    static let titleTop: CGFloat = 52
-    static let footerHeight: CGFloat = 64
-    static let previewCornerRadius: CGFloat = 10
     static var titleFont: NSFont { .systemFont(ofSize: 22, weight: .semibold) }
     static var bodyFont: NSFont { .systemFont(ofSize: 13) }
     static var captionFont: NSFont { .systemFont(ofSize: 11) }

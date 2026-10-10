@@ -8,7 +8,7 @@ use std::sync::mpsc::channel;
 use optchat_core::Kind;
 
 use super::{
-    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, STALL_NOTICE, Source, reply_entry,
+    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, reply_entry,
     reply_key_at,
 };
 use std::sync::atomic::Ordering;
@@ -36,9 +36,14 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
         .stuck
         .iter()
         .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
-    let class = error(node)
-        .and_then(optchat_host::error_class)
-        .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
+    let class = match error(node) {
+        Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
+            format!("a {}", optchat_core::cut_at_bytes(e, 240))
+        }
+        e => e
+            .and_then(optchat_host::error_class)
+            .map_or_else(|| "a request error".to_owned(), |c| c.to_string()),
+    };
     Some(format!(
         "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
         node.name()
@@ -52,7 +57,10 @@ impl Brain {
             return;
         }
         self.phase = Phase::Settling;
-        self.settle_clock
+        // The bound counts from the first wait for this turn: a wait that
+        // starts over (the log changed under it) does not reset it.
+        let waiting_since = *self
+            .settle_clock
             .get_or_insert_with(std::time::Instant::now);
         self.interrupt = Arc::new(Interrupt::new());
         let trace = self.trace.clone();
@@ -74,52 +82,44 @@ impl Brain {
         let spawned = std::thread::Builder::new()
             .name("turn".into())
             .spawn(move || {
-                // Section 6: no turn starts before every view line is a summary.
-                // The wait has no deadline; a line each minute says what it
-                // waits on, and the first one with a failing node also goes to
-                // the conversation, so the user is not left without a word.
-                // Every PROGRESS_TICK of waiting, `settle.json` says how far
-                // the compactor is (the app's "Organizing Chief history");
-                // a wait shorter than one tick shows nothing.
-                let mut told = false;
-                let mut waited = std::time::Duration::ZERO;
+                // Section 6, as the chief changed it (2026-10-10: a user turn
+                // never waits more than 10 s on compaction): the turn waits
+                // until every view line is a summary, at most SETTLE_BOUND.
+                // Then it starts anyway and reads the lines still building
+                // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
+                // turn reads their summaries. A node that cannot be built at
+                // all (a setup error, or one that fails every try) is stuck
+                // and holds no turn. Every PROGRESS_TICK of waiting,
+                // `settle.json` says how far the compactor is (the app's
+                // "Organizing Chief history"); a wait shorter than one tick
+                // shows nothing.
+                let mut deferred = false;
                 let settled = loop {
-                    if chat.settle(None, Some(PROGRESS_TICK)) {
+                    let left = SETTLE_BOUND.saturating_sub(waiting_since.elapsed());
+                    if chat.settle(None, Some(left.min(PROGRESS_TICK))) {
                         break true;
                     }
-                    waited += PROGRESS_TICK;
                     let status = chat.status();
                     if status.closed || status.fatal.is_some() {
                         break false;
                     }
+                    if waiting_since.elapsed() >= SETTLE_BOUND {
+                        let failing: Vec<String> = status
+                            .failures
+                            .iter()
+                            .map(|f| format!("{}: {}", f.node.name(), f.error))
+                            .collect();
+                        log(&format!(
+                            "turn starts without {} view line summaries after {}s (still building; failing: {})",
+                            status.unbuilt,
+                            SETTLE_BOUND.as_secs(),
+                            if failing.is_empty() { "none".to_owned() } else { failing.join("; ") }
+                        ));
+                        deferred = true;
+                        break true;
+                    }
                     if let Some(settle) = &settle_status {
                         settle.waiting(&status);
-                    }
-                    if waited < STALL_NOTICE {
-                        continue;
-                    }
-                    waited = std::time::Duration::ZERO;
-                    let failing: Vec<String> = status
-                        .failures
-                        .iter()
-                        .map(|f| format!("{}: {}", f.node.name(), f.error))
-                        .collect();
-                    log(&format!(
-                        "turn waits for the compactor: {} view lines unbuilt; failing: {}",
-                        status.unbuilt,
-                        if failing.is_empty() {
-                            "none".to_owned()
-                        } else {
-                            failing.join("; ")
-                        }
-                    ));
-                    if !told && let Some(first) = status.failures.first() {
-                        told = true;
-                        let _ = tx.send(Input::Stalled(format!(
-                            "(waiting: the Chief's memory cannot summarize line {} yet, so your message waits. First error: {}. It is retried every 10 s.)",
-                            first.node.name(),
-                            first.error
-                        )));
                     }
                 };
                 if let Some(settle) = &settle_status {
@@ -141,7 +141,7 @@ impl Brain {
                     return;
                 }
                 let (reply, start) = channel();
-                if tx.send(Input::Settled(reply)).is_err() {
+                if tx.send(Input::Settled { reply, deferred }).is_err() {
                     return;
                 }
                 let Ok(Some(start)) = start.recv() else {
@@ -294,17 +294,22 @@ impl Brain {
     /// The worker settled the view. Between its check and now the brain may
     /// have lost acpmux (the turn would fail at once and consume the queue)
     /// or appended to the log (an orphan's fold), which can leave a view line
-    /// unsummarized again; then the queue stays and the wait starts over
-    /// (section 6: no call ever sees the placeholder).
-    pub(super) fn settled(&mut self) -> Option<TurnStart> {
+    /// unsummarized again; then the queue stays and the wait starts over.
+    /// Chief 2026-10-10: a user turn never waits more than 10 s on
+    /// compaction (README, Deviations from the spec, Section 6).
+    /// `deferred`: the worker waited SETTLE_BOUND and starts the turn with
+    /// lines still building (they read as the placeholder).
+    pub(super) fn settled(&mut self, deferred: bool) -> Option<TurnStart> {
         if !self.ready() {
-            // The next `Up` starts the turn.
+            // The next `Up` starts the turn, with a new bound: the wait for
+            // acpmux was not a wait on compaction.
             self.phase = Phase::Idle;
+            self.settle_clock = None;
             return None;
         }
         // The same check as settle's: an imported line still being built
         // (or a stuck one) does not hold the turn.
-        if !self.chat.turn_ready() {
+        if !deferred && !self.chat.turn_ready() {
             self.phase = Phase::Idle;
             self.maybe_start_turn();
             return None;

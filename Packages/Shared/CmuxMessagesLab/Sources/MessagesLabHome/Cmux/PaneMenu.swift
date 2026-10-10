@@ -15,11 +15,12 @@ extension ChatController {
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
-        // incoming 59 -> 91, outgoing (72,147,247) -> (45,89,192), in about 0.22 s after
-        // 0.08 s; back when the menu closes).
+        // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
+        // the press; back when the menu closes).
         let hl = MenuHighlight(host: host, body: hit.body, outgoing: hit.row.outgoing, tail: hit.row.tail)
         menu.delegate = hl
         menuHighlight = hl
+        hl.start()
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
         let canReact = intents?.canReact == true
         if canReact {
@@ -35,7 +36,7 @@ extension ChatController {
         }
         // Attach Sticker…: opens the tapback picker with its emoji (no image stickers).
         if canReact {
-            menu.addItem(MenuAction(title: Strings.menuAttachSticker, symbol: NSImage(systemSymbolName: "sticker", accessibilityDescription: nil) != nil ? "sticker" : "face.smiling") { [weak self] in self?.showPicker(for: hit) })
+            menu.addItem(MenuAction(title: Strings.menuAttachSticker, symbol: MenuSymbols.attachSticker) { [weak self] in self?.showPicker(for: hit) })
         }
         menu.addItem(.separator())
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
@@ -152,7 +153,7 @@ final class EmojiBubbleButton: NSView {
     init(frame: CGRect, run: @escaping () -> Void) {
         self.run = run
         super.init(frame: frame.insetBy(dx: 0, dy: 0).union(CGRect(x: frame.minX, y: frame.minY, width: frame.width + 20, height: frame.height + 22)))
-        let glass = NSGlassEffectView(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+        let glass = LabGlass.surface(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
         glass.cornerRadius = frame.width / 2
         let img = NSImageView(image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: Strings.menuAttachSticker)?
             .withSymbolConfiguration(.init(pointSize: 18, weight: .regular)) ?? NSImage())
@@ -188,22 +189,54 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
             layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
             layer.compositingFilter = "multiplyBlendMode"
         } else {
-            layer.fillColor = NSColor(white: 1, alpha: 0.163).cgColor
+            layer.fillColor = NSColor(white: 1, alpha: 0.2).cgColor // MessagesLab ced183d: 59 -> 98
         }
         layer.opacity = 0
     }
-    func menuWillOpen(_ menu: NSMenu) {
-        guard let root = host?.layer else { return }
+    private var keys: Any?
+    private var closing = false
+    deinit { if let k = keys { NSEvent.removeMonitor(k) } }
+    /// MessagesLab ced183d: the highlight starts with the press, when AppKit asks for the menu,
+    /// and is committed at once, before AppKit's synchronous menu layout (30-75 ms per open), so
+    /// the render server runs its fade during that work as Messages shows it.
+    func start() {
+        guard let root = host?.layer, layer.superlayer == nil else { return }
         root.addSublayer(layer)
         layer.zPosition = 10
-        fade(to: 1, delay: 0.08, duration: 0.22)
+        fade(to: 1, delay: 0, duration: 0.2)
+        CATransaction.flush()
+    }
+    /// Removes the highlight at once, no fade (a menu built and never shown: the debug socket).
+    func discard() {
+        CATransaction.begin(); CATransaction.setDisableActions(true); layer.removeFromSuperlayer(); CATransaction.commit()
+    }
+    func menuWillOpen(_ menu: NSMenu) {
+        start()
+        // Esc (MessagesLab e17858e): the highlight's fade starts and commits before AppKit tears
+        // the menu down on main (the teardown held the commit 30-40 ms: a late, jumping fade);
+        // cancelTracking() animates the menu's own dismissal, as Messages' Esc does.
+        keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak menu] e in
+            guard e.keyCode == 53, let menu else { return e }
+            self?.close()
+            menu.cancelTracking()
+            return nil
+        }
     }
     func menuDidClose(_ menu: NSMenu) {
+        if let k = keys { NSEvent.removeMonitor(k); keys = nil }
+        close()
+    }
+    /// Fades the highlight out once (Esc starts it before the menu's teardown; a click or a
+    /// choice when the menu has closed) and commits the fade at once.
+    private func close() {
+        guard !closing, layer.superlayer != nil else { return }
+        closing = true
         let l = layer
         CATransaction.begin()
         CATransaction.setCompletionBlock { l.removeFromSuperlayer() }
         fade(to: 0, delay: 0, duration: 0.2)
         CATransaction.commit()
+        CATransaction.flush()
     }
     private func fade(to v: Float, delay: CFTimeInterval, duration: CFTimeInterval) {
         let a = CABasicAnimation(keyPath: "opacity")

@@ -81,7 +81,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - `spawn` in a turn takes that turn's view and its new messages at once
   (no wait for the compactor to summarize the turn's own tool calls:
   parity timing 2026-10-09, the settle took 7.2 s of an 8.7 s spawn);
-  outside a turn it waits for settle and renders the view. It starts one acpmux session per
+  outside a turn it waits for settle (at most 10 s, as a turn does; then
+  the lines still building read as the placeholder), renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
   home; a directory that does not exist on the host is reported and
@@ -816,7 +817,8 @@ written (55%) with the session key alone. The compactor keeps its
 The team subrouter serves Claude Code clients: a raw Messages API call for a
 Claude model gets `429 rate_limit_error` every time (checked live on
 2026-10-04), so a compactor that calls the API there builds no node that
-needs a model, and every turn then waits on settle forever. The route is
+needs a model, and every turn then reads those lines unsummarized (a turn
+waits at most 10 s on compaction, see Deviations from the spec). The route is
 acpmux unless `OPTCHAT_COMPACTOR=api`:
 
 - `acpmux` (default):
@@ -824,8 +826,9 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   (claude-sr), as `mux/host/src/compactor.ts` does. The session runs with the
   `deny-all` policy and the compactor's own acpmux presets
   (`optchat-compact-<home id>-slot-<k>`, one per slot), which it requires: when acpmux refuses the
-  preset, no compactor session starts (nodes fail and are retried, and the
-  probe says why), so a node never runs with the user's `~/.claude` hooks,
+  preset, no compactor session starts (a setup error: the node is stuck at
+  once, no turn waits for it, it is retried every 5 min, and the probe says
+  why), so a node never runs with the user's `~/.claude` hooks,
   MCP servers or auto-memory. The preset sets `CLAUDE_CONFIG_DIR` to
   `optchat/compactor-claude` (not the turn agent's) and turns off
   auto-memory, CLAUDE.md files, bundled skills and Claude Code's own refusal
@@ -1132,6 +1135,18 @@ the Too long retry, the 4-line cache blocks and single-flight. The replay
 test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
 compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 
+- Section 6, settle (chief 2026-10-10: a user turn never waits more than 10 s
+  on compaction). The spec starts no turn before every view line is a
+  summary. Here a turn waits at most `SETTLE_BOUND` (10 s) for lines that are
+  still building, then starts and reads them as the placeholder (`zoom` opens
+  them); the next turn reads their summaries. A node the compactor cannot
+  build at all (a setup error such as a missing acpmux preset or a refused
+  harness, or a request error on every try) is stuck at once and holds no
+  turn; the Chief status says why. The class rule: a user message never
+  waits more than 10 s on the compactor (a turn's start and `spawn` alike).
+  Cost: a deferred turn's cache mark covers a view with placeholders, so the
+  next turn, which reads the summaries there, misses the cache from that
+  line on once.
 - **Claude Code compactor tools.** Compactions send the turns' system text,
   but a compactor session keeps `--tools ""` and deny-all (isolation), so
   on the Claude Code route its tool prefix differs from the turns' and it
@@ -1225,8 +1240,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   being retried forever. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
-  or an overload is not a refusal and is retried. Other failures retry every 10 s forever, as the spec
-  says; after a minute of waiting the conversation hears which line fails.
+  or an overload is not a refusal and is retried. Other failures retry with
+  a growing wait; a node that fails every try, or fails with a setup error,
+  is stuck: it holds no turn, it is retried every 5 min, and the
+  conversation hears once which line is stuck and why (retracted once it is
+  built). See the Section 6 item above for the 10 s bound.
 - **Subagents (section 9).** `spawn`/`tell` follow the spec (see Subagents);
   `tell` lands after the subagent's current turn. The older `chief agents`
   children (named, any harness) still work and report alone, one

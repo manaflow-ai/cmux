@@ -51,8 +51,11 @@ pub const MAX_TASKS: usize = 8;
 /// Most subagents at work at once; a spawn over it queues the rest, which
 /// start as others finish.
 pub const MAX_LIVE: usize = 16;
-/// Longest `spawn` waits for the view to settle (section 6).
-pub const SETTLE_LIMIT: Duration = Duration::from_secs(240);
+/// Longest `spawn` waits for the view to settle (section 6), as a turn does
+/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction):
+/// then the subagent gets the view with the lines still building as the
+/// placeholder.
+pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
 /// Prompt ids of the host's own prompts to a subagent start with this; any
 /// other prompt in its session is the user's (typed into its chat).
 pub const PROMPT_PREFIX: &str = "optchat-";
@@ -487,6 +490,25 @@ impl Spawner {
         tx
     }
 
+    /// Waits for the view to settle, at most SETTLE_LIMIT; then the view is
+    /// used as it is (the lines still building read as the placeholder).
+    /// Err only when the memory stopped (shut down or a failed write).
+    fn settle_view(&self) -> Result<(), String> {
+        if self.chat.settle(None, Some(SETTLE_LIMIT)) {
+            return Ok(());
+        }
+        let status = self.chat.status();
+        if status.closed || status.fatal.is_some() {
+            return Err("the memory stopped, so no subagent started".into());
+        }
+        (self.log)(&format!(
+            "spawn goes on without {} view line summaries after {}s (still building)",
+            status.unbuilt,
+            SETTLE_LIMIT.as_secs()
+        ));
+        Ok(())
+    }
+
     fn start_waiting(&self, id: &str) {
         let waiting = self
             .waiting
@@ -502,8 +524,8 @@ impl Spawner {
         let Some(w) = waiting else {
             return fail("the Chief host restarted while it waited for a free slot");
         };
-        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
-            return fail("the memory was still summarizing when its slot freed");
+        if let Err(e) = self.settle_view() {
+            return fail(&e);
         }
         let view = self.chat.render_view().text;
         match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
@@ -631,16 +653,11 @@ impl Orchestrator for Spawner {
         // Section 9: the view at spawn time. In a turn, the turn's own view
         // and new messages, at once (parity timing 2026-10-09: the settle
         // waited about 7 s for the compactor to summarize the turn's spawn
-        // call); outside a turn, the view after settle.
+        // call); outside a turn, the view after settle (settle_view).
         let view = match self.turn_view() {
             Some(view) => view,
             None => {
-                if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
-                    return Err(
-                        "the memory is still summarizing, so no subagent started; call spawn again"
-                            .into(),
-                    );
-                }
+                self.settle_view()?;
                 self.chat.render_view().text
             }
         };

@@ -98,7 +98,7 @@ nonisolated extension ActionSurfaceCatalog {
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener",
-        "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.importClassicSessions",
+        "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
         "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
         "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -146,7 +146,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .guiOnly: [
-            "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
@@ -166,7 +166,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
-            "palette.pro.upgrade", "palette.welcomeChecklist", "onboarding.continueSetup", "sendFeedback", "help.featureFlags",
+            "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
             "sidebar.profileMenu", "browser.downloads.showFolder",
@@ -243,7 +243,7 @@ nonisolated extension ActionSurfaceCatalog {
             "commandPaletteNext", "commandPalettePrevious",
         ],
         .devOnly: [
-            "openDebugSettings", "palette.onboardingGallery",
+            "openDebugSettings",
         ],
     ]
 

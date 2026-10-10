@@ -1580,8 +1580,9 @@ pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
         }
     };
     Some(format!(
-        "The memory compactor cannot build summaries ({} route: {error}). Messages \
-         that need a summary wait, and so does every reply, until it can. {remedy}",
+        "The memory compactor cannot build summaries ({} route: {error}). Replies \
+         go on and read the lines it cannot summarize unsummarized (a turn waits at most \
+         10 s on compaction) until it can. {remedy}",
         route.name()
     ))
 }

@@ -7,6 +7,10 @@ enum RemoteStrings {
     static func placeholderReconnecting(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
     }
+    /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
+    static func sidebarConnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine)
+    }
     static func placeholderOffline(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
     }
@@ -107,6 +111,10 @@ enum RemoteStrings {
             return String(localized: "remote.install.noChecksumTool", defaultValue: "The machine has no sha256sum or shasum, so the download cannot be checked.", table: "Remote", bundle: .module)
         case .downloadFailed(let detail):
             return String(format: String(localized: "remote.install.download", defaultValue: "The download failed: %@", table: "Remote", bundle: .module), detail)
+        case .treeNotPublished(let key):
+            return String(format: String(localized: "remote.install.treeNotPublished",
+                                         defaultValue: "This build's cmux-tui (tree %@) is not published, so it cannot be installed on the machine. Use a build whose cmux-tui is published.",
+                                         table: "Remote", bundle: .module), String(key.prefix(12)))
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.install.unrunnable", defaultValue: "The downloaded cmux-tui does not run on this machine: %@", table: "Remote", bundle: .module), detail)
         case .notWritable(let detail):
@@ -199,6 +207,24 @@ enum RemoteStrings {
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:
             return unsupportedPlatform(session.host.label)
+        case .refused(let refusal):
+            return refusalText(refusal)
+        }
+    }
+
+    /// The one table from the bundled cmux-tui's typed refusal codes to text.
+    static func refusalText(_ refusal: RemoteRefusal) -> String {
+        switch refusal {
+        case .protocolOlder:
+            String(localized: "remote.refusal.protocolOlder", defaultValue: "The cmux-tui there is too old for this connection. Install cmux-tui to update it.", table: "Remote", bundle: .module)
+        case .protocolNewer:
+            String(localized: "remote.refusal.protocolNewer", defaultValue: "The cmux-tui there is newer than this app. Update cmux on this Mac to connect.", table: "Remote", bundle: .module)
+        case .wrongApp:
+            String(localized: "remote.refusal.wrongApp", defaultValue: "Another program is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .distributionMismatch:
+            String(localized: "remote.refusal.distributionMismatch", defaultValue: "The cmux-tui there is a different release than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .buildMismatch:
+            String(localized: "remote.refusal.buildMismatch", defaultValue: "The cmux-tui there is a different build than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
         }
     }
 }

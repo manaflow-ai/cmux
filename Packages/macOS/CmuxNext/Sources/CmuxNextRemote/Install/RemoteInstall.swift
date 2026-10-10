@@ -10,6 +10,9 @@ public enum RemoteInstallError: Error, Hashable, Sendable {
     /// The machine has neither curl nor wget.
     case noDownloader
     case downloadFailed(String)
+    /// The bundled commit has no manifest and its cmux-tui tree (this key)
+    /// is not published either, so no matching build exists to install.
+    case treeNotPublished(key: String)
     /// The downloaded binary does not run there (`remote-probe` failed).
     case unrunnable(String)
     case notWritable(String)
@@ -93,6 +96,11 @@ public struct RemoteInstallPlan: Hashable, Sendable {
 
     public static func manifestURL(commit: String, base: URL = RemoteInstallPlan.base) -> URL {
         base.appendingPathComponent(commit.lowercased()).appendingPathComponent("manifest.json")
+    }
+
+    /// `cmux-tui/tree/<key>/source.json`: the commit that published a tree key.
+    public static func treeSourceURL(key: String, base: URL = RemoteInstallPlan.base) -> URL {
+        base.appendingPathComponent("tree").appendingPathComponent(key.lowercased()).appendingPathComponent("source.json")
     }
 
     /// Shared prelude: target, staging file and a digest helper.
@@ -209,6 +217,6 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     }
 
     static func isHex(_ text: String, count: Int) -> Bool {
-        text.count == count && text.allSatisfy(\.isHexDigit)
+        text.count == count && text.allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 }

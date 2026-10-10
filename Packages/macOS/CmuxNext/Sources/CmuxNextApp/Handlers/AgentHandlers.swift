@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -228,7 +229,7 @@ enum AgentHandlers {
         func mounted() -> PaneController? {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
-        for await isMounted in Observations({ () -> Bool in
+        for await isMounted in ObservationStream({ () -> Bool in
             _ = services.paneMounts.generation
             return mounted() != nil
         }) where isMounted {
@@ -239,9 +240,11 @@ enum AgentHandlers {
 
     /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
     /// workspace whose only tab is the chat, like a new thread in the Codex
-    /// and Claude apps (lawrence-call-1006 D). The chat inherits the focused
-    /// tab's cwd and draft as a tab would. Scripts, an explicit target and a
-    /// daemon that cannot hold a chat get a tab in `pane`: false.
+    /// and Claude apps (lawrence-call-1006 D): always that one screen, never
+    /// the New Tab page (Leo 2026-10-10, cx-9z3j; Cmd-T and Cmd-N open the
+    /// page). The chat inherits the focused tab's cwd and draft as a tab
+    /// would. Scripts, an explicit target and a daemon that cannot hold a chat
+    /// get a tab in `pane`: false.
     private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
                                                   context: AppActionContext) -> Bool {
         let services = context.services

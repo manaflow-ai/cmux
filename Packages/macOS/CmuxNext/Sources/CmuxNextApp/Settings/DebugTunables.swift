@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -36,7 +37,7 @@ enum DebugTunables {
                 store.reset([descriptor.key])
                 return row(descriptor, store)
             }
-            guard let value = tunableValue(raw, kind: descriptor.kind) else { return error("value does not fit \(descriptor.key)") }
+            guard let value = DebugSettingsModel.tunableValue(raw, kind: descriptor.kind) else { return error("value does not fit \(descriptor.key)") }
             if descriptor.clamp(value) == descriptor.defaultValue { store.reset([descriptor.key]) } else { store.set(descriptor.key, value) }
             return row(descriptor, store)
         case "reset":
@@ -55,7 +56,7 @@ enum DebugTunables {
             return .object(["count": JSONValue(changes.count), "text": .string(text)])
         case "open":
             do {
-                try service.show(query: params["query"]?.stringValue, selection: params["section"]?.stringValue.map(selection))
+                try service.show(query: params["query"]?.stringValue, selection: params["section"]?.stringValue.map(DebugSettingsSelection.init(id:)))
             } catch {
                 return self.error(String(describing: error))
             }
@@ -65,7 +66,7 @@ enum DebugTunables {
         case "section":
             guard let model = service.model else { return error("Debug Settings is not open") }
             model.query = ""
-            model.selection = selection(params["id"]?.stringValue ?? "all")
+            model.selection = DebugSettingsSelection(id: params["id"]?.stringValue ?? "all")
         case "close":
             service.close()
         case "state":
@@ -81,24 +82,21 @@ enum DebugTunables {
         let store = TunableStore.shared
         var fields: [String: JSONValue] = [
             "available": .bool(service.isAvailable),
+            // `web`: the React page (cmux-page://cmux.debug-settings/, probe it with `debug.page`).
+            "surface": .string(PageTunables.debugSettings.value.rawValue),
             "active": .bool(store.isActive),
             "file": service.fileURL.map { .string($0.path) } ?? .null,
             "tunables": JSONValue(TunableCatalog.all.count),
             "changed": JSONValue(TunableCatalog.all.count { isChanged($0, store) }),
         ]
         if let model = service.model, let window = service.window {
-            let selection: String = switch model.selection {
-            case .all: "all"
-            case .changed: "changed"
-            case .section(let id): id
-            }
             fields["window"] = .object([
                 "visible": .bool(window.isVisible),
                 "key": .bool(window.isKeyWindow),
                 "window_number": JSONValue(window.windowNumber),
                 "frame": .array([window.frame.minX, window.frame.minY, window.frame.width, window.frame.height].map { .number(Double($0)) }),
                 "query": .string(model.query),
-                "selection": .string(selection),
+                "selection": .string(model.selection.id),
                 "rows": JSONValue(model.visible.count),
                 "first_rows": .array(model.visible.prefix(12).map { .string($0.key) }),
                 "notice": model.notice.map(JSONValue.string) ?? .null,
@@ -107,14 +105,6 @@ enum DebugTunables {
             fields["window"] = .null
         }
         return .object(fields)
-    }
-
-    private static func selection(_ id: String) -> DebugSettingsSelection {
-        switch id {
-        case "all": .all
-        case "changed": .changed
-        default: .section(id)
-        }
     }
 
     private static func descriptor(_ params: [String: JSONValue]) -> TunableDescriptor? {
@@ -135,28 +125,7 @@ enum DebugTunables {
         ])
     }
 
-    private static func json(_ value: TunableValue) -> JSONValue {
-        switch value {
-        case .number(let number): .number(number)
-        case .bool(let flag): .bool(flag)
-        case .choice(let raw): .string(raw)
-        case .color(let color): .string(color.rawValue)
-        case .spring(let spring): .object(["response": .number(spring.response), "dampingFraction": .number(spring.dampingFraction)])
-        }
-    }
-
-    private static func tunableValue(_ json: JSONValue, kind: TunableKind) -> TunableValue? {
-        switch kind {
-        case .number: json.doubleValue.map(TunableValue.number)
-        case .bool: json.boolValue.map(TunableValue.bool)
-        case .choice: json.stringValue.map(TunableValue.choice)
-        case .color: json.stringValue.flatMap(TunableColor.init(rawValue:)).map(TunableValue.color)
-        case .spring:
-            json["response"]?.doubleValue.flatMap { response in
-                json["dampingFraction"]?.doubleValue.map { .spring(SpringParameters(response: response, dampingFraction: $0)) }
-            }
-        }
-    }
+    private static func json(_ value: TunableValue) -> JSONValue { DebugSettingsModel.json(value) }
 
     private static func error(_ message: String) -> JSONValue { .object(["error": .string(message)]) }
 }

@@ -141,39 +141,42 @@ impl Mux {
         })
     }
 
+    /// Record the Kitty limits a reconnected host applied in its handshake.
+    ///
+    /// The limits are the host's authoritative state, whatever the budget
+    /// wants now: the reconnect read its target before the handshake, and a
+    /// terminal that joined or left since then moves the target. Limits
+    /// above the current target are recorded as they are, so admission still
+    /// counts them and the budget worker shrinks them on the live connection,
+    /// like any other surface whose share shrank. Refusing them here did not
+    /// undo them on the host; it tore down the healthy connection and left a
+    /// dead writer installed through the reconnect backoff, so input failed
+    /// with EPIPE (the terminal_host_recovery template-adoption flake).
+    /// Kitty limits are advisory; only a surface that no longer owns the
+    /// entry is refused.
     pub(super) fn reconcile_reconnected_kitty_image_surface(
         self: &Arc<Self>,
         surface: &Arc<Surface>,
         applied: KittyGraphicsLimits,
     ) -> bool {
-        let reconciled = {
+        {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
-            let target = kitty_image_limits_for_capacity(budget.capacity);
             let Some(entry) = budget.entries.get_mut(&surface.id) else { return false };
             let owns_entry = entry
                 .surface
                 .as_ref()
                 .and_then(Weak::upgrade)
                 .is_some_and(|registered| Arc::ptr_eq(&registered, surface));
-            let desired = if entry.removing || !entry.owns_quota {
-                KittyGraphicsLimits::disabled()
-            } else {
-                target
-            };
-            if !owns_entry || !kitty_image_limits_within(applied, desired) {
-                false
-            } else {
-                entry.applied = applied;
-                budget.blocked_surfaces.remove(&surface.id);
-                true
+            if !owns_entry {
+                return false;
             }
-        };
-        if reconciled {
-            self.kitty_image_budget_changed.notify_all();
-            self.start_kitty_image_budget_worker();
+            entry.applied = applied;
+            budget.blocked_surfaces.remove(&surface.id);
         }
-        reconciled
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
+        true
     }
 
     pub(super) fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {

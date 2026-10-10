@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Opens each sign-in in its own panel with a Chromium page, the same
@@ -125,7 +126,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private func observeNavigation(_ page: any BrowserTab) {
         observation = Task { [weak self, weak page] in
             guard let page else { return }
-            for await url in Observations({ page.state.url }) {
+            for await url in ObservationStream({ page.state.url }) {
                 guard let self, let url else { continue }
                 if self.broker?.navigated(self.id, to: url) == true { page.stop() }
             }

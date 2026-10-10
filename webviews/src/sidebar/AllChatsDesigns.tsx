@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery design fixtures for the native All chats section, not shipped UI.
 // Three minimal designs of the sidebar's bottom All chats section (Lawrence 2026-10-09: fewer
 // chrome, no bordered pop-ups, the title plus subtle icons on hover only) for his vote. The
-// shipped section is native (CmuxNextSidebar SidebarChatsView); the chosen design is ported there.
+// shipped list is on the New Tab page (newtab/AllChatsList.tsx, cx-n0i9); the chosen design stays there.
 import "./AllChatsDesigns.css";
 
 export type AllChatsDesign = "quiet" | "age" | "project";

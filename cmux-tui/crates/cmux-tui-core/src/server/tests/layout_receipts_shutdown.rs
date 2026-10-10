@@ -198,6 +198,7 @@ fn create_terminal_rejects_partial_dimensions() {
                 terminal_id: None,
                 env: None,
                 keep: false,
+                detached: false,
                 mutation: MutationRequest::default(),
             },
             &test_writer(),
@@ -225,6 +226,7 @@ fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
         terminal_id: Some("00000000000040008000000000000001".to_string()),
         env: None,
         keep: false,
+        detached: false,
         mutation: MutationRequest {
             origin: Some("raw-projection-test".to_string()),
             mutation_id: Some("raw-terminal-create-once".to_string()),

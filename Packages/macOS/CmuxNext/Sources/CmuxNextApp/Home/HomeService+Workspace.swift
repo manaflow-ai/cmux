@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -31,27 +32,43 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
+        homeEnsureGeneration &+= 1
+        let generation = homeEnsureGeneration
+        homeEnsureInFlight = true
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
+                // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
+                settleHomeEnsure(generation)
                 homeWorkspaceStep = "ensured \(home)"
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
+                self?.settleHomeEnsure(generation)
                 self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
+    private func settleHomeEnsure(_ generation: Int) {
+        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
+    }
+
+    /// Returns once no `ensure_home` is in flight (at once when none is).
+    /// Each request has the connection's timeout, so this never outlives it.
+    func awaitHomeEnsured() async {
+        for await inFlight in Observations({ self.homeEnsureInFlight }) where !inFlight { return }
+    }
+
     /// The Chief owner's connection, once it serves conversations (this task
     /// is cancelled by the next local connection).
     private func chiefConnection() async -> DaemonConnection? {
         let chief = chief
-        for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+        for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
             if let connection { return connection }
         }
         return nil
@@ -130,7 +147,7 @@ extension HomeService {
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
-        for await workspace in Observations({ local.store.workspaces.first { $0.resourceID == home } }) {
+        for await workspace in ObservationStream({ local.store.workspaces.first { $0.resourceID == home } }) {
             if let workspace { found = workspace; break }
         }
         guard !Task.isCancelled, let workspace = found else { return }

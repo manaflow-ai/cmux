@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSidebar
@@ -82,18 +83,18 @@ extension SidebarBridge {
         let store = services.machines.local.store
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
-            // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips), the Chats
-            // setting and the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, shortcuts, showChats, workspaces) in Observations({
-                () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool, [LayoutItemRef: SidebarItemInfo]) in
+            // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips) and
+            // the workspaces tiles and top rows name. The selected item comes from the one selection.
+            for await (layout, unread, shortcuts, workspaces) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
-                        DesignSettings.shared.sidebarSections.showChats, SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
+                        SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
-                guard let self else { return }
+                // The window closed: the bridge is gone, stop observing.
+                guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = layout.chatsLayout(enabled: showChats)
-                self.chatsMount.show(showChats, services: self.services)
+                let visibleLayout = layout.withoutChats
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },

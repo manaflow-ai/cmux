@@ -84,6 +84,8 @@ final class ComputerUseHelperDaemon {
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The helper v2 (`computerUse.driver = "upstream"`).
+    @ObservationIgnored let upstream: ComputerUseHelperV2
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -91,7 +93,9 @@ final class ComputerUseHelperDaemon {
          manifestReader: CuaHelperManifestReader = .shared,
          ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
-         stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory()) {
+         stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory(),
+         upstream: ComputerUseHelperV2? = nil) {
+        self.upstream = upstream ?? ComputerUseHelperV2()
         self.identity = identity
         self.candidates = candidates
         self.launcher = launcher
@@ -123,16 +127,37 @@ final class ComputerUseHelperDaemon {
                                                        hostAuthToken: hostToken, machineName: "")
     }
 
-    /// Follows `computerUse.enabled` (and DisabledFeatures) for the app's life.
+    /// Follows `computerUse.enabled`, `computerUse.driver` (and
+    /// DisabledFeatures) for the app's life.
     func follow(_ settings: SettingsController, disabledByPolicy: @escaping () -> Bool) {
         observation?.cancel()
         observation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await enabled in Observations({ settings.snapshot.computerUse.enabled }) {
+            for await computerUse in ObservationStream({ settings.snapshot.computerUse }) {
                 guard let self else { return }
-                await apply(enabled: enabled && !disabledByPolicy())
+                await apply(computerUse, disabledByPolicy: disabledByPolicy())
             }
+        }
+    }
+
+    /// Which helper runs. The default (driver legacy) is today's path only:
+    /// the helper v2 never starts.
+    nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool) -> (legacy: Bool, upstream: Bool) {
+        let on = settings.enabled && !disabledByPolicy
+        return (on && settings.driver == .legacy, on && settings.driver == .upstream)
+    }
+
+    /// Applies one settings value: stops the helper that is off first, then
+    /// starts the one that is on.
+    func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
+        let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
+        if route.legacy {
+            await upstream.apply(enabled: false)
+            await apply(enabled: true)
+        } else {
+            await apply(enabled: false)
+            await upstream.apply(enabled: route.upstream)
         }
     }
 
@@ -194,6 +219,7 @@ final class ComputerUseHelperDaemon {
         observation = nil
         generation &+= 1
         stop()
+        upstream.terminateForQuit()
     }
 
     /// `serve` argv: the socket path and this app's pid only, never a token
@@ -236,10 +262,14 @@ final class ComputerUseHelperDaemon {
         "\(userTemporaryDirectory())cmux-cua/\(scope(bundleID))/cua.sock"
     }
 
-    /// The per-user Darwin temp directory, with a trailing slash.
+    /// The per-user Darwin temp directory, with a trailing slash. When
+    /// confstr fails: /tmp/cmux-<uid>/, never $TMPDIR (one per user, so slot
+    /// users on one Mac do not collide; the caller makes its 0700 directories
+    /// there and checks them with fstat; the helper v2 accepts only the Darwin
+    /// temp dir and /tmp).
     nonisolated static func userTemporaryDirectory() -> String {
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return NSTemporaryDirectory() }
+        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return "/tmp/cmux-\(geteuid())/" }
         let path = String(cString: buffer)
         return path.hasSuffix("/") ? path : path + "/"
     }

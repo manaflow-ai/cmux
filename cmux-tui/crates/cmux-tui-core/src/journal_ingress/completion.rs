@@ -9,10 +9,10 @@ pub(crate) enum JournalBatchReceipt {
     None,
     /// A producer append receipt.
     Append(crate::JournalAppendCommit),
-    /// An effect receipt commit: its receipt, or the error of an intent the
+    /// A registry commit intent: its receipt, or the error of an intent the
     /// writer rolled back to its savepoint while the rest of the batch
     /// committed.
-    Effect(Result<crate::workspace_registry::EffectCommitReceipt, String>),
+    Effect(Result<crate::workspace_registry::RegistryReceipt, String>),
 }
 
 pub(super) fn complete_batch_success(

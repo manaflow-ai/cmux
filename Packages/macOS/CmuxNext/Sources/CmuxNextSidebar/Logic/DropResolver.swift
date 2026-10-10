@@ -63,13 +63,16 @@ public nonisolated enum DropResolver {
         return (target, .leadingEdge)
     }
 
-    public static func resolveTabDrop(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?) -> SidebarTabDrop? {
-        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), tabIntoStart: 0.25, tabIntoEnd: 0.75)
+    /// - Parameter reordersTabRows: a tab drag, whose drop on a tab row's edge goes before that tab.
+    public static func resolveTabDrop(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?,
+                                      reordersTabRows: Bool = false) -> SidebarTabDrop? {
+        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), tabIntoStart: 0.25, tabIntoEnd: 0.75, reordersTabRows: reordersTabRows)
         return RustSidebarClient.call("tab_drop", request, as: RustTabDrop.self)?.swiftValue
     }
 
-    public static func tabDropRefusal(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?) -> (row: SidebarRowKey, reason: SidebarTabDropRefusal)? {
-        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), tabIntoStart: 0.25, tabIntoEnd: 0.75)
+    public static func tabDropRefusal(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?,
+                                      reordersTabRows: Bool = false) -> (row: SidebarRowKey, reason: SidebarTabDropRefusal)? {
+        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), tabIntoStart: 0.25, tabIntoEnd: 0.75, reordersTabRows: reordersTabRows)
         guard let refusal = RustSidebarClient.call("tab_refusal", request, as: RustTabRefusal.self), let row = refusal.row.swiftValue, let reason = refusal.swiftReason else { return nil }
         return (row, reason)
     }

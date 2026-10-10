@@ -88,6 +88,19 @@ enum Message {
 
 static QUEUE: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
 
+/// The log file a command with its own state directory chose
+/// (`remote-link --state-dir`, cx-bduj). `CMUX_TUI_LOG_FILE` still wins.
+static PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Logs to `path` instead of the default state root, unless
+/// `CMUX_TUI_LOG_FILE` names a file. Call it before the first log line: the
+/// path is read once, when the writer starts.
+pub(crate) fn use_path(path: PathBuf) {
+    if std::env::var_os("CMUX_TUI_LOG_FILE").is_none() {
+        let _ = PATH_OVERRIDE.set(path);
+    }
+}
+
 /// Set when the writer thread failed to open the sink: the log is
 /// unreachable, so stderr must not be routed into the discarding pump.
 static SINK_BROKEN: AtomicBool = AtomicBool::new(false);
@@ -99,7 +112,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             // writer thread, so a blocking log target (a FIFO override, a
             // dead network mount) can never stall a caller - much less
             // startup.
-            let path = platform::client_log_path()?;
+            let path = PATH_OVERRIDE.get().cloned().or_else(platform::client_log_path)?;
             let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
             std::thread::Builder::new()
                 .name("client-log".into())
