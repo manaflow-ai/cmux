@@ -52,6 +52,37 @@ final class ConversationImageLoader {
         return image
     }
 
+    /// The attachment's original bytes as a local file named for Quick Look
+    /// (a document keeps its name; a photo is "Photo.<ext>").
+    func fileURL(for attachment: ConversationAttachment) async -> URL? {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ConversationAttachments", isDirectory: true)
+            .appendingPathComponent(attachment.id.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_"), isDirectory: true)
+        let fallbackExtension = attachment.url?.pathExtension.isEmpty == false ? attachment.url!.pathExtension : "jpg"
+        let name = attachment.file?.name ?? "Photo.\(fallbackExtension)"
+        let target = folder.appendingPathComponent(name.replacingOccurrences(of: "/", with: "-"))
+        if FileManager.default.fileExists(atPath: target.path) { return target }
+        let session = session
+        return await Task.detached(priority: .userInitiated) { () -> URL? in
+            let data: Data?
+            if let local = attachment.localData {
+                data = local
+            } else if let url = attachment.url {
+                data = try? await session.data(from: url).0
+            } else {
+                data = nil
+            }
+            guard let data else { return nil }
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try data.write(to: target, options: .atomic)
+                return target
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
     private func key(_ attachment: ConversationAttachment, _ pixelWidth: CGFloat) -> String {
         "\(attachment.id)@\(Int(pixelWidth))"
     }
