@@ -8906,9 +8906,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
-                inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else { return false }
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -10140,35 +10140,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
-                inheritWorkingDirectory: inheritWorkingDirectory
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
-                inheritWorkingDirectory: inheritWorkingDirectory
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
-                inheritWorkingDirectory: inheritWorkingDirectory
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
-                placementOverride: placementOverride,
-                inheritWorkingDirectory: inheritWorkingDirectory
+                placementOverride: placementOverride
             )
         }
         guard let workspace else { return nil }
