@@ -356,7 +356,8 @@ public final class AgentPaneModel {
             guard let onGit else { return Self.gitFailure(.notConnected) }
             do {
                 let data = try await onGit(git)
-                guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                // A git.diff with patches can be many megabytes: parse it off the main actor (cx-9c8m).
+                guard let value = await Self.parseGitReply(data)?.value else {
                     return Self.gitFailure(.failed)
                 }
                 return AgentPaneReply.success(value)

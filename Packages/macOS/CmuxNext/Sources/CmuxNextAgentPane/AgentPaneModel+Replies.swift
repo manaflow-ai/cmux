@@ -1,6 +1,19 @@
 import Foundation
 
 extension AgentPaneModel {
+    /// The Foundation value of a git reply, parsed off the main actor; nil
+    /// when the bytes are not JSON.
+    @concurrent
+    nonisolated static func parseGitReply(_ data: Data) async -> GitReplyValue? {
+        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])).map(GitReplyValue.init)
+    }
+
+    /// A parsed JSON value (Foundation containers nobody mutates after the
+    /// parse) handed from the parsing task to the main actor.
+    nonisolated struct GitReplyValue: @unchecked Sendable {
+        let value: Any
+    }
+
     /// The page's reply for a failed git read: the failure's code, origin,
     /// details and retryable under the localized text.
     static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
