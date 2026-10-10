@@ -809,7 +809,8 @@ def subagent_context_is_collapsed():
         return
     focus_workspace(ws.get("id"), f"context-{ids[0]}-collapsed")
     zoomed = tools({"tool": "zoom", "id": ids[0]}).get("text", "")
-    opened = rpc("debug.agent_pane", {"action": "click", "text": "Context from the Chief"}) or {}
+    # The disclosure's summary ("Context from the Chief (N lines)"), clicked as a user does.
+    opened = rpc("debug.agent_pane", {"action": "click", "selector": ".cv-user__context > summary"}) or {}
     time.sleep(2)  # test harness: let the disclosure open
     snapshot(f"context-{ids[0]}-expanded")
     row("subagent context collapsed", "one collapsed \"Context from the Chief\" line opens the view; the task is the message",
