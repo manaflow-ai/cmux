@@ -1,0 +1,121 @@
+name: nightly-next staleness
+
+# Fails loud when the cmux-next NIGHTLY (GitHub release `nightly-next`) has not
+# published for NIGHTLY_NEXT_MAX_AGE_HOURS (default 36) while feat-cmux-next has
+# commits it does not ship. Scheduled workflows run only from the default
+# branch, so this check lives on main; the nightly-next builds themselves run
+# from the nightly-next branch's nightly.yml.
+#
+# The publication time is the appcast.xml asset's updated_at: publish-nightly
+# edits the existing release in place, so the release's published_at keeps the
+# date the release was first published (2026-10-04 while builds kept shipping).
+#
+# The incident uses the `nightly-next-failure` label of nightly.yml's
+# report-nightly-failure job, so one issue tracks a failing or stale track, and
+# the next successful publication's close-nightly-failure-issue closes it.
+on:
+  schedule:
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-next-staleness
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Check the nightly-next publication age
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          MAX_AGE_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_AGE_HOURS || '36' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = 'nightly-next';
+            const source = 'feat-cmux-next';
+            const label = `${tag}-failure`;
+            const maxHours = Number(process.env.MAX_AGE_HOURS);
+            if (!Number.isFinite(maxHours) || maxHours <= 0) {
+              core.setFailed(`NIGHTLY_NEXT_MAX_AGE_HOURS must be a positive number, got ${process.env.MAX_AGE_HOURS}`);
+              return;
+            }
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            const problems = [];
+            let release = null;
+            try {
+              release = (await github.rest.repos.getReleaseByTag({ owner, repo, tag })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              problems.push(`The GitHub release \`${tag}\` does not exist.`);
+            }
+            const marker = /<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->/i.exec(release?.body || '');
+            const publishedSha = marker ? marker[1].toLowerCase() : null;
+            const appcast = (release?.assets || []).find((asset) => asset.name === 'appcast.xml');
+            const publishedAt = appcast ? Date.parse(appcast.updated_at) : NaN;
+            if (release && !publishedSha) problems.push(`The \`${tag}\` release body has no cmux-published-sha marker.`);
+            if (release && !appcast) problems.push(`The \`${tag}\` release has no appcast.xml asset.`);
+
+            const head = (await github.rest.repos.getBranch({ owner, repo, branch: source })).data.commit.sha;
+            let unshipped = null;
+            if (publishedSha) {
+              if (publishedSha === head) {
+                unshipped = 0;
+              } else {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${publishedSha}...${head}`, per_page: 1 });
+                unshipped = data.ahead_by;
+              }
+            }
+            const ageHours = Number.isFinite(publishedAt) ? (Date.now() - publishedAt) / 3_600_000 : null;
+            const stale = problems.length > 0 || (ageHours !== null && ageHours > maxHours && unshipped !== 0);
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'nightly.yml', branch: tag, per_page: 5 });
+            const recent = runs.workflow_runs.map((run) =>
+              `- [${run.id}](${run.html_url}) ${run.head_sha.slice(0, 12)} ${run.status}/${run.conclusion || 'pending'} (${run.created_at})`);
+
+            const summary = [
+              `- last publication (appcast.xml updated_at): ${appcast?.updated_at || 'unknown'}${ageHours === null ? '' : ` (${ageHours.toFixed(1)} h ago, limit ${maxHours} h)`}`,
+              `- published commit: ${publishedSha || 'unknown'}`,
+              `- ${source} head: ${head} (${unshipped === null ? 'unknown' : unshipped} commits not shipped)`,
+            ];
+            await core.summary.addHeading('nightly-next staleness', 3).addRaw(summary.join('\n') + '\n').write();
+            if (!stale) {
+              core.notice(`nightly-next is fresh: published ${ageHours?.toFixed(1)} h ago, ${unshipped} commits behind ${source}.`);
+              return;
+            }
+
+            const body = [
+              `cmux-next NIGHTLY has not published within ${maxHours} h while \`${source}\` has unshipped commits.`,
+              '',
+              ...problems.map((problem) => `- ${problem}`),
+              ...summary,
+              '',
+              'Latest nightly.yml runs on `nightly-next`:',
+              ...(recent.length ? recent : ['- none']),
+              '',
+              `Check run: ${runUrl}. The next successful nightly-next publication closes this issue.`,
+            ].join('\n');
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'cmux NIGHTLY publish failing' });
+            }
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: 'cmux-next NIGHTLY (nightly-next) is stale', labels: [label], body });
+            }
+            core.setFailed(`nightly-next is stale: ${problems.join(' ') || `last publication ${ageHours?.toFixed(1)} h ago, ${unshipped} commits not shipped`}`);
