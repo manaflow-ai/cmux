@@ -507,6 +507,13 @@ export default agentPaneEntry({
     },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.03,
+          reason:
+            "Opening the Older models fold inserts rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, {
         harness: "claude",
         model: "claude-opus-5-5",
@@ -607,6 +614,13 @@ export default agentPaneEntry({
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.055,
+          reason:
+            "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
