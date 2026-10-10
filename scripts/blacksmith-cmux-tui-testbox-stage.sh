@@ -416,7 +416,10 @@ ghostty_zon_sha256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
 
 case "$stage" in
   first-clean)
-    rm -rf "$repo_root/cmux-tui/target"
+    # target/ is the warm sticky disk mount point: empty it, keep the mount.
+    if [[ -d "$repo_root/cmux-tui/target" ]]; then
+      find "$repo_root/cmux-tui/target" -mindepth 1 -delete
+    fi
     ;;
   changed-file)
     if [[ ! -f "$repo_root/$changed_file" ]]; then

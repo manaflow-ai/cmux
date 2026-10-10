@@ -30,6 +30,14 @@
       "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
       "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
     },
+    "networkRuleCapacity": {
+      "title": "Netværksregler har nået kapaciteten",
+      "message": "Din netværkspolitik er gemt, men blev ikke anvendt: cmux Cloud har nået sin kapacitet for netværksregler.",
+      "action": "cmux-teamet er blevet underrettet. Fjern domæner, som maskinen ikke længere har brug for, eller kontakt support. Indtil da svarer maskinens netværksadgang muligvis ikke til den gemte politik."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Netværkspolitikken er gemt, men blev ikke anvendt. Gem den igen for at prøve igen."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -497,11 +505,11 @@
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
-            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM",
+            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
             "cmux-appen til iOS"
           ],
           "max": [
-            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM",
+            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
@@ -2916,7 +2924,7 @@
       "createCli": "Fra CLI'en opretter cmux vm new en maskine og åbner et arbejdsområde på den. Brug --detach for at oprette den uden at åbne noget. Hvis en oprettelsesanmodning gentages, genbruger cmux den samme anmodning, så du ikke får to maskiner.",
       "createFailed": "Hvis oprettelsen mislykkes, kan du fra notifikationen prøve igen, vise fejlen eller kopiere den til en supportanmodning.",
       "sizesTitle": "Størrelser",
-      "sizesDesc": "Hver størrelse fastsætter hukommelse, vCPU og disk samlet. Vælg en størrelse i oprettelsesdialogen eller med --size.",
+      "sizesDesc": "Hver størrelse fastsætter hukommelse, vCPU og disk samlet. Vælg en størrelse i oprettelsesdialogen eller med --size. Pro og Team understøtter 4g, 8g og 16g (2, 4 og 8 vCPU). Max låser også 24g og 32g op (12 og 16 vCPU) samt 64g (32 vCPU).",
       "sizeColumn": "Størrelse",
       "memoryColumn": "Hukommelse",
       "cpuColumn": "vCPU",
@@ -2930,7 +2938,7 @@
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
       "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 aktive maskiner, der deler 20 vCPU'er og 40 GB hukommelse. En maskine er aktiv, mens den kører eller starter.",
       "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
-      "limitsMax": "Max-konti kan have op til 5 aktive maskiner, der deler 80 vCPU'er og 160 GB hukommelse. Én maskine kan have op til 32 GB og 16 vCPU'er med Pro og Team, eller op til 64 GB og 32 vCPU'er med Max.",
+      "limitsMax": "Max-konti kan have op til 5 aktive maskiner, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
       "limitsPoolFull": "Hvis en ny, genoptaget, forstørret eller forket maskine ville overskride puljen, afviser cmux anmodningen og viser, hvor meget af puljen der er i brug. Sæt en maskine på pause, eller slet den for at frigøre ressourcer, eller opgrader til Max.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
       "agentUpdatesTitle": "Hold kodeagenter opdateret",
@@ -2940,7 +2948,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
       "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB. Hukommelsen vokser op til 32 GB og CPU op til 16 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Go er begrænset til 16 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -3091,7 +3099,7 @@
       "errPlan": "Cloud-VM'er kræver et betalt abonnement",
       "fixPlan": "Gratis konti kan ikke oprette maskiner. Opgrader på prissiden.",
       "errSize": "En størrelse kræver et større abonnement",
-      "fixSize": "Maskiner større end 32 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
+      "fixSize": "Maskiner større end 16 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
       "errLimit": "Grænsen for aktive maskiner er nået",
       "fixLimit": "Sæt en maskine på pause, eller slet den, og prøv igen.",
       "errPool": "Ikke nok Cloud VM-ressourcer",
@@ -5341,7 +5349,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight.",
+    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
     "done": "Gå til kontrolpanelet",
     "steps": {
       "iosApp": {

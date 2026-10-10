@@ -1,8 +1,8 @@
 name: CI guard attribution
 
 # Guards never block a merge; a red guard gets attributed and made actionable
-# instead (scripts/ci/guard_attribution.py). On every completed run of the fast
-# guard check or the repository-variable check:
+# instead (scripts/ci/guard_attribution.py). On completion of a run containing
+# the fast guard job, or of the repository-variable check:
 #
 #   main, red     the first commit that fails each step (earlier runs, then
 #                 only that step on each commit in between), a comment on its
@@ -19,15 +19,18 @@ name: CI guard attribution
 # merged commits' guard steps, with a read-only token. `report` writes with
 # the result; its job name is the headline ("culprit: ...") that ci-dash shows
 # from the build controller's webhook feed, which costs no GitHub API calls.
+# GitHub exposes workflow_run completion rather than job completion here, so a
+# pull-request attribution report follows the containing CI run. The required
+# CI status still receives the fast-guard verdict directly from ci.yml.
 # Everything is event driven: nothing polls.
 
 on:
   workflow_run:
-    workflows: ["CI fast guards", "CI repository variables"]
+    workflows: ["CI", "CI fast guards", "CI repository variables"]
     types: [completed]
 
 env:
-  SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml .github/workflows/ci-repo-variables.yml
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/ci-fast-guards.yml .github/workflows/ci-repo-variables.yml
 
 permissions: {}
 
@@ -42,7 +45,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze
-    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
     # needs no secret or write token, so use the shared Linux runner pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -61,7 +64,7 @@ jobs:
       - name: Checkout main with history
         # A red fast guard on main is bisected: main's history, without blobs
         # until a commit is checked out, for the commits between two runs.
-        if: ${{ github.event.workflow_run.event != 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml' && github.event.workflow_run.conclusion != 'success' }}
+        if: ${{ github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
@@ -70,7 +73,7 @@ jobs:
 
       - name: Checkout main
         # Everything else only reads a log and ci-guards.yml.
-        if: ${{ !(github.event.workflow_run.event != 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml' && github.event.workflow_run.conclusion != 'success') }}
+        if: ${{ !(github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
@@ -106,7 +109,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow the fast guard within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       contents: read

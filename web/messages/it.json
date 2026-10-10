@@ -30,6 +30,14 @@
       "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
       "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
     },
+    "networkRuleCapacity": {
+      "title": "Regole di rete al limite",
+      "message": "La tua policy di rete è stata salvata ma non applicata: cmux Cloud ha raggiunto la capacità massima di regole di rete.",
+      "action": "Il team cmux è stato avvisato. Rimuovi i domini che questa macchina non usa più o contatta l'assistenza. Fino ad allora, l'accesso di rete di questa macchina potrebbe non corrispondere alla policy salvata."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "La policy di rete è stata salvata ma non applicata. Salvala di nuovo per riprovare."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",
@@ -497,11 +505,11 @@
           ],
           "pro": [
             "Agenti cloud su Cloud VMs",
-            "Fino a 5 Cloud VMs che condividono 20 vCPU e 40 GB di RAM",
+            "Fino a 5 Cloud VMs che condividono 20 vCPU e 40 GB di RAM. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
             "L'app cmux per iOS"
           ],
           "max": [
-            "Fino a 5 Cloud VMs che condividono 80 vCPU e 160 GB di RAM",
+            "Fino a 5 Cloud VMs che condividono 80 vCPU e 160 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU.",
             "Macchine più grandi",
             "Tutto ciò che include Pro"
           ],
@@ -2919,7 +2927,7 @@
       "createCli": "Dalla CLI, cmux vm new crea una macchina e vi apre un workspace. Usa --detach per crearla senza aprire nulla. Se una richiesta di creazione viene ripetuta, cmux riutilizza la stessa richiesta così non ottieni due macchine.",
       "createFailed": "Se la creazione non riesce, la notifica ti permette di riprovare, mostrare l'errore o copiarlo per una richiesta di assistenza.",
       "sizesTitle": "Dimensioni",
-      "sizesDesc": "Ogni dimensione imposta insieme memoria, vCPU e disco. Scegli una dimensione nella finestra di creazione o con --size.",
+      "sizesDesc": "Ogni dimensione imposta insieme memoria, vCPU e disco. Scegli una dimensione nella finestra di creazione o con --size. Pro e Team supportano 4g, 8g e 16g (2, 4 e 8 vCPU). Max sblocca anche 24g e 32g (12 e 16 vCPU), oltre a 64g (32 vCPU).",
       "sizeColumn": "Dimensione",
       "memoryColumn": "Memoria",
       "cpuColumn": "vCPU",
@@ -2933,7 +2941,7 @@
       "limitsFree": "Gli account gratuiti non possono creare macchine.",
       "limitsPaid": "Gli account Pro e Founder's Edition possono avere fino a 5 macchine attive che condividono 20 vCPU e 40 GB di memoria. Una macchina è attiva mentre è in esecuzione o in avvio.",
       "limitsTeam": "Gli account Team possono avere fino a 5 macchine attive per ogni postazione a pagamento. Ogni postazione a pagamento aggiunge 20 vCPU e 40 GB di memoria al pool del team.",
-      "limitsMax": "Gli account Max possono avere fino a 5 macchine attive che condividono 80 vCPU e 160 GB di memoria. Una singola macchina arriva fino a 32 GB e 16 vCPU con Pro e Team, o fino a 64 GB e 32 vCPU con Max.",
+      "limitsMax": "Gli account Max possono avere fino a 5 macchine attive che condividono 80 vCPU e 160 GB di memoria. Una macchina Max può usare fino a 64 GB e 32 vCPU, incluse le configurazioni da 24 GB / 12 vCPU e 32 GB / 16 vCPU; Pro e Team si fermano a 16 GB e 8 vCPU.",
       "limitsPoolFull": "Se una macchina nuova, ripresa, ingrandita o duplicata con fork superasse il pool, cmux rifiuta la richiesta e mostra quanto del pool è in uso. Metti in pausa o elimina una macchina per liberare risorse, oppure passa a Max.",
       "limitsPricing": "Consulta la pagina dei prezzi per i prezzi attuali. Non ci sono misurazioni a consumo né addebiti per eccedenze.",
       "agentUpdatesTitle": "Mantieni aggiornati gli agenti di programmazione",
@@ -2943,7 +2951,7 @@
       "agentUpdatesToggle": "Il foglio New Machine attiva questa impostazione per impostazione predefinita. Per cambiarla su una macchina esistente, fai clic destro sulla macchina e scegli Keep Agents Up to Date, oppure esegui cmux vm agent-updates. cmux vm new mantiene le versioni dell'immagine a meno che tu non passi --agent-updates latest. Disattivando gli aggiornamenti restano le versioni già installate.",
       "agentUpdatesNetwork": "Gli aggiornamenti usano solo github.com, api.github.com, objects.githubusercontent.com e release-assets.githubusercontent.com. cmux consente questi host in ogni modalità di rete, incluse Allowlist e No internet, quindi una policy di rete non blocca mai gli aggiornamenti.",
       "resizeTitle": "Ridimensionare",
-      "resizeDesc": "Puoi ingrandire una macchina senza perdere dati. Fai clic destro sulla macchina e scegli Resize machine, oppure usa cmux vm resize. Il ridimensionamento può solo ingrandire una macchina. Il disco cresce a passi di 4 GB fino a 256 GB. La memoria arriva fino a 32 GB e la CPU fino a 16 vCPU con Pro e Team, o fino a 64 GB e 32 vCPU con Max. Una macchina più grande usa una parte maggiore del tuo pool. Il massimo effettivo dipende dal tuo piano.",
+      "resizeDesc": "Puoi ingrandire una macchina senza perdere dati. Fai clic destro sulla macchina e scegli Resize machine, oppure usa cmux vm resize. Il ridimensionamento può solo ingrandire una macchina. Il disco cresce a passi di 4 GB fino a 128 GB con Pro e Team, o 256 GB con Max (Go è limitato a 16 GB). La memoria arriva fino a 16 GB e la CPU fino a 8 vCPU con Pro e Team, o fino a 64 GB e 32 vCPU con Max. Una macchina più grande usa una parte maggiore del tuo pool. Il massimo effettivo dipende dal tuo piano.",
       "pauseTitle": "Pausa e ripresa",
       "pauseDesc": "cmux vm pause arresta il calcolo della macchina. Il disco, i workspace e la cronologia dei terminali restano. I processi in esecuzione si arrestano. cmux vm resume riavvia la macchina. Anche aprire una macchina in pausa o eseguirvi un comando la avvia.",
       "pauseIdle": "Le macchine non vanno in pausa da sole quando sono inattive. Una macchina resta in esecuzione finché non la metti in pausa o la elimini.",
@@ -3094,7 +3102,7 @@
       "errPlan": "Le VM Cloud richiedono un piano a pagamento",
       "fixPlan": "Gli account gratuiti non possono creare macchine. Passa a un piano a pagamento dalla pagina dei prezzi.",
       "errSize": "Una dimensione richiede un piano superiore",
-      "fixSize": "Le macchine oltre 32 GB richiedono cmux Max. Scegli una dimensione inferiore o passa a un piano superiore.",
+      "fixSize": "Le macchine oltre 16 GB richiedono cmux Max. Scegli una dimensione inferiore o passa a un piano superiore.",
       "errLimit": "Limite di macchine attive raggiunto",
       "fixLimit": "Metti in pausa o elimina una macchina, poi riprova.",
       "errPool": "Risorse Cloud VM insufficienti",
@@ -5344,7 +5352,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro è attivo",
     "title": "Benvenuto in cmux Pro",
-    "body": "Pro include fino a 5 VM Cloud che condividono 20 vCPU e 40 GB di RAM, oltre all’accesso a cmux iOS tramite TestFlight.",
+    "body": "Pro include fino a 5 VM Cloud che condividono 20 vCPU e 40 GB di RAM, oltre all’accesso a cmux iOS tramite TestFlight. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max.",
     "done": "Vai alla dashboard",
     "steps": {
       "iosApp": {
