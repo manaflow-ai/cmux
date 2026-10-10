@@ -85,6 +85,22 @@ impl Package {
         Some((family, entry))
     }
 
+    /// The backend op `op` this first-party server app serves
+    /// (`serves.ops`), with the backend catalog's policy; `None` when the
+    /// app does not serve it, is not a first-party app with a server, or no
+    /// server may run it (`super::serves`). `consumes.ops` (ops an app
+    /// calls) is never routed to the app's server.
+    pub(super) fn served_op(&self, op: &str) -> Option<super::serves::Policy> {
+        if self.tier != Tier::FirstParty || self.manifest.get("server").is_none() {
+            return None;
+        }
+        let served = self.manifest.pointer("/serves/ops")?.as_array()?;
+        if !served.iter().any(|name| name.as_str() == Some(op)) {
+            return None;
+        }
+        super::serves::policy(op)
+    }
+
     /// The catalog ops whose user runs get an open token: `options.openOps`
     /// of the app's terminal backend and connector implementations.
     pub fn open_ops(&self) -> BTreeSet<String> {
@@ -226,12 +242,17 @@ pub struct Catalog {
 pub struct Sources {
     /// The first-party bundles shipped with cmux: every valid package here is
     /// a default app (installed for everyone with its required scopes,
-    /// hide-only: hidden, never removed). The Mac app passes
-    /// `Contents/Resources/apps/first-party` as `CMUX_APPS_FIRST_PARTY_DIR`;
-    /// elsewhere it is `apps/first-party` next to the daemon.
+    /// hide-only: hidden, never removed). Inside the Mac app it is the
+    /// bundle's one copy, found from the daemon's own executable; elsewhere
+    /// `apps/first-party` next to the daemon (`crate::first_party_dir`).
     pub first_party: Option<PathBuf>,
-    /// Directories of other app packages shipped with cmux (samples).
+    /// Directories of other app packages shipped with cmux (samples), next
+    /// to the daemon's real executable.
     pub bundled: Vec<PathBuf>,
+    /// `CMUX_APPS_DIRS` (replaces `bundled` when set): its packages are
+    /// never first-party, whatever their publisher (no native server, no
+    /// served ops).
+    pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
@@ -241,14 +262,17 @@ pub struct Sources {
 
 impl Sources {
     pub fn from_env(state_dir: Option<&Path>) -> Self {
-        let exe_dir =
-            std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-        let first_party = std::env::var_os("CMUX_APPS_FIRST_PARTY_DIR")
-            .map(PathBuf::from)
-            .or_else(|| exe_dir.as_ref().map(|d| d.join("apps").join("first-party")));
-        let bundled = match std::env::var_os("CMUX_APPS_DIRS") {
-            Some(list) => std::env::split_paths(&list).collect(),
-            None => exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(),
+        // The real path: a symlinked binary never points the shipped samples at
+        // a user-writable directory.
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| std::fs::canonicalize(exe).ok())
+            .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        // From the daemon's own bundle; the override counts only inside it (cx-0uo1, cx-e0cs).
+        let first_party = crate::first_party_dir::current();
+        let (bundled, extra) = match crate::first_party_dir::apps_dirs() {
+            Some(list) => (Vec::new(), std::env::split_paths(&list).collect()),
+            None => (exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(), Vec::new()),
         };
         let defaults = std::env::var("CMUX_APPS_DEFAULT").ok().map(|list| {
             list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
@@ -256,6 +280,7 @@ impl Sources {
         Self {
             first_party,
             bundled,
+            extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             defaults,
         }
@@ -266,6 +291,7 @@ impl Sources {
 enum DirKind {
     FirstParty,
     Bundled,
+    Extra,
     Local,
 }
 
@@ -274,6 +300,7 @@ pub fn load(sources: &Sources) -> Catalog {
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
     dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));
     dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
+    dirs.extend(sources.extra.iter().map(|d| (d.clone(), DirKind::Extra)));
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
@@ -347,21 +374,40 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         }
         _ => {}
     }
-    let tier =
-        if first_party && kind != DirKind::Local { Tier::FirstParty } else { Tier::Unverified };
+    // First-party only from the shipped directories (the first-party dir and
+    // the samples next to the daemon's real executable): a cmux/ or
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
+    // server, no served ops).
+    let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
+        Tier::FirstParty
+    } else {
+        Tier::Unverified
+    };
     let source = if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled
     };
-    Ok(Package {
+    let package = Package {
         version: manifest["version"].as_str().unwrap_or_default().to_string(),
         id,
         tier,
         source,
         dir: dir.to_path_buf(),
         manifest,
-    })
+    };
+    // A fragment may not define an op the backend catalog owns: such an op
+    // is served only through serves.ops, with the backend's policy (fail
+    // closed, never a weaker app-declared policy).
+    if let Some((name, _)) =
+        package.catalog_ops().into_iter().find(|(name, _)| super::serves::is_backend_op(name))
+    {
+        return Err(format!(
+            "{}: its catalog fragment defines {name}, a backend-owned op; list it in serves.ops instead",
+            package.id
+        ));
+    }
+    Ok(package)
 }
 
 #[cfg(test)]

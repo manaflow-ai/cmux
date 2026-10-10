@@ -309,6 +309,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
+                extra: vec![],
                 local: Some(state.join("apps/local")),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
@@ -838,6 +839,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
     let catalog = super::catalog::load(&Sources {
         first_party: Some(first_party),
         bundled: vec![],
+        extra: vec![],
         local: None,
         defaults: None,
     });
@@ -851,6 +853,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
     let overridden = super::catalog::load(&Sources {
         first_party: Some(root.0.join("first-party")),
         bundled: vec![],
+        extra: vec![],
         local: None,
         defaults: Some(vec![]),
     });
@@ -889,6 +892,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             sources: Sources {
                 first_party: Some(tree.clone()),
                 bundled: vec![],
+                extra: vec![],
                 local: None,
                 defaults: None,
             },
@@ -902,6 +906,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
     let catalog = super::catalog::load(&Sources {
         first_party: Some(tree),
         bundled: vec![],
+        extra: vec![],
         local: None,
         defaults: None,
     });
