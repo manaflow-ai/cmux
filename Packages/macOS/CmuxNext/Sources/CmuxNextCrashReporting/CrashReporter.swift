@@ -95,6 +95,36 @@ public final class CrashReporter: Sendable {
         sentryHandlers.withLock { $0 }?.restore()
     }
 
+    /// Records a non-fatal product failure (a warning event tagged `failure`)
+    /// so a user action that silently did nothing shows up in the crash
+    /// telemetry. `message` must hold no user content: it is sent as is.
+    public func recordFailure(_ name: String, message: String) {
+        guard isStarted else { return }
+        SentrySDK.capture(message: "\(name): \(message)") { scope in
+            scope.setTag(value: name, key: "failure")
+            scope.setLevel(.warning)
+        }
+    }
+
+    /// Sends a handled, non-fatal error event (a guard that caught a
+    /// problem before it crashed the app). One issue per `fingerprint`.
+    /// Does nothing while Sentry is off (consent, debug build).
+    public func captureNonFatal(_ message: String, type: String, fingerprint: [String], tags: [String: String] = [:],
+                                extra: [String: String] = [:]) {
+        guard isStarted else { return }
+        let event = Event(level: .error)
+        let exception = Exception(value: message, type: type)
+        let mechanism = Mechanism(type: "cmux_guard")
+        mechanism.handled = true
+        exception.mechanism = mechanism
+        event.exceptions = [exception]
+        event.message = SentryMessage(formatted: message)
+        event.fingerprint = fingerprint
+        event.tags = tags
+        event.extra = extra
+        SentrySDK.capture(event: event)
+    }
+
     /// Tags the current scope so a crash this process causes on purpose
     /// (`debug.crash.app`, `debug.crash.exception`) can be filtered out.
     public func markDeliberateCrash(_ name: String) {

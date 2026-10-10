@@ -212,7 +212,7 @@ extension SidebarBridge {
     /// Sends one command, shown at once through the store's intent log when
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
-                         _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                         _ body: @escaping DaemonCommandBody) {
         Task { [weak self, services] in
             let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
             if !ok { withExtendedLifetime(services) { self?.resync() } }
