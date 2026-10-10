@@ -92,3 +92,4 @@ Local only: the table lives in the daemon store; nothing is sent to Cloud, telem
 2. Adapters: chat-index harness sources via acpmux `project.observe`; editor adapters (VS Code family, Zed, JetBrains), then t3code and Conductor once fixtures are verified. Red test per adapter with fixture dirs.
 3. Resync: daemon-start scan, editor file watches, app activation `project.sync`.
 4. UI: Swift `project.list` reads the store (scan becomes an adapter only); Settings Projects page; acpmux web drops its localStorage list.
+   - 4a (pickers): the New Tab handler (also the agent pane `project.list`, Start Agent and the acpmux New Tab list) reads the daemon `project.list`; Choose Folder sends `project.add`. A daemon without `project-list-v1` or a failed read falls back to the old scan. Remains: Settings Projects page (settings slot), onboarding scan, acpmux web localStorage list.
