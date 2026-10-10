@@ -12,7 +12,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 187);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 210);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 213);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -136,6 +136,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Launch credentials: acpmux and owners call these
+                        // on the socket; an agent never mints or rotates.
+                        | "credential.verify"
+                        | "credential.mint"
+                        | "credential.rotate"
             )
         })
         .map(String::as_str)

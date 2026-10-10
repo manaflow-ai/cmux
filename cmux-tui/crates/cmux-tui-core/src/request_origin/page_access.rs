@@ -257,6 +257,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        // A page never sees, mints or rotates launch credentials.
+        | Op::CredentialVerify
+        | Op::CredentialMint
+        | Op::CredentialRotate
         // A page never controls the Chief.
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet

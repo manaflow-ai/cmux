@@ -25,7 +25,7 @@ pub(super) fn handle_resource_line(
     envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
 ) -> bool {
-    let envelope = match envelope {
+    let mut envelope = match envelope {
         Ok(envelope) => envelope,
         Err(error) => {
             let response = crate::resource_router::malformed_resource_response(message, error);
@@ -33,7 +33,14 @@ pub(super) fn handle_resource_line(
         }
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);
+    // The launch credential leaves the envelope here; it is verified after
+    // the clients lock is released and before any owner takes its locks.
+    let credential = envelope.credential.take();
     let admitted = check(mux, client, &envelope)
+        .and_then(|actor| {
+            check_credential_owner(mux, client, operation, &actor, credential.is_some())?;
+            mux.request_actor(actor, credential.as_ref().map(|c| c.as_str()))
+        })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
@@ -70,6 +77,35 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     let (transport, local) = (record.transport, record.origin.actor());
     drop(state);
     Ok(peer_or_local(mux, client, transport, local))
+}
+
+/// `credential.mint` and `credential.rotate` are the owner's: a registered
+/// local Unix connection with no link peer record whose principal is the
+/// local user (or the verified app), on a request that presents no
+/// credential. An agent in a terminal or ACP session (it presents one, valid
+/// or not) is refused, so no agent can mint another identity or revoke one.
+fn check_credential_owner(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+    actor: &Actor,
+    presents_credential: bool,
+) -> Result<(), ResourceError> {
+    if !matches!(operation, ResourceOperation::CredentialMint | ResourceOperation::CredentialRotate)
+    {
+        return Ok(());
+    }
+    let owner = matches!(actor, Actor::User { id } if id == crate::conversation_store::LOCAL_USER)
+        || matches!(actor, Actor::Frontend { .. });
+    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
+    let principal = mux.conversation_principal(client) == crate::conversation_store::LOCAL_USER;
+    if owner && local && principal && !presents_credential {
+        return Ok(());
+    }
+    Err(forbidden(
+        "minting and rotating launch credentials is for the owner's own connection only",
+        json!({"derived": "agent", "required": "user", "reason": "credential_owner_only"}),
+    ))
 }
 
 /// Refusal text when a connection that is not a human surface approves a

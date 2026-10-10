@@ -166,7 +166,12 @@ fn a_terminal_child_gets_a_credential_that_names_its_terminal() {
     assert_eq!(client.verify(&forged)["valid"], false);
 
     // Closing the terminal revokes its credential.
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    let close = client.v2(
+        "terminal.close",
+        json!({"terminal": terminal}),
+        json!({"idempotency_key": "lc-terminal-close"}),
+    );
+    assert_eq!(close["ok"], true, "{close}");
     let closed = client.verify(&credential);
     assert_eq!(closed["valid"], false, "{closed}");
     assert_eq!(closed["reason"], "credential_closed", "{closed}");
@@ -283,7 +288,8 @@ fn resign(credential: &str, kid: &str, key: &[u8]) -> String {
 fn the_key_file_is_private_and_a_readable_one_is_replaced() {
     let session = unique("lc-keys");
     let first_root = temp_dir("lc-keys-a");
-    let mux = Mux::open_persistent(session.clone(), SurfaceOptions::default(), &first_root).unwrap();
+    let mux =
+        Mux::open_persistent(session.clone(), SurfaceOptions::default(), &first_root).unwrap();
     let session_dir = registry_session_dir(&first_root);
     let key_file = session_dir.join(KEY_FILE[0]).join(KEY_FILE[1]);
     assert_eq!(mode(&key_file), 0o600, "{}", key_file.display());
@@ -297,7 +303,8 @@ fn the_key_file_is_private_and_a_readable_one_is_replaced() {
     std::fs::create_dir_all(&planted_dir).unwrap();
     let planted = planted_dir.join(KEY_FILE[1]);
     let leaked = [7u8; 32];
-    let contents = json!({"current": "kleaked", "keys": {"kleaked": URL_SAFE_NO_PAD.encode(leaked)}});
+    let contents =
+        json!({"current": "kleaked", "keys": {"kleaked": URL_SAFE_NO_PAD.encode(leaked)}});
     std::fs::write(&planted, contents.to_string()).unwrap();
     std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o644)).unwrap();
     let mux = Mux::open_persistent(session, SurfaceOptions::default(), &second_root).unwrap();

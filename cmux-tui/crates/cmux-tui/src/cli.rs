@@ -28,6 +28,7 @@ mod federation;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 #[cfg(unix)]

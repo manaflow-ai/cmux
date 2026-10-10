@@ -41,7 +41,8 @@ async fn no_agent_inherits_the_terminal_launch_credential() {
         let (reply, _) = client.call("session/new", params).await;
         assert!(reply.get("error").is_none(), "{reply}");
         let session = reply["result"]["sessionId"].as_str().unwrap().to_owned();
-        let prompt = |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        let prompt =
+            |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
         let (_, value) = client.call("session/prompt", prompt(&format!("env: {NAME}"))).await;
         assert_eq!(value, format!("{NAME}="), "{preset:?}: the agent got a launch credential");
         if preset.is_some() {
@@ -61,8 +62,10 @@ impl Client {
         self.0.send(Message::request(id, method, params).to_line()).await.unwrap();
         let mut text = String::new();
         loop {
-            let line =
-                tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let value: Value = serde_json::from_str(&line).unwrap();
             if value.get("id") == Some(&json!(id)) {
                 return (value, text);

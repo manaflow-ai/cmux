@@ -31,6 +31,11 @@ pub enum Actor {
     /// A connection from another machine: a `cmux link` peer
     /// (`link:<install>`), or a WebSocket or remote-entry connection.
     Peer { id: String },
+    /// A process in a cmux terminal, proved by its launch credential.
+    Terminal { id: String },
+    /// An agent in an acpmux ACP session, proved by its launch credential;
+    /// `agent` is the principal the local user named when minting it.
+    AcpSession { id: String, agent: Option<String> },
 }
 
 impl Actor {
@@ -38,7 +43,8 @@ impl Actor {
         Self::User { id: LOCAL_USER_ID.to_string() }
     }
 
-    /// The stored form: `daemon`, `user:<id>`, `frontend:<install id>`, `app:<id>`.
+    /// The stored form: `daemon`, `user:<id>`, `frontend:<install id>`, `app:<id>`,
+    /// `peer:<id>`, `terminal:<id>`, `acp_session:<id>[;agent=<agent>]`.
     pub fn wire(&self) -> String {
         match self {
             Self::Daemon => "daemon".to_string(),
@@ -46,6 +52,11 @@ impl Actor {
             Self::Frontend { install_id } => format!("frontend:{install_id}"),
             Self::App { id } => format!("app:{id}"),
             Self::Peer { id } => format!("peer:{id}"),
+            Self::Terminal { id } => format!("terminal:{id}"),
+            Self::AcpSession { id, agent: None } => format!("acp_session:{id}"),
+            Self::AcpSession { id, agent: Some(agent) } => {
+                format!("acp_session:{id};agent={agent}")
+            }
             Self::Legacy => LEGACY_ACTOR.to_string(),
         }
     }
@@ -59,6 +70,11 @@ impl Actor {
             Some(("frontend", id)) => Self::Frontend { install_id: owned(id) },
             Some(("app", id)) => Self::App { id: owned(id) },
             Some(("peer", id)) => Self::Peer { id: owned(id) },
+            Some(("terminal", id)) => Self::Terminal { id: owned(id) },
+            Some(("acp_session", id)) => match id.split_once(";agent=") {
+                Some((id, agent)) => Self::AcpSession { id: owned(id), agent: Some(owned(agent)) },
+                None => Self::AcpSession { id: owned(id), agent: None },
+            },
             _ => Self::Legacy,
         }
     }

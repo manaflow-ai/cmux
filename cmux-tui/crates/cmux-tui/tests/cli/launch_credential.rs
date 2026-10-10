@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! P8 slice 3 end to end (plans/cmux-next/identity.md section 5): a process
 //! in a cmux terminal runs the CLI, the CLI sends the terminal's launch
 //! credential, and the durable mutation names that terminal as its actor. A
@@ -96,7 +97,7 @@ fn a_terminal_child_cli_mutation_records_its_terminal() {
     assert_eq!(recorded_actor(&server.state, "lc-from-terminal"), format!("terminal:{terminal}"));
 
     // The same CLI with a forged credential is refused, and nothing is written.
-    let mut forged = credential.clone().into_bytes();
+    let mut forged = credential.into_bytes();
     let last = forged.last_mut().unwrap();
     *last = if *last == b'A' { b'B' } else { b'A' };
     let forged = String::from_utf8(forged).unwrap();

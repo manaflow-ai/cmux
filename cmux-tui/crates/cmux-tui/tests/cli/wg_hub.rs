@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `wg hub`: readiness, permissions, the control socket and its datagram
 //! ports, and cleanup on SIGTERM.
 

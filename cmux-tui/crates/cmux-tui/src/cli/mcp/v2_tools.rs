@@ -48,7 +48,14 @@ const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP cli
 /// agent-bound connection); an MCP client is an agent acting as the user.
 const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
 
+/// Launch credentials (identity.md section 2) are the session host's and the
+/// owner's; an MCP client is an agent and never mints, rotates or checks one.
+const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("credential.verify", CREDENTIAL_REASON),
+    ("credential.mint", CREDENTIAL_REASON),
+    ("credential.rotate", CREDENTIAL_REASON),
     ("conversation.list", CONVERSATION_REASON),
     ("conversation.get", CONVERSATION_REASON),
     ("conversation.history", CONVERSATION_REASON),

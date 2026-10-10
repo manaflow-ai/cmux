@@ -86,6 +86,9 @@
         "conversation.search",
         "conversation.send",
         "conversation.typing",
+        "credential.mint",
+        "credential.rotate",
+        "credential.verify",
         "frontend_projection.get",
         "frontend_projection.put",
         "git.checkpoint.create",
@@ -272,6 +275,8 @@
           "conversation.history",
           "conversation.list",
           "conversation.search",
+          "credential.mint",
+          "credential.verify",
           "frontend_projection.get",
           "git.checkpoint.diff",
           "git.checkpoint.get",
@@ -347,6 +352,7 @@
           "conversation.draft",
           "conversation.send",
           "conversation.typing",
+          "credential.rotate",
           "frontend_projection.put",
           "git.checkpoint.create",
           "git.checkpoint.pin",
@@ -491,7 +497,8 @@
         "operation": {"$ref": "#/$defs/operation"},
         "params": {"type": "object"},
         "idempotency_key": {"$ref": "#/$defs/idempotencyKey"},
-        "origin": {"$ref": "#/$defs/originClaim"}
+        "origin": {"$ref": "#/$defs/originClaim"},
+        "credential": {"type": "string", "minLength": 1, "maxLength": 2048}
       },
       "allOf": [
         {
@@ -517,6 +524,7 @@
                   "conversation.draft",
                   "conversation.send",
                   "conversation.typing",
+                  "credential.rotate",
                   "frontend_projection.put",
                   "git.checkpoint.create",
                   "git.checkpoint.pin",

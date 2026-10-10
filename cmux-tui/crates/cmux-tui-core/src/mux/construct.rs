@@ -182,7 +182,11 @@ impl Mux {
             );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
+        let launch_identity = crate::launch_credential::LaunchIdentity::load(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         let mux = Arc::new(Mux {
+            launch_identity,
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,

@@ -20,6 +20,8 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 pub(crate) unsafe fn take_link_token_from_env() {
     remember_chief_tools_socket();
     // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { take_launch_credential() };
+    // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_link::token::take_from_process_env() };
     // SAFETY: as above.
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
@@ -34,6 +36,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
 #[cfg(not(unix))]
 pub(crate) unsafe fn take_link_token_from_env() {
     remember_chief_tools_socket();
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { take_launch_credential() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
 }
@@ -71,6 +75,29 @@ fn remember_chief_tools_socket() {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from);
     let _ = CHIEF_TOOLS_SOCKET.set(value);
+}
+
+/// The terminal launch credential this process was started with
+/// (plans/cmux-next/identity.md section 2). It names the one terminal that
+/// started this process, so it is taken out of the environment at once: a
+/// daemon, owner, TUI or helper this process starts never acts as that
+/// terminal, and only the CLI sends it, to that terminal's own session.
+static LAUNCH_CREDENTIAL: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// # Safety
+///
+/// As [`take_link_token_from_env`]: no other thread may exist yet.
+unsafe fn take_launch_credential() {
+    let name = cmux_tui_core::launch_credential::LAUNCH_CREDENTIAL_ENV;
+    let value = std::env::var(name).ok().filter(|value| !value.is_empty());
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { std::env::remove_var(name) };
+    let _ = LAUNCH_CREDENTIAL.set(value);
+}
+
+/// The launch credential this process was started with (see above).
+pub(crate) fn launch_credential() -> Option<String> {
+    LAUNCH_CREDENTIAL.get().cloned().flatten()
 }
 
 /// The brain tools socket this process was started with (see above).

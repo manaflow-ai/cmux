@@ -108,6 +108,12 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(code) => return code,
         };
     }
+    if super::launch_credential::attach(&mut reader, &socket, &mut request) {
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
     #[cfg(unix)]
     let interrupt_handled = !plan.stream || stream_interrupt(reader.get_ref().as_ref());
     #[cfg(not(unix))]

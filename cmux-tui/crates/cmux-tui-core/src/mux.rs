@@ -191,6 +191,7 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
+mod launch_identity;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
@@ -465,6 +466,8 @@ pub struct Mux {
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
+    /// The launch keys (plans/cmux-next/identity.md section 2).
+    launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Clone of the registry's projection spans, read without its lock.

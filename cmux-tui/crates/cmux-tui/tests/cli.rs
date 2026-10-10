@@ -3642,15 +3642,12 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
-#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
-#[cfg(unix)]
-#[path = "cli/wg_hub.rs"]
-mod wg_hub;
-#[cfg(unix)]
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
+#[path = "cli/wg_hub.rs"]
+mod wg_hub;
 
 /// Runs the CLI against `server` with `--json` and returns its JSON result.
 /// `caller` runs it as a cmux terminal would: routed by `CMUX_TUI_SOCKET`

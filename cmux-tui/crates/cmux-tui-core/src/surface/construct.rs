@@ -130,6 +130,18 @@ impl Surface {
         }
         if let Some(mux) = mux.upgrade() {
             set_env(&mut opts.extra_env, "CMUX_TUI_SESSION_ID", mux.session_public_id().as_str());
+            // The child's identity for the actor stamp (identity.md section
+            // 2). Only the session host mints it; with none the variable is
+            // set empty, so a value the daemon inherited never reaches a child.
+            let credential = terminal_public_id
+                .as_ref()
+                .and_then(|terminal| mux.mint_terminal_credential(terminal))
+                .unwrap_or_default();
+            set_env(
+                &mut opts.extra_env,
+                crate::launch_credential::LAUNCH_CREDENTIAL_ENV,
+                &credential,
+            );
         }
         let kitty_reservation = mux
             .upgrade()

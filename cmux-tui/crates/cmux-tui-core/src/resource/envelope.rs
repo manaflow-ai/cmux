@@ -24,6 +24,11 @@ pub struct RequestEnvelope {
     /// (`origin-claim-v1`; checked before parsing by the connection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<crate::request_origin::OriginClaim>,
+    /// The caller's launch credential (plans/cmux-next/identity.md section
+    /// 3). The connection takes it out and verifies it before validation; it
+    /// is never serialized, logged or part of a fingerprint.
+    #[serde(default, skip_serializing)]
+    pub credential: Option<crate::launch_credential::PresentedCredential>,
 }
 
 impl RequestEnvelope {
@@ -42,6 +47,7 @@ impl RequestEnvelope {
             params,
             idempotency_key,
             origin: None,
+            credential: None,
         }
     }
 

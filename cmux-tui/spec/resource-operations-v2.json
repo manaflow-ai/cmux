@@ -9232,6 +9232,86 @@
         }
       },
       "extra": false
+    },
+    "CredentialCheck": {
+      "kind": "object",
+      "fields": {
+        "valid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "true when the MAC matches a known key, the credential names this session and its terminal is still open."
+        },
+        "actor": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "Present when valid: terminal:<terminal id> or acp_session:<id>[;agent=<agent>]."
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unknown_key",
+              "credential_invalid",
+              "credential_malformed",
+              "credential_foreign_host",
+              "credential_closed"
+            ]
+          },
+          "description": "Present when not valid. unknown_key: the key was dropped by rotation, and a request with this credential counts as if it carried none."
+        }
+      },
+      "extra": false
+    },
+    "LaunchCredential": {
+      "kind": "object",
+      "fields": {
+        "credential": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 2048
+          },
+          "description": "The cmuxlc1 launch credential. A secret: give it to the ACP session's agent environment only (CMUX_LAUNCH_CREDENTIAL), never log it."
+        },
+        "actor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The actor it names: acp_session:<id>[;agent=<agent>]."
+        }
+      },
+      "extra": false
+    },
+    "LaunchKeyRotation": {
+      "kind": "object",
+      "fields": {
+        "kid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 32
+          },
+          "description": "The new current key id."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -12339,6 +12419,144 @@
         "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
         "Publishes a typing item for the caller's own principal, which must take part in the conversation. Never stored; the conversation rev does not change. The idempotency key is not stored: a retry publishes the indicator again (it is a state, so that is harmless) and replayed is false.",
         "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
+      ]
+    },
+    "credential.mint": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "acp_session": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The acpmux ACP session id the credential names: [A-Za-z0-9._-] only."
+          },
+          "agent": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "An agent principal the owner names (for example agent_mux): [A-Za-z0-9._-] only."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "LaunchCredential"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only: a registered local Unix connection with no link peer record whose principal is user_local (or the verified app), on a request that carries no credential. A request with any credential (an agent in a terminal or ACP session) gets origin.forbidden, so no agent mints another identity. Not an MCP tool and not a CLI verb.",
+        "Changes no state: the daemon signs the claims with its current launch key. acpmux owns the ACP session's lifetime, so the credential stays valid until two rotations drop its key.",
+        "Only a local Unix connection of this machine may call it; a link, WebSocket or remote connection gets origin.forbidden. A page never may."
+      ]
+    },
+    "credential.rotate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "LaunchKeyRotation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only, as credential.mint: an agent or any request that carries a credential gets origin.forbidden. Not an MCP tool and not a CLI verb.",
+        "Makes a new current launch key and keeps the previous one for verification; a second rotation drops the oldest key. Credentials under a dropped key count as absent (requests are the user's), never refused for that reason. Live terminals keep the credential they were started with.",
+        "The same idempotency key as the last rotation answers its key id with replayed true and rotates nothing. Revision is 0: the keys are the session host's, not the registry's.",
+        "Only a local Unix connection of this machine may call it; a link, WebSocket or remote connection gets origin.forbidden. A page never may."
+      ]
+    },
+    "credential.verify": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "credential": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "A launch credential to check (for example one an owner received from a caller)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CredentialCheck"
+      },
+      "errors": [
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A bad credential is an answer (valid false with a reason), never an error.",
+        "Verification reads mux state only, never under the registry or state commit locks. Not an MCP tool and not a CLI verb.",
+        "Only a local Unix connection of this machine may call it; a link, WebSocket or remote connection gets origin.forbidden. A page never may."
       ]
     },
     "frontend_projection.get": {
