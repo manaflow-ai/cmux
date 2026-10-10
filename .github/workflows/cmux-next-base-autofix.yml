@@ -4,8 +4,10 @@ name: cmux-next base autofix
 # commit on top of it, so no pull request has to carry them
 # (scripts/cmux-next/base-autofix.sh): the CI target graph, regenerated from
 # `swift package dump-package` in a pinned Swift 6.2 Linux container (the Mac
-# generated-files job's tools), and cargo fmt in cmux-tui. Each runs only when
-# the push changed its inputs. A frozen path
+# generated-files job's tools), every React page's generated/strings.json
+# (webviews/scripts/pages/gen-strings.mjs), and cargo fmt in cmux-tui. Each
+# runs only when its inputs changed since the last successful run (actions:
+# read lists it); a repair that cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
 # is reported and never written; missing cmux-tui tree inputs are reported
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
@@ -17,7 +19,7 @@ name: cmux-next base autofix
 # push paths never included cmux-tui.
 #
 # Push identity: github-actions[bot] through this job's GITHUB_TOKEN
-# (contents: write). No ruleset or branch protection applies to
+# (contents: write; actions: read only to find the last successful run). No ruleset or branch protection applies to
 # feat-cmux-next (2026-10-09). GITHUB_TOKEN cannot push workflow files, and its
 # pushes start no workflow: the repair commit is verified by the next pull
 # request's checks, and the bot cannot loop.
@@ -30,6 +32,9 @@ on:
     paths:
       - cmux-tui/**
       - Packages/**
+      - webviews/src/**
+      - webviews/scripts/pages/**
+      - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-frozen.txt
       - scripts/cmux-next/ci-target-graph.py
@@ -50,30 +55,38 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      # What the push changed decides the repairs. A new branch or a lost
-      # before commit runs them all.
+      # What changed since the last successful run decides the repairs: a run
+      # cancelled by a newer push, or one whose repair could not land, leaves
+      # its changes to the next run instead of losing them. No earlier success,
+      # or a change to the bot itself, runs them all.
       - name: Changed areas
         id: areas
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "$BEFORE" =~ ^0+$ ]] || ! git fetch --quiet --depth=1 origin "$BEFORE"; then
-            graph=true fmt=true
+          since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+          if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
+            echo "No successful run to diff from; running every repair."
+            graph=true strings=true fmt=true
           else
-            changed="$(git diff --name-only "$BEFORE" HEAD)"
-            graph=false fmt=false
-            grep -qE '^(Packages/|scripts/cmux-next/(ci-target-graph\.py|base-autofix))' <<<"$changed" && graph=true
-            grep -qE '^(cmux-tui/|scripts/cmux-next/base-autofix)' <<<"$changed" && fmt=true
+            echo "Changes since the last successful run at ${since:0:12}."
+            changed="$(git diff --name-only "$since" HEAD)"
+            graph=false strings=false fmt=false
+            bot='scripts/cmux-next/base-autofix|\.github/workflows/cmux-next-base-autofix\.yml'
+            grep -qE "^(Packages/|scripts/cmux-next/ci-target-graph\.py|$bot)" <<<"$changed" && graph=true
+            # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
+            grep -qE "^(Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/|$bot)" <<<"$changed" && strings=true
+            grep -qE "^(cmux-tui/|$bot)" <<<"$changed" && fmt=true
           fi
-          echo "graph=$graph" >> "$GITHUB_OUTPUT"
-          echo "fmt=$fmt" >> "$GITHUB_OUTPUT"
+          { echo "graph=$graph"; echo "strings=$strings"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
       # checkout is mounted at its own path, read-only: the manifest's local
@@ -86,6 +99,12 @@ jobs:
             docker.io/library/swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
             swift package dump-package > "$RUNNER_TEMP/package-dump.json"
 
+      - name: Setup Node
+        if: steps.areas.outputs.strings == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
       - name: Set up pinned cmux-tui Rust
         if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -93,11 +112,13 @@ jobs:
       - name: Repair
         env:
           GRAPH: ${{ steps.areas.outputs.graph }}
+          STRINGS: ${{ steps.areas.outputs.strings }}
           FMT: ${{ steps.areas.outputs.fmt }}
         run: |
           set -euo pipefail
           args=()
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
+          [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
@@ -142,12 +163,13 @@ jobs:
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
           current="$("${with_auth[@]}" git ls-remote "$remote" refs/heads/feat-cmux-next | awk '{print $1}')"
           if [[ "$current" != "$HEAD_SHA" ]]; then
-            echo "feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+            # Failing keeps this run out of the next run's "since".
+            echo "::error::feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           # A plain push: it fails rather than overwrite a commit pushed meanwhile.
           if ! "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
-            echo "feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::error::feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"

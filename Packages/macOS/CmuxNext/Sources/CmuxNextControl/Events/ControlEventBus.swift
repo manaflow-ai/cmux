@@ -1,6 +1,6 @@
 public import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The app's event log for `events.stream` (the old app's `cmux-events`
 /// protocol, v1): numbered events retained in memory (bounded), replayed
