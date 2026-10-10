@@ -59,7 +59,7 @@ extension HomeMirror {
             case .setReadCursor(let id, let seq):
                 if let current = summaries[id]?.readCursors[me], current >= seq { break }
                 summaries[id]?.readCursors[me] = seq
-            case .sendMessage(let id, _):
+            case .sendMessage(let id, _, _):
                 if case .failed = entry.state { failed.insert(id) }
                 pendingSend[id] = entry
             default:
@@ -81,7 +81,7 @@ extension HomeMirror {
                 summary.participants.first { $0.id == message.author }?.displayName
             }
             var timestamp = summary.lastMessage?.createdAt ?? summary.updatedAt
-            if let pending, case .sendMessage(_, let parts) = pending.intent.op {
+            if let pending, case .sendMessage(_, let parts, _) = pending.intent.op {
                 preview = Self.previewText(parts)
                 attachments = AttachmentPreview.of(parts)
                 author = mirror.me?.displayName

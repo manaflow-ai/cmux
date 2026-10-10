@@ -38,6 +38,11 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCreationHold.handle(call.params, services: services))
             },
+            // The Home data path (homeRouter) from the socket (DebugHomeAPI).
+            .async("debug.home.api") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugHomeAPI.handle(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.home.sidebar_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugHomeSidebarFixture.handle(call.params, services: services))

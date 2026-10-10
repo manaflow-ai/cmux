@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -151,7 +152,7 @@ public final class LayoutRootView: NSView {
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,

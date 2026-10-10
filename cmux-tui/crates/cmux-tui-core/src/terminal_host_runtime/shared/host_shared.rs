@@ -83,6 +83,9 @@ pub(crate) struct HostShared {
     pub(crate) child_signal_lock: Mutex<()>,
     pub(crate) child_reaped: AtomicBool,
     pub(crate) group_escalation_complete: AtomicBool,
+    pub(crate) group_escalation_failed: AtomicBool,
+    #[cfg(unix)]
+    pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
     #[cfg(test)]
