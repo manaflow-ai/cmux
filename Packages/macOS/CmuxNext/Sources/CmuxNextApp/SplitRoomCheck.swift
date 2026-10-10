@@ -64,7 +64,9 @@ extension AppServices {
         }
     }
 
-    /// The strip pane a tool opened from `pane` goes to when `pane` is the chat dock, else nil.
+    /// The strip pane a tool opened from `pane` goes to when `pane` is the chat dock, else nil. A
+    /// chat dock with no strip to send to (a zoomed screen, a daemon without dock roles) gives nil,
+    /// and `splitRoom` then refuses with `chatDockCannotSplit`.
     private func chatDockStripPane(for pane: PaneModel) -> PaneController? {
         guard ChatDockRules.isChatDock(pane, services: self), let controller = paneController(for: pane),
               case .tab(let target) = ChatColumnPlacement.resolve(from: controller, services: self) else { return nil }

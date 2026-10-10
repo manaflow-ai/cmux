@@ -97,7 +97,7 @@ enum BrowserHandlers {
     /// cx-yihq), as Split Right does: refused without room, and from the docked
     /// chat a person's browser is a tab in the strip.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
-                             byPerson: Bool = false, context: AppActionContext) throws {
+                             byPerson: Bool, context: AppActionContext) throws {
         let handle = pane.pane.handle, model = pane.pane
         let browserTabs = context.services.cache.browserTabs
         switch context.services.toolSplit(from: model, edge: direction == .right ? .right : .bottom, byPerson: byPerson) {
@@ -166,8 +166,13 @@ enum BrowserHandlers {
                 services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
                     guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
                     return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
-                }, openInSplit: { url in
-                    try? splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
+                }, openInSplit: { [weak chrome = entry.chrome] url in
+                    // A refused split (no room, cx-yihq) says why on the page instead of doing nothing.
+                    do {
+                        try splitBrowser(from: pane, direction: .right, url: url, profile: profile, byPerson: true, context: context)
+                    } catch let failure as ActionFailure {
+                        chrome?.showNotice(failure.message)
+                    } catch {}
                 }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
