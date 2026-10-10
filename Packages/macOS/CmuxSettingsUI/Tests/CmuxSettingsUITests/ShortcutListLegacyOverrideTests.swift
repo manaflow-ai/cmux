@@ -59,12 +59,11 @@ import Testing
     }
 
     private func spin(until condition: () -> Bool) async {
-        var spins = 0
-        while !condition(), spins < 100_000 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
-            spins += 1
         }
-        #expect(condition(), "spin(until:) timed out after 100 000 yields")
+        #expect(condition(), "spin(until:) timed out waiting for the binding update")
     }
 
     @Test func settingsDisplaysLegacyOverrideUsedByRuntime() throws {

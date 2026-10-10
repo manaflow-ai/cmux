@@ -647023,6 +647023,72 @@
             "state": "translated",
             "value": "跳至最後的提示"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idi na posljednji upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå til seneste prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vai all’ultimo prompt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទៅកាន់សំណើចុងក្រោយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå til siste ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przejdź do ostatniego polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir para o último prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к последнему запросу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไปยังพรอมต์ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son isteme git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти до останнього запиту"
+          }
         }
       }
     },
@@ -647082,6 +647148,72 @@
             "state": "translated",
             "value": "跳至最後的提示"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idi na posljednji upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå til seneste prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vai all’ultimo prompt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទៅកាន់សំណើចុងក្រោយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå til siste ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przejdź do ostatniego polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir para o último prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти к последнему запросу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไปยังพรอมต์ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son isteme git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти до останнього запиту"
+          }
         }
       }
     },
@@ -647097,19 +647229,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux jump-to-last-prompt\n\nالتركيز على السطح الذي أرسلت فيه آخر موجّه إلى وكيل برمجة، مع التبديل بين مساحات العمل والنوافذ عند الحاجة. مع --json، تكون قيمة opened هي false عند عدم وجود سطح.\n\nالخيارات:\n  --json                طباعة بتنسيق JSON\n  --id-format <mode>    refs، أو uuids، أو كلاهما"
+            "value": "الاستخدام: cmux jump-to-last-prompt\n\nالتركيز على السطح الذي أرسلت فيه آخر موجّه إلى وكيل برمجة، مع التبديل بين مساحات العمل والنوافذ عند الحاجة. مع --json، تكون قيمة opened هي false عند عدم وجود سطح.\n\nالخيارات:\n  --json                طباعة بتنسيق JSON\n  --id-format <mode>    refs، أو uuids، أو both"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux jump-to-last-prompt\n\nFokussiert die Oberfläche, in der du zuletzt einen Prompt an einen Coding-Agent gesendet hast, und wechselt dafür bei Bedarf Workspace und Fenster. Mit --json ist opened false, wenn es keine gibt.\n\nFlags:\n  --json                JSON ausgeben\n  --id-format <mode>    refs, uuids oder beides"
+            "value": "Verwendung: cmux jump-to-last-prompt\n\nFokussiert die Oberfläche, in der du zuletzt einen Prompt an einen Coding-Agent gesendet hast, und wechselt dafür bei Bedarf Workspace und Fenster. Mit --json ist opened false, wenn es keine gibt.\n\nFlags:\n  --json                JSON ausgeben\n  --id-format <mode>    refs, uuids oder both"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux jump-to-last-prompt\n\nEnfoca la superficie donde enviaste el último prompt a un agente de código, cambiando de espacio de trabajo y de ventana si hace falta. Con --json, opened es false cuando no hay ninguna.\n\nOpciones:\n  --json                Muestra JSON\n  --id-format <mode>    refs, uuids o ambos"
+            "value": "Uso: cmux jump-to-last-prompt\n\nEnfoca la superficie donde enviaste el último prompt a un agente de código, cambiando de espacio de trabajo y de ventana si hace falta. Con --json, opened es false cuando no hay ninguna.\n\nOpciones:\n  --json                Muestra JSON\n  --id-format <mode>    refs, uuids o both"
           }
         },
         "fr": {
@@ -647127,7 +647259,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux jump-to-last-prompt\n\n코딩 에이전트에 마지막으로 프롬프트를 보낸 서피스에 포커스를 두고, 필요하면 워크스페이스와 창을 전환합니다. --json을 사용하면 없을 때 opened가 false입니다.\n\n플래그:\n  --json                JSON 출력\n  --id-format <mode>    refs, uuids 또는 둘 다"
+            "value": "사용법: cmux jump-to-last-prompt\n\n코딩 에이전트에 마지막으로 프롬프트를 보낸 서피스에 포커스를 두고, 필요하면 워크스페이스와 창을 전환합니다. --json을 사용하면 없을 때 opened가 false입니다.\n\n플래그:\n  --json                JSON 출력\n  --id-format <mode>    refs, uuids 또는 both"
           }
         },
         "zh-Hans": {
@@ -647139,7 +647271,198 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux jump-to-last-prompt\n\n聚焦你最後一次向程式碼代理傳送提示的介面，必要時切換工作區與視窗。使用 --json 時，若沒有則 opened 為 false。\n\n旗標：\n  --json                列印 JSON\n  --id-format <mode>    refs、uuids 或兩者皆是"
+            "value": "用法：cmux jump-to-last-prompt\n\n聚焦你最後一次向程式碼代理傳送提示的介面，必要時切換工作區與視窗。使用 --json 時，若沒有則 opened 為 false。\n\n旗標：\n  --json                列印 JSON\n  --id-format <mode>    refs、uuids 或 both"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux jump-to-last-prompt\n\nFokusira površinu na kojoj ste posljednji put poslali upit agentu za programiranje, uz promjenu radnog prostora i prozora po potrebi. Uz --json, opened je false kada nema takve površine.\n\nOpcije:\n  --json                Ispiši JSON\n  --id-format <mode>    refs, uuids ili both"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux jump-to-last-prompt\n\nFokuser på den flade, hvor du senest sendte en prompt til en kodeagent, og skift arbejdsområde og vindue efter behov. Med --json er opened false, når der ikke findes nogen.\n\nFlag:\n  --json                Udskriv JSON\n  --id-format <mode>    refs, uuids eller both"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux jump-to-last-prompt\n\nPorta il focus sulla superficie in cui hai inviato l’ultimo prompt a un agente di programmazione, cambiando spazio di lavoro e finestra se necessario. Con --json, opened è false se non ce ne sono.\n\nOpzioni:\n  --json                Stampa JSON\n  --id-format <mode>    refs, uuids o both"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់: cmux jump-to-last-prompt\n\nផ្តោតលើផ្ទៃដែលអ្នកបានផ្ញើសំណើចុងក្រោយទៅភ្នាក់ងារសរសេរកូដ ដោយប្តូរកន្លែងធ្វើការ និងបង្អួចតាមតម្រូវការ។ ជាមួយ --json តម្លៃ opened គឺ false នៅពេលគ្មានផ្ទៃនោះ។\n\nជម្រើស:\n  --json                បង្ហាញ JSON\n  --id-format <mode>    refs, uuids ឬ both"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux jump-to-last-prompt\n\nFokuser på flaten der du sist sendte en ledetekst til en kodeagent, og bytt arbeidsområde og vindu ved behov. Med --json er opened false når ingen finnes.\n\nFlagg:\n  --json                Skriv ut JSON\n  --id-format <mode>    refs, uuids eller both"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux jump-to-last-prompt\n\nUstawia fokus na powierzchni, na której ostatnio wysłano polecenie do agenta programistycznego, w razie potrzeby zmieniając obszar roboczy i okno. Z --json wartość opened wynosi false, gdy takiej powierzchni nie ma.\n\nOpcje:\n  --json                Wyświetl JSON\n  --id-format <mode>    refs, uuids lub both"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux jump-to-last-prompt\n\nFoca a superfície em que você enviou o último prompt a um agente de programação, alternando o espaço de trabalho e a janela conforme necessário. Com --json, opened é false quando não há nenhuma.\n\nOpções:\n  --json                Imprimir JSON\n  --id-format <mode>    refs, uuids ou both"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux jump-to-last-prompt\n\nПереводит фокус на поверхность, где вы в последний раз отправили запрос агенту программирования, при необходимости переключая рабочее пространство и окно. С --json значение opened равно false, если такой поверхности нет.\n\nПараметры:\n  --json                Вывести JSON\n  --id-format <mode>    refs, uuids или both"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux jump-to-last-prompt\n\nโฟกัสพื้นผิวที่คุณส่งพรอมต์ให้เอเจนต์เขียนโค้ดล่าสุด โดยสลับพื้นที่ทำงานและหน้าต่างตามที่จำเป็น เมื่อใช้ --json ค่า opened จะเป็น false หากไม่มีพื้นผิวดังกล่าว\n\nตัวเลือก:\n  --json                แสดง JSON\n  --id-format <mode>    refs, uuids หรือ both"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux jump-to-last-prompt\n\nBir kodlama aracısına son isteminizi gönderdiğiniz yüzeye odaklanır, gerektiğinde çalışma alanını ve pencereyi değiştirir. --json ile böyle bir yüzey yoksa opened değeri false olur.\n\nSeçenekler:\n  --json                JSON yazdır\n  --id-format <mode>    refs, uuids veya both"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux jump-to-last-prompt\n\nПереводить фокус на поверхню, де ви востаннє надіслали запит агенту програмування, за потреби перемикаючи робочий простір і вікно. З --json значення opened дорівнює false, якщо такої поверхні немає.\n\nПараметри:\n  --json                Вивести JSON\n  --id-format <mode>    refs, uuids або both"
+          }
+        }
+      }
+    },
+    "cli.jumpToLastPrompt.noTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد هدف للموجّه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema ciljne površine za upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet promptmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Prompt-Ziel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No prompt target"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay destino para el prompt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune cible de prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna superficie per il prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトの移動先がありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទៃគោលដៅសម្រាប់សំណើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 대상 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen ledetekstmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak celu promptu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum destino de prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет цели запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีพื้นผิวเป้าหมายของพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem hedefi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає цільової поверхні запиту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有提示目标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有提示目標"
           }
         }
       }
