@@ -1,10 +1,8 @@
 //! TUI event loop and tmux-like command handling.
 //!
-//! Runs against a [`Session`], which is either the in-process mux or a
-//! remote session attached over the control socket. All state mutations
-//! go through the session; the app only owns presentation state (render
-//! snapshots, prefix arming, the current layout, hit map, selection, and
-//! menu/prompt overlays).
+//! Runs against a [`Session`], which is either the in-process mux or a remote session attached
+//! over the control socket. All state mutations go through the session; the app only owns
+//! presentation state (render snapshots, prefix arming, layout, hit map, selection, overlays).
 
 mod ordered_session;
 pub(crate) mod pairing_confirm;
@@ -36,6 +34,7 @@ mod status_segments;
 mod terminal_guard;
 
 mod durable_notice;
+mod feed_dismissal;
 mod machine_controller;
 mod machine_ui;
 mod sidebar_rails;

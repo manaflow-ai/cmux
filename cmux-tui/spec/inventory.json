@@ -270,6 +270,8 @@
       "delete-workspace-group",
       "detach-client",
       "export-layout",
+      "feed-local-list",
+      "feed-local-read",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -470,7 +472,10 @@
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
       "conversation-attachment-upload",
-      "conversation-attachment-read"
+      "conversation-attachment-read",
+      "feed-local-handoff-begin",
+      "feed-local-handoff-abort",
+      "feed-local-handoff-done"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
