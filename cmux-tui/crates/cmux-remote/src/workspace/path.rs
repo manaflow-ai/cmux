@@ -738,9 +738,10 @@ fn reject_resolved_tilde_component(root: &Path, resolved: &Path) -> Result<(), R
     let relative = resolved.strip_prefix(root).map_err(|_| {
         RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
     })?;
-    if relative.components().any(|component| {
-        matches!(component, Component::Normal(name) if name == OsStr::new("~"))
-    }) {
+    if relative
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if name == OsStr::new("~")))
+    {
         return Err(invalid_path("resolved path contains an unexpanded '~' component"));
     }
     Ok(())
@@ -949,12 +950,10 @@ mod tests {
         let tilde_root = directory.path().join("~");
         tokio::fs::create_dir(&tilde_root).await.unwrap();
 
-        let error = WorkspaceRoot::open(
-            WorkspaceId("tilde-root".into()),
-            tilde_root.to_str().unwrap(),
-        )
-        .await
-        .unwrap_err();
+        let error =
+            WorkspaceRoot::open(WorkspaceId("tilde-root".into()), tilde_root.to_str().unwrap())
+                .await
+                .unwrap_err();
         assert_eq!(error.code, "invalid-path");
         assert!(!error.message.contains("rm -rf"));
     }
