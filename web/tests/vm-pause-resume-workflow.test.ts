@@ -17,6 +17,7 @@ type Recorded = {
   statusProbes: string[];
   statuses: Array<{ id: string; status: string }>;
   reservations: string[];
+  skipActiveLimits: boolean[];
   reservationWrites: Array<{ vcpus: number; memoryMb: number; diskMb: number }>;
   events: Array<{ eventType: string; metadata: Record<string, unknown> }>;
 };
@@ -58,7 +59,7 @@ function fakes(options: {
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
   onReservation?: (reservation: { vcpus: number; memoryMb: number; diskMb: number }) => void;
 }) {
-  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], reservationWrites: [], events: [] };
+  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
   const repo = {
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
@@ -70,8 +71,9 @@ function fakes(options: {
       recorded.events.push({ eventType: input.eventType, metadata: input.metadata ?? {} });
       return Effect.void;
     },
-    reservePausedResume: (input: { providerVmId: string }) => {
+    reservePausedResume: (input: { providerVmId: string; skipActiveLimit?: boolean }) => {
       recorded.reservations.push(input.providerVmId);
+      recorded.skipActiveLimits.push(input.skipActiveLimit === true);
       return Effect.succeed({ ...options.row, status: "running" } as CloudVmRow);
     },
     ...(options.onReservation
@@ -169,9 +171,25 @@ describe("resumeVm", () => {
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.statusProbes).toEqual(["fs-1"]);
     expect(recorded.reservations).toEqual(["fs-1"]);
+    // Markerless legacy rows are grandfathered until reconciliation measures
+    // them; their conservative pool claim still blocks new allocation.
+    expect(recorded.skipActiveLimits).toEqual([true]);
     expect(recorded.resumed).toEqual(["fs-1"]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
     expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
+  });
+
+  test("grandfathered oversized paused machines can resume above the current count", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({
+        status: "paused",
+        providerMetadata: { cmuxResourceReservation: { vcpus: 12, memoryMb: 24 * 1024, diskMb: 65536 } },
+      }),
+      providerStatus: "paused",
+    });
+    const result = await Effect.runPromise(resumeVm({ ...resumeCaller, maxActiveVms: 1 }).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.skipActiveLimits).toEqual([true]);
   });
 
   test("is idempotent: a machine the provider reports running answers running without a resume", async () => {

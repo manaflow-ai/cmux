@@ -45,6 +45,7 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VmUsageLimitExceededError,
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
@@ -3544,6 +3545,61 @@ describe("VM Effect workflows", () => {
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
     expect(usageEventAttempts).toBe(2);
+  });
+
+  dbTest("preflights Go runtime before replacing a destroyed idempotent row", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, idempotency_key, destroyed_at
+      )
+      values (
+        'user-workflow-go-destroyed-retry', 'team-workflow-go-destroyed-retry',
+        'go', 'freestyle', 'provider-vm-go-destroyed', 'snapshot-go',
+        'destroyed', 'go-destroyed-retry', now()
+      )
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.sync(() => {
+        createCalls += 1;
+        return testVmHandle({ providerVmId: "provider-vm-should-not-start" });
+      }),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      createVm({
+        userId: "user-workflow-go-destroyed-retry",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-go-destroyed-retry",
+        billingPlanId: "go",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-go",
+        // Default Go creates carry the fixed Go shape (the route sends the
+        // image selection's size). Without it the shape check rejects the
+        // request before the runtime allowance is read, and this test would
+        // not reach it.
+        imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+        idempotencyKey: "go-destroyed-retry",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    ));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmUsageLimitExceededError);
+    expect(createCalls).toBe(0);
+
+    const rows = await sql<{ status: string }[]>`
+      select status
+      from cloud_vms
+      where billing_team_id = 'team-workflow-go-destroyed-retry'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("destroyed");
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {

@@ -740,6 +740,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "goToWorkspaceOrder": {
+          "type": "string",
+          "enum": ["sidebar", "recent"],
+          "default": "sidebar",
+          "description": "Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces."
+        },
         "forkConversationDefaultDestination": {
           "type": "string",
           "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
