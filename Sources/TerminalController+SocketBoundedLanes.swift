@@ -49,7 +49,7 @@ extension TerminalController {
         let foundationParams = request.params.mapValues(\.foundationObject)
         let precomputedEvidence: AgentDeliveryProcessEvidence?
         if let rawPID = foundationParams["pid"],
-           let pid = Self.strictPositivePID(rawPID) {
+           let pid = strictPositivePID(rawPID) {
             let resolution: AgentProcessBindingResolution?
             if let rawResolution = foundationParams["pid_resolution"] {
                 resolution = (rawResolution as? String).flatMap {
@@ -93,7 +93,7 @@ extension TerminalController {
             self.v2RefreshKnownRefs()
             let result = self.v2AgentResolveDeliveryTarget(
                 params: request.params.mapValues(\.foundationObject),
-                precomputedProcessEvidence: precomputedEvidence
+                precomputedProcessEvidence: precomputedProcessEvidence
             )
             let response = Self.v2Encoder.response(
                 id: request.id,
@@ -110,7 +110,7 @@ extension TerminalController {
         // owns workspace and surface state.
         guard let evidence = precomputedProcessEvidence,
               let pidValue = request.params["pid"]?.foundationObject,
-              let pid = Self.strictPositivePID(pidValue) else {
+              let pid = strictPositivePID(pidValue) else {
             return response
         }
         let currentIdentity = await runSocketWorkerBlockingBody {
@@ -133,13 +133,12 @@ extension TerminalController {
         return response
     }
 
-    /// Accepts only a finite, positive integer PID from a socket payload.
-    private nonisolated static func strictPositivePID(_ value: Any) -> pid_t? {
-        guard let number = value as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue == Double(number.int64Value),
-              number.int64Value > 0,
-              let pid = pid_t(exactly: number.int64Value) else {
+    /// Use the canonical resolver's integer parsing so every supported PID
+    /// encoding, including numeric strings, stays on the worker probe path.
+    private nonisolated func strictPositivePID(_ value: Any) -> pid_t? {
+        guard let value = v2StrictIntAny(value),
+              value > 0,
+              let pid = pid_t(exactly: value) else {
             return nil
         }
         return pid
