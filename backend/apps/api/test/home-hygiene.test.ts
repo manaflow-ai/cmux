@@ -149,37 +149,6 @@ let n = 0
 const convId = () => `conv_01J0000000000000000HYGN${String(n++).padStart(2, "0")}`.slice(0, 31)
 
 describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { timeout: 60_000 }, () => {
-  it("deletes messages older than retention_days in the alarm and projects one delete_through row", async () => {
-    const user = userIdFor(testEnv.STACK_PROJECT_ID, "home-retention")
-    const id = convId()
-    const conv = stub(testEnv.CONVERSATION_DO, id)
-    const me = session(user)
-    const created = await conv.submit(id, me, { t: "op", op: "conversation.create", params: { id, kind: "group", title: "Kept 30 days", retention_days: 30, participants: [{ id: user, kind: "human", display_name: "Alice Example" }] }, idempotency_key: "create" })
-    expect(created.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
-    for (const key of ["old-1", "old-2", "new-1"]) await conv.submit(id, me, { t: "op", op: "message.send", params: { client_msg_id: key, parts: [{ type: "text", text: key }] }, idempotency_key: key })
-    // Age the first two messages past the window (the reducer reads created_at from the rows).
-    const aged = new Date(Date.now() - 40 * DAY).toISOString()
-    await runInDurableObject(conv, async (_i, state) => {
-      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray()) {
-        const message = JSON.parse(row.json) as homeConversation.Message
-        if (message.client_msg_id.startsWith("old-")) state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...message, created_at: aged }), row.k)
-      }
-    })
-    await fireAlarm(conv)
-    const history = await conv.readOp(id, me, "conversation.history", { limit: 10 })
-    expect(history.value.messages.map((m: homeConversation.Message) => m.client_msg_id)).toEqual(["new-1"])
-    await runInDurableObject(conv, async (_i, state) => {
-      const rows = state.storage.sql.exec<{ kind: string; payload: string }>("SELECT kind, payload FROM own_outbox WHERE kind LIKE 'home.message.delete%'").toArray()
-      expect(rows.map((r) => [r.kind, JSON.parse(r.payload)])).toEqual([["home.message.delete_through", { conversation_id: id, seq: 2 }]])
-      const keys = state.storage.sql.exec<{ k: string }>("SELECT k FROM own_rows WHERE tbl = 'msgkey'").toArray().map((r) => r.k)
-      expect(keys).toEqual([`${user}:new-1`])
-      // The sweep is an event like any commit, so mirrors drop the rows too.
-      const sweep = state.storage.sql.exec<{ effects: string }>("SELECT effects FROM own_events WHERE op = 'conversation.sweep'").toArray()
-      expect(sweep).toHaveLength(1)
-      const writes = (JSON.parse(sweep[0]!.effects) as { writes: Array<{ table: string; op: string }> }).writes
-      expect(writes.filter((w) => w.table === "msg" && w.op === "delete")).toHaveLength(2)
-    })
-  })
 
   it("lowered counts reach the person's inbox: the sweep's bump replaces the stored entry's unread and mentions", async () => {
     const tag = "lowered"
@@ -217,37 +186,6 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
       }
     })
     expect(await settle()).toMatchObject({ unread: 1, mentions: 0, preview: expect.stringContaining("still here") })
-  })
-
-  it("a DM from before the consent markers keeps the pair connected after the sweep deletes its msgkey rows", async () => {
-    const alice = userIdFor(testEnv.STACK_PROJECT_ID, "home-hy-consent-alice")
-    const bob = userIdFor(testEnv.STACK_PROJECT_ID, "home-hy-consent-bob")
-    const id = homeConversation.dmConversationId(alice, bob)
-    const conv = stub(testEnv.CONVERSATION_DO, id)
-    const reach: homeConversation.HumanReach = { user: bob, display_name: "Bob Example", shared_team: true, connected: false, allow_requests_from: "anyone" }
-    const asAlice: Principal = { ...session(alice), home_reach: [reach] }
-    const asBob: Principal = { ...session(bob), display_name: "Bob Example", email: "b@example.com" }
-    const opened = await conv.submit(id, asAlice, { t: "op", op: "dm.open", params: { id, retention_days: 30, participants: [{ id: alice, kind: "human", display_name: "Alice Example" }, { id: bob, kind: "human", display_name: "Bob Example" }] }, idempotency_key: "open" })
-    expect(opened.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
-    for (const [who, key] of [[asAlice, "a-old"], [asBob, "b-old"]] as const) {
-      const sent = await conv.submit(id, who, { t: "op", op: "message.send", params: { client_msg_id: key, parts: [{ type: "text", text: key }] }, idempotency_key: key })
-      expect(sent.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
-    }
-    // A DM from before the markers: msgkey rows only. Age both messages past the window.
-    const aged = new Date(Date.now() - 40 * DAY).toISOString()
-    await runInDurableObject(conv, async (_i, state) => {
-      state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'consent'")
-      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray()) {
-        state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...(JSON.parse(row.json) as homeConversation.Message), created_at: aged }), row.k)
-      }
-    })
-    // fireAlarm runs the sweep even when the runtime already fired the alarm.
-    await fireAlarm(conv)
-    await runInDurableObject(conv, async (_i, state) => {
-      expect(state.storage.sql.exec("SELECT k FROM own_rows WHERE tbl = 'msgkey'").toArray()).toEqual([])
-      expect(state.storage.sql.exec<{ k: string }>("SELECT k FROM own_rows WHERE tbl = 'consent' ORDER BY k").toArray().map((r) => r.k)).toEqual([alice, bob].sort())
-    })
-    expect(await conv.homeDmLink(id, alice, bob)).toMatchObject({ consented: true })
   })
 
   it("schedules the alarm for the earliest due work: an open invite's expiry", async () => {

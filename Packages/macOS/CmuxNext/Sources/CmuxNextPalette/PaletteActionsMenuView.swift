@@ -3,13 +3,13 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The Cmd-K menu: every command of the selected item on a small glass
-/// panel, filterable by typing. Rebuilt when it opens or its filter changes
+/// popup (`PopupStyle`; the palette's own shadow covers it), filterable by typing. Rebuilt when it opens or its filter changes
 /// (a handful of rows), so it needs no reuse.
 final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
 
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+    let glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let filter = PaletteText.label(Typography.body, tone: .tertiary)

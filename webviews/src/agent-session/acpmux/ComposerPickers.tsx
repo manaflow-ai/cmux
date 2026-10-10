@@ -829,8 +829,9 @@ export function Picker({
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
-                        aria-selected={at === selected}
-                        aria-checked={section.current === undefined ? undefined : current}
+                        // `aria-selected` is the option's value; the combobox's
+                        // `aria-activedescendant` carries the keyboard highlight.
+                        aria-selected={section.current === undefined ? false : current}
                         className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
                         onMouseMove={() => {
                           if (at !== selected) setActive(at);

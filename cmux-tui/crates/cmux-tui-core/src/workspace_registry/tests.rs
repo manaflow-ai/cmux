@@ -75,6 +75,7 @@ fn journal_plugin_generation_reservation_is_monotonic_and_durable() {
     assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 2);
     registry
         .connection
+        .get()
         .execute(
             "UPDATE meta SET value = ?1 WHERE key = 'journal_plugin_generation'",
             [u64::MAX.to_string()],
@@ -1127,6 +1128,7 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM resource_mutations", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -1720,6 +1722,7 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
             .unwrap(),
         1
@@ -1744,6 +1747,7 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM resource_mutations", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -1823,7 +1827,8 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
     let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
     assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
     assert_eq!(terminal.exit, Some(exit));
-    let transaction = registry.connection.unchecked_transaction().unwrap();
+    let db = registry.connection.get();
+    let transaction = db.unchecked_transaction().unwrap();
     validate_resource_invariants(&transaction).unwrap();
     transaction.commit().unwrap();
 }
@@ -1938,7 +1943,8 @@ fn resource_tab_close_preserves_terminal_content_without_an_explicit_terminal_ch
         registry.terminal_resource_id(TERMINAL_ONE).unwrap(),
         Some(terminal_resource(TERMINAL_ONE)),
     );
-    let transaction = registry.connection.unchecked_transaction().unwrap();
+    let db = registry.connection.get();
+    let transaction = db.unchecked_transaction().unwrap();
     validate_resource_invariants(&transaction).unwrap();
     transaction.commit().unwrap();
 }
@@ -2004,12 +2010,13 @@ fn resource_patch_replays_across_registry_reopen_and_origin_change() {
 
 #[test]
 fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
-    let mut registry = WorkspaceRegistry::in_memory("mutation-runtime-bound").unwrap();
+    let registry = WorkspaceRegistry::in_memory("mutation-runtime-bound").unwrap();
     let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
     let interval = usize::try_from(resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL).unwrap();
     let before_boundary = capacity + interval - 1;
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         for index in 0..before_boundary {
             tx.execute(
                 "INSERT INTO resource_mutations(
@@ -2039,7 +2046,8 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
     );
 
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         let index = before_boundary;
         tx.execute(
             "INSERT INTO resource_mutations(
@@ -2069,6 +2077,7 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
     );
     let oldest: i64 = registry
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = 'bounded-00000000'",
             [],
@@ -2077,6 +2086,7 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
         .unwrap();
     let first_retained: i64 = registry
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
             [format!("bounded-{interval:08}")],
@@ -2087,12 +2097,13 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
     assert_eq!(first_retained, 1);
 
     let pages_after_first_wave: i64 =
-        registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+        registry.connection.get().query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
     let wave = capacity + interval;
     let mut pages = vec![pages_after_first_wave];
     for wave_index in 0..2 {
         let start = before_boundary + 1 + wave_index * wave;
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         for index in start..start + wave {
             tx.execute(
                 "INSERT INTO resource_mutations(
@@ -2120,7 +2131,7 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
             u64::try_from(capacity).unwrap()
         );
         pages.push(
-            registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap(),
+            registry.connection.get().query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap(),
         );
     }
     assert!(
@@ -2138,7 +2149,8 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
     let boundary = capacity + interval;
     let before_boundary = boundary - 1;
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         for index in 0..before_boundary {
             tx.execute(
                 "INSERT INTO resource_mutations(
@@ -2195,7 +2207,8 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
     );
 
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         for offset in 1..interval {
             let revision = boundary + offset;
             tx.execute(
@@ -2226,7 +2239,8 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
     );
 
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         let revision = boundary + interval;
         tx.execute(
             "INSERT INTO resource_mutations(
@@ -2319,7 +2333,8 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
             )
             .unwrap();
 
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         for (key, operation, fingerprint, result, revision) in [
             (
                 "pending-effect",
@@ -2397,6 +2412,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
     for key in ["pending-effect", "active-attempt", "terminal-defaults"] {
         let count: i64 = reopened
             .connection
+            .get()
             .query_row(
                 "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
                 [key],
@@ -2408,6 +2424,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
     for key in ["created-attempt", "ordinary-00000000"] {
         let count: i64 = reopened
             .connection
+            .get()
             .query_row(
                 "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
                 [key],
@@ -2529,6 +2546,7 @@ fn resource_patch_failure_rolls_back_every_projection_and_log() {
     ] {
         let count = registry
             .connection
+            .get()
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get::<_, i64>(0))
             .unwrap();
         assert_eq!(count, 0, "{table} was not rolled back");
@@ -2565,6 +2583,7 @@ fn targeted_resource_patch_does_not_rewrite_unrelated_rows() {
     let revisions = |table: &str, public_id: &str| {
         registry
             .connection
+            .get()
             .query_row(
                 &format!("SELECT updated_revision FROM {table} WHERE public_id = ?1"),
                 [public_id],
@@ -2703,6 +2722,7 @@ fn cloud_rename_authority_repairs_each_additive_column() {
             commit_terminal_topology(&mut registry, "create");
             registry
                 .connection
+                .get()
                 .execute_batch(&format!(
                     "DROP TRIGGER resource_tab_legacy_name_owner;
                      ALTER TABLE resource_tabs DROP COLUMN {missing};"
@@ -2752,7 +2772,7 @@ fn cloud_rename_authority_persists_across_registry_restart() {
     assert_eq!(after.tabs[0].name_revision, 2);
     assert_ne!(after.generation, before.generation);
     // Simulate a pre-authority daemon's SQL update: it cannot write the new columns.
-    restored.connection.execute(
+    restored.connection.get().execute(
         "UPDATE resource_tabs SET name = 'Legacy user name', updated_revision = 3 WHERE public_id = ?1",
         [after.tabs[0].public_id.as_str()],
     ).unwrap();
@@ -2791,6 +2811,7 @@ fn opening_legacy_workspaces_seeds_compatibility_active_workspace() {
         let registry = WorkspaceRegistry::open(&root, "session").unwrap();
         registry
             .connection
+            .get()
             .execute_batch(
                 "INSERT INTO workspaces(
                    workspace_key, numeric_id, name, group_key, position,
@@ -3029,6 +3050,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row(
                 "SELECT kind FROM resource_identities
                      WHERE public_id = ?1 AND deleted_revision IS NULL",
@@ -3070,6 +3092,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
         assert!(
             registry
                 .connection
+                .get()
                 .query_row(
                     "SELECT deleted_revision FROM resource_identities WHERE public_id = ?1",
                     [public_id],
@@ -3087,6 +3110,7 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
     let invalid = format!("pane_{}", "z".repeat(32));
     let error = registry
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_identities(
                    public_id, kind, created_revision, updated_revision, deleted_revision
@@ -3099,10 +3123,11 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
 
 #[test]
 fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
-    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    let registry = WorkspaceRegistry::in_memory("test").unwrap();
     let public_id = terminal_resource(TERMINAL_TWO);
     {
-        let tx = registry.connection.transaction().unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         tx.execute(
             "INSERT INTO resource_identities(
                    public_id, kind, created_revision, updated_revision, deleted_revision
@@ -3123,6 +3148,7 @@ fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM resource_terminals", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -3130,7 +3156,8 @@ fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
         0
     );
 
-    let tx = registry.connection.transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute(
         "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
@@ -3143,6 +3170,7 @@ fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM terminal_hosts", [], |row| { row.get::<_, i64>(0) })
             .unwrap(),
         1
@@ -3186,7 +3214,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     let target = workspaces[499].clone();
     let mut renamed = target.clone();
     renamed.name = "Renamed".into();
-    let changes_before = registry.connection.total_changes();
+    let changes_before = registry.connection.get().total_changes();
     let started = std::time::Instant::now();
     registry
         .commit_resource_patch(
@@ -3207,17 +3235,19 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
         )
         .unwrap();
     let elapsed = started.elapsed();
-    let changed_rows = registry.connection.total_changes() - changes_before;
+    let changed_rows = registry.connection.get().total_changes() - changes_before;
     // The fixed write budget includes one append-only journal row and its
     // session and workspace subject-index rows. It must not grow with the
     // number of workspaces in the registry.
     assert!(changed_rows <= 10, "rename changed {changed_rows} rows");
     let latest_sequence = registry
         .connection
+        .get()
         .query_row("SELECT MAX(sequence) FROM session_journal", [], |row| row.get::<_, i64>(0))
         .unwrap();
     let indexed_subjects = registry
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM journal_subject_index WHERE sequence = ?1",
             [latest_sequence],
@@ -3227,6 +3257,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     assert_eq!(indexed_subjects, 2);
     let expected_subjects = registry
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM journal_subject_index
              WHERE sequence = ?1
@@ -3241,6 +3272,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row("SELECT COUNT(*) FROM workspaces WHERE updated_revision = 2", [], |row| row
                 .get::<_, i64>(
                 0
@@ -3251,6 +3283,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     assert_eq!(
         registry
             .connection
+            .get()
             .query_row(
                 "SELECT COUNT(*) FROM resource_workspaces WHERE updated_revision = 2",
                 [],
@@ -3954,6 +3987,7 @@ fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
         });
         registry
             .connection
+            .get()
             .execute(
                 "UPDATE terminal_hosts
                  SET lifecycle = 'exited', exit_json = ?1
@@ -3963,13 +3997,14 @@ fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
             .unwrap();
         registry
             .connection
+            .get()
             .execute("UPDATE meta SET value = '14' WHERE key = 'schema_version'", [])
             .unwrap();
     }
 
     let registry = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&registry.connection, "schema_version").unwrap(),
+        required_meta(&registry.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
@@ -3980,6 +4015,7 @@ fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
     assert_eq!(exit["revision"], registry.resource_revision().unwrap().to_string());
     let stored: String = registry
         .connection
+        .get()
         .query_row(
             "SELECT exit_json FROM terminal_hosts WHERE terminal_id = ?1",
             [TERMINAL_ONE],
@@ -4014,6 +4050,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
     }
     registry
         .connection
+        .get()
         .execute_batch(&format!(
             "CREATE TEMP TRIGGER fail_second_terminal_close
                  BEFORE UPDATE OF lifecycle ON terminal_hosts
@@ -4036,7 +4073,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
             TerminalLifecycle::Launching
         );
     }
-    registry.connection.execute_batch("DROP TRIGGER fail_second_terminal_close").unwrap();
+    registry.connection.get().execute_batch("DROP TRIGGER fail_second_terminal_close").unwrap();
 
     let closed = registry
         .close_terminals_atomically(
@@ -4067,6 +4104,7 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
         assert_eq!(topology.revision, 1);
         let live_terminals: i64 = registry
             .connection
+            .get()
             .query_row(
                 "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
                 [],
@@ -4092,6 +4130,7 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
     let live_terminals: i64 = reopened
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
             [],
@@ -4102,6 +4141,7 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     let public_id = terminal_resource(TERMINAL_ONE);
     let (resource_deleted, identity_deleted): (Option<i64>, Option<i64>) = reopened
         .connection
+        .get()
         .query_row(
             "SELECT rt.deleted_revision, ri.deleted_revision
              FROM resource_terminals rt
@@ -4384,6 +4424,7 @@ fn schema_six_securely_discards_legacy_sensitive_input_receipts() {
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     let sensitive: i64 = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_effect_receipts
              WHERE idempotency_key = 'legacy-sensitive'",
@@ -4393,6 +4434,7 @@ fn schema_six_securely_discards_legacy_sensitive_input_receipts() {
         .unwrap();
     let navigation: i64 = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_effect_receipts
              WHERE idempotency_key = 'legacy-navigation'",
@@ -4403,15 +4445,15 @@ fn schema_six_securely_discards_legacy_sensitive_input_receipts() {
     assert_eq!(sensitive, 0);
     assert_eq!(navigation, 1);
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     assert_eq!(
-        required_meta(&migrated.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap().len(),
+        required_meta(&migrated.connection.get(), RESOURCE_EFFECT_PEPPER_META_KEY).unwrap().len(),
         64
     );
     assert!(
-        meta_value(&migrated.connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
+        meta_value(&migrated.connection.get(), RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
             .unwrap()
             .is_none()
     );
@@ -4451,7 +4493,7 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     assert!(
-        meta_value(&reopened.connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
+        meta_value(&reopened.connection.get(), RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
             .unwrap()
             .is_none()
     );
@@ -4476,7 +4518,8 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
     let pepper_id;
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
-        pepper_id = required_meta(&registry.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap();
+        pepper_id =
+            required_meta(&registry.connection.get(), RESOURCE_EFFECT_PEPPER_META_KEY).unwrap();
         commit_terminal_topology(&mut registry, "agent-migration-topology");
         let session = registry.session_id().clone();
         let agent = agent_resource(&terminal);
@@ -4530,16 +4573,17 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
 
     let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
     assert_eq!(
-        required_meta(&migrated.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap(),
+        required_meta(&migrated.connection.get(), RESOURCE_EFFECT_PEPPER_META_KEY).unwrap(),
         pepper_id
     );
     let legacy_trigger_count: i64 = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type = 'trigger'
@@ -4677,12 +4721,13 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     for (table, expected) in [("terminal_hosts", 1_i64), ("terminal_placements", 0_i64)] {
         let count = migrated
             .connection
+            .get()
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
                 [table],
@@ -4693,6 +4738,7 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
     }
     let browser_view_indexes = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type = 'index' AND name = 'live_resource_browser_view'",
@@ -4703,6 +4749,7 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
     assert_eq!(browser_view_indexes, 1);
     let workspace_foreign_keys = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
              WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
@@ -4727,6 +4774,7 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
     assert!(
         reopened
             .connection
+            .get()
             .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
             .optional()
             .unwrap()
@@ -4929,6 +4977,7 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let canonical_definition = reopened
         .connection
+        .get()
         .query_row(
             "SELECT sql FROM sqlite_master
              WHERE type = 'index' AND name = 'live_resource_browser_view'",
@@ -4941,9 +4990,10 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap());
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection.get()).unwrap());
     reopened
         .connection
+        .get()
         .execute(
             "CREATE INDEX browser_view_normalization_sentinel
              ON resource_tabs(created_revision)",
@@ -4955,6 +5005,7 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
     let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
     let definition_after_second_open = reopened_again
         .connection
+        .get()
         .query_row(
             "SELECT sql FROM sqlite_master
              WHERE type = 'index' AND name = 'live_resource_browser_view'",
@@ -4964,6 +5015,7 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
         .unwrap();
     let sentinel_count = reopened_again
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type = 'index' AND name = 'browser_view_normalization_sentinel'",
@@ -4973,7 +5025,9 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
     assert_eq!(sentinel_count, 1, "resource_tabs was normalized more than once");
-    assert!(!resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap());
+    assert!(
+        !resource_tabs_needs_multiview_normalization(&reopened_again.connection.get()).unwrap()
+    );
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
@@ -4981,9 +5035,9 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
 #[test]
 fn multiview_normalization_requires_browser_view_index() {
     let registry = WorkspaceRegistry::in_memory("missing-browser-view-index").unwrap();
-    registry.connection.execute("DROP INDEX live_resource_browser_view", []).unwrap();
+    registry.connection.get().execute("DROP INDEX live_resource_browser_view", []).unwrap();
 
-    assert!(resource_tabs_needs_multiview_normalization(&registry.connection).unwrap());
+    assert!(resource_tabs_needs_multiview_normalization(&registry.connection.get()).unwrap());
 }
 
 #[test]
@@ -5130,7 +5184,7 @@ fn schema_nine_multiview_converges_with_the_session_journal() {
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     let page = migrated.session_journal_after(0, 10).unwrap();
@@ -5139,6 +5193,7 @@ fn schema_nine_multiview_converges_with_the_session_journal() {
     assert_eq!(page.records[1].resource_revision, Some(1));
     let resource_events = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type = 'table' AND name = 'resource_events'",
@@ -5204,13 +5259,14 @@ fn schema_ten_journal_converges_with_terminal_multiview() {
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let second_tab = tab_id(2);
     migrated
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_identities(
                public_id, kind, created_revision, updated_revision, deleted_revision
@@ -5220,6 +5276,7 @@ fn schema_ten_journal_converges_with_terminal_multiview() {
         .unwrap();
     migrated
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_tabs(
                public_id, pane_id, position, content_kind, content_id, name,
@@ -5230,6 +5287,7 @@ fn schema_ten_journal_converges_with_terminal_multiview() {
         .unwrap();
     let live_views = migrated
         .connection
+        .get()
         .query_row(
             "SELECT COUNT(*) FROM resource_tabs
              WHERE content_id = ?1 AND deleted_revision IS NULL",
@@ -5263,13 +5321,14 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
             .unwrap();
         registry
             .connection
+            .get()
             .execute("UPDATE meta SET value = '13' WHERE key = 'schema_version'", [])
             .unwrap();
     }
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     let projections = migrated.public_projections().unwrap().frontend_projections;
@@ -5352,219 +5411,6 @@ fn terminal_journal_subject_expands_to_every_live_view_path() {
             record.subjects
         );
     }
-}
-
-#[test]
-fn terminal_journal_persists_exact_output_and_geometry_in_order() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-terminal-content").unwrap();
-    commit_terminal_topology(&mut registry, "journal-terminal-content-seed");
-    let terminal_id = terminal_resource(TERMINAL_ONE);
-    let journal_terminal_id = Arc::new(terminal_id.clone());
-    let output = b"prompt> \x1b[31merror\x1b[0m\r\n\0binary";
-
-    let events = [
-        crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-            terminal_id: journal_terminal_id.clone(),
-            generation: "incarnation-one".into(),
-            occurred_at_ms: 42,
-            bytes: output.to_vec(),
-        },
-        crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id: journal_terminal_id.clone(),
-            generation: "incarnation-one".into(),
-            occurred_at_ms: 43,
-            cols: 120,
-            rows: 40,
-            cell_width: 9,
-            cell_height: 18,
-        },
-        crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id: journal_terminal_id,
-            generation: "incarnation-one".into(),
-            occurred_at_ms: 44,
-            reason: "detach_fence_failed",
-        },
-    ];
-    let appended =
-        registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
-    assert_eq!(appended.len(), 3);
-
-    let records = registry
-        .session_journal_after(0, 32)
-        .unwrap()
-        .records
-        .into_iter()
-        .filter(|record| {
-            matches!(
-                record.kind.as_str(),
-                "terminal.output" | "terminal.resized" | "terminal.output.gap"
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(records.len(), 3);
-    let output_record = &records[0];
-    assert_eq!(output_record.kind, "terminal.output");
-    assert_eq!(output_record.replay, JournalReplayPolicy::Required);
-    assert_eq!(output_record.sensitivity, JournalSensitivity::Sensitive);
-    assert_eq!(output_record.terminal_output.as_deref(), Some(output.as_slice()));
-    assert!(output_record.payload.get("data").is_none());
-    assert_eq!(output_record.payload["byte_count"], output.len().to_string());
-    assert_eq!(output_record.payload["stream_offset_start"], "0");
-    assert_eq!(output_record.payload["stream_offset_end"], output.len().to_string());
-    assert_eq!(output_record.payload["encoding"], "raw");
-    assert_eq!(output_record.payload["sha256"].as_str().unwrap().len(), 64);
-    assert_eq!(output_record.authority.as_ref().unwrap().generation, "incarnation-one");
-
-    let resize_record = &records[1];
-    assert_eq!(resize_record.kind, "terminal.resized");
-    assert!(resize_record.terminal_output.is_none());
-    assert_eq!(resize_record.payload["cols"], 120);
-    assert_eq!(resize_record.payload["rows"], 40);
-    assert_eq!(resize_record.payload["cell_width"], 9);
-    assert_eq!(resize_record.payload["cell_height"], 18);
-
-    let gap_record = &records[2];
-    assert_eq!(gap_record.kind, "terminal.output.gap");
-    assert_eq!(gap_record.replay, JournalReplayPolicy::Required);
-    assert!(gap_record.terminal_output.is_none());
-    assert_eq!(gap_record.payload["format"], "cmux.terminal-output-gap.v1");
-    assert_eq!(gap_record.payload["reason"], "detach_fence_failed");
-
-    let pane = pane_id(1);
-    let screen = screen_id(1);
-    let workspace_id = workspace(1, "one", "One").public_id;
-    for record in &records {
-        for (kind, id) in [
-            ("terminal", terminal_id.as_str()),
-            ("tab", tab_id(1).as_str()),
-            ("pane", pane.as_str()),
-            ("screen", screen.as_str()),
-            ("workspace", workspace_id.as_str()),
-        ] {
-            assert!(
-                record.subjects.iter().any(|subject| subject.kind == kind && subject.id == id),
-                "missing {kind}:{id} from {} subjects: {:#?}",
-                record.kind,
-                record.subjects
-            );
-        }
-    }
-}
-
-#[test]
-#[ignore = "manual release-mode journal writer throughput probe"]
-fn terminal_journal_writer_throughput_probe() {
-    const BATCH_SIZE: usize = 1_024;
-    const BATCHES: usize = 16;
-    const CHUNK_BYTES: usize = 4 * 1_024;
-
-    let mut registry = WorkspaceRegistry::in_memory("journal-terminal-throughput").unwrap();
-    commit_terminal_topology(&mut registry, "journal-terminal-throughput-seed");
-    let terminal_id = terminal_resource(TERMINAL_ONE);
-    let journal_terminal_id = Arc::new(terminal_id.clone());
-    let mut chunk = vec![b'x'; CHUNK_BYTES];
-    chunk[CHUNK_BYTES - 17..].copy_from_slice(b"terminal-output\r\n");
-    let started = std::time::Instant::now();
-    for batch in 0..BATCHES {
-        let events = (0..BATCH_SIZE)
-            .map(|index| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-                terminal_id: journal_terminal_id.clone(),
-                generation: "throughput-generation".into(),
-                occurred_at_ms: u64::try_from(batch * BATCH_SIZE + index).unwrap(),
-                bytes: chunk.clone(),
-            })
-            .collect::<Vec<_>>();
-        let references = events.iter().collect::<Vec<_>>();
-        assert_eq!(registry.append_journal_ingress_events(&references).unwrap().len(), BATCH_SIZE);
-    }
-    let elapsed = started.elapsed();
-    let event_count = BATCH_SIZE * BATCHES;
-    let byte_count = event_count * CHUNK_BYTES;
-    let events_per_second = event_count as f64 / elapsed.as_secs_f64();
-    let mebibytes_per_second = byte_count as f64 / (1024.0 * 1024.0) / elapsed.as_secs_f64();
-    eprintln!(
-        "terminal journal writer: {event_count} records / {} MiB in {elapsed:?}, \
-         {events_per_second:.0} records/s, {mebibytes_per_second:.1} MiB/s",
-        byte_count / (1024 * 1024)
-    );
-    assert!(events_per_second >= 5_000.0, "journal writer regressed: {events_per_second:.0}/s");
-    assert!(
-        mebibytes_per_second >= 20.0,
-        "journal writer regressed: {mebibytes_per_second:.1} MiB/s"
-    );
-    let stored_offset = registry
-        .connection
-        .query_row(
-            "SELECT next_offset FROM journal_terminal_streams
-             WHERE terminal_id = ?1 AND generation = ?2",
-            params![terminal_id.as_str(), "throughput-generation"],
-            |row| row.get::<_, i64>(0),
-        )
-        .unwrap();
-    assert_eq!(usize::try_from(stored_offset).unwrap(), byte_count);
-}
-
-#[test]
-fn terminal_output_survives_immutable_segment_round_trip() {
-    let root = temp_root("journal-terminal-segment");
-    let mut registry = WorkspaceRegistry::open(&root, "journal-terminal-segment").unwrap();
-    commit_terminal_topology(&mut registry, "journal-terminal-segment-seed");
-    let terminal_id = terminal_resource(TERMINAL_ONE);
-    let output = b"segment output \x1b[32mready\x1b[0m\r\n\0";
-    let events = [crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-        terminal_id: Arc::new(terminal_id),
-        generation: "segment-incarnation".into(),
-        occurred_at_ms: 42,
-        bytes: output.to_vec(),
-    }];
-    registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
-    let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
-    registry
-        .create_journal_checkpoint(
-            through,
-            1,
-            &json!({
-                "session_snapshot":{"cursor":{"revision":"1"}},
-                "journal_extensions":{"producers":[],"hooks":[]},
-            }),
-            &[],
-            "client_test",
-            "terminal_segment_checkpoint",
-        )
-        .unwrap();
-
-    let plan = match registry
-        .begin_journal_segment_seal(through, "client_test", "terminal_segment_seal")
-        .unwrap()
-    {
-        JournalSegmentSealStart::Prepare(plan) => plan,
-        JournalSegmentSealStart::Replay(_) => panic!("first segment seal unexpectedly replayed"),
-    };
-    let reader = SessionJournalReader::open(
-        &registry.session_journal_database_path().expect("persistent registry has a path"),
-    )
-    .unwrap();
-    let prepared = plan.prepare(&reader).unwrap();
-    let commit = registry
-        .commit_journal_segment_seal(prepared, "client_test", "terminal_segment_seal")
-        .unwrap()
-        .expect("segment boundary remained stable");
-    assert_eq!(commit.through_sequence, through);
-
-    let record = registry
-        .session_journal_after(0, 32)
-        .unwrap()
-        .records
-        .into_iter()
-        .find(|record| record.kind == "terminal.output")
-        .unwrap();
-    assert_eq!(record.terminal_output.as_deref(), Some(output.as_slice()));
-    assert_eq!(record.payload["encoding"], "raw");
-    assert!(record.payload.get("data").is_none());
-
-    drop(reader);
-    drop(registry);
-    fs::remove_dir_all(root).unwrap();
 }
 
 fn append_terminal_output_for_test(
@@ -5978,7 +5824,7 @@ fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
     assert!(!other_origin.replayed);
     assert!(other_origin.sequence > first.sequence);
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     drop(migrated);
@@ -6068,7 +5914,7 @@ fn schema_four_backfills_safe_browser_restart_metadata() {
     }
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     assert_eq!(
@@ -6100,7 +5946,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
     assert_eq!(migrated.terminal_snapshot().unwrap().revision, 0);
     assert!(migrated.terminal_snapshot().unwrap().terminals.is_empty());
     assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
+        required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
     );
     fs::remove_dir_all(root).unwrap();
@@ -6110,8 +5956,9 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
 fn interrupted_transaction_and_newer_schema_fail_closed() {
     let root = temp_root("transaction");
     {
-        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
-        let tx = registry.connection.transaction().unwrap();
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
         tx.execute("UPDATE meta SET value = '77' WHERE key = 'revision'", []).unwrap();
         drop(tx);
         assert_eq!(registry.snapshot().unwrap().revision, 0);
@@ -6145,6 +5992,7 @@ fn newer_schema_is_reported_before_writer_lease_conflict() {
     let registry = WorkspaceRegistry::open(&root, "session").unwrap();
     registry
         .connection
+        .get()
         .execute(
             "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
             [(SCHEMA_VERSION + 1).to_string()],
@@ -6278,6 +6126,7 @@ const TERMINAL_THREE: &str = "00000000000040008000000000000003";
 fn forget_terminal_keep_classification(registry: &WorkspaceRegistry) {
     registry
         .connection
+        .get()
         .execute_batch(
             "DELETE FROM meta WHERE key = 'terminal_keep_classified';
              DELETE FROM terminal_keep;",
@@ -6314,4 +6163,5 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
 }
 
 mod exit_snapshot_generations;
+mod terminal_journal_append;
 mod terminal_keep_tests;

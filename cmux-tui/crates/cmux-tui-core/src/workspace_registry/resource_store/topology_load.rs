@@ -17,7 +17,7 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         load_resource_topology_scoped(
-            &self.connection,
+            &self.connection.get(),
             self.session_id.clone(),
             self.generation.clone(),
             workspaces,
@@ -41,7 +41,8 @@ impl WorkspaceRegistry {
         &self,
         panes: &[PanePublicId],
     ) -> anyhow::Result<HashMap<TerminalPublicId, String>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT rt.public_id, rt.terminal_id
              FROM resource_tabs t
              JOIN resource_terminals rt ON rt.public_id = t.content_id
@@ -66,7 +67,8 @@ impl WorkspaceRegistry {
         &self,
         browser_id: &BrowserPublicId,
     ) -> anyhow::Result<Option<RegistryBrowser>> {
-        Ok(load_browsers(&self.connection, " AND public_id = ?1", &[&browser_id.as_str()])?.pop())
+        Ok(load_browsers(&self.connection.get(), " AND public_id = ?1", &[&browser_id.as_str()])?
+            .pop())
     }
 
     /// The live tab rows that show `content_id`, in no particular order.
@@ -74,7 +76,7 @@ impl WorkspaceRegistry {
         &self,
         content_id: &str,
     ) -> anyhow::Result<Vec<RegistryTab>> {
-        load_tabs(&self.connection, " AND t.content_id = ?1", &[&content_id])
+        load_tabs(&self.connection.get(), " AND t.content_id = ?1", &[&content_id])
     }
 
     /// Whether a live `resource` row ("screen", "pane" or "tab") has this
@@ -88,6 +90,7 @@ impl WorkspaceRegistry {
         };
         Ok(self
             .connection
+            .get()
             .prepare(&format!(
                 "SELECT 1 FROM {table} WHERE public_id = ?1 AND deleted_revision IS NULL"
             ))?

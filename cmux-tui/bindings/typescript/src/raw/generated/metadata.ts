@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c. */
+/* cmux-tui mux protocol 12, IR e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c" as const;
+export const SDK_IR_SHA256 = "e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1006,6 +1006,64 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "feed-local-handoff-abort": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-handoff-begin": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-handoff-done": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+      "See spec/commands.md for the result object."
+    ]
+  },
   "focus-direction": {
     "authority": "control",
     "since": 6,
@@ -1575,9 +1633,17 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "pane_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
+      },
+      "tab_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1586,7 +1652,8 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+      "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
     ]
   },
   "new-pane-right": {
@@ -1610,9 +1677,17 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "pane-browser-kind-v1"
       },
+      "pane_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
+      },
+      "tab_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1626,7 +1701,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
-      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
+      "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
     ]
   },
   "new-row": {
@@ -2139,7 +2215,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -2514,9 +2590,17 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "pane-browser-kind-v1"
       },
+      "pane_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
+      },
+      "tab_id": {
+        "since": 12,
+        "capability": "split-client-keys-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -2531,7 +2615,8 @@ export const COMMAND_METADATA = {
     "constraints": [
       "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
       "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
-      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
+      "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
     ]
   },
   "subscribe": {
@@ -6962,6 +7047,68 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "opaque_json",
     "reason": "A pane named by its numeric id or its public pane_ id."
   },
+  "PaneSurfaceResult": {
+    "additional_properties": false,
+    "fields": {
+      "pane_id": {
+        "capability": "split-client-keys-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "replayed": {
+        "capability": "split-client-keys-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tab_id": {
+        "capability": "split-client-keys-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 9,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_incarnation": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 9,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "PingResult": {
     "additional_properties": false,
     "fields": {
@@ -8827,7 +8974,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "schema is 1.",
       "journal_writer is null for ephemeral sessions without a durable journal.",
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
-      "resource_projection is present only when the request names it in include."
+      "resource_projection is present only when the request names it in include.",
+      "write_path is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -8871,6 +9019,64 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "uptime_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "write_path": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsWritePath"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsWritePath": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start.",
+      "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    ],
+    "fields": {
+      "effect_intent_batches": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "effect_intent_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "effect_intents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "request_effect_commits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "writer_registry_locks": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15564,6 +15770,136 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ExportLayoutResult"
     }
   },
+  "feed-local-handoff-abort": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-handoff-begin": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-handoff-done": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "home": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "state": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminal_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "unread": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "items": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "focus-direction": {
     "request": {
       "additional_properties": false,
@@ -17709,6 +18045,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public pane id",
+              "pattern": "^pane_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -17730,6 +18083,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "tab_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public tab id",
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "terminal_id": {
@@ -17754,7 +18124,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "SurfaceResult"
+      "name": "PaneSurfaceResult"
     }
   },
   "new-pane-right": {
@@ -17829,6 +18199,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public pane id",
+              "pattern": "^pane_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -17850,6 +18237,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "tab_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public tab id",
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "terminal_id": {
@@ -17900,7 +18304,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "SurfaceResult"
+      "name": "PaneSurfaceResult"
     }
   },
   "new-row": {
@@ -21506,6 +21910,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public pane id",
+              "pattern": "^pane_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -21527,6 +21948,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "tab_id": {
+          "capability": "split-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public tab id",
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "terminal_id": {
@@ -21562,7 +22000,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "SurfaceResult"
+      "name": "PaneSurfaceResult"
     }
   },
   "subscribe": {
