@@ -263,6 +263,11 @@ extension SSHTuiLinkManager {
         private var localPort: UInt16?
         private var stopped = false
         private var onExit: (@Sendable () -> Void)?
+        private let clock: any Clock<Duration>
+
+        init(clock: any Clock<Duration> = ContinuousClock()) {
+            self.clock = clock
+        }
 
         /// The listener port while the child is running.
         var readyPort: UInt16? { process?.isRunning == true && !stopped ? localPort : nil }
@@ -314,7 +319,7 @@ extension SSHTuiLinkManager {
                 let port = try await withThrowingTaskGroup(of: UInt16?.self) { group in
                     group.addTask { await ready.result }
                     group.addTask {
-                        try await Task.sleep(for: .seconds(60))
+                        try await clock.sleep(for: .seconds(60))
                         throw CloudMachineLink.LinkError.timedOut
                     }
                     defer { group.cancelAll() }
@@ -351,8 +356,9 @@ extension SSHTuiLinkManager {
                 // Retain Process until its termination callback fires, even when the caller cancels.
                 let finished = Task.detached { await exit.result }
                 if process.isRunning { process.terminate() }
+                let clock = self.clock
                 let forceStop = Task.detached {
-                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                    do { try await clock.sleep(for: .seconds(3)) } catch { return }
                     if process.isRunning { kill(process.processIdentifier, SIGKILL) }
                 }
                 _ = await finished.value
