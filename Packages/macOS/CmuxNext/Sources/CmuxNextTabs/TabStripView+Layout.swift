@@ -134,6 +134,7 @@ extension TabStripView {
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
             trailing = max(trailing, m.x.value + width)
         }
+        TabOcclusion.apply(cells: cells, selected: model.selectedID.flatMap { dying.contains($0) ? nil : $0 }, in: tabsClip.layer)
         for group in groups.chips.keys {
             guard let m = motion[.groupChip(group)] else { continue }
             trailing = max(trailing, m.x.value + max(0, m.width.value))

@@ -15,7 +15,13 @@ final class TabCell {
 
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
-    var isSelected = false { didSet { if oldValue != isSelected { stateChanged(animated: false) } } }
+    var isSelected = false {
+        didSet {
+            guard oldValue != isSelected else { return }
+            updateStacking()
+            stateChanged(animated: false)
+        }
+    }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
@@ -26,6 +32,12 @@ final class TabCell {
     var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
+    /// A closing tab keeps the content it showed when the close began
+    /// (`TabCell+Motion`).
+    var isClosing = false { didSet { if oldValue != isClosing { closingChanged() } } }
+    var closingVisibility: TabChromeVisibility?
+    /// Created on the first occlusion (`occlude(by:)`).
+    lazy var occlusionMask = CALayer()
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
@@ -115,6 +127,7 @@ final class TabCell {
     }
 
     func update(item newItem: TabItem) {
+        isClosing = false // a tab the model still lists is not closing
         guard newItem != item else { return }
         let previous = item
         item = newItem
@@ -196,7 +209,7 @@ final class TabCell {
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
-        layer.zPosition = isLifted ? 10 : 0
+        updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         updateColors(animated: true)
     }
@@ -251,7 +264,7 @@ final class TabCell {
         // The pill leaves the gap to the next tab at its trailing side (the
         // first pill starts on the border's line); content lays out in it.
         let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
-        visibility = TabChromeVisibility.resolve(
+        visibility = closingVisibility ?? TabChromeVisibility.resolve(
             width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
