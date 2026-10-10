@@ -122,6 +122,11 @@ TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
 GROUP_SLEEP = re.compile(r"\bsleep\((for|until):")
 
+# CmuxNextCompat implements the sanctioned Mutex (the Synchronization.Mutex API
+# on macOS 14, plans/cmux-next/macos-floor.md) over os_unfair_lock; everyone
+# else uses that Mutex instead of a raw lock.
+LOCK_PRIMITIVES_MODULES = {"CmuxNextCompat"}
+
 SERVICE_MODULES = {"CmuxNextDaemon", "CmuxNextCloud", "CmuxNextMobile", "CmuxNextControl"}
 SERVICE_APP_FILE = re.compile(r"^CmuxNextApp/(Cloud/.*|.*(Service|Store)(\+\w+)?\.swift)$")
 # A `Task {` that starts a statement: its handle is discarded.
@@ -195,7 +200,8 @@ for dirpath, _, files in os.walk(sources):
                 continue
             code = line.split("//", 1)[0] if "//" in line and '"' not in line else line
             rules = rules_all + (rules_main if main_lines[index] else [])
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)]
+            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                    and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
