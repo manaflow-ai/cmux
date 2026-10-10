@@ -483,8 +483,9 @@ final class CloudWorkspaceCreationCoordinator {
             try check(operation, catalog: catalog)
         }
         // Discover a new machine's seeded workspace only after the manual pane
-        // can accept input. Keep the resolver for a failed discovery's retry so
-        // an unavailable graph can never become an implicit workspace create.
+        // can accept input. An authoritative empty graph or a graph that has
+        // not populated yet falls through to the daemon's create receipt; an
+        // ambiguous graph is still rejected by the resolver.
         if operation.receipt == nil, existingWorkspace == nil,
            let resolve = operation.resolveExistingWorkspace {
             let existing = try await resolve()
