@@ -484,6 +484,17 @@ struct CoderouterAccountStateTests {
         #expect(state.destination(for: Self.teamB) == nil)
     }
 
+    @Test("A cloud scope notification drops rows before the confirmed team changes")
+    func scopeChangeNotificationClearsRows() {
+        var state = loaded(Self.teamA, ["a1"])
+        state.resetForTeamScopeChange()
+
+        #expect(state.scope == nil)
+        #expect(state.accounts.isEmpty)
+        #expect(state.destination(for: Self.teamA) == nil)
+        #expect(!state.isLoadingScope)
+    }
+
     @Test("Changing the signed-in identity clears rows even when the team is unchanged")
     func identityChangeClearsRows() {
         var state = loaded(Self.teamA, ["a1"])
