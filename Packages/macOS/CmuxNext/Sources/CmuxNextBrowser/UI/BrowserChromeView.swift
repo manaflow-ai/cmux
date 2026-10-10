@@ -63,7 +63,7 @@ public final class BrowserChromeView: NSView {
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
-    let pageOverlays = PageFloatingOverlays()
+    lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
     /// Bound in setup (first read there), never an IUO.
     lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
         // A deallocated chrome view's constraint is never laid out again.

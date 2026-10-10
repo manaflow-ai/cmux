@@ -60,6 +60,6 @@ extension BrowserChromeView {
     /// Places the floating page cards over the page area (or takes them
     /// off screen while this chrome is out of a window or hidden).
     func syncPageOverlays() {
-        pageOverlays.sync(over: contentContainer)
+        pageOverlays.sync()
     }
 }
