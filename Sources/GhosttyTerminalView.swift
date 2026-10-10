@@ -8565,7 +8565,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                   for: .left,
                   on: currentGhosttyMouseSurfaceIdentity
               ) else { return false }
-        terminalPointerGesture.markDragged()
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged()
+        }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
@@ -9838,7 +9840,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pressedCodexActionCommand = nil
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
-        terminalPointerGesture.markDragged()
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged()
+        }
         let mouseState = rememberGhosttyMouseState(from: event)
         copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
