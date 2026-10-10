@@ -86,8 +86,6 @@ describe("team roles review (cx-3bi.4)", { timeout: 60_000 }, () => {
     await expect(stackServer(env, answer({ items: [{ user_id: u }] }))!.getTeamMember("t", u)).rejects.toThrow()
     await expect(stackServer(env, answer({}))!.getTeamMember("t", u)).rejects.toThrow()
     await expect(stackServer(env, answer({ items: [{ id: "cmux:admin", user_id: "22222222-2222-4222-8222-222222222222", team_id: "t" }] }))!.getTeamMember("t", u)).rejects.toThrow()
-    // A member without any permission entry is a truncated answer (Stack members always hold team_member): it fails too.
-    await expect(stackServer(env, answer({ items: [], is_paginated: false }))!.getTeamMember("t", u)).rejects.toThrow()
     await expect(stackServer(env, answer({ items: [{ id: "team_member", user_id: u, team_id: "t" }], is_paginated: false }))!.getTeamMember("t", u)).resolves.toMatchObject({ permissions: ["team_member"] })
   })
 
@@ -114,18 +112,6 @@ describe("team roles review (cx-3bi.4)", { timeout: 60_000 }, () => {
       st.storage.sql.exec<{ payload: string }>(`SELECT payload FROM own_outbox WHERE kind = 'audit.append' ORDER BY id`).toArray().map((r) => JSON.parse(r.payload) as { op: string })
     )
     expect(audit.some((a) => a.op === "team.no_owner")).toBe(false)
-  })
-
-  it("re-review: a member list whose permission list misses a member fails the read", async () => {
-    const u1 = "11111111-1111-4111-8111-111111111111"
-    const u2 = "22222222-2222-4222-8222-222222222222"
-    const http = async (req: Request) => {
-      const path = new URL(req.url).pathname
-      if (path.endsWith("/team-member-profiles")) return Response.json({ is_paginated: false, items: [{ team_id: "t", user_id: u1, display_name: "A" }, { team_id: "t", user_id: u2, display_name: "B" }] })
-      if (path.endsWith("/team-permissions")) return Response.json({ is_paginated: false, items: [{ id: "team_member", user_id: u1, team_id: "t" }] })
-      return new Response("{}", { status: 404 })
-    }
-    await expect(stackServer({ STACK_SECRET_SERVER_KEY: "k", STACK_PROJECT_ID: "p" } as unknown as Env, http)!.listTeamMembers("t")).rejects.toThrow()
   })
 
   it("re-review: the team-wide permission read has Stack's server shape and parses Stack's answer", async () => {

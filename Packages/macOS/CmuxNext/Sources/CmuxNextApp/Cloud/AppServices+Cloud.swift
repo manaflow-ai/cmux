@@ -33,6 +33,7 @@ extension AppServices {
 
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
+        cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
         let cloud = cloud, machines = machines
         return Task { [weak self] in
