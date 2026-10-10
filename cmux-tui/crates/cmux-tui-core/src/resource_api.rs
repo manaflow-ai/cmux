@@ -842,6 +842,3 @@ fn public_browser_snapshot(
         },
     })
 }
-
-#[cfg(test)]
-mod tests;
