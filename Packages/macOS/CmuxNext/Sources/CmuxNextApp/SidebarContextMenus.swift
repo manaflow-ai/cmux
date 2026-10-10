@@ -15,7 +15,10 @@ enum SidebarContextMenus {
         case .workspaces(let ids):
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
             guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder || CloudCreationRows.isRow($0, services) }) else { return nil }
-            return registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue))
+            // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
+            let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
+            let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
+            return registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue), entries: entries)
         case .group(let id):
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
         case .section(.machine(let machine)) where services.machines.sshSession(machine.rawValue) != nil:

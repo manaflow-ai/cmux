@@ -84,9 +84,14 @@ render "$P.daemon" "$BRAIN/logs/daemon.log" \
   "$(xml_args "$BRAIN/bin/cmux-tui" --headless --socket "$SOCK")" \
   "$(xml_env ACPMUX_HOME "$BRAIN/acpmux" CMUX_TUI_CHIEF_TOOLS_SOCKET "$BRAIN/mux/optchat/tools.sock")"
 # The acpmux agent is the daemon's only supervisor; the host waits for it (OPTCHAT_ACPMUX_SUPERVISED=1).
+# acpmux fills the Chief's built-in presets from its own environment (acpmux
+# config/chief_builtins.rs): the Chief home for codex homes, and the cmux links a
+# subagent pins (the host's pinned env, optchat-chief cmux_env).
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \
-  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux")"
+  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_CHIEF_MUX_HOME "$BRAIN/mux" \
+      CMUX_TUI_SOCKET "$SOCK" CMUX_MUX_SOCKET "$SOCK" CMUX_CHIEF_OWNER_SOCKET "$SOCK" \
+      CMUX_BUNDLED_CLI_PATH "$BRAIN/bin/cmux")"
 host_env=(MUX_HOME "$BRAIN/mux" ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_SOCKET "$BRAIN/acpmux/acpmux.sock"
   ACPMUX_BIN "$BRAIN/bin/acpmux" CMUX_DAEMON_SOCKET "$SOCK" OPTCHAT_ACPMUX_SUPERVISED 1)
 [[ -z "$HARNESS" ]] || host_env+=(MUX_HARNESS "$HARNESS")

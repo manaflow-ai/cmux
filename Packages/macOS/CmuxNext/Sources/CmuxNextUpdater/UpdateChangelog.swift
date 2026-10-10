@@ -5,7 +5,9 @@ public import Foundation
 /// a short version, the build date, and the first lines of its changelog.
 /// The lines come from the appcast item's `<description>` (nightly-next
 /// writes "New: …" lines there) or from the build's signed release notes.
-nonisolated public struct UpdateChangelog: Equatable, Sendable {
+/// Codable: What's New persists the staged changelog across the update
+/// relaunch (cx-ncc.45).
+nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
     /// Lines the cards show.
     public static let shownLines = 4
 
