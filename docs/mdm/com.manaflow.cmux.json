@@ -58,6 +58,14 @@
       "title" : "Show Context Usage",
       "type" : "boolean"
     },
+    "agentPane.zoom" : {
+      "default" : 1,
+      "description" : "The display size for agent chat. Cmd-0 resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
