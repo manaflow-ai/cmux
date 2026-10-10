@@ -25,7 +25,7 @@ extension AgentPaneView {
         lines.append(String(format: harnessEnableHash, show(prompt.sha256)))
         return CmuxDialogSpec(title: String(format: harnessEnableTitle, show(prompt.id)), lines: lines,
                               buttons: [.cancel(), CmuxDialogButton(id: "enable", title: harnessEnableButton, role: .destructive)],
-                              identifier: harnessEnableIdentifier)
+                              identifier: harnessEnableIdentifier, confirmKind: .trust)
     }
 
     /// The sheet's dialog identifier. Only the user answers it: `debug.dialog` may dismiss it

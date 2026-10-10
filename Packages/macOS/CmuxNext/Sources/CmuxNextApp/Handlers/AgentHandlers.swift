@@ -115,7 +115,12 @@ enum AgentHandlers {
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.runPermissionAction(command)
+                // An Allow answers only the request its confirmation named (cx-zk9t).
+                guard ["permissionAllowOnce", "permissionAllowChat"].contains(command) else { return view.runPermissionAction(command) }
+                guard let pin = AgentPanePermissionPin(argumentText: invocation[ActionEffectPin.permissionArgument]?.stringValue) else {
+                    return context.refuse(RefusalStrings.changedWhileConfirming)
+                }
+                pin.answer(command, in: view)
             })
         }
         // Continue in… is a user-facing chooser. Headless callers use the

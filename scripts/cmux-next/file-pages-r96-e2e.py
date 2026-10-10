@@ -199,7 +199,14 @@ def quit_app(app, unsaved_button):
     expect(f"the quit asks about unsaved changes ({unsaved_button})", dialog is not None, json.dumps(rpc("debug.dialog"))[:400])
     if dialog:
         snapshot(f"quit-unsaved-{unsaved_button}")
-        print(f"press {unsaved_button}: {rpc('debug.dialog', {'id': dialog['id'], 'press': unsaved_button})}", flush=True)
+        reply = rpc("debug.dialog", {"id": dialog["id"], "press": unsaved_button}) or {}
+        print(f"press {unsaved_button}: {reply}", flush=True)
+        if unsaved_button == "dont-save":
+            # Don't Save answers only to the user (cx-zk9t): the press is refused. Cancel the
+            # quit, drop the changes with the DEBUG test fixture, then quit with no question.
+            expect("automation may not press Don't Save", (reply.get("refused") or {}).get("confirm_kind") == "destructive",
+                   json.dumps(reply)[:300])
+            discard_unsaved_and_requit(dialog["id"])
     if wait(lambda: (rpc("debug.quit") or {}).get("asking"), 5):
         rpc("debug.quit", {"press": "quit"})
     try:
@@ -208,6 +215,15 @@ def quit_app(app, unsaved_button):
     except subprocess.TimeoutExpired:
         app.send_signal(signal.SIGKILL)  # the PID launched here, never a pattern
         failures.append(f"quit {app.pid}")
+
+
+def discard_unsaved_and_requit(dialog_id):
+    """Dismisses the unsaved-changes question (the quit stops), drops the changes through the
+    DEBUG fixture `debug.quit {fixture_discard_unsaved}`, and quits again."""
+    rpc("debug.dialog", {"id": dialog_id, "dismiss": True})
+    print(f"fixture discard: {rpc('debug.quit', {'fixture_discard_unsaved': True})}", flush=True)
+    wait(lambda: (rpc("debug.quit") or {}).get("unsaved_documents") == 0 and not (rpc("debug.quit") or {}).get("quitting"), 10)
+    print(f"debug.quit open: {rpc('debug.quit', {'open': True})}", flush=True)
 
 
 def edit_code(letter):
@@ -341,11 +357,11 @@ try:
 finally:
     for app in launched:
         if app.poll() is None:
-            rpc("debug.quit", {"open": True})
-            time.sleep(1)  # test harness: the quit sheet, if any
             for dialog in dialogs():
-                rpc("debug.dialog", {"id": dialog["id"], "press": "dont-save"})
-            rpc("debug.quit", {"press": "quit"})
+                rpc("debug.dialog", {"id": dialog["id"], "dismiss": True})
+            rpc("debug.quit", {"fixture_discard_unsaved": True})
+            time.sleep(1)  # test harness: the discard lands
+            rpc("action.run", {"id": "quitKeepSessions"})
             try:
                 app.wait(timeout=20)
             except subprocess.TimeoutExpired:

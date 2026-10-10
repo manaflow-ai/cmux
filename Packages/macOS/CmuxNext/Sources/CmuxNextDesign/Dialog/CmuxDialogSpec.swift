@@ -19,9 +19,15 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var icon: Data?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
+    /// What every non-cancel button grants unless it names its own kind
+    /// (`CmuxDialogButton.confirmKind`). A button whose kind is not `none` is
+    /// pressed only by the person; automation may read the dialog, press a
+    /// `none` button, cancel or dismiss it (`CmuxDialogCenter.automationRefusal`).
+    public var confirmKind: CmuxDialogConfirmKind
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil,
+                confirmKind: CmuxDialogConfirmKind = .none) {
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -29,6 +35,20 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.buttons = buttons
         self.icon = icon
         self.identifier = identifier
+        self.confirmKind = confirmKind
+    }
+
+    /// What pressing `button` grants: its own kind, else the dialog's; `none` for a cancel button.
+    public func confirmKind(of button: CmuxDialogButton) -> CmuxDialogConfirmKind {
+        if button.role == .cancel { return .none }
+        return button.confirmKind.isUserOnly ? button.confirmKind : confirmKind
+    }
+
+    /// The first user-only kind among the buttons, else `none`: the dialog's kind as
+    /// automation and accessibility see it. While it is not `none`, its fields and
+    /// typing answer only to the person.
+    public var userOnlyKind: CmuxDialogConfirmKind {
+        buttons.lazy.map(confirmKind(of:)).first(where: \.isUserOnly) ?? .none
     }
 
     /// The button Return presses: the first `.default`, else none.

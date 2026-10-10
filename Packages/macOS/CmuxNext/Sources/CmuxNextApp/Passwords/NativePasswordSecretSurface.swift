@@ -18,7 +18,8 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
         let text = secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
         let spec = CmuxDialogSpec(
             title: site, lines: username.isEmpty ? [] : [username], fields: [.preview(text)],
-            buttons: [CmuxDialogButton(id: "copy", title: PasswordStrings.copyPassword), .ok(PasswordStrings.done)],
+            // Copying the password hands it over (consent, cx-zk9t); Done does not.
+            buttons: [CmuxDialogButton(id: "copy", title: PasswordStrings.copyPassword, confirmKind: .consent), .ok(PasswordStrings.done)],
             identifier: "cmux.passwords.reveal")
         let scope: CmuxDialogScope = anchor?.window.map { .window($0) } ?? .app
         if await center.present(spec, in: scope).button == "copy" { pasteboard.write(secret) }

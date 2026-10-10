@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextLayout
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// `debug.mouse` (DEBUG builds): synthesized mouse events for one of this
@@ -32,6 +33,11 @@ enum DebugMouse {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }
+        // Posted clicks never answer a user-only dialog (cx-zk9t).
+        if let refusal = CmuxDialogCenter.shared.inputRefusal(over: window, step: "debug.mouse") {
+            return .object(["error": .string(refusal.message), "refused": .object(["dialog": .number(Double(refusal.dialog)),
+                                                                                     "confirm_kind": .string(refusal.kind.rawValue)])])
+        }
         guard let point = point(params, controller: controller, window: window) else {
             return .object(["error": .string("pass x and y, or a pane shown in the window")])
         }
