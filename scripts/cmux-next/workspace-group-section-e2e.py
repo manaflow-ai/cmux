@@ -133,6 +133,12 @@ def holds(item, entry):
     return any(ref.endswith(":" + i) for i in ids(entry))
 
 
+def refused(reply):
+    """The action ran and refused (an error that is not `not_found`, the unknown-action error)."""
+    error = (reply or {}).get("error")
+    return bool(error) and not (isinstance(error, dict) and error.get("code") == "not_found")
+
+
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
@@ -169,10 +175,10 @@ def main():
     again = action("workspaceGroup.addToSection", {"section": title}, target="workspace-group:" + group)
     row("Adding it again is refused, not duplicated", "an error naming the members already there; no new items",
         f"reply {again}; member items {len([i for i in workspace_items() if any(holds(i, m) for m in members)])}",
-        "error" in (again or {}) and len([i for i in workspace_items() if any(holds(i, m) for m in members)]) == len(added))
+        refused(again) and len([i for i in workspace_items() if any(holds(i, m) for m in members)]) == len(added))
 
-    refused = action("workspaceGroup.addToSection", {"section": "no such section e2e"}, target="workspace-group:" + group)
-    row("An unknown section is refused", "an error", f"reply {refused}", "error" in (refused or {}))
+    unknown = action("workspaceGroup.addToSection", {"section": "no such section e2e"}, target="workspace-group:" + group)
+    row("An unknown section is refused", "a refusal", f"reply {unknown}", refused(unknown))
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "workspace-group-section.png")})
 
 
