@@ -44,7 +44,7 @@ struct CloudMachineCreateFlow {
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     var newKey: () -> String = { UUID().uuidString }
-    /// Same-key retries after the approval before ``Failure/stillPending``.
+    /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
 
     /// The default machine size (the stub plan's smallest; the backend
@@ -74,8 +74,8 @@ struct CloudMachineCreateFlow {
                 if let approved {
                     // The answer is in; the approved op runs in the backend.
                     guard approved == request, attempt < retries else { throw Failure.stillPending(request: request) }
-                    attempt += 1
                     try await pause(attempt)
+                    attempt += 1
                     continue
                 }
                 if !confirmed {
@@ -84,6 +84,8 @@ struct CloudMachineCreateFlow {
                 }
                 try await approve(request)
                 approved = request
+                // The call right after the answer is the first same-key retry.
+                attempt = 1
             }
         }
     }
