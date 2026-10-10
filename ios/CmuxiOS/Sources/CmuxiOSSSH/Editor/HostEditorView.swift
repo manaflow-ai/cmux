@@ -28,6 +28,8 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
         let button = UIButton(type: .system)
         button.addTarget(context.coordinator, action: #selector(Coordinator.pressed(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = "ssh.editor.save"
+        button.isEnabled = isEnabled
+        button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         return button
     }
 
@@ -35,6 +37,7 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
         button.setTitle(title, for: .normal)
         button.isEnabled = isEnabled
         button.accessibilityIdentifier = "ssh.editor.save"
+        button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         context.coordinator.action = action
     }
 }
