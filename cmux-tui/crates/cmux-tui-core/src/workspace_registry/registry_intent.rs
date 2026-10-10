@@ -203,6 +203,10 @@ impl RegistryConnection {
     /// new commit prepared before then could read a topology, a fold or a
     /// revision that the late commit is about to change. Errors when one is
     /// still unanswered after the wait.
+    ///
+    /// It holds the `unsettled` mutex across the wait. Callers must hold the
+    /// workspace registry (all do): the writer takes neither the registry
+    /// nor this mutex, so the wait cannot form a cycle.
     pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
         let mut unsettled =
             self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

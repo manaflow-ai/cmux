@@ -105,7 +105,10 @@ impl JournalIngressSender {
             // as before the writer took registry commits.
             return match event.event {
                 JournalIngressEvent::Effect(intent) => EffectSend::NotQueued(intent),
-                _ => EffectSend::Sent(Err(anyhow::Error::msg(error))),
+                _ => {
+                    debug_assert!(false, "the durable lane returned a different event");
+                    EffectSend::Sent(Err(anyhow::Error::msg(error)))
+                }
             };
         }
         let waited = Instant::now();
