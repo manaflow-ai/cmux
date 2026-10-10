@@ -392,6 +392,31 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).
+    UserPresenceKeyListOp {
+        name: "user.presence_key.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Install],
+        params: UserPresenceKeyListParams,
+        result: Value,
+        error: UserPresenceKeyListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserPresenceKeyListParams {}
+
+wire_errors! {
+    /// The error codes user.presence_key.list declares.
+    UserPresenceKeyListError {
+        AuthForbidden = "auth.forbidden",
+    }
+}
+
+wire_op! {
     /// Make an install's presence key unusable at once (device lost); its nonces are dropped.
     UserPresenceKeyRevokeOp {
         name: "user.presence_key.revoke",

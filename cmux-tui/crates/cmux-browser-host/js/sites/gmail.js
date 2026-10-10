@@ -73,6 +73,81 @@
     return { subject: clean((document.querySelector("h2.hP") || {}).textContent), messages };
   }
 
+  // The recipients and subject a compose window (a new message's, or the
+  // reply composer in a thread) holds, read in the agent's world (ported
+  // from classic readComposeHeader): per row (To, Cc, Bcc, found by the
+  // row's "<Row> recipients" input), each address chip (data-hovercard-id,
+  // or email in older layouts) and any address typed into the row's input;
+  // `rows` the rows it found; `other` the chips in the compose window
+  // outside every row (a row it cannot find holds them); `subject` the
+  // subjectbox value (null when there is none). The window's elements are
+  // read one at a time within the page-read budget; past it the answer is
+  // null (unreadable, so nothing is sent).
+  function readComposeHeader(arg) {
+    const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
+    const isBox = (b) => !b.closest(".a3s, .gmail_quote") && !(b.parentElement && b.parentElement.closest('[contenteditable], [role="textbox"]'));
+    const boxes = document.querySelectorAll('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
+    // The composer the helper types in: the first for a new message, the
+    // last (the newest reply) in a thread.
+    let box = null;
+    for (let i = 0; i < boxes.length && B.spend(1); i++) {
+      if (!isBox(boxes[i])) continue;
+      box = boxes[i];
+      if (arg && arg.first) break;
+    }
+    if (!box) return null;
+    // The compose window: the nearest ancestor of the composer that holds a
+    // To row (an inline reply is no dialog and may sit outside a form).
+    // Never the whole document: a thread's sender names carry addresses too.
+    const TO = 'input[aria-label="To recipients" i], textarea[aria-label="To recipients" i], input[name="to"], textarea[name="to"]';
+    let root = box.parentElement;
+    for (let depth = 0; root && root !== document.body && !root.querySelector(TO); depth++, root = root.parentElement) if (depth > 60 || !B.spend(1)) return null;
+    if (!root || root === document.body) return null;
+    const inputs = { to: null, cc: null, bcc: null };
+    const chips = [];
+    let subjectBox = null;
+    const walker = document.createTreeWalker(root, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+      if (!B.spend(1)) return null;
+      const tag = el.localName;
+      if (tag === "input" || tag === "textarea") {
+        const label = String(el.getAttribute("aria-label") || "").trim().toLowerCase();
+        for (const field of Object.keys(inputs)) if (!inputs[field] && (label === `${field} recipients` || el.getAttribute("name") === field)) inputs[field] = el;
+        if (!subjectBox && el.getAttribute("name") === "subjectbox") subjectBox = el;
+      }
+      if (String(el.getAttribute("data-hovercard-id") || "").includes("@") || el.hasAttribute("email")) chips.push(el);
+    }
+    const address = (e) => String(e.getAttribute("data-hovercard-id") || e.getAttribute("email") || "").trim().toLowerCase();
+    // The From row (send-as aliases carry addresses) is not a recipient row.
+    const from = root.querySelector('input[name="from"], select[name="from"], [name="from"]');
+    let fromRow = from;
+    const recipientInputs = Object.values(inputs).filter(Boolean);
+    while (fromRow && fromRow.parentElement && fromRow.parentElement !== root && !recipientInputs.some((i) => fromRow.parentElement.contains(i))) fromRow = fromRow.parentElement;
+    if (fromRow) for (let i = chips.length - 1; i >= 0; i--) if (fromRow.contains(chips[i])) chips.splice(i, 1);
+    const others = (field) => Object.keys(inputs).filter((f) => f !== field && inputs[f]).map((f) => inputs[f]);
+    const seen = new Set();
+    const rows = {};
+    for (const field of Object.keys(inputs)) {
+      const list = [];
+      rows[field] = list;
+      const input = inputs[field];
+      if (!input) continue;
+      // The row: the widest ancestor of the input in the compose window
+      // that holds no other row's input.
+      let row = input;
+      while (row.parentElement && row.parentElement !== root && root.contains(row.parentElement) && !others(field).some((o) => row.parentElement.contains(o))) row = row.parentElement;
+      for (const chip of chips) {
+        if (!row.contains(chip)) continue;
+        seen.add(chip);
+        list.push(address(chip));
+      }
+      for (const typed of B.head(String(input.value || "")).split(/[,;\s]+/)) if (typed.includes("@")) list.push(typed.replace(/^.*<|>.*$/g, "").trim().toLowerCase());
+    }
+    const other = chips.filter((c) => !seen.has(c) && !(box && box.contains(c))).map(address);
+    return { to: rows.to, cc: rows.cc, bcc: rows.bcc, rows: Object.keys(inputs).filter((f) => inputs[f]), other, subject: subjectBox ? B.head(String(subjectBox.value)) : null };
+  }
+
   // "thread-f:1784...", "#thread-f:...", a legacy hex id, or a Gmail URL -> hex id for #all/.
   function threadKey(input) {
     const s = String(input || "").trim();
@@ -124,14 +199,52 @@
         });
       }
 
+      const addresses = (list) => [...new Set((list || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+      // The compose window's header, or null when its rows cannot be read.
+      // A reply's recipients come from Gmail (the thread's Reply-To, Reply
+      // all's Cc), so a reply composer with no To row it recognizes, or with
+      // an address outside its rows, counts as unreadable: its recipients
+      // could be shown to no one and still be sent to.
+      async function readHeader(page, reply) {
+        const held = await t.readBack(page, readComposeHeader, { first: !reply });
+        if (!held || !Array.isArray(held.rows)) return null;
+        if (reply && (!held.rows.includes("to") || (held.other && held.other.length))) return null;
+        return held;
+      }
+      // What the compose window would send to: per row, plus any address
+      // outside every row, which counts as an extra To.
+      const heldRecipients = (held) => (held ? { to: addresses(held.to).concat(addresses(held.other).map((e) => `${e} (outside the To, Cc and Bcc rows)`)), cc: addresses(held.cc), bcc: addresses(held.bcc) } : {});
+      const replyButton = (page, replyAll) => page.locator(replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
+      const composerBox = (page) => page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
+
+      // At draft time: who Gmail's Reply (all) addresses, read from its
+      // reply composer, which is then left with nothing typed (the tab
+      // closes; Gmail keeps no draft of it). The send compares the reply
+      // composer with these.
+      async function previewReply(msg) {
+        const key = threadKey(msg.threadId);
+        return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
+          await openThread(page);
+          await replyButton(page, msg.replyAll).last().click();
+          await composerBox(page).last().waitFor({ timeout: 20000 });
+          const held = await readHeader(page, true);
+          if (!held) throw new S.SiteError("target_unverified", "gmail.send: cannot read who Gmail's reply composer addresses (no To row it recognizes, or an address outside its rows); nothing was drafted. Reply from Gmail itself, or send a new message with explicit recipients");
+          const recipients = heldRecipients(held);
+          // Page-made strings go into the draft the user sees: only plain
+          // email addresses are accepted.
+          for (const a of [...recipients.to, ...recipients.cc, ...recipients.bcc]) if (a.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(a)) throw new S.SiteError("target_unverified", "gmail.send: Gmail's reply composer holds a recipient that is not a plain email address; nothing was drafted");
+          if (!recipients.to.length && !recipients.cc.length && !recipients.bcc.length) throw new S.SiteError("target_unverified", "gmail.send: Gmail's reply composer addresses no one; nothing was drafted");
+          return recipients;
+        });
+      }
+
       async function sendNow(msg) {
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
             await openThread(page);
-            const button = page.locator(msg.replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
-            await button.last().click();
-            const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').last();
+            await replyButton(page, msg.replyAll).last().click();
+            const box = composerBox(page).last();
             await box.waitFor({ timeout: 20000 });
             await box.click();
             await page.keyboard.insertText(msg.body);
@@ -144,7 +257,7 @@
         q.set("body", msg.body);
         return t.withTab(`${base(msg.uid)}?${q}`, async (page) => {
           t.assertSignedIn("gmail.send", page, SIGN_IN);
-          const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
+          const box = composerBox(page).first();
           await box.waitFor({ timeout: 30000 });
           return finishSend(page, box, msg);
         });
@@ -156,6 +269,14 @@
         // The whole body the compose window holds, right before Send,
         // without Gmail's own signature and quoted text.
         await t.checkComposer("gmail.send", box, msg.body, { exclude: GMAIL_OWN, what: "sent" });
+        // The recipients (as address sets) and, for a new message, the
+        // subject, right before Send: a reply's are the ones its draft read
+        // from Gmail's reply composer.
+        const held = await readHeader(page, !!msg.threadId);
+        const shown = heldRecipients(held);
+        if (!msg.threadId) shown.subject = held && held.subject !== null ? t.normText(held.subject) : null;
+        const want = msg.threadId ? { to: msg.recipients.to, cc: msg.recipients.cc, bcc: msg.recipients.bcc } : { to: addresses(msg.to), cc: addresses(msg.cc), bcc: addresses(msg.bcc), subject: t.normText(msg.subject) };
+        t.checkFields("gmail.send", shown, want, { what: "sent" });
         await page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last().click();
         await t.waitIn(page, () => /Message sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 30000, what: "Gmail to confirm the message was sent" });
         // Gmail holds a sent message for its undo window in this page; keep
@@ -207,12 +328,19 @@
             if (msg.threadId) threadKey(msg.threadId);
             else if (!msg.to.length && !msg.cc.length && !msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a new message needs at least one recipient");
             if (!msg.body.trim() && !m.allowEmptyBody) throw new S.SiteError("invalid", "gmail.send: the body is empty; pass allowEmptyBody: true if that is intended");
-            return {
+            const draft = () => ({
               category: "[9] representational communication; [14] transmits data to the recipients",
-              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} as account u/${msg.uid}` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from account u/${msg.uid}: "${msg.subject}"`,
-              preview: msg.threadId ? { account: msg.uid, threadId: msg.threadId, replyAll: msg.replyAll, body: msg.body } : { account: msg.uid, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
+              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} as account u/${msg.uid} to ${[...msg.recipients.to, ...msg.recipients.cc, ...msg.recipients.bcc].join(", ")}` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from account u/${msg.uid}: "${msg.subject}"`,
+              preview: msg.threadId ? { account: msg.uid, threadId: msg.threadId, replyAll: msg.replyAll, ...msg.recipients, body: msg.body } : { account: msg.uid, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
               run: () => sendNow(msg),
-            };
+            });
+            // A reply's recipients are Gmail's: read them now, so the draft
+            // shows them and the send checks them.
+            if (!msg.threadId) return draft();
+            return previewReply(msg).then((recipients) => {
+              msg.recipients = recipients;
+              return draft();
+            });
           });
         },
       };

@@ -105,6 +105,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 actionID: actionID
             )
             item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
+            item.suggestedRank = descriptor.paletteSuggestionRank
             items.append(item)
         }
         return items

@@ -13,8 +13,10 @@ Page.goto = function (url, options) {
   let local = null;
   if (u.host === "x.com" && u.pathname === "/intent/post") local = `site=x&text=${encodeURIComponent(u.searchParams.get("text") || "")}`;
   else if (u.host === "www.linkedin.com" && u.pathname === "/feed/") local = `site=linkedin&text=${encodeURIComponent(u.searchParams.get("text") || "")}`;
-  else if (u.host === "mail.google.com" && u.searchParams.get("view") === "cm") local = `site=gmail&body=${encodeURIComponent(u.searchParams.get("body") || "")}`;
-  if (local) url = `${PRIMARY}/composer.html?${local}${tamper ? "&tamper=1" : ""}`;
+  // Gmail's compose window (recipient rows, subject, signature) is
+  // fixtures/site-forms.html's.
+  if (u.host === "mail.google.com" && u.searchParams.get("view") === "cm") url = `${PRIMARY}/site-forms.html?site=gmail&${u.searchParams}${tamper ? "&tamper=body" : ""}`;
+  else if (local) url = `${PRIMARY}/composer.html?${local}${tamper ? "&tamper=1" : ""}`;
   return realGoto.call(this, url, options);
 };
 const draftText = "A post the user approved, with a link https://example.com/a and a long ending that must arrive whole.";
