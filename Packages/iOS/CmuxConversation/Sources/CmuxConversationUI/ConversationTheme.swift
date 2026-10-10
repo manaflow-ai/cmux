@@ -266,12 +266,6 @@ enum ConversationTheme {
             : UIColor(white: 0, alpha: 0.22)
     }
 
-    static let badgeFill = UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 34 / 255, green: 33 / 255, blue: 30 / 255, alpha: 1)
-            : UIColor(red: 0.90, green: 0.90, blue: 0.92, alpha: 1)
-    }
-
     /// Body paragraph with the measured 24 pt pitch, glyphs vertically centered in the line.
     static var bodyParagraph: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
