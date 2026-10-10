@@ -27,7 +27,7 @@ struct CloudTreeRowHoverButtons: View {
             .help(CoderouterGuideView.summary)
             .accessibilityIdentifier("CoderouterGuideButton")
         case .coderouterAccount(let account):
-            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) {
+            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account…")) {
                 nodeActions.removeCoderouterAccount(account)
             }
         case .coderouterProviderGroup(let provider, _):
@@ -125,14 +125,14 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.newTerminal(machine, workspace.id)
                 }
                 if !machine.isLocal {
-                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) {
+                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace…")) {
                         nodeActions.closeWorkspace(machine, workspace)
                     }
                 }
             }
         case .terminal(let row):
             if !row.resource.machine.isLocal {
-                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
+                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal…")) {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
@@ -172,10 +172,15 @@ struct CloudTreeRowHoverButtons: View {
     }
 
     /// True when the row's buttons stay visible without hover. Machine rows
-    /// keep + and ⋯ on screen so their actions are discoverable at rest.
+    /// keep their actions on screen, and the CodeRouter guide stays visible so
+    /// the feature can explain itself before an account is configured.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
-        if case .machine = kind { return true }
-        return false
+        switch kind {
+        case .machine, .coderouterSection:
+            return true
+        default:
+            return false
+        }
     }
 
     /// The Displays affordance remains visible while guest discovery is pending

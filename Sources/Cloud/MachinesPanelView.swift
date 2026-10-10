@@ -496,6 +496,12 @@ struct MachinesPanelView: View {
         nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
         nodeActions.removeCoderouterAccount = { [self] account in removeCoderouterAccount(account) }
         nodeActions.refreshCoderouter = { [self] in requestCoderouterRefresh() }
+        nodeActions.openCoderouterGuidePane = { [weak tabManager] in
+            guard let workspace = tabManager?.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first else { return }
+            _ = workspace.openOrFocusCoderouterGuideSurface(inPane: paneId, focus: true)
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],

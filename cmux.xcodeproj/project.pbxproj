@@ -1670,6 +1670,7 @@
 		44B5601F54D3BB5BD1B5F913 /* CoderouterAccountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */; };
 		C7FE4192A06F41C15B58BD85 /* CoderouterCLIAccountReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */; };
 		AA5547F98E95C043FFD28413 /* CoderouterCLIAccountReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */; };
+		BC856782F59C93A602631529 /* CoderouterGuidePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0F83C7F2A3610B47B436EF /* CoderouterGuidePanel.swift */; };
 		67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */; };
 		ECC272858DDDFFEA5700CCE4 /* CoderouterProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */; };
 		C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */; };
@@ -2853,6 +2854,7 @@
 		C0DE86520000000000000115 /* QuickLookPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000116 /* QuickLookPreviewView.swift */; };
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
+		EA47105022900E2647152148 /* RapidSwitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */; };
 		5C0C4A1E0000000000000003 /* RCChannelIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0C4A1E0000000000000004 /* RCChannelIdentityTests.swift */; };
 		5C0C4A1E0000000000000005 /* RCChannelSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
@@ -4298,6 +4300,7 @@
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
 		C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
+		600785688DE731C9CE21DA2A /* Workspace+CoderouterGuidePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA5AFE6CBE83A6E7435775B /* Workspace+CoderouterGuidePane.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
@@ -6159,6 +6162,7 @@
 		B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountState.swift; sourceTree = "<group>"; };
 		BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterCLIAccountReader.swift; sourceTree = "<group>"; };
 		50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoderouterCLIAccountReaderTests.swift"; sourceTree = "<group>"; };
+		BB0F83C7F2A3610B47B436EF /* CoderouterGuidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CoderouterGuidePanel.swift; sourceTree = "<group>"; };
 		673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterGuideView.swift; sourceTree = "<group>"; };
 		2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterProvider.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterSocketCommands.swift; sourceTree = "<group>"; };
@@ -7323,6 +7327,7 @@
 		C0DE86520000000000000116 /* QuickLookPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/QuickLookPreviewView.swift; sourceTree = "<group>"; };
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
+		41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RapidSwitchTests.swift"; sourceTree = "<group>"; };
 		5C0C4A1E0000000000000004 /* RCChannelIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RCChannelIdentityTests.swift; sourceTree = "<group>"; };
 		5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RCChannelSuiteTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
@@ -8749,6 +8754,7 @@
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
 		C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalReservation.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
+		7BA5AFE6CBE83A6E7435775B /* Workspace+CoderouterGuidePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CoderouterGuidePane.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
@@ -12090,6 +12096,8 @@
 				D43248ADAF07D461A74E625A /* Workspace+ProgramStatus.swift */,
 				793999D5B081E3EA9B3A6BFB /* AppDelegate+WorkspaceMerge.swift */,
 				D2372CBDBDF42F138982364F /* WorkspaceMergeDragRegistry.swift */,
+				BB0F83C7F2A3610B47B436EF /* CoderouterGuidePanel.swift */,
+				7BA5AFE6CBE83A6E7435775B /* Workspace+CoderouterGuidePane.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13634,6 +13642,7 @@
 				B4853DC3ED4AF05112E10395 /* InProcessMachineCreateLauncherTests.swift */,
 				AF0EA0EDB1794309910E7A5B /* WorkspaceProgramStatusTests.swift */,
 				249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */,
+				41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15185,6 +15194,7 @@
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
 				44B5601F54D3BB5BD1B5F913 /* CoderouterAccountState.swift in Sources */,
 				C7FE4192A06F41C15B58BD85 /* CoderouterCLIAccountReader.swift in Sources */,
+				BC856782F59C93A602631529 /* CoderouterGuidePanel.swift in Sources */,
 				67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */,
 				ECC272858DDDFFEA5700CCE4 /* CoderouterProvider.swift in Sources */,
 				C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */,
@@ -16944,6 +16954,7 @@
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
 				C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
+				600785688DE731C9CE21DA2A /* Workspace+CoderouterGuidePane.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,
@@ -18336,6 +18347,7 @@
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
+				EA47105022900E2647152148 /* RapidSwitchTests.swift in Sources */,
 				5C0C4A1E0000000000000003 /* RCChannelIdentityTests.swift in Sources */,
 				5C0C4A1E0000000000000005 /* RCChannelSuiteTests.swift in Sources */,
 				966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */,

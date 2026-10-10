@@ -210,6 +210,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .coderouterGuide:
+            return SurfaceKind.coderouterGuide.rawValue
         case .notifications:
             return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
@@ -251,6 +253,17 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+    }
+
+    /// Previous/Next inside the focused pane (Canvas: the workspace's surfaces) when it holds two
+    /// or more tabs, wrapping there. False when there is nothing to step, so the keys move between
+    /// workspaces instead (``TabManager/stepTabOrWorkspace(forward:dock:)``).
+    func stepFocusedPaneTab(forward: Bool) -> Bool {
+        if layoutMode == .canvas { return selectAdjacentCanvasTab(offset: forward ? 1 : -1) }
+        guard let paneId = bonsplitController.focusedPaneId,
+              bonsplitController.tabs(inPane: paneId).count > 1 else { return false }
+        if forward { selectNextSurface() } else { selectPreviousSurface() }
+        return true
     }
 
     /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
