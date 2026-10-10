@@ -127,15 +127,18 @@ export function devboxForkDaemonReadyCommand(timeoutSeconds: number, options: De
   return (
     // A wall-clock deadline, not a pass count: a pass whose metadata reads
     // time out costs ~2 s, so a counted loop could outlive the exec budget
-    // and lose the report. One pass after the deadline is bounded (~3 s).
+    // and lose the report. The deadline is checked at the end of each pass,
+    // so at least one pass always runs and the pass after the deadline is the
+    // last (bounded, ~3 s).
     `cmux_id=""; cmux_deadline=$(($(date +%s) + ${timeoutSeconds}));` +
-    ' while [ "$(date +%s)" -lt "$cmux_deadline" ]; do' +
+    " while :; do" +
     ` ${devboxStartSupervisorCommand()}` +
     ` [ -n "$cmux_id" ] || cmux_id=$(${DEVBOX_METADATA_INSTANCE_ID_COMMAND} 2>/dev/null) || cmux_id="";` +
     ` if [ -n "$cmux_id" ] && [ "$cmux_id" = "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then` +
     ` ${devboxStrandedRemoteSessionRepairCommand(options.homes)};` +
     " if ss -Hltn 2>/dev/null | grep -q ':1337 '; then exit 0; fi;" +
-    " fi; sleep 0.5;" +
+    " fi;" +
+    ' [ "$(date +%s)" -lt "$cmux_deadline" ] || break; sleep 0.5;' +
     ` done; ${devboxForkDaemonTimeoutReport(boundInstanceFile)}`
   );
 }

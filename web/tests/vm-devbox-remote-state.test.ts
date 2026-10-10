@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { devboxForkDaemonReadyCommand, devboxForkReadinessStage, devboxStrandedRemoteSessionRepairCommand } from "../services/vms/images/remoteState";
@@ -45,6 +45,15 @@ describe("stranded remote session repair (services/vms/images/remoteState.ts)", 
 // port 1337 before its supervisor has noticed the clone. Readiness must wait
 // for the supervisor's bind to this machine, not take that stale listener.
 describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
+  // The guest command runs with PATH set to the fixture's bin dir only, so no
+  // host tool answers for the guest (a Linux runner has a real systemctl and
+  // pgrep). Guest-specific commands are stubs; the POSIX text tools the
+  // script pipes through are linked in explicitly. `date` is a fake clock
+  // that advances one second per call and `sleep` returns at once, so the
+  // loop's deadline is counted in clock reads, never in wall time.
+  const HOST_TOOLS = ["cat", "grep", "head", "rm", "tr"] as const;
+  const stub = (bin: string, name: string, body: string) =>
+    writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   const withFakeGuest = async (
     bound: string,
     run: (env: Record<string, string>, root: string, boundFile: string) => Promise<void>,
@@ -53,12 +62,24 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
     try {
       const bin = path.join(root, "bin");
       mkdirSync(bin);
-      // Metadata answers this clone's id; a daemon is listening on 1337.
-      writeFileSync(path.join(bin, "curl"), "#!/bin/sh\necho vm-clone\n", { mode: 0o755 });
-      writeFileSync(path.join(bin, "ss"), "#!/bin/sh\necho 'LISTEN 0 128 *:1337 *:*'\n", { mode: 0o755 });
+      for (const tool of HOST_TOOLS) {
+        const hostPath = ["/usr/bin", "/bin"].map((dir) => path.join(dir, tool)).find((candidate) => existsSync(candidate));
+        if (!hostPath) throw new Error(`fixture needs ${tool}`);
+        symlinkSync(hostPath, path.join(bin, tool));
+      }
+      // Metadata answers this clone's id; a daemon is listening on 1337; no
+      // supervisor unit answers; no daemon process runs.
+      stub(bin, "curl", "echo vm-clone");
+      stub(bin, "ss", "echo 'LISTEN 0 128 *:1337 *:*'");
+      stub(bin, "systemctl", "exit 1");
+      stub(bin, "pgrep", "exit 1");
+      stub(bin, "sleep", "exit 0");
+      const clock = path.join(root, "clock");
+      writeFileSync(clock, "1000\n");
+      stub(bin, "date", `t=$(cat '${clock}'); echo "$t"; echo $((t + 1)) > '${clock}'`);
       const boundFile = path.join(root, "daemon-instance-id");
       writeFileSync(boundFile, `${bound}\n`);
-      await run({ PATH: `${bin}:/usr/bin:/bin` }, root, boundFile);
+      await run({ PATH: bin }, root, boundFile);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -91,6 +112,8 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
       const bin = env.PATH.split(":")[0];
       writeFileSync(path.join(bin, "ss"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
       writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\ncase \"$*\" in *is-active*) echo active; exit 0;; esac\nexit 0\n", { mode: 0o755 });
+      // No cmux-tui server process: the stub answers for the guest, not the host.
+      writeFileSync(path.join(bin, "pgrep"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
       writeFileSync(path.join(bin, "journalctl"), "#!/bin/sh\necho 'cmux-tui: some guest log line'\n", { mode: 0o755 });
       const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
@@ -140,15 +163,17 @@ describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
   // loop past its deadline: the report has to land inside the exec budget.
   test("reports within its deadline when every metadata read times out", async () => {
     await withFakeGuest("vm-source", async (env, root, boundFile) => {
-      const bin = env.PATH.split(":")[0];
-      writeFileSync(path.join(bin, "curl"), "#!/bin/sh\nsleep 1\nexit 28\n", { mode: 0o755 });
-      const command = devboxForkDaemonReadyCommand(2, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
-      const startedAt = Date.now();
+      const bin = env.PATH;
+      const calls = path.join(root, "curl-calls");
+      writeFileSync(path.join(bin, "curl"), `#!/bin/sh\necho x >> '${calls}'\nexit 28\n`, { mode: 0o755 });
+      const command = devboxForkDaemonReadyCommand(3, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
       const result = await runChild("/bin/sh", ["-c", command], { env });
-      // A pass-counted loop would take 4 passes x ~2.5 s; the deadline stops after ~2 s plus one pass.
-      expect(Date.now() - startedAt).toBeLessThan(6_500);
       expect(result.status).toBe(1);
       expect(result.stderr).toBe("cmux fork daemon did not become ready: stage=metadata-unavailable supervisor=unknown\n");
+      // The fake clock advances one second per read: the deadline (start + 3)
+      // ends the loop after exactly 3 passes of two metadata calls each,
+      // however long each call would take on a real guest.
+      expect(readFileSync(calls, "utf8").trim().split("\n")).toHaveLength(6);
     });
   });
 
