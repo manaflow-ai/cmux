@@ -402,7 +402,7 @@ impl Mux {
                 Ok(_) => self.emit_tab_group_members(&[added], None),
                 // The tab stays, ungrouped after the group's run.
                 Err(error) => {
-                    eprintln!("cmux-tui: browser tab {added} did not join {group}: {error:#}")
+                    eprintln!("cmux-tui: browser tab {added} did not join {group}: {error:#}");
                 }
             }
         }
