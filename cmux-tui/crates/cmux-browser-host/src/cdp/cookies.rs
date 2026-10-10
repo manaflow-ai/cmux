@@ -55,7 +55,11 @@ impl Inner {
 
     /// Sets `cookies` (`Storage.setCookies` params) in `store`; on a relayed
     /// tab through its page session (`Network.setCookies`).
-    pub(super) fn put_cookies(&self, store: &Value, cookies: Vec<Value>) -> Result<(), DriverError> {
+    pub(super) fn put_cookies(
+        &self,
+        store: &Value,
+        cookies: Vec<Value>,
+    ) -> Result<(), DriverError> {
         if cookies.is_empty() {
             return Ok(());
         }
@@ -233,8 +237,7 @@ impl Inner {
         let key = |cookie: &Value| {
             ["name", "domain", "path"].map(|k| cookie[k].as_str().unwrap_or("").to_owned())
         };
-        let existing: std::collections::HashSet<[String; 3]> =
-            current.iter().map(key).collect();
+        let existing: std::collections::HashSet<[String; 3]> = current.iter().map(key).collect();
         let (mut kept, mut expired) = (0, 0);
         let mut restore = Vec::new();
         for cookie in record["cookies"].as_array().into_iter().flatten() {
