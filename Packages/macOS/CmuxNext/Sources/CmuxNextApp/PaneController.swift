@@ -34,7 +34,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingClosed: Set<String> = []
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
-    private(set) var pendingSelectSurface: SurfaceID?
+    var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
@@ -113,7 +113,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
-            if tab.page != nil, let page = services.pages.storeTabItem(tab) {
+            // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
+            // content, when the app becomes available after the tree arrived.
+            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
+               let page = services.pages.storeTabItem(tab, page: provider.page) {
+                // An app tab names and badges itself like its app.
+                item.title = page.title
+                item.icon = page.icon
+            } else if tab.page != nil, let page = services.pages.storeTabItem(tab) {
                 // A page tab names and badges itself like the page it shows.
                 item.title = page.title
                 item.icon = page.icon
@@ -167,7 +174,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count))
+                        // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
+                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count)
+                            || store.workspace(containing: pane.handle)?.app != nil)
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -235,13 +244,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// run without `focus: true`) creates the tab in the background.
     func selectWhenReported(surface: SurfaceID) {
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
-        pendingSelectSurface = surface
-        apply(snapshot())
-    }
-
-    /// Selects `surface`'s tab in this pane once the store reports it, and
-    /// moves no keyboard focus: an agent's tab opened beside its chat.
-    func selectWhenReportedKeepingFocus(surface: SurfaceID) {
         pendingSelectSurface = surface
         apply(snapshot())
     }
@@ -325,6 +327,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
             services.themes.terminalDidMount(entry)
             return .terminal(entry)
+        case .browser where tab.appTab != nil: return appTabContent(tab)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:

@@ -61,3 +61,12 @@ enum AgentBesidePlacement {
         }
     }
 }
+
+extension PaneController {
+    /// Selects `surface`'s tab in this pane once the store reports it, and
+    /// moves no keyboard focus: an agent's tab opened beside its chat.
+    func selectWhenReportedKeepingFocus(surface: SurfaceID) {
+        pendingSelectSurface = surface
+        apply(snapshot())
+    }
+}

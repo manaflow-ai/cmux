@@ -99,6 +99,8 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // The bound route last: it owns the provider variables (routes.rs).
+        self.apply_route(meta, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
