@@ -9,6 +9,9 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var sideTabs: Bool
     /// The header actions (`splitRight`, `splitBrowserRight`) whose split is open, sorted.
     public var lit: [String]
+    /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
+    /// newer push (two channels) is older, and the page keeps the newer state.
+    public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = []) {
         self.pinned = pinned
@@ -16,10 +19,15 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
         self.lit = lit
     }
 
-    var reply: [String: Any] { ["pinned": pinned, "sideTabs": sideTabs, "lit": lit] }
+    /// Whether the header shows the same thing, whatever the versions.
+    public func shows(_ other: AgentPaneHeaderState) -> Bool {
+        pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit
+    }
+
+    var reply: [String: Any] { ["pinned": pinned, "sideTabs": sideTabs, "lit": lit, "version": version] }
 
     var json: JSONValue {
-        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string))]
+        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "version": JSONValue(version)]
     }
 }
 

@@ -9,6 +9,7 @@ type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
+  sideTabs?: boolean;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -148,7 +149,7 @@ export default componentEntry<HeaderToolsProps>({
     },
     "panels-open": {
       note: "Terminal, Browser and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
-      props: base,
+      props: { ...base, sideTabs: true },
       play: panelsOpen,
     },
     "menu-open": {

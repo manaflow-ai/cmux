@@ -18,6 +18,9 @@ extension AgentTabStore {
             guard let view = self?.existingView(provisional) else { return }
             AgentPaneHeaderState.push(state, to: view)
         })
+        // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
+        // and its new watch must push without waiting for another read.
+        watch.read()
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
             toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
@@ -25,7 +28,7 @@ extension AgentTabStore {
             let chat = self?.resolve(provisional) ?? provisional
             toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, tabState: {
-            // The page reads the state when a chat opens; from then on its changes are pushed.
+            // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
         }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) }, sideTabs: { [weak self] in
             guard let self else { return nil }

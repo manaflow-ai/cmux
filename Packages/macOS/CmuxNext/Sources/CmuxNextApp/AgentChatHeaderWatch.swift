@@ -13,14 +13,19 @@ final class AgentChatHeaderWatch {
     private var generation = 0
     /// The state the page was last given or read.
     private(set) var current = AgentPaneHeaderState()
+    /// The last version given out, shared by every chat's watch: a chat rewired with a new watch
+    /// (its tab rekeyed) never goes back below what its page already has.
+    private static var versions = 0
 
     init(state: @escaping () -> AgentPaneHeaderState, push: @escaping (AgentPaneHeaderState) -> Void) {
         self.state = state
         self.push = push
     }
 
-    /// The page's read (`pane.tabState`, when a chat opens): the state now, watched from here, so
-    /// a read made before the store listed the chat still starts the pushes once it does.
+    /// The state now, watched from here: the header's wiring arms it, and the page's reads
+    /// (`pane.tabState`) re-arm it, so a read made before the store listed the chat still starts
+    /// the pushes once it does.
+    @discardableResult
     func read() -> AgentPaneHeaderState {
         arm()
         return current
@@ -30,13 +35,20 @@ final class AgentChatHeaderWatch {
         generation += 1
         let armed = generation
         let state = state
-        current = withObservationTracking { state() } onChange: { [weak self] in
+        var next = withObservationTracking { state() } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the watch
             Task { @MainActor [weak self] in
                 guard let self, generation == armed else { return }
                 changed()
             }
         }
+        if next.shows(current) {
+            next.version = current.version
+        } else {
+            Self.versions += 1
+            next.version = Self.versions
+        }
+        current = next
     }
 
     private func changed() {
