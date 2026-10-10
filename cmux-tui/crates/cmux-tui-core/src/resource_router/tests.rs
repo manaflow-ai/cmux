@@ -116,6 +116,7 @@ fn every_catalog_operation_has_one_concrete_owner() {
             OperationOwner::Git => assert!(crate::git_ops::handles(operation)),
             OperationOwner::Machine
             | OperationOwner::Snapshot
+            | OperationOwner::Credential
             | OperationOwner::Connection
             | OperationOwner::Config => {}
         }

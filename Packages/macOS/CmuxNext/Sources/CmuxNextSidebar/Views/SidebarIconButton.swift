@@ -7,6 +7,9 @@ import QuartzCore
 final class SidebarIconButton: NSButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
+    /// A fixed glyph color for a button on a colored surface (the group
+    /// header's ink); nil uses the secondary text color, primary on hover.
+    var tintOverride: NSColor? { didSet { needsDisplay = true } }
 
     /// Replacing the symbol or label redraws the button (a disclosure's chevron).
     var symbol: String { didSet { if symbol != oldValue { renderedSize = 0; renderSymbol() } } }
@@ -66,7 +69,7 @@ final class SidebarIconButton: NSButton {
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
         performWithTheme {
-            contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
+            contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
         hover.refresh(animated: false)
     }

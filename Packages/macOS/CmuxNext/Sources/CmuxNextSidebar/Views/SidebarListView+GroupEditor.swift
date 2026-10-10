@@ -56,7 +56,7 @@ struct SidebarGroupEditing {
     func open(_ id: GroupID) {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
-        if list.groupEditor.closedByThisClick(id, at: NSApp.currentEvent?.timestamp) { return }
+        if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
