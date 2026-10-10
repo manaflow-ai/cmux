@@ -105,7 +105,7 @@ async fn setup_env(
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    client.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    client.become_person().await;
     (hub, client)
 }
 
@@ -119,9 +119,27 @@ fn hold_person_key(hub: &Hub) {
     assert!(hub.person.matches(PERSON_KEY));
 }
 
-/// An `initialize` that presents [`PERSON_KEY`] (the app's first frame).
-fn person_initialize() -> Value {
-    json!({"protocolVersion": 1, "clientInfo": {"name": "test"}, "_meta": {"acpmux": {"personKey": PERSON_KEY}}})
+impl TestClient {
+    /// The app's handshake: `initialize`, then the proof of [`PERSON_KEY`]
+    /// for this connection's challenge (`hub/person.rs`).
+    async fn become_person(&mut self) {
+        let init = self
+            .request(
+                method::INITIALIZE,
+                json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}),
+            )
+            .await
+            .unwrap();
+        let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let r = self.request("_acpmux/person_prove", json!({"proof": proof})).await.unwrap();
+        assert_eq!(r["person"], json!(true), "{r}");
+    }
 }
 
 fn cwd() -> String {
@@ -632,7 +650,7 @@ async fn restart_marks_unknown_outcome() {
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    c.become_person().await;
     let s = c
         .request(
             method::SESSION_NEW,
@@ -723,7 +741,7 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    c.become_person().await;
     let s = c
         .request(
             method::SESSION_NEW,
@@ -844,7 +862,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    c.become_person().await;
     // -m fake: the family's prefer list picks the pool; defaults apply.
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam"}}})).await.unwrap();
     let sum = &s["_meta"]["acpmux"];
@@ -1195,7 +1213,7 @@ async fn connect(hub: &Arc<Hub>) -> TestClient {
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    client.request(method::INITIALIZE, person_initialize()).await.unwrap();
+    client.become_person().await;
     client
 }
 

@@ -141,6 +141,9 @@ extension AgentPaneTransport {
                 guard waiting.connection == entry.connection, texts.count < Self.framesPerPass else { break }
                 texts += waiting.frames.prefix(Self.framesPerPass - texts.count)
             }
+            // The page's first frame goes alone: the person proof is the connection's second request.
+            let wasFirst = !sentFirst
+            if wasFirst { texts = Array(texts.prefix(1)) }
             let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
@@ -159,8 +162,31 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 complete(await decide(facts, box, connection: entry.connection, socket: socket, ids: ids))
             }
+            if wasFirst, sentFirst { await provePerson(socket: socket, ids: ids) }
         }
         draining = false
+    }
+
+    /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
+    /// and before any other: the HMAC of the daemon's challenge from the `initialize` reply under
+    /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
+    /// socket. No challenge (a remote wire, an older daemon) or no key: no proof, so the pane is
+    /// not the person and the daemon refuses its allows.
+    private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+        guard let socketPath else { return }
+        guard let challenge = await socket.personChallenge() else { return }
+        guard self.socket === socket else { return }
+        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, nonce: challenge.nonce,
+                                                connection: challenge.connection) else {
+            Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
+            return
+        }
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": ids.hostID(), "method": "_acpmux/person_prove",
+                                    "params": ["proof": proof]]
+        guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
+        if let error = socket.send(text) {
+            Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        }
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).

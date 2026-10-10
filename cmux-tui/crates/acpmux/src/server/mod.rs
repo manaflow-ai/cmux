@@ -39,9 +39,13 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
-    /// Its first request was seen (`hub/person.rs`).
-    initialized: AtomicBool,
-    /// It presented this launch's person key in that `initialize`.
+    /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
+    requests: std::sync::atomic::AtomicU64,
+    /// Its first request was an `initialize` that got the person challenge.
+    challenged: AtomicBool,
+    /// This connection's challenge nonce (`hub/person.rs`).
+    pub(super) nonce: String,
+    /// It proved the person key for its challenge.
     person: AtomicBool,
 }
 
@@ -51,20 +55,28 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// A request's person key leaves its params before anything else reads
-    /// them. A unix socket or LocalApp connection whose FIRST request is an
-    /// `initialize` that carries this launch's key is the person for its
-    /// life; a key anywhere else carries no weight.
+    /// Whether this connection gets the person challenge: the unix socket
+    /// or the proven local app.
+    pub(super) fn challengeable(&self) -> bool {
+        matches!(self.origin, Origin::Local | Origin::LocalApp)
+    }
+
+    /// The person binding (`hub/person.rs`), in order before the request
+    /// runs. A `personKey` in any request is stripped and never read. A
+    /// local connection whose FIRST request is `initialize` is challenged;
+    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
+    /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
-        let key = params.as_mut().and_then(crate::hub::person::take_key);
-        let first = !self.initialized.swap(true, Ordering::SeqCst);
-        if !first || m != method::INITIALIZE {
-            return;
+        let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == 1 && m == method::INITIALIZE && self.challengeable() {
+            self.challenged.store(true, Ordering::SeqCst);
         }
-        if matches!(self.origin, Origin::Local | Origin::LocalApp)
-            && key.is_some_and(|k| hub.person.matches(&k))
-        {
-            self.person.store(true, Ordering::SeqCst);
+        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
+            let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
+            if proof.is_some_and(|p| hub.person.proves(&self.nonce, &self.id, p)) {
+                self.person.store(true, Ordering::SeqCst);
+            }
         }
     }
 
@@ -644,7 +656,9 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         peer,
-        initialized: AtomicBool::new(false),
+        requests: std::sync::atomic::AtomicU64::new(0),
+        challenged: AtomicBool::new(false),
+        nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");

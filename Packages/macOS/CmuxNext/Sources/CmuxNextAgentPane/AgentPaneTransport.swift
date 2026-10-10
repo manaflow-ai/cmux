@@ -91,7 +91,7 @@ import CmuxNextCompat
     public var requestHarnessEnable: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
-    private var socketPath: String?
+    private(set) var socketPath: String?
     /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
     /// Archive). Replaced in tests.
     public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
