@@ -147,7 +147,6 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
             "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
             "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS": "1",
             "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
             "DISABLE_AUTOUPDATER": "1",
             "SUBROUTER_SESSION_KEY": "optchat-1a2b3c4d-compact",
