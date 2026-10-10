@@ -127,6 +127,8 @@ pub mod op_names {
     pub const REACTION_ADD: &str = "reaction.add";
     pub const REACTION_REMOVE: &str = "reaction.remove";
     pub const READ_CURSOR_SET: &str = "read_cursor.set";
+    pub const RUN_GET: &str = "run.get";
+    pub const RUN_LIST: &str = "run.list";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
@@ -307,6 +309,8 @@ pub mod op_names {
         REACTION_ADD,
         REACTION_REMOVE,
         READ_CURSOR_SET,
+        RUN_GET,
+        RUN_LIST,
         SERVER_PAIR_APPROVE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
@@ -490,6 +494,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "reaction.add" => visitor.visit::<ReactionAddOp>(),
         "reaction.remove" => visitor.visit::<ReactionRemoveOp>(),
         "read_cursor.set" => visitor.visit::<ReadCursorSetOp>(),
+        "run.get" => visitor.visit::<RunGetOp>(),
+        "run.list" => visitor.visit::<RunListOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),

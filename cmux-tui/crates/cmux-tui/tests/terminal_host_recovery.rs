@@ -5152,18 +5152,16 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
             .iter()
             .any(|(_, record)| record.host_pid == parked.host_pid)
     );
-    // The warm shell itself survived both restarts.
-    let resolved = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": parked.terminal_id}),
-    );
-    assert_eq!(resolved["data"]["lifecycle"], "running", "{resolved}");
+    // The warm shell itself survived both restarts. Adoption completes
+    // asynchronously after the restart (the terminal reads "adopting" until
+    // its host handshake lands), so wait for it, bounded.
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &parked.terminal_id, "running");
     assert_eq!(
-        resolved["data"]["terminal_incarnation"].as_str(),
+        resolved["terminal_incarnation"].as_str(),
         Some(parked.incarnation.as_str()),
         "{resolved}"
     );
-    let surface = resolved["data"]["surface"].as_u64().unwrap();
+    let surface = resolved["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
 }
 

@@ -30,8 +30,8 @@
     }
   }
 
-  // Page-side Markdown for one element (a subset of api.pageMarkdown that
-  // takes a root). Kept as source so tools can compose page functions with it.
+  // Page-side Markdown for one element (a small Markdown reader that takes
+  // a root). Kept as source so tools can compose page functions with it.
   const ELEMENT_MARKDOWN = `function elementMarkdown(rootEl) {
     if (!rootEl) return "";
     const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "CANVAS", "IFRAME", "BUTTON"]);

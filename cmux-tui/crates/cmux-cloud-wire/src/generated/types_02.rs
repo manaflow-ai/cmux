@@ -548,6 +548,46 @@ wire_enum! {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBody {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunWithBodyTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunWithBodyOutcome>,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
 pub type ServerCapability = String;
 
 /// A Cloud machine snapshot.
@@ -858,46 +898,4 @@ wire_enum! {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoScope {
-    pub value: TeamPolicyValuesGithubRepoScopeValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRequireOrgAdmin {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesGithubRepoAllowListValue {
-    None(LitNone),
-    List(Vec<RepoPattern>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoAllowList {
-    pub value: TeamPolicyValuesGithubRepoAllowListValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
-    All(LitAll),
-    List(Vec<IntegrationProvider>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesIntegrationsAllowedProviders {
-    pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
-    pub mode: PolicyMode,
 }
