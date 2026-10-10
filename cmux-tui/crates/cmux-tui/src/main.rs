@@ -1820,7 +1820,7 @@ fn run_main() {
 }
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
-    cmux_tui_core::terminal_host_runtime::isolate_terminal_host_process_fds()?;
+    cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();
