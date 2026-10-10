@@ -8,6 +8,8 @@ extension SidebarListView {
         var proposal: SidebarTabDrop?
         var windowPoint: NSPoint
         var sourceMachine: MachineID?
+        /// A tab drag: a tab row's edge goes before that tab.
+        var reordersTabRows = false
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
         var springTask: Task<Void, Never>?
@@ -19,7 +21,7 @@ extension SidebarListView {
     /// Updates an external tab drag at a window point. Returns the proposal
     /// and its highlight rect in this view's coordinates, or nil when the
     /// point is outside the list or no drop is possible there.
-    func externalDragMoved(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDrop, NSRect)? {
+    func externalDragMoved(windowPoint: NSPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> (SidebarTabDrop, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
         guard visibleRect.contains(point) else {
@@ -29,6 +31,7 @@ extension SidebarListView {
         let external = self.external ?? ExternalDrag(windowPoint: windowPoint, sourceMachine: sourceMachine)
         external.windowPoint = windowPoint
         external.sourceMachine = sourceMachine
+        external.reordersTabRows = reordersTabRows
         if self.external == nil {
             self.external = external
             setHovered(nil)
@@ -36,7 +39,8 @@ extension SidebarListView {
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-            let proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
+            let proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
+                                                         reordersTabRows: reordersTabRows)
             if proposal != external.proposal {
                 external.proposal = proposal
                 reload(animated: true)
@@ -49,12 +53,13 @@ extension SidebarListView {
     /// Where no drop is possible at a window point: why, and the refused
     /// row's rect in this view (tab-dnd: the sidebar previews a refusal
     /// instead of nothing).
-    func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDropRefusal, NSRect)? {
+    func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> (SidebarTabDropRefusal, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine),
+        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
+                                                                 reordersTabRows: reordersTabRows),
               let row = displayed.row(for: key) else { return nil }
         return (reason, frame(for: row))
     }
@@ -80,6 +85,11 @@ extension SidebarListView {
             return displayed.row(for: .group(id)).map(frame(for:))
         case .newWorkspace:
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight) }
+        case let .beforeTab(workspace, tab):
+            // An insertion line on the tab row's top edge.
+            return displayed.row(for: .tab(workspace, tab)).map { row in
+                NSRect(x: inset, y: frame(for: row).minY - 1, width: max(0, bounds.width - inset * 2), height: 2)
+            }
         }
     }
     /// Spring loading: hovering a row for `springLoadDelay` selects

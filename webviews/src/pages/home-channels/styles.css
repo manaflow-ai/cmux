@@ -269,11 +269,11 @@ body,
   font-size: var(--text-detail);
   font-weight: 600;
 }
-.hc-day::before,
-.hc-day::after {
-  content: "";
+.hc-day > hr {
   flex: 1;
   height: 1px;
+  margin: 0;
+  border: 0;
   background: var(--page-separator);
 }
 
@@ -461,16 +461,14 @@ body,
 }
 
 /* ---------- Switcher ---------- */
+/* ui/Dialog places the backdrop and the popup (ui.css .ui-backdrop, .ui-dialog); both sit on the
+   overlay layer, the popup after the backdrop. */
 .hc-scrim {
-  position: fixed;
-  inset: 0;
   z-index: var(--layer-overlay);
-  display: flex;
-  justify-content: center;
-  padding-top: 12vh;
   background: var(--cmux-scrim, rgb(0 0 0 / 0.2));
 }
 .hc-switcher {
+  z-index: var(--layer-overlay);
   width: min(560px, 90vw);
   max-height: 60vh;
   display: flex;
@@ -482,6 +480,8 @@ body,
   overflow: hidden;
 }
 .hc-switcher-input {
+  width: 100%;
+  box-sizing: border-box;
   padding: 12px 14px;
   border: 0;
   border-bottom: 1px solid var(--page-separator);
@@ -492,6 +492,7 @@ body,
 .hc-switcher-list {
   list-style: none;
   margin: 0;
+  min-height: 0;
   padding: 4px;
   overflow-y: auto;
 }
@@ -503,11 +504,12 @@ body,
   padding: 0 10px;
   border-radius: 6px;
 }
-.hc-switcher-row.active {
+.hc-switcher-row[data-highlighted] {
   background: var(--page-selection);
 }
 .hc-switcher-none {
-  padding: 10px;
+  margin: 0;
+  padding: 10px 14px;
   color: var(--page-text-3);
 }
 

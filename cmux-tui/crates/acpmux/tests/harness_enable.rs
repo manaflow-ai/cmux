@@ -3,6 +3,9 @@
 //! bytes the user saw. The unix socket and the local app only: never a Web
 //! or peer connection.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
