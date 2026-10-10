@@ -130,6 +130,19 @@ fn the_record_updated_longest_ago_goes_first_at_the_limit() {
 }
 
 #[test]
+fn evicting_a_record_with_a_pending_alert_withdraws_that_alert() {
+    let mut records = ProgramStatusRecords::default();
+    records.apply(report("evicted", ProgramStatusState::Blocked), 0);
+    for index in 0..(MAX_RECORDS - 1) {
+        records.apply(report(&format!("record-{index}"), ProgramStatusState::Working), 0);
+    }
+    assert_eq!(records.len(), MAX_RECORDS);
+    records.apply(report("new", ProgramStatusState::Working), 0);
+    assert!(records.get("evicted").is_none());
+    assert!(records.take_alerts().is_empty());
+}
+
+#[test]
 fn shown_text_drops_invisible_formatting_and_caps_length() {
     // A right-to-left override would reverse the rest of a notification.
     assert_eq!(shown_text("ok\u{202E}gnp.exe\u{200B}", 100), "okgnp.exe");

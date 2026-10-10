@@ -150,6 +150,7 @@ impl ProgramStatusRecords {
                 .map(|(key, _)| key.clone());
             if let Some(oldest) = oldest {
                 self.records.remove(&oldest);
+                self.withdraw_alerts_of_removed_records();
             }
         }
         self.next_seq += 1;
