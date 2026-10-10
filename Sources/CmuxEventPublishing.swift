@@ -3,6 +3,11 @@ import CMUXAgentLaunch
 import CmuxSidebar
 
 extension CmuxEventBus {
+    /// Keeps each status snapshot event below the event stream's 16 KiB line
+    /// limit. OSC 7501 record ids are limited to 128 bytes, so 32 records leave
+    /// room for the event envelope and addressed record as well.
+    private static let programStatusRecordsPerEvent = 32
+
     /// Publishes one OSC 7501 change together with the terminal's current
     /// records. Consumers can apply a report or clear without polling the
     /// sidebar projection.
@@ -42,19 +47,33 @@ extension CmuxEventBus {
         surfaceId: UUID,
         payload: ProgramStatusChangedPayload
     ) {
-        publish(
-            name: "program_status.changed",
-            category: "terminal",
-            source: "terminal.program_status",
-            workspaceId: workspaceId.uuidString,
-            surfaceId: surfaceId.uuidString,
-            payload: [
-                "event": payload.event.rawValue,
-                "id": payload.id ?? NSNull(),
-                "record": payload.record.map(Self.programStatusRecordPayload) ?? NSNull(),
-                "records": payload.records.map(Self.programStatusRecordPayload)
-            ]
-        )
+        let records = payload.records.map(Self.programStatusRecordPayload)
+        let chunks: [[[String: Any]]] = records.isEmpty
+            ? [[]]
+            : stride(from: 0, to: records.count, by: Self.programStatusRecordsPerEvent).map { start in
+                Array(records[start..<min(start + Self.programStatusRecordsPerEvent, records.count)])
+            }
+        let snapshotID = UUID().uuidString
+
+        for (index, recordsChunk) in chunks.enumerated() {
+            publish(
+                name: "program_status.changed",
+                category: "terminal",
+                source: "terminal.program_status",
+                workspaceId: workspaceId.uuidString,
+                surfaceId: surfaceId.uuidString,
+                payload: [
+                    "event": payload.event.rawValue,
+                    "id": payload.id ?? NSNull(),
+                    "record": payload.record.map(Self.programStatusRecordPayload) ?? NSNull(),
+                    "records": recordsChunk,
+                    "records_total": records.count,
+                    "snapshot_id": snapshotID,
+                    "snapshot_index": index,
+                    "snapshot_count": chunks.count
+                ]
+            )
+        }
     }
 
     /// Converts one safe package snapshot to a Foundation dictionary.

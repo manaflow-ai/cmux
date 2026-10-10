@@ -405,6 +405,53 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(records.map { $0["id"] as? String }, ["lint"])
     }
 
+    func testProgramStatusLargeSnapshotIsChunkedBeforeEventLineLimit() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 32)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        var store = ProgramStatusRecordStore()
+        for index in 0..<ProgramStatusRecordStore.recordLimit {
+            store.apply(
+                ProgramStatusReport(
+                    state: .done,
+                    id: String(format: "record-%03d", index)
+                )
+            )
+        }
+        let report = ProgramStatusReport(state: .working, id: "record-255", progress: 50)
+        store.apply(report)
+
+        bus.publishProgramStatusChanged(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            report: report,
+            store: store
+        )
+
+        let events = bus.retainedSnapshot()
+        let expectedChunkCount = (ProgramStatusRecordStore.recordLimit + 31) / 32
+        XCTAssertEqual(events.count, expectedChunkCount)
+        let snapshotIDs = try Set(events.map { event in
+            try XCTUnwrap((event["payload"] as? [String: Any])?["snapshot_id"] as? String)
+        })
+        XCTAssertEqual(snapshotIDs.count, 1)
+
+        var recordIDs: [String] = []
+        for (index, event) in events.enumerated() {
+            XCTAssertNil(event["payload_truncated"])
+            let line = try XCTUnwrap(CmuxEventBus.encodeLine(event))
+            XCTAssertLessThanOrEqual(line.utf8.count, CmuxEventBus.defaultMaxEventLineBytes)
+            let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+            XCTAssertEqual((payload["records_total"] as? NSNumber)?.intValue, ProgramStatusRecordStore.recordLimit)
+            XCTAssertEqual((payload["snapshot_index"] as? NSNumber)?.intValue, index)
+            XCTAssertEqual((payload["snapshot_count"] as? NSNumber)?.intValue, expectedChunkCount)
+            let records = try XCTUnwrap(payload["records"] as? [[String: Any]])
+            recordIDs.append(contentsOf: records.compactMap { $0["id"] as? String })
+        }
+        XCTAssertEqual(recordIDs.count, ProgramStatusRecordStore.recordLimit)
+        XCTAssertEqual(recordIDs, (0..<ProgramStatusRecordStore.recordLimit).map { String(format: "record-%03d", $0) })
+    }
+
     func testWorkspaceReorderSocketMapperDoesNotDuplicateLifecycleEvent() throws {
         CmuxEventBus.shared.resetForTesting()
         let snapshot = CmuxEventBus.shared.subscribe(

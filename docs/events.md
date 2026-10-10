@@ -339,20 +339,26 @@ Terminal program status:
 
 | Name | Trigger |
 | --- | --- |
-| `program_status.changed` | An OSC 7501 report, clear, or prompt-start changed a terminal's records. The event includes the addressed record and the full current record list. |
+| `program_status.changed` | An OSC 7501 report, clear, prompt-start, or lifecycle cleanup changed a terminal's records. Large snapshots are split into bounded chunks. |
 
 The `program_status.changed` payload has `event` (`report`, `clear`,
 `prompt_start`, `transient_drop`, or `dismissed`), `id` (the addressed record
 id, or `null`), `record` (the updated record, or `null` for lifecycle cleanup),
-and `records` (the terminal's current records). `transient_drop` is emitted
-when shell prompt-idle or child-exit cleanup removes working/blocked records;
-`dismissed` is emitted when focusing a pane removes done/error records. Both
-events are suppressed when the store is already unchanged, so a later
-prompt-start callback does not duplicate the cleanup event. Each record
-contains only the safe protocol fields `id`, `state`, `kind`, `progress`, and
-`updated_seq`; free-form OSC text and provider names are intentionally omitted
-from the user-facing stream and persistent event log. Subscribe with
-`--category terminal` or `--name program_status.changed`.
+and `records` (a chunk of the terminal's current records). `records_total` is
+the number of records in the complete snapshot. When a snapshot has more than
+32 records, the event is split into consecutive events with the same
+`snapshot_id`; `snapshot_index` is zero-based and `snapshot_count` is the total
+number of chunks. A one-chunk snapshot still carries these fields, so consumers
+can use the same assembly path for every change. This keeps every event below
+the event stream's 16 KiB line limit without dropping the addressed record.
+`transient_drop` is emitted when shell prompt-idle or child-exit cleanup removes
+working/blocked records; `dismissed` is emitted when focusing a pane removes
+done/error records. Both events are suppressed when the store is already
+unchanged, so a later prompt-start callback does not duplicate the cleanup
+event. Each record contains only the safe protocol fields `id`, `state`, `kind`,
+`progress`, and `updated_seq`; free-form OSC text and provider names are
+intentionally omitted from the user-facing stream and persistent event log.
+Subscribe with `--category terminal` or `--name program_status.changed`.
 
 Notifications:
 
