@@ -195,9 +195,12 @@ extension CmuxTuiSurfaceProvider {
                     wake: { [weak self] in
                         guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     },
-                    startForward: { [weak self, machineID] target in
+                    startForward: { [machine, machineID] target in
                         try await sshLinks.loopbackForward(machineID: machineID, port: target.port) {
-                            Task { @MainActor [weak self] in self?.restartSSHForward(port: target.port) }
+                            Task { @MainActor in
+                                (SurfaceCatalog.shared.provider(for: machine) as? CmuxTuiSurfaceProvider)?
+                                    .restartSSHForward(port: target.port)
+                            }
                         }
                     },
                     stopForward: { [machineID] in
