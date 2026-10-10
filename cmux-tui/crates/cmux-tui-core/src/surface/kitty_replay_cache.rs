@@ -80,10 +80,4 @@ impl KittyReplayCache {
         *last = Some(CachedReplay { key, images: images.clone() });
         images
     }
-
-    /// Kitty replay encodes run so far.
-    #[cfg(test)]
-    pub(crate) fn encodes(&self) -> u64 {
-        self.encodes.load(Ordering::Relaxed)
-    }
 }

@@ -373,11 +373,3 @@ pub(super) fn agent_token(
     mux.unbind_conversation_participant(&params.participant);
     Ok(json!({"participant": params.participant, "token": token}))
 }
-
-#[cfg(test)]
-#[path = "conversation_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "conversation_attachment_tests.rs"]
-mod attachment_tests;

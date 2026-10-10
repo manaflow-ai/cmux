@@ -189,11 +189,6 @@ impl TerminalStreamProgress {
         let state = self.state.lock().unwrap();
         state.waiters + state.resource_waiters.len()
     }
-
-    #[cfg(test)]
-    pub(super) fn resource_subscription_count(&self) -> u64 {
-        self.state.lock().unwrap().resource_subscriptions
-    }
 }
 
 impl TerminalStreamSubscription<'_> {

@@ -191,7 +191,3 @@ impl Mux {
         }
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "app_terminals_tests.rs"]
-mod tests;

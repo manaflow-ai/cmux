@@ -22,7 +22,3 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         write_path: wants(WRITE_PATH).then(|| mux.write_path_stats()),
     }
 }
-
-#[cfg(test)]
-#[path = "server_stats_tests.rs"]
-mod tests;

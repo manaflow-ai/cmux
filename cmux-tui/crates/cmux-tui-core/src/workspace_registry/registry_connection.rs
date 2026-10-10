@@ -208,12 +208,6 @@ impl RegistryConnection {
         let guard = self.connection.try_lock_until(deadline)?;
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
-
-    #[cfg(test)]
-    pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
-        let guard = self.connection.try_lock()?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
-    }
 }
 
 fn record_rank() -> HeldRank {

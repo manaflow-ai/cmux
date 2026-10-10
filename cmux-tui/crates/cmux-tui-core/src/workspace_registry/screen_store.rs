@@ -359,21 +359,6 @@ pub(crate) fn read_saved_screen_groups(
 }
 
 impl WorkspaceRegistry {
-    /// Public ids of a workspace's live screens in stored order (tests).
-    #[cfg(test)]
-    pub(crate) fn live_screen_order(
-        &self,
-        workspace_public_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT public_id FROM resource_screens
-             WHERE workspace_id = ?1 AND deleted_revision IS NULL ORDER BY position ASC",
-        )?;
-        let rows = statement.query_map([workspace_public_id], |row| row.get::<_, String>(0))?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
-    }
-
     /// Replace every screen presentation row (metadata-only changes that
     /// leave screen order alone).
     pub fn replace_screen_state(&mut self, state: &ScreenPresentationState) -> anyhow::Result<()> {

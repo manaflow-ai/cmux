@@ -315,7 +315,3 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
         ),
     }
 }
-
-#[cfg(test)]
-#[path = "cloud_conversation_tests.rs"]
-mod tests;

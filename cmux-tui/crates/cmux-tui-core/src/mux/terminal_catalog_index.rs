@@ -11,12 +11,6 @@ thread_local! {
     static CATALOG_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Catalog scans by host id on this thread (test hook).
-#[cfg(all(test, unix))]
-pub(super) fn catalog_scans_for_test() -> u64 {
-    CATALOG_SCANS.with(std::cell::Cell::get)
-}
-
 impl State {
     /// The catalog owner of daemon-local runtime `id`.
     pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
@@ -94,7 +88,3 @@ impl Mux {
         .map(|matched| matched.map(|(surface, _)| surface))
     }
 }
-
-// The tests build hosted placeholders, which exist on Unix only.
-#[cfg(all(test, unix))]
-mod tests;

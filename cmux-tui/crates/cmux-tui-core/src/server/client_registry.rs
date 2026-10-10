@@ -466,11 +466,6 @@ impl ClientRegistry {
         self.state.lock().unwrap().clients.keys().copied().collect()
     }
 
-    #[cfg(test)]
-    pub(super) fn daemon_handoff_pending(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff.is_some()
-    }
-
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }

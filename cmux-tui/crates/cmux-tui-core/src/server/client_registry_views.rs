@@ -556,17 +556,6 @@ impl ClientRegistry {
             .map(|record| (record.name.clone(), record.kind.clone()))
     }
 
-    #[cfg(test)]
-    pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .iter()
-            .filter_map(|(client, record)| (!record.attached.is_empty()).then_some(*client))
-            .collect()
-    }
-
     pub(crate) fn attached_client_ids_by_surface(&self) -> HashMap<SurfaceId, HashSet<u64>> {
         self.state.lock().unwrap().attached_by_surface.clone()
     }

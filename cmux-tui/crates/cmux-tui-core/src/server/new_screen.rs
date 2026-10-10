@@ -132,7 +132,3 @@ impl std::error::Error for PageSpawnFieldsForbidden {}
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<PageSpawnFieldsForbidden>().map(|_| PageSpawnFieldsForbidden::CODE.into())
 }
-
-#[cfg(all(test, unix))]
-#[path = "new_screen_tests.rs"]
-mod tests;

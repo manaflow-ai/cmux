@@ -215,14 +215,4 @@ impl Surface {
         writer.write_all(&payload)?;
         writer.flush()
     }
-
-    #[cfg(test)]
-    pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
-        let pty = self.as_pty().expect("input test requires a terminal");
-        let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
-            panic!("input test requires the in-process test runtime");
-        };
-        *writer = replacement;
-    }
 }
