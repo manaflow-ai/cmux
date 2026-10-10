@@ -37,9 +37,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 - `window`: 69
 - `workspace`: 145
-- `pane`: 78
+- `pane`: 79
 - `screen`: 63
-- `tab`: 85
+- `tab`: 86
 - `terminal`: 36
 - `browser`: 159
 - `sidebar`: 63
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 10
 - `settings`: 71
 
-## Counts (898 actions)
+## Counts (900 actions)
 
-Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
+Palette 864, CLI verbs 485, right-click 468, MCP tools 425.
 
 ## Menus
 
@@ -59,7 +59,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 - **tabGroup**: tabGroup.newTab | tabGroup.rename tabGroup.setColor > (tabGroup.color.grey tabGroup.color.blue tabGroup.color.red tabGroup.color.yellow tabGroup.color.green tabGroup.color.pink tabGroup.color.purple tabGroup.color.cyan tabGroup.color.orange) | tabGroup.toggleCollapsed [group] > (tabGroup.save tabGroup.unsave) | [move] > (tabGroup.moveLeft tabGroup.moveRight tabGroup.moveToNewSplit tabGroup.moveToNewColumn tabGroup.moveToNewWorkspace tabGroup.moveToWorkspace tabGroup.moveToNewWindow) | tabGroup.ungroup tabGroup.close
 - **screen**: screen.new [new] > (screen.duplicate screen.newWith) | screen.rename screen.clearName screen.togglePin [appearance] > (screen.setColor > (screen.color.grey screen.color.blue screen.color.red screen.color.yellow screen.color.green screen.color.pink screen.color.purple screen.color.cyan screen.color.orange screen.clearColor) screen.setIcon screen.clearIcon) | [group] > (screenGroup.create screenGroup.addScreen screenGroup.removeScreen) | [move] > (screen.moveLeft screen.moveRight screen.moveToWorkspace screen.moveToNewWorkspace screen.moveToNewWindow) | screen.close [close] > (screen.closeOthers screen.closeToRight screen.closeToLeft)
 - **screenGroup**: screenGroup.newScreen | screenGroup.rename screenGroup.setColor > (screenGroup.color.grey screenGroup.color.blue screenGroup.color.red screenGroup.color.yellow screenGroup.color.green screenGroup.color.pink screenGroup.color.purple screenGroup.color.cyan screenGroup.color.orange) | screenGroup.toggleCollapsed [group] > (screenGroup.save screenGroup.unsave) | [move] > (screenGroup.moveLeft screenGroup.moveRight screenGroup.moveToWorkspace screenGroup.moveToNewWorkspace screenGroup.moveToNewWindow) | screenGroup.ungroup screenGroup.close
-- **pane**: splitRight splitDown [new] > (newColumn newRow splitLeft splitUp splitBrowserRight splitBrowserDown remote.openTerminalHere newPaneAutoLayout | palette.newSimulatorPane) | renamePane | [move] > (pane.moveToNewWorkspace swapPaneLeft swapPaneRight swapPaneUp swapPaneDown column.moveLeft column.moveRight) | toggleSplitZoom [layout] > (equalizeSplits toggleCanvasLayout | column.dock column.undock column.float column.dockLeft column.dockRight column.dockTop column.dockBottom | column.widthOneThird column.widthHalf column.widthTwoThirds column.widthFull column.center agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset) | [connection] > (palette.swapWithSession reconnectPane) | triggerFlash [copy] > (palette.copyPaneID palette.copyPaneLink) | closePane pane.closeOthers
+- **pane**: splitRight splitDown [new] > (newColumn newRow splitLeft splitUp splitBrowserRight splitBrowserDown remote.openTerminalHere newPaneAutoLayout | palette.newSimulatorPane) | renamePane | [move] > (pane.moveToNewWorkspace swapPaneLeft swapPaneRight swapPaneUp swapPaneDown column.moveLeft column.moveRight) | toggleSplitZoom [layout] > (equalizeSplits toggleCanvasLayout pane.toggleTabBar | column.dock column.undock column.float column.dockLeft column.dockRight column.dockTop column.dockBottom | column.widthOneThird column.widthHalf column.widthTwoThirds column.widthFull column.center agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset) | [connection] > (palette.swapWithSession reconnectPane) | triggerFlash [copy] > (palette.copyPaneID palette.copyPaneLink) | closePane pane.closeOthers
 - **workspaceRow**: workspace.newBelow [new] > (workspace.newLikeThis workspace.newAbove workspace.newInNewGroup workspace.duplicate workspace.duplicateTerminalsOnly | palette.openFolderInVSCodeInline palette.openWorkspaceTodoPane palette.layout.open) | renameWorkspace palette.toggleWorkspacePin [appearance] > (palette.workspaceColor palette.workspaceCustomColor palette.resetWorkspaceColor workspace.setIcon workspace.clearIcon workspace.setTheme[choices] workspace.clearTheme) [options] > (palette.clearWorkspaceName editWorkspaceDescription palette.clearWorkspaceDescription palette.workspaceStatus markWorkspaceDone palette.markWorkspaceRead notifications.dismissHighlight palette.markWorkspaceUnread notifications.toggleWorkspaceMute clearWorkspaceNotifications palette.addWorkspaceChecklistItem | browserProfile.setWorkspaceDefault browserProfile.clearWorkspaceDefault | reconnectWorkspace disconnectWorkspace | sidebar.workspaceTabs.toggle) | [group] > (groupSelectedWorkspaces moveWorkspaceToGroup workspace.moveToNewGroup removeWorkspaceFromGroup saveLayoutTemplate) | [move] > (moveWorkspaceUp moveWorkspaceDown palette.moveWorkspaceToTop workspace.moveToBottom moveWorkspaceToWindow moveWorkspaceToNewWindow workspace.toggleTop workspace.moveToSpace workspace.duplicateToSpace workspace.mergeInto) | [copy] > (workspace.copyPath palette.copyWorkspaceID palette.copyWorkspaceLink palette.copyWorkspaceIDAndRef copyWorkspaceSSHError) [tools] > (workspace.showResources revealWorkspaceInFinder palette.openWorkspacePullRequests) | closeWorkspace [close] > (palette.closeOtherWorkspaces workspace.closeOthersInGroup palette.closeWorkspacesBelow palette.closeWorkspacesAbove)
 - **workspaceGroup**: workspaceGroup.newWorkspace | workspaceGroup.rename workspaceGroup.togglePin [appearance] > (workspaceGroup.setColor > (workspaceGroup.color.grey workspaceGroup.color.blue workspaceGroup.color.red workspaceGroup.color.yellow workspaceGroup.color.green workspaceGroup.color.pink workspaceGroup.color.purple workspaceGroup.color.cyan workspaceGroup.color.orange) workspaceGroup.setIcon workspaceGroup.clearIcon) [options] > (workspaceGroup.markRead workspaceGroup.markUnread workspaceGroup.clearNotifications) | toggleFocusedWorkspaceGroupCollapsed [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspaceGroup.moveUp workspaceGroup.moveDown workspaceGroup.moveToNewWindow workspaceGroup.moveToWindow workspaceGroup.moveToSpace) | workspaceGroup.editConfig workspaceGroup.copyID | [close] > (workspaceGroup.ungroup workspaceGroup.closeWorkspaces workspaceGroup.delete)
 - **sidebarBackground**: newTab newBrowserWorkspace openFolder newWorkspaceGroup [new] > (workspace.newAtTop workspace.newAtBottom workspace.newOnMachine space.new reopenClosedWorkspace reopenPreviousSession | newCloudWorkspace remote.connect | sidebar.home.add sidebar.item.add sidebar.section.add) | [options] > (sidebar.workspaceTabs.toggle | sidebar.layout.reset) | [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll sidebar.groupBy.none sidebar.groupBy.folder) | [move] > (workspace.sortByName workspace.sortByLastUsed workspace.sortByDirectory) | sidebar.projects.hide sidebar.sections.showHidden | toggleSidebar appStore.show
@@ -119,7 +119,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 
 **unimplemented** (8): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`
 
-**duplicateOfDefault** (1): `newTab.ofKind`
+**duplicateOfDefault** (2): `newTab.ofKind`, `newTab.horizontal`
 
 **ownerVerb** (9): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `closePane`
 
@@ -149,7 +149,7 @@ Palette 862, CLI verbs 484, right-click 467, MCP tools 424.
 
 **secondaryEngine** (2): `openBrowser.webkit`, `browser.openInWebKit`
 
-**duplicateOfDefault** (2): `newTab.default`, `newTab.submit`
+**duplicateOfDefault** (3): `newTab.default`, `newTab.horizontal`, `newTab.submit`
 
 **minimalMenu** (2): `space.setDefaults`, `browserProfile.clearSpaceDefault`
 
