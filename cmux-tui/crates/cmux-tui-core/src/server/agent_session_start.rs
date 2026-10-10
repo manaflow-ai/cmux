@@ -169,13 +169,22 @@ fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
         Some(ConversationTabRecord::AgentSession { host, session, .. })
             if host == store_host(mux) =>
         {
-            if session.is_some() { Err(Refusal::Bound) } else { Ok(()) }
+            if session.is_some() {
+                Err(Refusal::Bound)
+            } else {
+                Ok(())
+            }
         }
         _ => Err(Refusal::UnknownTab),
     }
 }
 
-fn run(mux: &Arc<Mux>, client: u64, socket: PathBuf, params: StartParams) -> Result<Value, Refusal> {
+fn run(
+    mux: &Arc<Mux>,
+    client: u64,
+    socket: PathBuf,
+    params: StartParams,
+) -> Result<Value, Refusal> {
     let link = connect(mux, &socket)?;
     let result = start_and_bind(mux, client, &link, &params);
     link.close();
@@ -222,7 +231,8 @@ fn start_and_bind(
         .ok_or(Refusal::Refused)?
         .to_string();
     let end = |refusal: Refusal| {
-        let _ = link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
+        let _ =
+            link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
         refusal
     };
     settle_asking_mode(link, &session).map_err(end)?;

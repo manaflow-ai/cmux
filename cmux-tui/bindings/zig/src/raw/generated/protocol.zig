@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388";
+pub const ir_sha256 = "7a628fb96e9d748dfafdea4dc062aff87a948faad7965e44ec604aeb9678bf54";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -49,7 +49,7 @@ pub const AgentReportSource = enum {
 pub const AgentSessionSource = struct {
     /// The agent kind the chat was started with.
     harness: wire.Field([]const u8) = .absent,
-    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
+    /// install: and the stable install id of the machine whose acpmux runs the session, chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it, or registry: and this store's identify.session_id (the session daemon's own machine runs it; agent-session-start).
     host: []const u8,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     host_name: wire.Field([]const u8) = .absent,

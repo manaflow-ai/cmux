@@ -63,11 +63,11 @@ use serde_json::{Value, json};
 mod agent_session_link;
 #[path = "agent_session_start.rs"]
 mod agent_session_start;
-pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter};
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
+pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -363,7 +363,9 @@ impl Refusal {
             Self::Refused => "acpmux refused the request",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
-            Self::AcpmuxUnavailable => "acpmux is not running on this machine and could not be started",
+            Self::AcpmuxUnavailable => {
+                "acpmux is not running on this machine and could not be started"
+            }
             Self::NotAsking => "this agent has no mode that asks before each action",
         }
     }
