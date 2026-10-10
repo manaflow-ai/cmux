@@ -14,7 +14,7 @@ webviews/src/agent-session/acpmux/handoff/styles.css	size	4
 webviews/src/agent-session/acpmux/keys.css	size	1
 webviews/src/agent-session/acpmux/markdownField.css	size	4
 webviews/src/agent-session/acpmux/mockFixture.ts	size	2
-webviews/src/agent-session/acpmux/newtab/screen.css	size	24
+webviews/src/agent-session/acpmux/newtab/screen.css	size	23
 webviews/src/agent-session/acpmux/prototype/prototype.css	size	18
 webviews/src/agent-session/acpmux/styles.css	size	77
 webviews/src/agent-session/acpmux/subagents/subagents.css	size	2
