@@ -144,9 +144,9 @@ enum ConversationTheme {
     }
 
     /// Composer metrics.
-    static let composerSideInset: CGFloat = 27
+    static let composerSideInset: CGFloat = ComposerBarGeometry.restSideInset
     static let plusButtonSize: CGFloat = 40
-    static let composerFieldGap: CGFloat = 13
+    static let composerFieldGap: CGFloat = ComposerBarGeometry.plusToFieldGap
     /// One line plus `composerTextPadding` above and below (40.3 pt at Large).
     static var composerMinHeight: CGFloat { lineHeight + 2 * composerTextPadding }
 

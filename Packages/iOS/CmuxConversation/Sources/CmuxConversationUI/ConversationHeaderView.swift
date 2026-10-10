@@ -40,6 +40,8 @@ final class ConversationHeaderView: UIView {
     private(set) var trailingMode: TrailingMode = .action
 
     static let contentHeight: CGFloat = 92
+    /// Above the name capsule (z 0), so the avatar occludes it.
+    static let avatarZPosition: CGFloat = 1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -62,6 +64,10 @@ final class ConversationHeaderView: UIView {
 
         clusterDisc.isUserInteractionEnabled = false
         clusterDisc.isHidden = true
+        // Messages draws the avatar over the name capsule where they overlap
+        // (iOS 26.5 and 27.0). The layer order does that; the subview order
+        // keeps VoiceOver reading the photo before the name.
+        clusterDisc.layer.zPosition = Self.avatarZPosition
         addSubview(clusterDisc)
         addSubview(avatarTapButton)
         avatarTapButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
@@ -110,6 +116,7 @@ final class ConversationHeaderView: UIView {
             view.configure(initials: participant.initials, colorHex: nil)
             view.layer.borderWidth = info.kind == .group ? 1.5 : 0
             view.layer.borderColor = ConversationTheme.background.resolvedColor(with: traitCollection).cgColor
+            view.layer.zPosition = Self.avatarZPosition
             insertSubview(view, belowSubview: namePillGlass)
             return view
         }

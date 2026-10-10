@@ -402,7 +402,7 @@ extension ConversationViewController {
         // arriving move the composer as one motion, never down then up.
         animateAlongsideKeyboard {
             drawer.frame.origin.y = top
-            self.composer.sideInset = 16
+            self.composer.sideInset = self.composer.keyboardSideInset
             self.composer.layoutIfNeeded()
             self.composerBottomConstraintConstant(composerBottom)
             self.view.layoutIfNeeded()

@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import AVFoundation
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 extension ConversationViewController: AudioMessageCellDelegate {
@@ -294,7 +295,7 @@ final class ConversationAudioComposer {
     }
 
     private func setPlusGlyph(_ symbol: String, in composer: ConversationComposerView) {
-        let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .medium))
+        let image = UIImage(systemName: symbol, withConfiguration: ConversationComposerView.plusSymbolConfiguration)
         UIView.transition(with: composer.plusButton, duration: 0.2, options: .transitionCrossDissolve) {
             composer.plusButton.setImage(image, for: .normal)
         }
@@ -363,7 +364,7 @@ final class AudioRecordingFieldView: UIView {
     private let playButton = UIButton(type: .custom)
     private let continueButton = UIButton(type: .custom)
     private let sendButton = UIButton(type: .custom)
-    private let sendSize = CGSize(width: 37, height: 28)
+    private let sendSize = ComposerBarGeometry.sendSize
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -397,8 +398,8 @@ final class AudioRecordingFieldView: UIView {
         continueButton.addAction(UIAction { [weak self] _ in self?.onContinue?() }, for: .touchUpInside)
         addSubview(continueButton)
 
-        sendButton.backgroundColor = .systemBlue
-        sendButton.setImage(UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)), for: .normal)
+        sendButton.backgroundColor = ConversationComposerView.sendBlue
+        sendButton.setImage(UIImage(systemName: "arrow.up", withConfiguration: ConversationComposerView.sendSymbolConfiguration), for: .normal)
         sendButton.tintColor = .white
         sendButton.layer.cornerRadius = sendSize.height / 2
         sendButton.layer.cornerCurve = .continuous
@@ -417,7 +418,7 @@ final class AudioRecordingFieldView: UIView {
         let rowHeight = ConversationTheme.composerMinHeight
         let rowY = bounds.height - rowHeight
         let midY = rowY + rowHeight / 2
-        let trailingCenterX = bounds.width - 4 - sendSize.width / 2
+        let trailingCenterX = bounds.width - ComposerBarGeometry.sendTrailingInset - sendSize.width / 2
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
         sendButton.center = CGPoint(x: trailingCenterX, y: midY)
         stopButton.bounds = CGRect(x: 0, y: 0, width: 28, height: 28)
