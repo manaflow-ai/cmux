@@ -10,8 +10,10 @@ import { installDom, privateCreateRoot, restoreDom, settle } from "./viewer-empt
 // CompareView reads these generated modules from Vite. Keep the component test focused on the
 // shell's frame URL behavior without loading the native metric/theme bundles.
 void mock.module("virtual:cmux-gallery/metrics", () => ({ default: {} }));
+void mock.module("virtual:cmux-gallery/themes", () => ({ default: [] }));
 
 let CompareView: typeof import("../src/gallery/shell/CompareView").CompareView;
+let useRoom: typeof import("../src/gallery/shell/Stage").useRoom;
 
 const experiment = {
   definition: defineExperiment({
@@ -37,6 +39,29 @@ const entry = componentEntry({
   variants: { one: { props: {} } },
 });
 
+function RoomProbe() {
+  const [ref] = useRoom();
+  return <div ref={ref} data-room-probe />;
+}
+
+class RecordingResizeObserver {
+  static instances: RecordingResizeObserver[] = [];
+  observed: Element[] = [];
+  disconnectCount = 0;
+
+  constructor(_callback: ResizeObserverCallback) {
+    RecordingResizeObserver.instances.push(this);
+  }
+
+  observe(node: Element): void {
+    this.observed.push(node);
+  }
+
+  disconnect(): void {
+    this.disconnectCount += 1;
+  }
+}
+
 let env: GalleryEnv;
 let root: Root;
 let container: HTMLElement;
@@ -44,6 +69,7 @@ let container: HTMLElement;
 beforeAll(async () => {
   installDom();
   ({ CompareView } = await import("../src/gallery/shell/CompareView"));
+  ({ useRoom } = await import("../src/gallery/shell/Stage"));
   container = document.createElement("div");
   document.body.append(container);
   root = privateCreateRoot()(container);
@@ -121,4 +147,44 @@ test("changing controls cancels a replay waiting on the old frame", async () => 
   await render();
   await settle();
   expect(status()).toContain("at the start");
+});
+
+test("useRoom cleans up its observer and resize listener", async () => {
+  const savedResizeObserver = globalThis.ResizeObserver;
+  const savedAddEventListener = globalThis.addEventListener;
+  const savedRemoveEventListener = globalThis.removeEventListener;
+  const savedInnerHeight = Object.getOwnPropertyDescriptor(globalThis, "innerHeight");
+  const added: EventListenerOrEventListenerObject[] = [];
+  const removed: EventListenerOrEventListenerObject[] = [];
+
+  globalThis.ResizeObserver = RecordingResizeObserver as unknown as typeof ResizeObserver;
+  globalThis.addEventListener = ((type, listener, options) => {
+    if (type === "resize" && listener) added.push(listener);
+    return savedAddEventListener.call(globalThis, type, listener, options);
+  }) as typeof globalThis.addEventListener;
+  globalThis.removeEventListener = ((type, listener, options) => {
+    if (type === "resize" && listener) removed.push(listener);
+    return savedRemoveEventListener.call(globalThis, type, listener, options);
+  }) as typeof globalThis.removeEventListener;
+  Object.defineProperty(globalThis, "innerHeight", { value: 800, configurable: true, writable: true });
+
+  try {
+    RecordingResizeObserver.instances = [];
+    await act(async () => root.render(<RoomProbe />));
+    await settle();
+    expect(RecordingResizeObserver.instances).toHaveLength(1);
+    expect(RecordingResizeObserver.instances[0]?.observed).toHaveLength(1);
+    expect(added).toHaveLength(1);
+
+    await act(async () => root.render(null));
+    await settle();
+    expect(RecordingResizeObserver.instances[0]?.disconnectCount).toBe(1);
+    expect(removed).toEqual(added);
+  } finally {
+    globalThis.ResizeObserver = savedResizeObserver;
+    globalThis.addEventListener = savedAddEventListener;
+    globalThis.removeEventListener = savedRemoveEventListener;
+    if (savedInnerHeight) Object.defineProperty(globalThis, "innerHeight", savedInnerHeight);
+    else delete (globalThis as Record<string, unknown>).innerHeight;
+  }
 });

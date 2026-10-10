@@ -64,6 +64,28 @@ const editRow = {
 };
 
 describe("agent pane automation", () => {
+  test("chat state carries the chat's own text and a missing session, so a live proof reads what the pane shows", () => {
+    const rows = [
+      { id: "u1", version: 1, at: 0, kind: "user", text: "Your task:\n\nCount the lines of alpha.txt" },
+      editRow,
+      { id: "r1", version: 1, at: 1, kind: "assistant", text: "3" },
+    ] as AcpmuxSnapshot["rows"];
+    const shown = automationState(host(snapshot({ rows })).fake);
+    expect(shown.transcript).toEqual([
+      { kind: "user", text: "Your task:\n\nCount the lines of alpha.txt" },
+      { kind: "assistant", text: "3" },
+    ]);
+    expect(shown.missingSession).toBeNull();
+    const missing = automationState(host(snapshot({ sessionId: undefined, missingSession: "old-a1" })).fake);
+    expect(missing.missingSession).toBe("old-a1");
+    expect(missing.transcript).toEqual([]);
+    const long = automationState(
+      host(snapshot({ rows: Array.from({ length: 40 }, (_, k) => ({ id: `u${k}`, version: 1, at: k, kind: "user", text: "x".repeat(900) + k })) as AcpmuxSnapshot["rows"] })).fake,
+    );
+    expect(long.transcript.length).toBe(30);
+    expect(long.transcript[0]!.text.length).toBe(500);
+  });
+
   test("sendPrompt runs the composer's chat.send action and refuses an empty prompt", async () => {
     const { fake, calls } = host(snapshot());
     expect(await sendPrompt(fake, "  ")).toEqual({ error: "empty prompt" });

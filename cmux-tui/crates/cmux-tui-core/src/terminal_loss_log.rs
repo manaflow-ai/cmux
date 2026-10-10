@@ -80,30 +80,71 @@ pub(crate) fn loss_line(
     }))
 }
 
+/// A host loss read from its host's breadcrumbs (signals, last panic) and
+/// not yet logged. The owner reads it before it commits the exit, so the
+/// exit and its cause become visible together, and logs it after the commit.
+pub(crate) struct HostLoss {
+    record_path: PathBuf,
+    terminal_id: String,
+    line: Option<serde_json::Value>,
+}
+
+impl HostLoss {
+    /// Reads the loss of `terminal_id` (no line for an end that is not a
+    /// host loss). Read-only: nothing is removed or appended.
+    pub(crate) fn read(
+        record_path: &Path,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        end: &TerminalEnd,
+    ) -> Self {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or_default();
+        HostLoss {
+            record_path: record_path.to_path_buf(),
+            terminal_id: terminal_id.to_string(),
+            line: loss_line(record_path, terminal_id, incarnation, end, at_ms),
+        }
+    }
+
+    /// The loss's structured cause (tab `end.cause`), if the host left one.
+    pub(crate) fn cause(&self) -> Option<&serde_json::Value> {
+        self.line.as_ref()?.get("summary").filter(|summary| !summary.is_null())
+    }
+
+    /// Appends the loss to the session's loss log and removes the host's
+    /// breadcrumbs (also for an end that is not a loss), so a later
+    /// incarnation never inherits them. Best effort: a failure never affects
+    /// the exit commit.
+    pub(crate) fn record(self) {
+        remove_signals(&self.record_path);
+        let Some(line) = self.line else { return };
+        eprintln!("cmux-tui: terminal {} lost its host: {}", self.terminal_id, line["cause"]);
+        if let Some(log) =
+            self.record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
+        {
+            append_rotating(&log, &line);
+        }
+    }
+}
+
 /// Append the loss of `terminal_id` to the session's loss log. The host's
 /// breadcrumbs (signals, last panic) are removed on every end, so a later
 /// incarnation never inherits them. Best effort: a failure never affects the
 /// exit commit. Returns the loss's structured cause (tab `end.cause`).
+#[cfg(test)]
 pub(crate) fn record_host_loss(
     record_path: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
     end: &TerminalEnd,
 ) -> Option<serde_json::Value> {
-    let at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or_default();
-    let line = loss_line(record_path, terminal_id, incarnation, end, at_ms);
-    remove_signals(record_path);
-    let line = line?;
-    eprintln!("cmux-tui: terminal {terminal_id} lost its host: {}", line["cause"]);
-    if let Some(log) =
-        record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
-    {
-        append_rotating(&log, &line);
-    }
-    line.get("summary").filter(|summary| !summary.is_null()).cloned()
+    let loss = HostLoss::read(record_path, terminal_id, incarnation, end);
+    let cause = loss.cause().cloned();
+    loss.record();
+    cause
 }
 
 /// The structured cause of the last loss of each terminal in the loss log

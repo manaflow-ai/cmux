@@ -18,17 +18,16 @@ fn sender_tab(harness: &RecoveryHarness) -> serde_json::Value {
         .unwrap_or_else(|| panic!("the dead tab is gone: {tree}"))
 }
 
-#[test]
-fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
-    let mut harness = RecoveryHarness::start_without_respawn("restored-end");
+/// Starts `/bin/cat` in workspace `lost`, has a child of this test send its
+/// host SIGTERM (so the loss has a recorded cause, the sender), then loses
+/// the host. Returns once the terminal is exited.
+fn lose_a_host_after_a_signal(harness: &RecoveryHarness) {
     let created = request(
         &harness.socket,
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"lost"}),
     );
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    // A child of this test sends the host SIGTERM first, so the loss has a
-    // recorded cause (the sender) to keep across the restart.
     let mut sender = Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("kill -TERM {}; sleep 30; :", record.host_pid))
@@ -47,6 +46,12 @@ fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
     let _ = sender.kill();
     let _ = sender.wait();
+}
+
+#[test]
+fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
+    let mut harness = RecoveryHarness::start_without_respawn("restored-end");
+    lose_a_host_after_a_signal(&harness);
     let before = sender_tab(&harness);
     assert_eq!(before["end"]["kind"], "host_lost", "before the restart: {before}");
     let content = before["content_resource_id"].clone();
@@ -70,4 +75,24 @@ fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     assert_eq!(after["content_resource_id"], content, "the tab keeps its content id: {after}");
     assert_eq!(after["end"]["kind"], "host_lost", "the tab keeps its typed end: {after}");
     assert_eq!(after["end"]["cause"], cause, "the restored end keeps the loss cause: {after}");
+}
+
+/// The end of a lost host names its cause as soon as the exit is visible.
+/// The owner committed the exit, released its locks and only then attached
+/// the cause (after reading the host's signals for the loss log), so a
+/// client that read the tab in between got `end.cause: null`: 1 of 10 full
+/// nextest runs on the rbx builder failed the test above that way. The
+/// debug-only seam holds the owner in that window.
+#[test]
+fn a_lost_hosts_end_names_its_cause_as_soon_as_the_exit_is_visible() {
+    let mut harness = RecoveryHarness::start_unstarted("loss-cause");
+    harness.respawn = false;
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    lose_a_host_after_a_signal(&harness);
+    let tab = sender_tab(&harness);
+    assert_eq!(tab["end"]["kind"], "host_lost", "{tab}");
+    assert!(tab["end"]["cause"].is_object(), "the exit is visible without its cause: {tab}");
 }

@@ -156,6 +156,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats. Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
+| `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
 | `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
