@@ -691,6 +691,20 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
         }
     }
 
+    func testAllowsSelectingToLineBoundaryForPaletteTextEditing() {
+        for keyCode in [UInt16(123), UInt16(124)] {
+            XCTAssertFalse(
+                shouldConsumeShortcutWhileCommandPaletteVisible(
+                    isCommandPaletteVisible: true,
+                    normalizedFlags: [.command, .shift],
+                    chars: "",
+                    keyCode: keyCode
+                ),
+                "Shift-Command-arrow (keyCode \(keyCode)) must reach the palette text field"
+            )
+        }
+    }
+
     func testConsumesEscapeWhenPaletteIsVisible() {
         XCTAssertTrue(
             shouldConsumeShortcutWhileCommandPaletteVisible(
