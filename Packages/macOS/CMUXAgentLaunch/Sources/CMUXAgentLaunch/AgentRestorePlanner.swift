@@ -75,6 +75,14 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
+        // A rejected capture is never recoverable for managed OMP restore or
+        // fork. Do this before planning argv: an app-prepared absolute argv
+        // must not turn a rejected capture into a fresh-looking launch record.
+        guard kind != "omp"
+            || request.mode == .direct
+            || request.launchCommand?.isRejectedCapture != true else {
+            return nil
+        }
         let routedClaudeLaunch = routedClaudeResumeLaunch(
             for: request,
             kind: kind,
