@@ -165,21 +165,34 @@
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
     },
     "appearance.background" : {
       "default" : "none",
-      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "description" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "desktop"
       ],
       "title" : "Background",
       "type" : "string"

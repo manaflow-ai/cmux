@@ -4984,7 +4984,13 @@
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -5030,6 +5036,48 @@
             "text" : "Sunflowers"
           },
           "value" : "met-sunflowers-436524"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Three Studies of Ludovic Halévy Standing"
+          },
+          "value" : "nga-degas-halevy-standing-66489"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer Seen from Behind"
+          },
+          "value" : "nga-degas-dancer-from-behind-32137"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Groups of Male Figures"
+          },
+          "value" : "nga-carpaccio-groups-of-male-figures-73858"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Figure Studies"
+          },
+          "value" : "nga-perino-del-vaga-figure-studies-57613"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Battle of Nude Men"
+          },
+          "value" : "nga-rubens-battle-of-nude-men-63034"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studies of Market Figures"
+          },
+          "value" : "nga-teniers-market-figures-62615"
         }
       ],
       "consumers" : [
@@ -5076,11 +5124,18 @@
     {
       "accepts" : [
         "none",
+        "desktop",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
         "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"
       ],
       "agent_refusal" : null,
@@ -5092,6 +5147,48 @@
             "text" : "None"
           },
           "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Three Studies of Ludovic Halévy Standing"
+          },
+          "value" : "nga-degas-halevy-standing-66489"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer Seen from Behind"
+          },
+          "value" : "nga-degas-dancer-from-behind-32137"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Groups of Male Figures"
+          },
+          "value" : "nga-carpaccio-groups-of-male-figures-73858"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Figure Studies"
+          },
+          "value" : "nga-perino-del-vaga-figure-studies-57613"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Battle of Nude Men"
+          },
+          "value" : "nga-rubens-battle-of-nude-men-63034"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studies of Market Figures"
+          },
+          "value" : "nga-teniers-market-figures-62615"
         },
         {
           "title" : {
@@ -5127,6 +5224,13 @@
             "text" : "Sunflowers"
           },
           "value" : "met-sunflowers-436524"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.desktopWallpaper",
+            "text" : "Desktop Wallpaper"
+          },
+          "value" : "desktop"
         }
       ],
       "consumers" : [
@@ -5140,7 +5244,7 @@
       },
       "help" : {
         "key" : "settings.appearance.background.help",
-        "text" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+        "text" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.background",
@@ -5150,7 +5254,10 @@
         "wallpaper",
         "backdrop",
         "desktop",
-        "attribution"
+        "attribution",
+        "drawing",
+        "figure",
+        "sketch"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -17434,7 +17541,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "df6810ee16b91feb7371629e6db9cd869543d4ca55a2938f9504710b314009f6",
+  "schema_hash" : "e0d546cac9b4230b3e4f155c017984770657773bd0d7e0e5d560af5583dea857",
   "sections" : [
     {
       "id" : "general",
