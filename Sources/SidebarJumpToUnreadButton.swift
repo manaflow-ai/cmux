@@ -6,9 +6,7 @@ import SwiftUI
 /// state and configured shortcut. Kept separate from the view so the title,
 /// tooltip and enablement rules are testable without hosting SwiftUI.
 struct SidebarJumpToUnreadButtonPresentation: Equatable {
-    /// Same glyph as the notifications popover's "Jump to Latest" button.
-    static let systemName = "arrow.down.to.line"
-
+    let systemName: String
     let title: String
     let helpText: String
     let isEnabled: Bool
@@ -20,6 +18,7 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
         let action = KeyboardShortcutSettings.Action.jumpToUnread
         let title = action.label
         return SidebarJumpToUnreadButtonPresentation(
+            systemName: hasUnreadNotifications ? "bell.badge" : "bell",
             title: title,
             helpText: shortcut.isUnbound ? title : action.tooltip(title, shortcut: shortcut),
             isEnabled: hasUnreadNotifications
@@ -81,7 +80,7 @@ struct SidebarJumpToUnreadButton: View {
             AppDelegate.shared?.jumpToLatestUnread()
         } label: {
             CmuxSystemSymbolImage(
-                systemName: SidebarJumpToUnreadButtonPresentation.systemName,
+                systemName: resolved.systemName,
                 pointSize: iconSize,
                 weight: .medium,
                 tint: Color(nsColor: resolved.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor)
