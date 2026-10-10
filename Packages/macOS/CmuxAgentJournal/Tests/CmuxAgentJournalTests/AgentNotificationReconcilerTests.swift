@@ -7,6 +7,7 @@ struct AgentNotificationReconcilerTests {
     private let surface = UUID().uuidString
 
     private func event(_ sequence: Int64, _ kind: AgentJournalEventKind, source: String,
+                       session: String = "session",
                        turn: String? = "turn-1", request: String? = nil, pending: Bool = false,
                        notify: Bool = true, occurredAt: Int64? = nil, nativeID: String? = nil,
                        surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil,
@@ -14,7 +15,7 @@ struct AgentNotificationReconcilerTests {
         AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence,
             draft: AgentJournalEventDraft(eventId: "event-\(sequence)", kind: kind,
                 occurredAtMs: occurredAt ?? sequence, source: source, agentKey: source,
-                sessionId: "session", workspaceId: workspace, surfaceId: surfaceID ?? surface,
+                sessionId: session, workspaceId: workspace, surfaceId: surfaceID ?? surface,
                 pendingWork: pending, nativeEvent: nativeEvent, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
                     turnIdentity: turn, requestIdentity: request,
                     notification: notify ? AgentJournalNotification(title: "Agent", subtitle: "",
@@ -99,6 +100,16 @@ struct AgentNotificationReconcilerTests {
         #expect(duplicate.disposition == .stale)
         #expect(duplicate.invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.apply(event(4, .approvalRequested, source: source, request: "r1")).identity == first.identity)
+    }
+
+    @Test func recoveredReplacementInvalidatesTheOldErrorNotification() throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        let replacement = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "new"))
+        #expect(replacement.invalidatedCorrelationKeys.count == 1)
+        #expect(reconciler.apply(event(3, .errorReported, source: "claude", session: "old")).disposition == .stale)
+        let recovered = reconciler.apply(event(4, .turnCompleted, source: "claude", session: "new"))
+        #expect(recovered.disposition != .accepted || recovered.identity != replacement.identity)
     }
 
     @Test func contextPersistsAndIdempotentAppendRejectsChangedEvidence() throws {
