@@ -26,6 +26,11 @@ with a deadline; nothing sleeps to synchronize.
 """
 import argparse, json, os, plistlib, select, shutil, signal, socket, subprocess, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from sessions import Agent, Terminal, bundle_commit, patch_build_stamp  # noqa: E402
+from tag_teardown import TagTeardown  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL_ACTION = "palette.applyUpdateIfAvailable"
 CHECK_ACTION = "palette.checkForUpdates"
@@ -159,6 +164,14 @@ def rpc(sock, method, params=None, timeout=10):
     return json.loads(buf) if buf else {}
 
 
+def sessions_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def processes_under(root):
     out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
     found = []
@@ -177,6 +190,10 @@ def main():
     ap.add_argument("--port", type=int, default=0, help="loopback port for the appcast (default: a free one)")
     ap.add_argument("--stage-timeout", type=float, default=240)
     ap.add_argument("--relaunch-timeout", type=float, default=120)
+    ap.add_argument("--handoff", action="store_true",
+                    help="give v2's cmux-tui and acpmux another build commit, so the update takes the daemon handoff")
+    ap.add_argument("--sessions", action="store_true",
+                    help="run a terminal counter and an agent turn across the update and check they survive")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
@@ -200,10 +217,22 @@ def main():
     sock = f"/tmp/cmux-debug-{a.tag}.sock"
     server = app = None
     result = {"tag": a.tag, "app": name}
+    slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
+    acp_home = os.path.join(os.environ["HOME"], ".acpmux/tags", slug)
+    terminal = agent = None
     try:
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])
         run(["/usr/bin/ditto", a.app, v1])
         run(["/usr/bin/ditto", a.app, v2])
+        if a.handoff:
+            commit = bundle_commit(v2)
+            bin2 = os.path.join(v2, "Contents/Resources/bin")
+            result["handoff_patch"] = {name: patch_build_stamp(os.path.join(bin2, name), commit) for name in ("cmux-tui", "acpmux")}
+            log("v2 daemons stamped", json.dumps(result["handoff_patch"]))
+        if a.sessions:
+            fake = os.path.abspath(os.path.join(HERE, "../../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
+            agent = Agent(acp_home, fake, work, log)
+            terminal = Terminal(v1, work, log, f"cmux-app-{slug}")
         harness = {"feed": feed_url, "marks": marks_path}
         base = int(time.time())
         i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)}, harness)
@@ -265,6 +294,9 @@ def main():
             # A person clicks seconds or hours after the card appears; the staging work is done by then.
             kept = marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v1_pid), 120)
             log("staging work done" if kept else "staging work still running after 120 s; clicking anyway")
+        if terminal:
+            terminal.start(v1)
+            agent.start()
         t_send = time.time()
         reply = rpc(sock, "action.run", {"id": INSTALL_ACTION})
         t_reply = time.time()
@@ -285,6 +317,15 @@ def main():
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
         click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
+        if a.handoff:
+            handed = marks.wait(lambda rows: first(rows, "launch.daemon_version_handoff", not_pid=v1_pid), 60)
+            result["daemon_handoff_mark"] = bool(handed)
+        if terminal:
+            relaunched = first(rows, "launch.first_window_frame_committed", not_pid=v1_pid)["unix_ms"] / 1000
+            result["terminal_survival"] = terminal.check(v1, click / 1000, relaunched)
+            result["agent_survival"] = agent.check()
+            log("terminal", json.dumps(result["terminal_survival"]))
+            log("agent", json.dumps(result["agent_survival"]))
 
         def at(name, pid):
             r = first(rows, name, pid=pid)
@@ -323,17 +364,24 @@ def main():
                     wait_exit(pid, 20)
                 except ProcessLookupError:
                     pass
-        # The tag's daemon, terminal hosts and acpmux run from the copies.
-        left = processes_under(work)
-        for pid, command in left:
-            log("stopping", pid, command[:160])
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        for pid, _ in left:
-            wait_exit(pid, 10)
-        log("LEFTOVERS", processes_under(work))
+        # End the tag's sessions: acpmux (its agents with it), the cmux-tui session (its terminals
+        # with it), then any process left inside the bundle copies, by exact pid.
+        for copy in (v1, v2):
+            if os.path.isdir(copy):
+                TagTeardown(copy, acpmux_home=acp_home, acpmux_socket=os.path.join(acp_home, "acpmux.sock"), log=log).end()
+        if server:
+            server.terminate()
+            server.wait(10)
+            server = None
+        result["leftovers"] = [command[:200] for _, command in processes_under(work)]
+        log("LEFTOVERS", result["leftovers"])
+        with open(os.path.join(out, "timeline.json"), "w") as f:
+            json.dump(result, f, indent=1)
+        if agent and agent.harness_pid and sessions_alive(agent.harness_pid):
+            log("stopping the test agent", agent.harness_pid)
+            os.kill(agent.harness_pid, signal.SIGTERM)
+        if a.sessions:
+            shutil.rmtree(acp_home, ignore_errors=True)
         if server:
             server.terminate()
             server.wait(10)
