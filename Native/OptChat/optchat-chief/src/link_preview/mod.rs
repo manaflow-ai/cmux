@@ -31,15 +31,6 @@ pub struct Fetched {
     pub picture: Option<Picture>,
 }
 
-/// One preview as a card takes it: the picture already uploaded as an
-/// attachment record of the conversation.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Filled {
-    pub title: Option<String>,
-    pub site: Option<String>,
-    pub image: Option<cmux_conversation::DerivedImage>,
-}
-
 /// Fetches the preview of one URL by `deadline` (None: no preview).
 pub trait Fetcher: Send + Sync {
     fn fetch(&self, url: &str, deadline: Instant) -> Option<Fetched>;

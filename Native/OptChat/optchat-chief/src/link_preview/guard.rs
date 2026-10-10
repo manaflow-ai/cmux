@@ -24,6 +24,7 @@
 //! - No cookies, proxies or credentials. HTML is read up to 512 KB and stops
 //!   at `</head>`; an image up to 5 MB. The caller's deadline bounds it all.
 
+use std::cell::Cell;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
@@ -151,7 +152,13 @@ pub fn resolve_public(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal>
 /// Longest name lookup: the system resolver has no timeout of its own.
 pub const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// The addresses of `host` at `port`, by [`DNS_TIMEOUT`]. The lookup runs on
+thread_local! {
+    /// The deadline of the request this thread is making, for its lookups.
+    static REQUEST_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// The addresses of `host` at `port`, by [`DNS_TIMEOUT`] or the request's
+/// deadline, whichever comes first. The lookup runs on
 /// its own thread; one that outlives the timeout ends on its own and its
 /// answer is dropped.
 fn lookup(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal> {
@@ -166,7 +173,19 @@ fn lookup(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal> {
             let _ = tx.send(answer);
         })
         .map_err(|_| Refusal::Resolve(host.to_owned()))?;
-    match rx.recv_timeout(DNS_TIMEOUT) {
+    // Clamped to the request's own deadline (HttpTransport::get sets it for
+    // the lookups its client makes on this thread).
+    let timeout = REQUEST_DEADLINE
+        .with(Cell::get)
+        .map_or(DNS_TIMEOUT, |deadline| {
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(DNS_TIMEOUT)
+        });
+    if timeout.is_zero() {
+        return Err(Refusal::Timeout);
+    }
+    match rx.recv_timeout(timeout) {
         Ok(Ok(addrs)) => Ok(addrs),
         Ok(Err(_)) => Err(Refusal::Resolve(host.to_owned())),
         Err(_) => Err(Refusal::Timeout),
@@ -405,6 +424,7 @@ impl Transport for HttpTransport {
         if left.is_zero() {
             return Err(Refusal::Timeout);
         }
+        REQUEST_DEADLINE.with(|cell| cell.set(Some(deadline)));
         let accept = match kind {
             Kind::Html => "text/html,application/xhtml+xml",
             Kind::Image => "image/jpeg,image/png,image/webp,image/gif",

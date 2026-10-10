@@ -38,6 +38,23 @@ pub fn sole_url(line: &str) -> Option<&str> {
     valid_link_url(url).then_some(url)
 }
 
+/// The http(s) URLs a person's text holds, as whole tokens: the text split
+/// on whitespace, each token stripped of leading brackets or quotes and of
+/// trailing sentence punctuation, brackets or quotes (the same ends that keep
+/// a line from being a card in [`sole_url`]). A card's URL must equal one of
+/// these exactly; a prefix of a longer URL (a shorter query, a shorter host)
+/// is not one.
+pub fn url_tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.split_whitespace().filter_map(|token| {
+        let token = token.trim_start_matches(['(', '<', '[', '{', '"', '\'']);
+        let token =
+            token.trim_end_matches(['.', ',', ')', '!', '?', ';', ':', '>', ']', '}', '"', '\'']);
+        let scheme = token.get(..8).unwrap_or(token).to_ascii_lowercase();
+        let http = scheme.starts_with("https://") || scheme.starts_with("http://");
+        (http && valid_link_url(token)).then_some(token)
+    })
+}
+
 /// Whether `line` opens or closes a fenced code block.
 fn is_fence(line: &str) -> bool {
     let t = line.trim_start_matches(' ');

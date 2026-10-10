@@ -89,10 +89,10 @@ pub trait ConversationPort: Send {
     fn supports(&self, _capability: &str) -> bool {
         false
     }
-    /// An uploader of preview pictures for another thread (its own
-    /// connection, bound as the same agent), so an upload never blocks the
-    /// brain. None: this owner takes no uploads from the chief.
-    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
+    /// A port for the link preview thread (its own connection, bound as
+    /// the same agent): it reads the conversation and uploads pictures
+    /// without blocking the brain. None: no link previews on this owner.
+    fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
         None
     }
 }
@@ -100,8 +100,14 @@ pub trait ConversationPort: Send {
 /// `link_preview` parts on the local conversation owner.
 pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 
-/// Uploads preview pictures as attachment records, off the brain thread.
-pub trait ImageUploader: Send {
+/// What the link preview thread needs from the owner, off the brain thread.
+pub trait PreviewPort: Send {
+    /// The conversation and its last `tail` messages (for the people's URLs).
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError>;
     /// Uploads `bytes` (an image of `mime_type`, at most one 4 MiB chunk) as
     /// an attachment record of `conversation` that this connection's agent
     /// may send (`conversation-attachment-upload`: begin, chunk, commit).
@@ -117,7 +123,7 @@ pub trait ImageUploader: Send {
     ) -> Result<DerivedImage, OpError>;
 }
 
-/// The upload steps of [`ImageUploader::upload_image`] on `client`.
+/// The upload steps of [`PreviewPort::upload_image`] on `client`.
 #[allow(clippy::too_many_arguments)]
 fn upload_with(
     client: &mut Client,
@@ -321,13 +327,45 @@ pub struct SdkConversations {
     config: LinkConfig,
 }
 
-/// A preview picture uploader with its own connection, opened and bound as
-/// the chief's agent for each upload (a rare, off-thread event).
-pub struct SdkUploader {
+/// The link preview thread's port: its own connection, opened and bound as
+/// the chief's agent on first use and kept for the thread's reads and
+/// uploads.
+pub struct SdkPreviewPort {
     config: LinkConfig,
+    client: Option<Client>,
 }
 
-impl ImageUploader for SdkUploader {
+impl SdkPreviewPort {
+    fn client(&mut self) -> Result<&mut Client, OpError> {
+        if self.client.is_none() {
+            let sdk = ClientConfig::from_socket_path(&self.config.socket);
+            let mut client = Client::connect(sdk).map_err(sdk_error)?;
+            let token = read_token(self.config.token_file.as_deref()).ok_or_else(|| {
+                OpError::Transport("MUX_AGENT_TOKEN_FILE is missing or empty".into())
+            })?;
+            client
+                .conversation_bind(ConversationBindRequest {
+                    participant: AGENT_MUX.into(),
+                    token,
+                })
+                .map_err(sdk_error)?;
+            self.client = Some(client);
+        }
+        self.client
+            .as_mut()
+            .ok_or_else(|| OpError::Transport("no preview connection".into()))
+    }
+}
+
+impl PreviewPort for SdkPreviewPort {
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        snapshot_with(self.client()?, conversation, tail)
+    }
+
     fn upload_image(
         &mut self,
         conversation: &str,
@@ -337,18 +375,8 @@ impl ImageUploader for SdkUploader {
         width: u32,
         height: u32,
     ) -> Result<DerivedImage, OpError> {
-        let sdk = ClientConfig::from_socket_path(&self.config.socket);
-        let mut client = Client::connect(sdk).map_err(sdk_error)?;
-        let token = read_token(self.config.token_file.as_deref())
-            .ok_or_else(|| OpError::Transport("MUX_AGENT_TOKEN_FILE is missing or empty".into()))?;
-        client
-            .conversation_bind(ConversationBindRequest {
-                participant: AGENT_MUX.into(),
-                token,
-            })
-            .map_err(sdk_error)?;
         upload_with(
-            &mut client,
+            self.client()?,
             conversation,
             bytes,
             mime_type,
@@ -359,22 +387,30 @@ impl ImageUploader for SdkUploader {
     }
 }
 
+/// `conversation-snapshot` on `client`, in the brain's types.
+fn snapshot_with(
+    client: &mut Client,
+    conversation: &str,
+    tail: u32,
+) -> Result<(Summary, Vec<Message>), OpError> {
+    let data = client
+        .conversation_snapshot(ConversationSnapshotRequest {
+            conversation: conversation.into(),
+            tail,
+        })
+        .map_err(sdk_error)?;
+    let summary = rewire(&data.conversation, "snapshot summary")?;
+    let messages = rewire(&data.messages, "snapshot messages")?;
+    Ok((summary, messages))
+}
+
 impl ConversationPort for SdkConversations {
     fn snapshot(
         &mut self,
         conversation: &str,
         tail: u32,
     ) -> Result<(Summary, Vec<Message>), OpError> {
-        let data = self
-            .client
-            .conversation_snapshot(ConversationSnapshotRequest {
-                conversation: conversation.into(),
-                tail,
-            })
-            .map_err(sdk_error)?;
-        let summary = rewire(&data.conversation, "snapshot summary")?;
-        let messages = rewire(&data.messages, "snapshot messages")?;
-        Ok((summary, messages))
+        snapshot_with(&mut self.client, conversation, tail)
     }
 
     fn history(
@@ -449,9 +485,10 @@ impl ConversationPort for SdkConversations {
         self.capabilities.iter().any(|c| c == capability)
     }
 
-    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
-        Some(Box::new(SdkUploader {
+    fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
+        Some(Box::new(SdkPreviewPort {
             config: self.config.clone(),
+            client: None,
         }))
     }
 }

@@ -12,7 +12,7 @@ use cmux_chief::acp::AcpmuxEvent;
 use cmux_conversation::{Change, DerivedImage, Message, Op, Part, Summary};
 use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
 use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
-use optchat_chief::daemon::{ConversationPort, DaemonEvent, ImageUploader, OpError, participants};
+use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, PreviewPort, participants};
 use optchat_chief::state::StateFile;
 use optchat_host::{
     CompactModel, CompactRequest, Config, Followup, ModelError, OptChat, Reply, SystemClock,
@@ -204,10 +204,18 @@ impl Owner {
 #[derive(Clone)]
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
-/// Preview pictures uploaded off the brain thread, into the same fake owner.
+/// The link preview thread's port onto the same fake owner.
 pub struct FakeUploader(pub Arc<Mutex<Owner>>);
 
-impl ImageUploader for FakeUploader {
+impl PreviewPort for FakeUploader {
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        FakeDaemon(self.0.clone()).snapshot(conversation, tail)
+    }
+
     fn upload_image(
         &mut self,
         conversation: &str,
@@ -261,7 +269,7 @@ impl ConversationPort for FakeDaemon {
             && !self.0.lock().unwrap().no_link_previews
     }
 
-    fn image_uploader(&self) -> Option<Box<dyn ImageUploader>> {
+    fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
         Some(Box::new(FakeUploader(self.0.clone())))
     }
 

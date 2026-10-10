@@ -1326,10 +1326,15 @@ lines around a card make no text part (MessagesLab's rule). A URL line inside
 a fenced code block stays code. At most 16 parts: later URL lines then stay
 text.
 
-Only a URL a person wrote verbatim in one of the conversation's last 200
-messages (its text or its own link card) becomes a card; a URL only the
-agent wrote stays text and is never fetched, so a model cannot be talked
-into making the host request an address of its choosing. Cards go only to
+Only a URL that equals, exactly, a URL token a person wrote in one of the
+conversation's last 200 messages (its text parts split on whitespace, with
+leading brackets and trailing punctuation stripped, or the URL of its own
+link card; never a card's title) becomes a card; a URL only the agent wrote,
+or a shorter prefix of a person's URL, stays text and is never fetched, so a
+model cannot be talked into making the host request an address of its
+choosing. The conversation read, the fetches and the uploads run on the
+preview thread's own connection, never on the brain thread; at most two
+pictures decode at once. Cards go only to
 an owner that advertises `link-preview-v1`; an owner that still refuses them
 gets the reply's original text, unchanged, under a new key (`:text`), so a
 reply is never dropped.

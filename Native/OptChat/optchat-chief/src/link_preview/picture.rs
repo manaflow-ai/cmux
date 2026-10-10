@@ -4,6 +4,7 @@
 //! Transparent pixels go on white, as a card shows them.
 
 use std::io::Cursor;
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Instant;
 
 use cmux_conversation::MAX_PREVIEW_IMAGE_BYTES;
@@ -45,9 +46,10 @@ pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
     limits.max_image_height = Some(MAX_SIDE);
     limits.max_alloc = Some(MAX_ALLOC);
     reader.limits(limits);
-    if Instant::now() >= deadline {
-        return None;
-    }
+    // At most two decodes at once across every preview thread (a decode
+    // takes up to MAX_ALLOC of memory); a turn waits for its slot only
+    // until the deadline.
+    let _slot = DecodeSlot::take(deadline)?;
     let image = reader.decode().ok()?;
     let rgb = on_white(&image);
     drop(image);
@@ -83,6 +85,43 @@ pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
         }
     }
     None
+}
+
+/// Most picture decodes at once.
+pub const MAX_DECODES: usize = 2;
+
+static DECODES: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// One of the [`MAX_DECODES`] decode slots, given back on drop.
+struct DecodeSlot;
+
+impl DecodeSlot {
+    /// A slot, or None when `deadline` passes first.
+    fn take(deadline: Instant) -> Option<DecodeSlot> {
+        let (count, freed) = &DECODES;
+        let mut running = count.lock().unwrap_or_else(PoisonError::into_inner);
+        while *running >= MAX_DECODES {
+            let left = deadline.checked_duration_since(Instant::now())?;
+            running = freed
+                .wait_timeout(running, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        *running += 1;
+        Some(DecodeSlot)
+    }
+}
+
+impl Drop for DecodeSlot {
+    fn drop(&mut self) {
+        let (count, freed) = &DECODES;
+        let mut running = count.lock().unwrap_or_else(PoisonError::into_inner);
+        *running = running.saturating_sub(1);
+        freed.notify_one();
+    }
 }
 
 /// `width` x `height` scaled to fit a `side` square, aspect kept, at least 1.

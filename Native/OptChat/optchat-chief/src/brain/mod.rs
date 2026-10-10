@@ -184,11 +184,12 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
-    /// The link previews of reply `key` (its part index, the preview with
-    /// its picture uploaded); a card missing here keeps its URL only.
+    /// The link preview thread's answer for reply `key`: its parts with the
+    /// cards filled (pictures uploaded), or None when no line qualifies (the
+    /// reply stays its text).
     Previews {
         key: String,
-        fetched: Vec<(usize, crate::link_preview::Filled)>,
+        parts: Option<Vec<cmux_conversation::Part>>,
     },
 }
 
@@ -748,7 +749,7 @@ impl Brain {
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }
-            Input::Previews { key, fetched } => self.previews_fetched(&key, fetched),
+            Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }
     }
 

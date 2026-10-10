@@ -114,7 +114,9 @@ impl Brain {
                         "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
                     ))
                 }
-                Err(OpError::Rejected(reason)) if self.state.outbox[0].plain_text.is_some() => {
+                Err(OpError::Rejected(reason))
+                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                {
                     // The owner refused the link cards (an older or stricter
                     // owner): the reply goes as its original text, unchanged,
                     // under a new key, since the refused key is spent.
@@ -146,4 +148,10 @@ impl Brain {
             self.save();
         }
     }
+}
+
+/// Whether `op` sends link cards (a reply the preview thread filled).
+fn has_cards(op: &Op) -> bool {
+    matches!(op, Op::MessageSend { parts, .. }
+        if parts.iter().any(|p| matches!(p, cmux_conversation::Part::LinkPreview { .. })))
 }
