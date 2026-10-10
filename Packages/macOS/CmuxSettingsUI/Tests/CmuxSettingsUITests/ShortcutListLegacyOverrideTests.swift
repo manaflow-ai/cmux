@@ -144,6 +144,80 @@ import Testing
         #expect(model.effective(for: .reopenClosedBrowserPanel) == nil)
     }
 
+    /// Cmd+Shift+B used to open the browser. Someone who bound Open Browser
+    /// back to it keeps that stroke; the newer Jump to Last Prompt default yields.
+    @Test func legacyBindingOnCommandShiftBDisplacesJumpToLastPromptDefault() throws {
+        let commandShiftB = try #require(ShortcutAction.jumpToLastPrompt.defaultShortcut)
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.openBrowser: commandShiftB]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.effective(for: .openBrowser) == commandShiftB)
+        #expect(model.effective(for: .jumpToLastPrompt) == nil)
+    }
+
+    @Test func jsonBindingOnCommandShiftBDisplacesJumpToLastPromptDefault() async throws {
+        let action = ShortcutAction.toggleSidebar
+        let commandShiftB = try #require(ShortcutAction.jumpToLastPrompt.defaultShortcut)
+        let (defaultsStore, suiteName) = try makeDefaultsStore(legacyBindings: [:])
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let jsonStore = makeJSONStore()
+        let catalog = SettingCatalog()
+        try await jsonStore.set([action.rawValue: commandShiftB], for: catalog.shortcuts.bindings)
+        let model = ShortcutListModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: defaultsStore,
+            catalog: catalog,
+            errorLog: SettingsErrorLog()
+        )
+
+        model.startObserving()
+        await spin(until: { model.bindings[action.rawValue] == commandShiftB })
+
+        #expect(model.effective(for: action) == commandShiftB)
+        #expect(model.effective(for: .jumpToLastPrompt) == nil)
+    }
+
+    @Test func jumpToLastPromptKeepsItsDefaultWithoutAConflictingBinding() throws {
+        let commandShiftB = try #require(ShortcutAction.jumpToLastPrompt.defaultShortcut)
+        let commandShiftL = StoredShortcut(first: ShortcutStroke(key: "l", command: true, shift: true))
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.openBrowser: .unbound, .toggleSidebar: commandShiftL]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.effective(for: .jumpToLastPrompt) == commandShiftB)
+    }
+
+    @Test func explicitJumpToLastPromptBindingKeepsCommandShiftB() throws {
+        let commandShiftB = try #require(ShortcutAction.jumpToLastPrompt.defaultShortcut)
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.openBrowser: commandShiftB, .jumpToLastPrompt: commandShiftB]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.effective(for: .jumpToLastPrompt) == commandShiftB)
+    }
+
     @Test func invalidLegacyShowHideChordDisplaysNoEffectiveHotkey() throws {
         let invalidChord = StoredShortcut(
             first: ShortcutStroke(key: "b", control: true),

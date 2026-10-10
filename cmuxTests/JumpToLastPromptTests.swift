@@ -82,4 +82,49 @@ struct JumpToLastPromptTests {
         #expect(picked?.workspaceId == second.id)
         #expect(picked?.panelId == secondPanel)
     }
+
+    /// Cmd+Shift+B was Open Browser's default before it moved to Cmd+Shift+L.
+    /// A user who bound it back keeps it: the newer jump default yields in
+    /// the key handler and the View menu instead of stealing the stroke.
+    @Test func explicitBindingOnCommandShiftBOutranksTheJumpDefault() throws {
+        let jump = KeyboardShortcutSettings.Action.jumpToLastPrompt
+        let commandShiftB = jump.defaultShortcut
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-jump-last-prompt-\(UUID().uuidString).json", isDirectory: false)
+        try """
+        { "shortcuts": { "bindings": { "openBrowser": "cmd+shift+b" } } }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let defaults = UserDefaults.standard
+        let isolatedActions: [KeyboardShortcutSettings.Action] = [jump, .openBrowser]
+        let savedDefaults = isolatedActions.map { defaults.object(forKey: $0.defaultsKey) }
+        isolatedActions.forEach { defaults.removeObject(forKey: $0.defaultsKey) }
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            for (action, saved) in zip(isolatedActions, savedDefaults) {
+                if let saved {
+                    defaults.set(saved, forKey: action.defaultsKey)
+                } else {
+                    defaults.removeObject(forKey: action.defaultsKey)
+                }
+            }
+            try? FileManager.default.removeItem(at: settingsFileURL)
+        }
+
+        _ = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-jump-last-prompt-empty")
+        #expect(KeyboardShortcutSettings.shortcut(for: jump) == commandShiftB)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(KeyboardShortcutSettings.shortcut(for: .openBrowser) == commandShiftB)
+        #expect(KeyboardShortcutSettings.shortcut(for: jump).isUnbound)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: jump).isUnbound)
+
+        defaults.set(try JSONEncoder().encode(commandShiftB), forKey: jump.defaultsKey)
+        #expect(KeyboardShortcutSettings.shortcut(for: jump) == commandShiftB)
+    }
 }
