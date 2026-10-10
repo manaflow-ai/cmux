@@ -64,6 +64,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            recordBeforeInstall()
             willInstallStaged?()
             installStaged()
             #if DEBUG
@@ -89,6 +90,7 @@ extension UpdaterService {
         followStagedUpdate(phase)
         switch phase {
         case .ready:
+            recordStagedUpdate()
             keepRunningBuildForRollback()
         case .note where wasInstalling:
             // The install failed: no relaunch comes.
