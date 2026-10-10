@@ -344,6 +344,15 @@ daemon that answers late), plus the S1 socket test for the daemon half. Rule L4 
 reducer only behind a parity test) conflicts with the new rule; the chief decides whether the
 provisional split stays a Swift overlay without a parity test or moves to the reducer FFI.
 
+S3 proof run 2026-10-10 (tag ffs3a, head 94b4238f9c6a, cmux-lawrence-2 at load 64-115,
+`scripts/cmux-next/split-optimistic-proof.py`): Cmd+D through `debug.key` in a local workspace,
+6 runs: key to new pane in the control snapshot p50 36 ms, max 44 ms; the same host's daemon
+`split` reply p50 79 ms, p95 250 ms (`split-latency-bench.py`), so the pane shows before the
+reply. Keys typed right after Cmd+D (`echo s3typedN` + Return, before the shell started) ran
+once, in order, in the new pane in 6 of 6 runs (`read-screen`). B1 (one frame) is not shown by
+this harness: its snapshot publish and socket round trips add frames. Screenshot UNVERIFIED: the
+GUI host has no Screen Recording permission for the ssh session (`screencapture` refused).
+
 ### 3.2 Terminal attach channel
 
 One long-lived attach channel per daemon connection (multiplexed attaches on the control link, or a
