@@ -107,7 +107,7 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
     if dev_daily:
         if marker.get("dev_daily_sha") != marker.get("sha"):
             return None
-        if marker.get("branch") != f"cmux-next-dev-{marker['sha']}":
+        if marker.get("branch") not in (f"cmux-next-dev-{marker['sha']}", "feat-cmux-next"):
             return None
     elif dev_daily is not False:
         return None
