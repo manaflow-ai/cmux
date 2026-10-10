@@ -343,7 +343,7 @@ impl Supervisor {
                 let family = op.split('.').next().unwrap_or(op).to_string();
                 let mut entry = policy.entry;
                 if policy.person_only {
-                    entry["gesture"] = serde_json::Value::from("required");
+                    entry["gesture"] = Value::from("required");
                 }
                 (family, entry)
             })
