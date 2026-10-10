@@ -28,11 +28,7 @@ const pendingGroup: PermissionGroup = {
     {
       permissionId: "permission-gallery-build",
       state: "pending",
-      request: request(
-        "Run the web test suite",
-        "bun test webviews/test/gallery-coverage.test.ts",
-        "webviews/test",
-      ),
+      request: request("Run the web test suite", "bun test webviews/test/gallery-coverage.test.ts", "webviews/test"),
     },
     {
       permissionId: "permission-gallery-format",
@@ -119,9 +115,7 @@ function GalleryPermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
 
 const expandDetails: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Expand details" });
-  await ctx.waitFor(() =>
-    Boolean(ctx.document.querySelector(".acpmux-permission-items details[open]")),
-  );
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-items details[open]")));
 };
 
 const allowOnce: Play = async (ctx) => {
@@ -169,7 +163,8 @@ export default componentEntry<Props>({
   checks: {
     layoutShiftMax: {
       value: 0.05,
-      reason: "Opening an in-flow permission detail intentionally moves the decision controls below the revealed request.",
+      reason:
+        "Opening an in-flow permission detail intentionally moves the decision controls below the revealed request.",
     },
     longFrameFailMs: {
       value: 33,
