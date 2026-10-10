@@ -43,8 +43,8 @@ const SEED_HEADROOM_BYTES: usize = 64 * 1024;
 /// reader's path; a refusal (the child already ended) leaves no custody.
 pub(super) fn request_custody(surface: &Arc<Surface>) {
     // Runs on the surface's reader thread, which must never wait for
-    // `pty.runtime`: a control request (mint, clear history) holds that lock
-    // while it waits for its reply, and only this reader delivers the reply.
+    // `pty.runtime`: a control request (clear history) holds that lock while
+    // it waits for its reply, and only this reader delivers the reply.
     // Every lock and the custody exchange happen on a short-lived thread.
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a

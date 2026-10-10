@@ -210,6 +210,7 @@ impl Mux {
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
             cloud_conversations: OnceLock::new(),
+            history_search: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -417,6 +418,10 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         mux.close_ephemeral_workspaces()?;
+        // cx-6so.49: host losses whose respawn an earlier owner never ran
+        // (it shut down first, or a session shutdown ended the shell).
+        #[cfg(unix)]
+        mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)

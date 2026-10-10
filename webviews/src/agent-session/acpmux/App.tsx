@@ -109,6 +109,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { archiveRow } from "./header/archiveRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -355,7 +356,11 @@ const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
     return <WorkingFor row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.at === b.row.at &&
+    a.row.durationMs === b.row.durationMs,
 );
 
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
@@ -1399,12 +1404,23 @@ function AcpmuxPane() {
       : snapshot.rows;
     return withMoveRows(
       withShellRows(
-        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        withSubagentRows(
+          turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
+          expanded,
+        ),
         chatShellRuns,
       ),
       sessionMoves,
     );
-  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  }, [
+    snapshot.rows,
+    expanded,
+    snapshot.isWorking,
+    snapshot.clockOffsetMs,
+    snapshot.permissionGroups,
+    chatShellRuns,
+    sessionMoves,
+  ]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
@@ -2408,6 +2424,15 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
+  const archive = archiveRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived),
+      local: localCwd !== undefined,
+    },
+    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    t,
+  );
   const readTabState = () =>
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
@@ -2488,6 +2513,7 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.pin,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
       },
+      ...(archive ? [archive] : []),
       ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
       ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
       "separator",

@@ -3334,7 +3334,7 @@ export const cloudOpMeta = {
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.rebuild": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.retired.delete": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team_vm.retired.export": { class: "mutation", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.retired.export": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },

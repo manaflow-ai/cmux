@@ -73043,7 +73043,269 @@
           }
         }
       }
+    },
+    "settings.agentPane.zoom": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent Chat Zoom"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تكبير دردشة الوكيل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zumiranje chata s agentom"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom i agentchat"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom im Agent-Chat"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom del chat del agente"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom du chat de l’agent"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom della chat dell’agente"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントチャットの表示倍率"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "កម្រិតពង្រីកការជជែកជាមួយភ្នាក់ងារ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트 채팅 확대/축소"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom i agentchat"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Powiększenie czatu z agentem"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zoom do chat do agente"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Масштаб чата с агентом"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ระดับการซูมแชตเอเจนต์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajan sohbeti yakınlaştırması"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Масштаб чату з агентом"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mức thu phóng trò chuyện với tác tử"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "智能体聊天缩放"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理聊天縮放"
+        }
+      }
     }
+  },
+    "settings.agentPane.zoom.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The display size for agent chat. Cmd-0 resets it."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "حجم عرض دردشة الوكيل. يعيده Cmd-0 إلى الحجم الأصلي."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Veličina prikaza chata s agentom. Cmd-0 je vraća na početnu vrijednost."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Visningsstørrelsen for agentchat. Cmd-0 nulstiller den."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Die Darstellungsgröße des Agent-Chats. Cmd-0 setzt sie zurück."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "El tamaño de visualización del chat del agente. Cmd-0 lo restablece."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La taille d’affichage du chat de l’agent. Cmd-0 la réinitialise."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La dimensione di visualizzazione della chat dell’agente. Cmd-0 la reimposta."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントチャットの表示サイズです。Cmd-0 でリセットします。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ទំហំបង្ហាញសម្រាប់ការជជែកជាមួយភ្នាក់ងារ។ Cmd-0 កំណត់វាឡើងវិញ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트 채팅의 표시 크기입니다. Cmd-0으로 초기화합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Visningsstørrelsen for agentchat. Cmd-0 tilbakestiller den."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Rozmiar wyświetlania czatu z agentem. Cmd-0 go resetuje."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O tamanho de exibição do chat do agente. Cmd-0 o redefine."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Размер отображения чата с агентом. Cmd-0 сбрасывает его."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ขนาดการแสดงผลของแชตเอเจนต์ กด Cmd-0 เพื่อรีเซ็ต"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajan sohbetinin görüntüleme boyutu. Cmd-0 ile sıfırlanır."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Розмір відображення чату з агентом. Cmd-0 скидає його."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kích thước hiển thị của cuộc trò chuyện với tác tử. Cmd-0 đặt lại kích thước."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "智能体聊天的显示大小。按 Cmd-0 重置。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理聊天的顯示大小。按 Cmd-0 重設。"
+        }
+      }
+    }
+  }
   },
   "version": "1.0"
 }
