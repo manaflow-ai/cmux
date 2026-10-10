@@ -34,9 +34,26 @@
 //! table does not list; a spawn env). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending.
 //!
-//! Not covered (the daemon cannot stop same-uid file writes): an agent that
-//! edits config.json, a profile file or the store directly. That needs an OS
-//! boundary between the agent and the user's files.
+//! Also without the person: no rules change under a session policy that
+//! does not ask (a rule is then what keeps a tool asking), no removal of a
+//! stored family-default or preset policy, no write of the `handoffKey`
+//! tag (a handoff adopts the session it names, and never wider: see
+//! `handoff/ops.rs`), and no session method acpmux does not handle itself
+//! (the harness catch-all, [`harness_forward_check`]).
+//!
+//! Residual risks (not covered here):
+//! - Same-uid file writes: an agent that edits config.json, a profile file
+//!   or the store directly. That needs an OS boundary between the agent and
+//!   the user's files.
+//! - `_acpmux/harness/add` (a new harness profile), `_acpmux/defaults`
+//!   `prefer` and a preset's `harness` (which profile, and so which profile
+//!   default policy, a new session gets), a preset's `args`,
+//!   `acp.trust.set`, `_acpmux/harness_enable` and `_acpmux/import` stay
+//!   open to the unix socket.
+//! - DEV only: a same-uid process that starts the unsigned daemon before the
+//!   app does gives it its own spawn key; the app then hands that daemon off
+//!   (when its agents run under agent hosts), but the process held the
+//!   person until then.
 
 use super::*;
 
@@ -156,6 +173,34 @@ pub(crate) fn rules_cannot_auto_approve(rules: Option<&Value>) -> bool {
     })
 }
 
+/// Whether `policy` asks before anything runs (ask, deny-all).
+pub(crate) fn asks(policy: PermissionPolicy) -> bool {
+    matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll)
+}
+
+/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads 2,
+/// approve-edits 3, approve-all 4. A higher number is wider.
+pub(crate) fn breadth(policy: PermissionPolicy) -> u8 {
+    match policy {
+        PermissionPolicy::DenyAll => 0,
+        PermissionPolicy::Ask => 1,
+        PermissionPolicy::ApproveReads => 2,
+        PermissionPolicy::ApproveEdits => 3,
+        PermissionPolicy::ApproveAll => 4,
+    }
+}
+
+/// The catch-all that passes a session method acpmux does not handle to the
+/// harness (`server/requests.rs`): a harness extension method may change
+/// what the harness runs without asking, so only the person reaches it.
+pub fn harness_forward_check(person: bool, m: &str) -> Result<(), RpcError> {
+    if person {
+        Ok(())
+    } else {
+        Err(person_required(&format!("{m}, a harness method acpmux does not handle,")))
+    }
+}
+
 /// Absent or null: nothing is set. Present: one of the asking policies.
 pub(crate) fn asking_policy_value(v: Option<&Value>) -> bool {
     match v {
@@ -208,18 +253,53 @@ impl Hub {
                     _ => true,
                 });
                 if env {
-                    Err(person_required("a spawn env"))
-                } else if !asking_policy_value(set.and_then(|s| s.get("policy"))) {
-                    Err(person_required("a permission policy other than ask or deny-all"))
-                } else {
-                    Ok(())
+                    return Err(person_required("a spawn env"));
                 }
+                if !asking_policy_value(set.and_then(|s| s.get("policy"))) {
+                    return Err(person_required("a permission policy other than ask or deny-all"));
+                }
+                // Removing a stored policy (a clear, or `policy: null`) lets
+                // the next layer's policy apply, which may not ask.
+                let removes = params.get("clear").and_then(Value::as_bool) == Some(true)
+                    || set.and_then(|s| s.get("policy")).is_some_and(Value::is_null);
+                if removes && self.stored_policy(m, params).await.is_some() {
+                    return Err(person_required("removing a stored permission policy"));
+                }
+                Ok(())
             }
             method::MUX_SET_RULES => {
-                if rules_cannot_auto_approve(params.get("rules")) {
+                if !rules_cannot_auto_approve(params.get("rules")) {
+                    return Err(person_required("a permission rule that could auto-approve"));
+                }
+                // Under a policy that does not ask, a rule is what keeps a
+                // tool asking: any change (a clear too) may widen it.
+                let Some(s) =
+                    crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+                else {
+                    return Ok(());
+                };
+                let default = self.config.read().await.permission_policy;
+                if asks(self.policy_for(&s, default)) {
                     Ok(())
                 } else {
-                    Err(person_required("a permission rule that could auto-approve"))
+                    Err(person_required(
+                        "changing the rules of a session whose policy does not ask",
+                    ))
+                }
+            }
+            // The handoff target tag decides which session a handoff adopts.
+            method::MUX_TAG => {
+                let sets = params
+                    .get("set")
+                    .and_then(Value::as_object)
+                    .is_some_and(|o| o.contains_key(super::handoff::TARGET_TAG));
+                let removes = params.get("remove").and_then(Value::as_array).is_some_and(|a| {
+                    a.iter().any(|v| v.as_str() == Some(super::handoff::TARGET_TAG))
+                });
+                if sets || removes {
+                    Err(person_required("the handoff target tag"))
+                } else {
+                    Ok(())
                 }
             }
             method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION => {
@@ -249,6 +329,19 @@ impl Hub {
                 }
             }
             _ => Ok(()),
+        }
+    }
+
+    /// The policy a `_acpmux/defaults` or `_acpmux/presets` write would
+    /// remove: the named family default's or preset's stored policy.
+    async fn stored_policy(&self, m: &str, params: &Value) -> Option<PermissionPolicy> {
+        let cfg = self.config.read().await;
+        if m == method::MUX_DEFAULTS {
+            let family = params.get("family").and_then(Value::as_str)?;
+            cfg.defaults.get(family).and_then(|d| d.policy)
+        } else {
+            let name = params.get("name").and_then(Value::as_str)?;
+            cfg.presets.get(name).and_then(|p| p.policy)
         }
     }
 
