@@ -304,7 +304,7 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown {
         didSet {
             guard authorizationState != oldValue else { return }
-            NotificationCenter.default.post(
+            authorizationNotificationCenter.post(
                 name: Self.authorizationStatusDidChangeNotification,
                 object: nil
             )
@@ -313,6 +313,12 @@ final class TerminalNotificationStore: ObservableObject {
     private var suppressNotificationDiffPublishing = false
 
     let userNotificationCenter: UserNotificationCenterService
+    private let authorizationNotificationCenter: NotificationCenter
+    private let authorizationStatusProvider: @MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
+    private lazy var authorizationRefreshCoordinator = NotificationAuthorizationRefreshCoordinator(
+        statusProvider: authorizationStatusProvider,
+        publish: { [weak self] state in self?.authorizationState = state }
+    )
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasUpgradedBadgeAuthorization = false
@@ -373,8 +379,16 @@ final class TerminalNotificationStore: ObservableObject {
     /// that was already waiting on the same surface.
     private var agentAttentionSupersessionSuppressed = Set<TabSurfaceKey>()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
-    private init(userNotificationCenter: UserNotificationCenterService) {
+    init(
+        userNotificationCenter: UserNotificationCenterService,
+        authorizationStatusProvider: (@MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>)? = nil,
+        authorizationNotificationCenter: NotificationCenter = .default
+    ) {
         self.userNotificationCenter = userNotificationCenter
+        self.authorizationNotificationCenter = authorizationNotificationCenter
+        self.authorizationStatusProvider = authorizationStatusProvider ?? {
+            await userNotificationCenter.authorizationStatus()
+        }
         nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: userNotificationCenter
         )
@@ -686,29 +700,32 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func refreshAuthorizationStatus() {
-        Task { @MainActor [weak self, userNotificationCenter] in
-            let result = await userNotificationCenter.authorizationStatus()
-            guard let self else { return }
-            switch result {
-            case .success(let status):
-                authorizationState = Self.authorizationState(from: status)
-                logAuthorization(
-                    "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(authorizationState.statusLabel)"
-                )
-                // Installs authorized before `.badge` was requested have no Dock badge
-                // setting, so macOS drops `badgeLabel`. Re-requesting while authorized
-                // adds the setting without a prompt. Once per launch: the request
-                // callback refreshes status again.
-                if status == .authorized, !hasUpgradedBadgeAuthorization {
-                    hasUpgradedBadgeAuthorization = true
-                    _ = await userNotificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
-                }
-            case .failure(let error):
-                authorizationState = .unknown
-                logAuthorization("refresh failed error=\(String(describing: error))")
-            }
+    /// Forwards the window owner's completed initial-display signal to the shared gate.
+    @discardableResult
+    func markWindowSetupComplete() -> Task<Void, Never>? {
+        guard let refresh = authorizationRefreshCoordinator.markWindowSetupComplete() else { return nil }
+        return completeAuthorizationRefresh(refresh)
+    }
+
+    /// Refreshes through the package-owned readiness and publication policy.
+    @discardableResult
+    func refreshAuthorizationStatus() -> Task<Void, Never> {
+        completeAuthorizationRefresh(authorizationRefreshCoordinator.refresh())
+    }
+
+    /// Adds badge permission once per launch, after the status read has published.
+    private func completeAuthorizationRefresh(_ refresh: Task<Void, Never>) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            await refresh.value
+            guard let self, authorizationState == .authorized, !hasUpgradedBadgeAuthorization else { return }
+            hasUpgradedBadgeAuthorization = true
+            _ = await userNotificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
         }
+    }
+
+    /// Adapts delivery outcomes without publishing before window setup completes.
+    private func publishAuthorizationState(_ state: NotificationAuthorizationState) {
+        authorizationRefreshCoordinator.accept(state)
     }
 
     func requestAuthorizationFromSettings() {
@@ -2753,19 +2770,20 @@ final class TerminalNotificationStore: ObservableObject {
                 return
             }
             guard case .success(let status) = result else {
-                authorizationState = .unknown
+                publishAuthorizationState(.unknown)
                 logAuthorization("ensure unavailable origin=\(origin.rawValue) result=\(String(describing: result))")
                 completion(false, .unknown)
                 return
             }
 
-            authorizationState = Self.authorizationState(from: status)
+            let effectiveState = Self.authorizationState(from: status)
+            publishAuthorizationState(effectiveState)
             logAuthorization(
                 "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(status)) mapped=\(authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
             )
             switch status {
             case .authorized, .provisional, .ephemeral:
-                completion(true, authorizationState)
+                completion(true, effectiveState)
             case .denied:
                 if origin != .notificationDelivery {
                     logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
@@ -2827,8 +2845,9 @@ final class TerminalNotificationStore: ObservableObject {
             switch result {
             case .success(let granted):
                 if granted {
-                    authorizationState = .authorized
+                    publishAuthorizationState(.authorized)
                 } else {
+                    publishAuthorizationState(.denied)
                     refreshAuthorizationStatus()
                 }
                 logAuthorization(
@@ -2838,6 +2857,7 @@ final class TerminalNotificationStore: ObservableObject {
                     granted ? .authorized : .denied
                 completion(granted, effectiveState)
             case .failure(let error):
+                publishAuthorizationState(.unknown)
                 refreshAuthorizationStatus()
                 logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=false error=\(String(describing: error)) mapped=\(authorizationState.statusLabel)"
@@ -2884,20 +2904,7 @@ final class TerminalNotificationStore: ObservableObject {
     static func authorizationState(
         from status: UserNotificationAuthorizationStatus
     ) -> NotificationAuthorizationState {
-        switch status {
-        case .authorized:
-            return .authorized
-        case .denied:
-            return .denied
-        case .notDetermined:
-            return .notDetermined
-        case .provisional:
-            return .provisional
-        case .ephemeral:
-            return .ephemeral
-        case .unknown:
-            return .unknown
-        }
+        NotificationAuthorizationState(status: status)
     }
 
     static func shouldDeferAutomaticAuthorizationRequest(

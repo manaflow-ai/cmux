@@ -3929,6 +3929,7 @@
 		D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
 		B7F100080000000000000001 /* TerminalNotificationArrivalDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100080000000000000002 /* TerminalNotificationArrivalDisposition.swift */; };
+		C81B5797DE3742E7DA1A961E /* TerminalNotificationAuthorizationRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0860B25FA657A0F312EA96 /* TerminalNotificationAuthorizationRefreshTests.swift */; };
 		A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */; };
 		A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */; };
 		A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */; };
@@ -8386,6 +8387,7 @@
 		D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+NavigationSnapshot.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
 		B7F100080000000000000002 /* TerminalNotificationArrivalDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationArrivalDisposition.swift; sourceTree = "<group>"; };
+		7F0860B25FA657A0F312EA96 /* TerminalNotificationAuthorizationRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationAuthorizationRefreshTests.swift"; sourceTree = "<group>"; };
 		A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerResolver.swift; sourceTree = "<group>"; };
 		A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerTests.swift; sourceTree = "<group>"; };
 		A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationClearAllTests.swift; sourceTree = "<group>"; };
@@ -13602,6 +13604,7 @@
 				40373485A3E6FCF954D901D5 /* CloudMachineRenamePromptTests.swift */,
 				87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */,
 				8B70CAEA9981DF16CB3B5C72 /* BrowserMobileStreamTeardownTests.swift */,
+				7F0860B25FA657A0F312EA96 /* TerminalNotificationAuthorizationRefreshTests.swift */,
 				EE3A25C746823752FEDCE827 /* AgentMessageOffSwitchSettingsTests.swift */,
 				52DCC8C8DADFD89BE7611119 /* CLINotifyProcessIntegrationRegressionTests+Desktop.swift */,
 				DFD38A422E92A103776448E9 /* CmuxTopTTYCollisionAttributionTests.swift */,
@@ -18630,6 +18633,7 @@
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
 				C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */,
+				C81B5797DE3742E7DA1A961E /* TerminalNotificationAuthorizationRefreshTests.swift in Sources */,
 				A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
 				A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */,
 				A5C0B1E00000000000000003 /* TerminalNotificationClipboardTests.swift in Sources */,

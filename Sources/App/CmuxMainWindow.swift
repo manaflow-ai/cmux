@@ -358,6 +358,58 @@ final class CmuxMainWindow: NSWindow {
         return behavior
     }
 
+    private var initialDisplayCompletion: (() -> Void)?
+    private var isCompletingInitialDisplay = false
+    private var didCompleteInitialDisplay = false
+    private var didDeliverInitialDisplayCompletion = false
+
+    /// Subscribes after configuration, replaying a display that already completed.
+    func whenInitialDisplayCompletes(_ completion: @escaping () -> Void) {
+        guard !didDeliverInitialDisplayCompletion else { return }
+        initialDisplayCompletion = completion
+        deliverInitialDisplayCompletionIfNeeded()
+    }
+
+    override func displayIfNeeded() {
+        guard !didCompleteInitialDisplay, !isCompletingInitialDisplay else {
+            super.displayIfNeeded()
+            return
+        }
+        isCompletingInitialDisplay = true
+        layoutIfNeeded()
+        super.displayIfNeeded()
+        isCompletingInitialDisplay = false
+        completeInitialDisplayIfNeeded()
+    }
+
+    override func display() {
+        guard !didCompleteInitialDisplay, !isCompletingInitialDisplay else {
+            super.display()
+            return
+        }
+        isCompletingInitialDisplay = true
+        layoutIfNeeded()
+        super.display()
+        isCompletingInitialDisplay = false
+        completeInitialDisplayIfNeeded()
+    }
+
+    /// Signals once, after this visible window returns from layout and display.
+    private func completeInitialDisplayIfNeeded() {
+        guard isVisible, contentView != nil, !didCompleteInitialDisplay else { return }
+        didCompleteInitialDisplay = true
+        deliverInitialDisplayCompletionIfNeeded()
+    }
+
+    /// Delivers the retained event once, without scheduling or requiring another draw.
+    private func deliverInitialDisplayCompletionIfNeeded() {
+        guard didCompleteInitialDisplay, !didDeliverInitialDisplayCompletion,
+              let completion = initialDisplayCompletion else { return }
+        didDeliverInitialDisplayCompletion = true
+        initialDisplayCompletion = nil
+        completion()
+    }
+
     private var isSoftHiddenForVisibilityController = false
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
