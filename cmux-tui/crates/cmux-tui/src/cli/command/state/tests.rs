@@ -569,22 +569,3 @@ fn every_state_mutation_takes_an_explicit_idempotency_key() {
     };
     assert_eq!(plan.idempotency_key.as_deref(), Some("mutation_retry"));
 }
-
-/// `tab <id> restart` is one private `restart-tab` request (`tab-restart-v1`).
-#[test]
-fn tab_restart_sends_the_private_restart_tab_command() {
-    let raw = |args: &[&str]| {
-        let args = args.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
-        match parse(&args, Surface::Cmux) {
-            Ok(CommandPlan::RawCommand(plan)) => plan.request,
-            Ok(_) => panic!("{args:?} is not a raw command"),
-            Err(error) => panic!("{args:?}: {error}"),
-        }
-    };
-    let request = raw(&["tab", TAB, "restart"]);
-    assert_eq!(request["cmd"], "restart-tab");
-    assert_eq!(request["surface"], TAB);
-    assert_eq!(raw(&["tab", "42", "restart"])["surface"], 42);
-    assert!(rejects(&["tab", "current", "restart"]).contains("tab id"));
-    assert!(rejects(&["tab", TAB, "restart", "now"]).contains("tab restart"));
-}

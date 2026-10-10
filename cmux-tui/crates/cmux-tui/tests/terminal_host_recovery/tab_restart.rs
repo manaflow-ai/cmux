@@ -2,8 +2,9 @@
 //! `tab-restart-v1`, plans/cmux-next/ownership.md section 3.2). It reuses
 //! the L2 respawn worker: the same terminal id gets a new shell and a new
 //! incarnation, also after the crash-loop bound refused an automatic
-//! respawn, and after a process end the tab kept (`on_exit` keep). A tab
-//! whose terminal still runs is a typed reject.
+//! respawn, and after a process end the tab kept (`on_exit` keep), also
+//! from the CLI (`cmux tab <id> restart`). A tab whose terminal still runs
+//! is a typed reject.
 
 use super::*;
 
@@ -78,9 +79,19 @@ fn a_manual_restart_brings_back_a_kept_process_exit() {
     let dead = tab_named(&harness, "Restart kept");
     assert_eq!(dead["dead"], true, "{dead}");
 
-    let restarted = restart_tab(&harness, serde_json::json!(tab));
-    assert_eq!(restarted["ok"], true, "{restarted}");
-    assert_eq!(restarted["data"]["terminal"], public_terminal.as_str(), "{restarted}");
+    // Through the CLI: `cmux tab <tab_…> restart` sends the same command.
+    let restarted = Command::new(bin())
+        .args(["--json", "--session", &harness.session, "tab", &tab, "restart", "--socket"])
+        .arg(&harness.socket)
+        .output()
+        .expect("run the CLI");
+    let stdout = String::from_utf8_lossy(&restarted.stdout);
+    assert!(
+        restarted.status.success(),
+        "tab restart failed: {stdout} {}",
+        String::from_utf8_lossy(&restarted.stderr)
+    );
+    assert!(stdout.contains(&public_terminal), "the CLI did not name the terminal: {stdout}");
     wait_for_respawn(&harness, &terminal_id, &incarnation);
     let tab = tab_named(&harness, "Restart kept");
     assert_eq!(tab["dead"], false, "{tab}");
