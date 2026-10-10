@@ -865,6 +865,7 @@ Extensions:
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
+| `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
@@ -879,13 +880,13 @@ attached to.
 
 Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
 and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:
-`["transcript"]` keeps agent updates a chat renders plus `user_message`, `queued`, `dequeued`,
+`["transcript"]` keeps agent updates a chat renders plus `user_message`, `queued`, `dequeued`, `queue_removed`,
 `turn_started`, `turn_result`, permissions and `message_superseded`, and drops raw wire records,
 responses and `.replay` records. Categories `mux`, `wire` and `all`, or exact record kinds, also
 work. `eventStream: true` on attach delivers every live record (filtered by `kinds`) as
 `_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`.
 
-Turns: `queued`, `dequeued`, `user_message`, `turn_started`, `turn_end` and `turn_result`
+Turns: `queued`, `dequeued`, `queue_removed`, `user_message`, `turn_started`, `turn_end` and `turn_result`
 carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band

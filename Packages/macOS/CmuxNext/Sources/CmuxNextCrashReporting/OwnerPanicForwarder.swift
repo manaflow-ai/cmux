@@ -1,6 +1,6 @@
 public import Foundation
 public import Sentry
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Sends the cmux-tui owner's panic log to Sentry (cx-urd.59).

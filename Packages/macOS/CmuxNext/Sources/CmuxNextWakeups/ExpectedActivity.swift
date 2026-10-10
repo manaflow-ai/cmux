@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// Counters for work the user caused or can see: input events, animation
 /// frames and terminal output. The busy watchdog treats CPU use during a
