@@ -73,9 +73,11 @@ All params and results use camelCase JSON. Timestamps are ms since epoch.
 
 ### host
 - `host.hello {client:{name,version,platform}, protocol:1}` -> `{hostId, hostName, os, version, protocol:1, capabilities:[string]}`
-  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`.
+  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`, `agent.mirror.v1`.
   `term.mirror.v1`: the terminals belong to the Mac (the host bridges the
   cmux-next app); see "terminals" for the sizing rules.
+  `agent.mirror.v1`: the agent sessions belong to the Mac's cmux-next app
+  (acpmux); a permission allow must be done on the Mac (see `agent.permission`).
 - `host.ping {}` -> `{at}`
 
 ### conversations (Chief, iMessage-style)
@@ -110,8 +112,8 @@ TranscriptItem (upserted by `id`):
 - `agent.history {sessionId}` -> `{session, items:[TranscriptItem], commands:[{name,description}]}`
 - `agent.prompt {sessionId, text, attachments?:[{name,mimeType,dataBase64}]}` -> `{}`
 - `agent.cancel {sessionId}` / `agent.close {sessionId}` -> `{}`
-- `agent.permission {sessionId, itemId, optionId}` -> `{}`. On sessions owned by
-  the cmux-next app (host bridge) only the Mac can approve: choosing an
+- `agent.permission {sessionId, itemId, optionId}` -> `{}`. With `agent.mirror.v1`
+  (sessions owned by the cmux-next app) only the Mac can approve: choosing an
   `allow_*` option fails with `unsupported` and the message "Approve this on the
   Mac"; `reject_*` options work. The item resolves when the Mac answers.
 - `agent.setModel {sessionId, modelId}` / `agent.setMode {sessionId, modeId}` -> `{}`

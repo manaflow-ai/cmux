@@ -275,6 +275,7 @@ describe("acpmux agents bridge", () => {
     const { core, client } = await connectedCore({ bridge: { agents } });
     cleanups.push(() => core.shutdown());
 
+    expect((await client.hello()).capabilities).toContain("agent.mirror.v1");
     const { harnesses } = await client.request("agent.harnesses");
     expect(harnesses.map((h: any) => [h.id, h.available])).toEqual([
       ["claude", true],
@@ -336,6 +337,15 @@ describe("acpmux agents bridge", () => {
     const promptIdx = a.calls.findIndex((c) => c.method === "session/prompt" && c.params.sessionId === s2.id);
     expect(attachIdx).toBeGreaterThan(-1);
     expect(attachIdx).toBeLessThan(promptIdx);
+  });
+});
+
+describe("session preview", () => {
+  it("separates concatenated assistant messages", async () => {
+    const { cleanPreview } = await import("../src/bridge/acpmuxAgents.ts");
+    expect(cleanPreview("Checked its response.No HTTP status line was found.")).toBe("Checked its response. No HTTP status line was found.");
+    expect(cleanPreview("Version 1.2.3 is out")).toBe("Version 1.2.3 is out");
+    expect(cleanPreview("a\n\nb")).toBe("a b");
   });
 });
 

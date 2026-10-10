@@ -58,8 +58,17 @@ export function toAgentSession(s: SessionSummary): AgentSession {
     createdAt: s.createdAt ?? Date.now(),
     updatedAt: s.updatedAt ?? s.createdAt ?? Date.now(),
     unread: s.unread ? 1 : 0,
-    ...(s.preview ? { preview: s.preview } : {}),
+    ...(s.preview ? { preview: cleanPreview(s.preview) } : {}),
   };
+}
+
+/**
+ * acpmux's preview concatenates a turn's assistant messages with no
+ * separator ("...its response.No HTTP status line..."). Put a space at
+ * sentence joins and collapse whitespace.
+ */
+export function cleanPreview(text: string): string {
+  return text.replace(/([a-z)\]`"'][.!?:;])(?=[A-Z`])/g, "$1 ").replace(/\s+/g, " ").trim();
 }
 
 /** agent.permission error for an allow on a bridged session (PROTOCOL.md). */
@@ -130,7 +139,7 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
         return;
       }
       this.summaries.set(s.sessionId, s);
-      this.emit("event", "agent.session", { session: toAgentSession(s) });
+      this.emit("event", "agent.session", { session: this.withPreview(toAgentSession(s)) });
       return;
     }
     if (method === "_acpmux/event" && p && typeof p.seq === "number") {
@@ -138,6 +147,20 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
       if (!t) return;
       for (const item of t.apply(p as AcpmuxEvent)) this.emit("event", "agent.item", { sessionId: p.sessionId, item });
     }
+  }
+
+  /** Uses the last assistant message of an attached transcript as the preview. */
+  private withPreview(session: AgentSession): AgentSession {
+    const t = this.transcripts.get(session.id);
+    if (!t) return session;
+    for (let i = t.items.length - 1; i >= 0; i--) {
+      const it = t.items[i]!;
+      if (it.kind === "assistant" && it.text.trim()) {
+        const flat = it.text.replace(/\s+/g, " ").trim();
+        return { ...session, preview: flat.length > 140 ? `${flat.slice(0, 137)}...` : flat };
+      }
+    }
+    return session;
   }
 
   async harnesses(): Promise<Harness[]> {
@@ -158,7 +181,7 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
     const rpc = await this.conn();
     const { sessions } = await checked<{ sessions: SessionSummary[] }>(rpc, "_acpmux/sessions");
     for (const s of sessions) this.summaries.set(s.sessionId, s);
-    return sessions.filter((s) => !s.peer).map(toAgentSession).sort((a, b) => b.updatedAt - a.updatedAt);
+    return sessions.filter((s) => !s.peer).map((s) => this.withPreview(toAgentSession(s))).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   async create(p: { harness: string; cwd?: string; model?: string; prompt?: string }): Promise<AgentSession> {

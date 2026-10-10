@@ -28,6 +28,8 @@ async function main(): Promise<void> {
       "agent-history": { type: "string" },
       "skip-echo": { type: "boolean", default: false },
       "agent-prompt": { type: "string" },
+      "agent-mode": { type: "string" },
+      permission: { type: "string", default: "allow" },
     },
   });
   const token = process.env.CMUX_NEXT_TOKEN;
@@ -149,21 +151,55 @@ async function main(): Promise<void> {
   // (title, status, output) so tool output mapping can be checked end to end.
   if (values.agent) {
     const items = new Map<string, any>();
+    const answered = new Set<string>();
+    const permissionLog: unknown[] = [];
+    report.permissions = permissionLog;
+    // --permission allow | reject | test (try allow, expect it refused on a
+    // bridged host, then reject).
+    const answerPermission = async (sid: string, item: any) => {
+      const pick = (kind: string) => item.options.find((o: any) => String(o.kind).startsWith(kind));
+      const mode = values.permission;
+      log(`permission requested: ${item.title} options ${item.options.map((o: any) => `${o.id}:${o.kind}`).join(", ")}`);
+      if (mode === "allow" || mode === "test") {
+        const allow = pick("allow");
+        try {
+          await client.request("agent.permission", { sessionId: sid, itemId: item.id, optionId: allow.id });
+          permissionLog.push({ allow: "accepted" });
+          log("allow accepted");
+          if (mode === "allow") return;
+        } catch (err) {
+          permissionLog.push({ allow: `${(err as any).code}: ${(err as Error).message}` });
+          log(`allow refused: ${(err as any).code}: ${(err as Error).message}`);
+          if (mode === "allow") return;
+        }
+      }
+      const reject = pick("reject");
+      await client.request("agent.permission", { sessionId: sid, itemId: item.id, optionId: reject.id });
+      permissionLog.push({ reject: "sent", optionId: reject.id });
+      log(`reject sent (${reject.id})`);
+    };
     let sessionId = "";
     const ended = new Promise<void>((resolve) => {
       client.peer.on("event", (topic, p) => {
         if (topic !== "agent.item" || (sessionId && p.sessionId !== sessionId)) return;
         items.set(p.item.id, p.item);
-        if (p.item.kind === "permission" && !p.item.resolved) {
-          const allow = p.item.options.find((o: any) => o.kind === "allow_once") ?? p.item.options[0];
-          if (allow) void client.request("agent.permission", { sessionId: p.sessionId, itemId: p.item.id, optionId: allow.id });
+        if (p.item.kind === "permission" && !p.item.resolved && !answered.has(p.item.id)) {
+          answered.add(p.item.id);
+          void answerPermission(p.sessionId, p.item);
         }
         if (p.item.kind === "turnEnd") resolve();
       });
     });
-    const { session } = await client.request("agent.create", { harness: values.agent, prompt: values["agent-prompt"] ?? "Run `echo probe-tool-check` in the shell." }, 60_000);
+    const prompt = values["agent-prompt"] ?? "Run `echo probe-tool-check` in the shell.";
+    const { session } = await client.request("agent.create", { harness: values.agent, ...(values["agent-mode"] ? {} : { prompt }) }, 60_000);
     sessionId = session.id;
+    if (values["agent-mode"]) {
+      await client.request("agent.setMode", { sessionId, modeId: values["agent-mode"] }, 60_000);
+      log(`mode set to ${values["agent-mode"]}`);
+      await client.request("agent.prompt", { sessionId, text: prompt }, 60_000);
+    }
     await Promise.race([ended, new Promise((_, rej) => setTimeout(() => rej(new Error("agent turn timeout")), 240_000))]);
+    for (const perm of [...items.values()].filter((i) => i.kind === "permission")) log(`permission item ${perm.id} resolved=${perm.resolved ?? "pending"}`);
     const tools = [...items.values()].filter((i) => i.kind === "tool").map((i) => ({ title: i.title, status: i.status, input: i.input, output: i.output }));
     const reply = [...items.values()].filter((i) => i.kind === "assistant").map((i) => i.text).join("\n");
     report.agent = { sessionId, tools, reply };

@@ -66,6 +66,8 @@ export class HostCore {
     if (this.browser.capable) capabilities.push("browser.v1");
     // Terminals belong to the Mac (cmux-next app): the phone must not resize them.
     if (this.bridge.terminals) capabilities.push("term.mirror.v1");
+    // Agent sessions belong to the Mac (acpmux): permission allows happen there.
+    if (this.bridge.agents) capabilities.push("agent.mirror.v1");
     return {
       hostId: this.hostId,
       hostName: this.hostName,
