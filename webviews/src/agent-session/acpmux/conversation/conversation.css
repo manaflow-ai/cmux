@@ -76,7 +76,7 @@
   max-width: 70%;
   margin-bottom: 4px;
   font-family: var(--cv-font);
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
 }
