@@ -259,6 +259,11 @@ impl ProgramStatusRecords {
     }
 
     #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.records.len()
     }
