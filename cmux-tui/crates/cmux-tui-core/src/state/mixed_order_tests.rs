@@ -6,8 +6,8 @@
 use serde_json::json;
 
 use super::tests::{
-    Session, empty_workspace, error_code, mutate, placements_by_id, read, replayed_placements,
-    revision, send,
+    Session, changes_after, empty_workspace, error_code, mutate, placements_by_id, read,
+    replayed_placements, revision, send,
 };
 use crate::mux::*;
 use crate::state::prelude::*;
@@ -243,5 +243,61 @@ fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
     };
     assert_eq!(group_of(d), json!(work), "after a grouped workspace: in its group");
     assert!(group_of(c).is_null() && group_of(e).is_null() && group_of(f).is_null());
+    mux.shutdown();
+}
+
+/// A place across a group changes the group's `top_index` (its place stays
+/// among the other rows); the same commit's `session.events` batch carries
+/// the group's new snapshot, so mirrors never keep a stale `top_index`.
+#[test]
+fn a_place_across_a_group_publishes_the_group_change() {
+    let session = Session::new("mixed-events");
+    let mux = session.open();
+    // New rows go last, so the order is a, b, c (the default puts them on top).
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let work = group(&mux, "Work");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-before-b",
+    );
+    let index = |name: &str| {
+        read(&mux, "workspace.placement.list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == name)
+            .and_then(|row| row["index"].as_u64())
+            .unwrap()
+    };
+    let groups = read(&mux, "workspace_group.list", json!({}));
+    assert_eq!(groups[0]["top_index"].as_u64(), Some(index(b.as_str())), "the group is before b");
+    let top_of_b = index(b.as_str());
+    let before = revision(&mux);
+    // c moves to the front, across the group: the group stays before b,
+    // whose index grows by one.
+    mutate(&mux, "workspace.place", json!({"workspace": c, "index": 0}), "c-first");
+    let listed = read(&mux, "workspace_group.list", json!({}));
+    let top = listed[0]["top_index"].as_u64().unwrap();
+    assert_eq!(top, top_of_b + 1, "the group's index moved with b");
+    let published = changes_after(&mux, before);
+    assert!(
+        published.iter().any(|change| change["kind"] == "state_upsert"
+            && change["resource"] == "workspace_group"
+            && change["id"] == work.as_str()
+            && change["value"]["top_index"] == top),
+        "no workspace_group change with top_index {top}: {published:?}"
+    );
+    // A place that does not cross the group publishes no group change.
+    let before = revision(&mux);
+    mutate(&mux, "workspace.place", json!({"workspace": a, "index": 0}), "a-first");
+    assert!(
+        !changes_after(&mux, before).iter().any(|change| change["resource"] == "workspace_group"),
+        "an unchanged group was published"
+    );
     mux.shutdown();
 }

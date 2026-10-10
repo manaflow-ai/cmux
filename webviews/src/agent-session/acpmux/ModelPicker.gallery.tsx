@@ -53,7 +53,7 @@ export default componentEntry<ModelPickerProps>({
   height: 390,
   anchors: [{ selector: ".acpmux-model" }],
   covers: ["agent-session/acpmux/ModelPicker.tsx#ModelPicker"],
-  styles: () => import("./styles.css"),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
   load: () => import("./ModelPicker").then((module) => module.ModelPicker),
   variants: {
     idle: {

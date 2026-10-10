@@ -47,6 +47,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
     public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
+    public var agentPaneComposer = AgentPaneComposerSetting.fallback
+    /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
@@ -168,9 +170,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
-    /// Keys under `shortcuts` that are settings, not action IDs.
-    static let reservedShortcutKeys: Set<String> = ["bindings", "tiers", "when", "showModifierHoldHints"]
-
     /// Parses a document. `validDensities` and `validMetrics` come from the
     /// design module so this stays free of main-actor types.
     public static func parse(
@@ -244,7 +243,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.agentPaneEditedFiles = AgentPaneEditedFilesSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)

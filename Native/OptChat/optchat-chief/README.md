@@ -122,7 +122,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - The opener follows the E17 rule (schemas/chief-cmux-target) at each
   open: the app while its control socket and daemon exist, else the
   Chief's own owner daemon (a Chief that `cmux chief` started without the
-  app), so the app shows the workspace when it connects. Every subagent
+  app). The app shows that owner daemon as a machine row named after the
+  Chief, on the paired-server path (`ServerReach.localChief`, route `unix`
+  to the owner's socket), signed in or not, so the workspaces appear when
+  the app opens. Every subagent
   tab's host is `chief:<home id>`: the app attaches it to the Chief home's
   acpmux. A Chief turn starts subagents only with `spawn`: Claude Code's
   Task/Agent tools are not in `TURN_TOOLS`, and codex turns run with
@@ -299,8 +302,9 @@ turn when the Chief is idle.
 `import-claude-code` reads Claude Code transcripts (`--projects`, default
 `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`) and turns each session
 into a `note` (session id and working directory), then per turn the user's
-message (`user`), one `tool` line with the turn's tool names, counts and the
-files they named, and the final reply (`talk`), each with its transcript
+message (`user`), one `ai` line with the turn's tool names, counts and the
+files they named, and the final reply (`ai`: another AI's, not the Chief's
+own, as the reference client logs them), each with its transcript
 date (section 10: "the user's messages and the agent's final replies,
 without repeated pastes and tool noise"). Thinking, intermediate replies,
 tool inputs and outputs (which can hold secrets), meta lines, slash
@@ -314,6 +318,13 @@ Old history must not land after live messages: on a memory that already
 holds messages, `write` refuses and writes nothing unless
 `--append-after-live` accepts that the history appears after the current
 messages, and `dry-run` warns about it.
+
+Known limit: only imports made since the `ai` kind (cbc26745fac5) log
+replies and tool lines as `ai`. Memories imported before keep `talk` and
+`tool`: there is no migration and no read-time mapping, because the summary
+lines built from them already say `talk`, and an imported `talk` line cannot
+be told from the Chief's own (a legacy home's import is the Chief's own
+replies).
 
 ## Environment
 
@@ -338,6 +349,9 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
+| `OPTCHAT_COMPACTOR_SESSIONS` | `16` | compactor sessions that prompt at once (1-64) |
+| `OPTCHAT_COMPACTOR_SPARES` | `0` | extra slots where warm compactor sessions start ahead during a backlog (0-16; about 210 MB each) |
+| `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` | `600` | warm compactor sessions end after this long without compactor work |
 | `OPTCHAT_COMPACTOR_EFFORT` | `medium` on a Claude or codex harness, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (section 4.2 runs the compactor at medium) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_SUBAGENT_HARNESS` | the Chief's harness | section 9: the subagents' harness |
@@ -818,16 +832,35 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   and auto-memory. The first prompt follows the cached layout (see
   [Compactor cache](#compactor-cache)) when acpmux took the presets' `systemPrompt`,
   else the old layout: the compactor's system text, the context pieces and
-  the step; each size-loop retry is the next prompt in the same session;
+  the step; each size-loop retry is a fresh session with the node's first
+  prompt and the "Too long" note (as the reference client makes it), in the
+  slot the node already holds;
   the reply text is the line, with a lead-in line ("Here is the line:") dropped. When the node
   is built or fails, the session is killed with purge and Claude Code's
   transcript of it is deleted, and host.log gets one line with the node's
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
   prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
-  most COMPACTOR_SESSIONS (16) compactor sessions live at once, main and
+  most COMPACTOR_SESSIONS (16) compactor sessions prompt at once, main and
   fallback model together; the main compactor keeps up to WARM_SESSIONS (4)
-  of them started ahead, so a node prompts a ready Claude Code process (one
-  node per session: each node needs a fresh conversation). Nothing pretends to be Claude Code and no API key is involved:
+  of them started ahead while no node waits, so the next turn's nodes prompt
+  a ready Claude Code process (one node per session: each node needs a
+  fresh conversation); warm sessions end after 10 minutes without
+  compactor work. OPTCHAT_COMPACTOR_SPARES adds slots where warm sessions
+  start ahead during a backlog; it is 0 by default (no gain measured, see
+  Import time below).
+
+  Import time (cmux-lawrence-2, 2026-10-09, 2,020 messages, 16 sessions,
+  Claude Code 2.1.295, Haiku 5.5): 24-28 min, against the reference
+  client's 3.8 min. Per node, the model answers in about 0.9 s to the first
+  token and about 2 s per prompt, but every prompt starts a new Claude Code
+  process (3.7-7 s), and merges take 3.4-4.4 prompts on average (size
+  retries), so session starts are about half of the slots' busy time
+  (3.0-3.5 h of starts against 3.1-3.3 h of prompts over the import). No
+  slot change helps: 32 sessions took 29.7 min (more memory, 6.4 GB), a
+  retry that keeps its slot 28.1 min, and 4 spare sessions started ahead
+  26.0 min (175 of 1,207 starts hidden, about 1 GB more); run-to-run noise
+  is about 2 min. The time goes to one Claude Code process per call; the
+  reference calls the Messages API directly. Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),

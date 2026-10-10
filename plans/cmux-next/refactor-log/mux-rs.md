@@ -25,7 +25,9 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 a2e7e5efab61 refactor-mux-rs: resource_topology.rs part 1 -> mux/resource_topology/{topology_test_hooks,rename_focus,layout_ops,topology_operation}.rs; resource_topology.rs 6636 -> 5296; Testbox fmt, clippy, lib 2604 passed, Windows check, about 5 min.
 - 2026-10-09 99d4c42175ea refactor-mux-rs: resource_topology.rs part 2 -> mux/resource_topology/{pane_tab_moves,tab_workspace_move,effectful_operation,close_effects}.rs; resource_topology.rs 5296 -> 3237; Testbox fmt, clippy, lib 2604 passed, Windows check, about 5 min.
 - 2026-10-09 38f2e21b1006 refactor-mux-rs: resource_topology.rs part 3 -> mux/resource_topology/{creation_settlement,effect_execution}.rs; resource_topology.rs 3237 -> 1887; Testbox fmt, clippy, lib 2604 passed, Windows check, about 4 min.
-- 2026-10-09 PENDING refactor-mux-rs: resource_topology.rs part 4 -> mux/resource_topology/{effect_fields,layout_document,topology_lookup,focus_plan,registry_layout,creation_recovery_tests}.rs; resource_topology.rs 1888 -> 363; tests 5 == 5; gate-run receipt (fmt, clippy, lib, Windows, godfile).
+- 2026-10-09 b08a5e77a2b4 refactor-mux-rs: resource_topology.rs part 4 -> mux/resource_topology/{effect_fields,layout_document,topology_lookup,focus_plan,registry_layout,creation_recovery_tests}.rs; resource_topology.rs 1888 -> 363; tests 5 == 5; gate-run receipt (fmt, clippy, lib, Windows, godfile).
+- 2026-10-09 fdf3c8ecc244 refactor-mux-rs: inline tests -> mux/{public_projections,terminal_reap,resource_topology/batch_close}/tests.rs (6+12+6 tests, same before and after); saved screen groups -> mux/screen_groups/saved_groups.rs; screen_groups.rs 1039 -> 886; gate-run receipt.
+- 2026-10-09 b4fc4c5429ce refactor-mux-rs: mux.rs public option/result types -> mux/results.rs (265), small state guards -> mux/guards.rs (103); mux.rs 1301 -> 975; gate-run receipt (fmt, clippy, lib, Windows, godfile).
 
 ## Module map
 

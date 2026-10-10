@@ -616,7 +616,8 @@ def event_names() -> set[str]:
     for module_source in server_module_sources():
         source = strip_rust_comments(module_source)
         module_tokens = rust_tokens(source)
-        module_constants = rust_string_constants(module_tokens)
+        # A moved module still names server.rs's constants (super::...).
+        module_constants = {**constants, **rust_string_constants(module_tokens)}
         names.update(json_macro_event_names(module_tokens, module_constants))
         names.update(inserted_event_names(module_tokens, module_constants))
         names.update(assigned_event_names(module_tokens, module_constants))
@@ -841,9 +842,22 @@ def action_metadata() -> dict[str, dict[str, object]]:
     return metadata
 
 
+def app_rust_source() -> str:
+    """The TUI app module: app.rs plus its child modules under app/ (tests excluded)."""
+    root = TUI / "crates/cmux-tui/src"
+    parts = [(root / "app.rs").read_text()]
+    app_dir = root / "app"
+    if app_dir.is_dir():
+        for path in sorted(app_dir.rglob("*.rs")):
+            relative = path.relative_to(app_dir)
+            if relative.parts[0] in ("tests", "tests.rs"):
+                continue
+            parts.append(path.read_text())
+    return "\n".join(parts)
+
+
 def menu_action_variants() -> set[str]:
-    source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
-    return rust_enum_variants(source, "MenuAction")
+    return rust_enum_variants(app_rust_source(), "MenuAction")
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
@@ -995,7 +1009,7 @@ def menu_keyboard_actions(source: str) -> dict[str, str]:
 
 
 def menu_action_metadata() -> dict[str, dict[str, str]]:
-    app_source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
+    app_source = app_rust_source()
     variants = rust_enum_variants(strip_rust_comments(app_source), "MenuAction")
     action_metadata_by_variant = action_metadata()
     mapping = menu_keyboard_actions(app_source)

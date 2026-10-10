@@ -49,6 +49,10 @@ struct Setup {
 }
 
 fn setup(workspaces: Option<Arc<FakeWorkspaces>>) -> Setup {
+    setup_with_parent(workspaces, optchat_chief::brain::PARENT)
+}
+
+fn setup_with_parent(workspaces: Option<Arc<FakeWorkspaces>>, parent: &str) -> Setup {
     let mut h = Harness::new(default_script());
     let workspaces = workspaces.map(|w| w as Arc<dyn Workspaces>);
     h.brain.set_workspaces(workspaces.clone());
@@ -64,7 +68,7 @@ fn setup(workspaces: Option<Arc<FakeWorkspaces>>) -> Setup {
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
-            parent: optchat_chief::brain::PARENT.into(),
+            parent: parent.into(),
             claude_md: None,
         },
         h.tx.clone(),
@@ -118,6 +122,27 @@ fn the_answer_names_each_workspace_and_where_it_lives() {
         answer.contains("a2: workspace \"a2 · say the date\" in the test app"),
         "{answer}"
     );
+}
+
+/// Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
+/// get to it". Each started subagent's line carries its Markdown link, the app deeplink of its
+/// session in this Chief home (`cmux://chief/<home id>/session/<session id>`), and the Chief is
+/// told to name subagents with it.
+#[test]
+fn each_started_subagent_has_its_link() {
+    let workspaces = Arc::new(FakeWorkspaces::default());
+    let mut s = setup_with_parent(Some(workspaces.clone()), "optchat-chief:0a1b2c3d");
+    let answer = spawn(&mut s, &["list the files", "say the date"], None);
+    let opened = workspaces.opened.lock().unwrap().clone();
+    assert_eq!(opened.len(), 2, "{answer}");
+    for (n, (session, _, _)) in opened.iter().enumerate() {
+        let link = format!("[a{}](cmux://chief/0a1b2c3d/session/{session})", n + 1);
+        assert!(answer.contains(&link), "{link} not in {answer}");
+    }
+    assert!(answer.contains("its link"), "{answer}");
+    // A Chief with no home id in its tag (no app can find it) writes no link.
+    let mut plain = setup(Some(Arc::new(FakeWorkspaces::default())));
+    assert!(!spawn(&mut plain, &["list the files"], None).contains("cmux://"));
 }
 
 #[test]

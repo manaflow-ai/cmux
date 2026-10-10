@@ -608,6 +608,12 @@ publish_reload_cli_path() {
     return 0
   fi
 
+  # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
+  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
+  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # release only because readers outside this repo still read /tmp: the
+  # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
+  # builds older than the app pointer. Remove it once those read last-app-cli.
   reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   publish_reload_cli_links "$cli_path"
 }
@@ -685,7 +691,7 @@ reload_write_discovery_file() {
   [[ ! -L "$target" ]] || return 1
   if [[ -e "$target" ]]; then
     local owner=""
-    owner="$(stat -f '%u' "$target" 2>/dev/null || stat -c '%u' "$target" 2>/dev/null || echo -1)"
+    owner="$(stat -c '%u' "$target" 2>/dev/null || stat -f '%u' "$target" 2>/dev/null || echo -1)"
     [[ "$owner" == "$(id -u)" ]] || return 1
   fi
   mkdir -p "$directory" || return 1

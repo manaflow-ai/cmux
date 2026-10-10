@@ -27,10 +27,26 @@ import Testing
         #expect(card.title == "cmux Updated!")
         #expect(card.whatsNewTitle == "See What's New")
         #expect(card.shareTitle == "Share cmux")
-        #expect(SidebarCardFeed.tipCard(updated, registry: nil) == nil, "the tip waits for the Updated card")
+        #expect(SidebarCardFeed.noticeCard(updated, registry: nil) == nil, "the tip waits for the Updated card")
         updated.whatsNew.dismissUpdated()
         #expect(SidebarCardFeed.updatedCard(updated) == nil)
-        #expect(SidebarCardFeed.tipCard(updated, registry: nil) != nil)
+        #expect(SidebarCardFeed.noticeCard(updated, registry: nil) != nil)
+    }
+
+    /// Lawrence 2026-10-09: a check's result is the shared notice card (not
+    /// a plain stack card) and takes the slot from the Updated card and the tip.
+    @Test func aCheckResultIsTheNoticeCard() async throws {
+        let updated = await updater(updatedFrom: "0.65.0")
+        updated.send(.checkRequested)
+        updated.debugIndicatorPhase = .note(.upToDate)
+        let notice = try #require(SidebarCardFeed.noticeCard(updated, registry: nil))
+        #expect(notice.id == SidebarCardFeed.updateCardID && notice.symbol == "checkmark.circle")
+        #expect(notice.title == "cmux Is Up to Date" && notice.detail == "Version 0.66.0 (100), checked just now")
+        #expect(notice.dismissLabel != nil && notice.actions.isEmpty)
+        #expect(SidebarCardFeed.updatedCard(updated) == nil, "one card at a time")
+        #expect(!SidebarCardFeed.cards(updated).contains { $0.id == SidebarCardFeed.updateCardID }, "never a plain stack card")
+        SidebarCardFeed.dismissNotice(SidebarCardFeed.updateCardID, updater: updated)
+        #expect(SidebarCardFeed.noticeCard(updated, registry: nil)?.id != SidebarCardFeed.updateCardID)
     }
 
     @Test func aFirstInstallShowsNoCard() async {

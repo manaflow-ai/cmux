@@ -183,13 +183,14 @@ impl Mux {
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let mux = Arc::new(Mux {
+            registry_connection: registry.connection.clone(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
             resource_projection_stats,
             started_at: Instant::now(),
-            state: Mutex::new(state),
+            state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),

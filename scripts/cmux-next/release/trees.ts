@@ -64,7 +64,7 @@ export const TREES: Readonly<Record<TreeName, Tree>> = {
     ownerPgRole: { development: "cmux_vm_migrator", staging: "cmux_vm_migrator" },
     workerRole: "cmux-vm-worker",
     allowDatabaseAhead: true,
-    workers: { staging: "cmux-vm-staging" },
+    workers: { staging: "cmux-vm-staging", production: "cmux-vm-production" },
   },
   backend: {
     name: "backend",

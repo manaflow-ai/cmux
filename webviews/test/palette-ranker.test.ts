@@ -148,6 +148,70 @@ describe("shared palette ranker", () => {
     expect(score("action:splitRight")).toBe(score("action:splitUp"));
   });
 
+  // The Raycast model (palette-ranking.md 5.2): the row picked for a query start goes first while
+  // it matches, over better text matches; a faded or non-matching pick does not.
+  test("a learned pick lifts its row while it matches and has not faded", () => {
+    const entries = [
+      entry("splitRight", "Split Right", { frecencyKey: "action:splitRight" }),
+      entry("splitBrowser", "Split Browser Right", { frecencyKey: "action:splitBrowserRight" }),
+    ];
+    const week = 7 * 24 * 60 * 60;
+    const picks = (score: number, lastUsed: number, last = true): PaletteFrecency => ({
+      entries: {},
+      pickHalfLife: week,
+      picks: [{ prefix: "sp", key: "action:splitBrowserRight", score, lastUsed, last }],
+    });
+    expect(rankedIDs(entries, "sp")[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "sp", picks(3, now, false))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "spl", picks(1, now))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "spl", picks(1, now - 5 * week))[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "spl", picks(1, now, false))[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "split r", picks(3, now))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "split d", picks(3, now))).toEqual([]);
+  });
+
+  // Recent of any row kind (palette-ranking.md 5.2): a workspace, tab or setting the user ran
+  // shows in Recent on the empty query, although its section shows only while typing. A row that
+  // matches only behind a query prefix (the picker's hidden files) never does.
+  test("the empty query's Recent holds any row kind the user ran", () => {
+    const entries = [
+      entry("action:splitRight", "Split Right", { sectionIndex: 0, frecencyKey: "action:splitRight" }),
+      entry("workspace:w3", "chatmux", {
+        sectionIndex: 1,
+        isVisibleWhenQueryEmpty: false,
+        frecencyKey: "workspace:w3",
+      }),
+      entry("setting:theme", "Theme", {
+        sectionIndex: 2,
+        isVisibleWhenQueryEmpty: false,
+        frecencyKey: "setting:theme",
+      }),
+      entry("hidden:.env", ".env", {
+        sectionIndex: 0,
+        isVisibleWhenQueryEmpty: false,
+        queryPrefix: ".",
+        frecencyKey: "hidden:.env",
+      }),
+    ];
+    const result = rankPaletteEmpty({
+      entries,
+      sectionOrders: [0, 10, 40],
+      frecency: {
+        entries: {
+          "workspace:w3": { score: 3, lastUsed: now },
+          "setting:theme": { score: 2, lastUsed: now },
+          "hidden:.env": { score: 9, lastUsed: now },
+        },
+      },
+      now,
+      showsRecent: true,
+    });
+    expect(result[0]?.sectionIndex).toBeNull();
+    expect(result[0]?.rows.map((row) => entries[row.index].id)).toEqual(["workspace:w3", "setting:theme"]);
+    const all = result.flatMap((section) => section.rows.map((row) => entries[row.index].id));
+    expect(all).toEqual(["workspace:w3", "setting:theme", "action:splitRight"]);
+  });
+
   test("frecency decays by its half-life and orders recent keys", () => {
     const store: PaletteFrecency = { entries: { a: { score: 2, lastUsed: now } }, halfLife: 100 };
     const score = (at: number) => store.entries!.a.score * 2 ** (-(at - store.entries!.a.lastUsed) / store.halfLife!);

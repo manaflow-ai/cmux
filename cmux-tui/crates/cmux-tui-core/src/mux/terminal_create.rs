@@ -438,7 +438,7 @@ impl Mux {
                 terminal_lifecycle_name(terminal.lifecycle)
             );
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }
