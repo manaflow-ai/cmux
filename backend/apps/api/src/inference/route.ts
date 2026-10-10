@@ -141,7 +141,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
 
   // Admission: the free device's own quota, or the team's monthly hard cap.
   if (caller.kind === "free") {
-    const admitted = await freeAdmit(env, caller.device, Math.min(promptBound, model.context) + maxTokens)
+    const admitted = await freeAdmit(env, caller.device, id, Math.min(promptBound, model.context) + maxTokens)
     if (admitted) return admitted
   } else {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
@@ -158,10 +158,13 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   let last: Response | undefined
   for (let attempt = 0; attempt < routes.length; attempt++) {
     const candidates = routes.map((r) => r.provider).filter((p) => !tried.has(p))
-    const plan = await guard(env).plan(id, candidates, maxMicros, free)
+    const plan = await guard(env).plan(id, caller.kind === "free" ? `device:${caller.device}` : `team:${caller.team}`, candidates, maxMicros, free)
     if (!plan.ok) {
+      if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
       log(env, { id, model: model.id, caller: caller.kind, status: plan.code, line: plan.line ?? null, max_usd: maxUsd })
-      return last ?? (plan.code === "budget.exhausted" ? err(429, "budget.exhausted", "the daily model budget is used up; try again later", { retryable: true }) : err(503, plan.code, "no provider can serve this model now"))
+      if (last) return last
+      if (plan.code === "concurrency.limit") return err(429, "concurrency.limit", "too many requests at once; wait for one to finish", { retryable: true })
+      return plan.code === "budget.exhausted" ? err(429, "budget.exhausted", "the daily model budget is used up; try again later", { retryable: true }) : err(503, plan.code, "no provider can serve this model now")
     }
     tried.add(plan.provider)
     const route = routes.find((r) => r.provider === plan.provider)!
@@ -174,7 +177,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
         const usd = r.usage ? (r.usage.costUsd ?? cardCost(model, r.usage.input, r.usage.output)) : r.charged === "none" ? 0 : maxUsd
         if (usd > maxUsd * 1.0001) console.warn(JSON.stringify({ msg: "inference.cost_over_bound", id, model: model.id, provider: plan.provider, usd, max_usd: maxUsd }))
         await guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs)
-        if (caller.kind === "free") await freeSettle(env, caller.device, r.usage ? r.usage.input + r.usage.output : Math.min(promptBound, model.context) + maxTokens)
+        if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : Math.min(promptBound, model.context) + maxTokens)
         else if (usd > 0) {
           const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
           await meter.record(caller.team, [{ key: `inference:${id}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() }])
@@ -195,6 +198,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
     log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.failed", upstream_status: outcome.status, attempt })
     last = err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
   }
+  if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
   return last ?? err(503, "provider.unavailable", "no provider can serve this model now")
 }
 

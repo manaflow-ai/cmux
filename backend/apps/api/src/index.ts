@@ -44,6 +44,7 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { FreeDeviceDO } from "./inference/free-device-do.ts"
 
 /** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
 const gateUnreachable = (e: unknown) => {
@@ -113,6 +114,7 @@ const inference = async (path: string, request: Request, env: Env, ctx: Executio
   if (path === "/v1/inference/models" && request.method === "GET") return r.handleInferenceModels(env)
   if (path === "/v1/inference/chat/completions" && request.method === "POST") return r.handleChatCompletions(env, request, ctx)
   if (path === "/v1/inference/status" && request.method === "GET") return r.handleInferenceStatus(env, request)
+  if (path.startsWith("/v1/inference/free/")) return (await import("./inference/free.ts")).handleFree(env, path, request)
   return Response.json({ error: { code: "not_found", message: "not found" } }, { status: 404 })
 }
 
