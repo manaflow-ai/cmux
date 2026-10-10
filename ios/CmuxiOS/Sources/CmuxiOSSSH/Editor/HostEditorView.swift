@@ -24,29 +24,46 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
 
     final class Button: UIButton {
         var desiredEnabled = false {
-            didSet { syncBarButtonItem() }
+            didSet { scheduleBarButtonItemSync() }
         }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            syncBarButtonItem()
+            scheduleBarButtonItemSync()
+        }
+
+        private func scheduleBarButtonItemSync() {
+            DispatchQueue.main.async { [weak self] in self?.syncBarButtonItem() }
         }
 
         private func syncBarButtonItem() {
-            var responder: UIResponder? = self
-            while let current = responder {
-                if let controller = current as? UIViewController {
-                    let items = (controller.navigationItem.leftBarButtonItems ?? [])
-                        + (controller.navigationItem.rightBarButtonItems ?? [])
-                    for item in items where item.customView === self {
-                        item.isEnabled = desiredEnabled
-                        item.accessibilityIdentifier = "ssh.editor.save"
-                        item.accessibilityTraits = desiredEnabled ? .button : [.button, .notEnabled]
-                    }
-                    return
-                }
-                responder = current.next
+            guard let window else { return }
+            var controllers: [UIViewController] = []
+            collectControllers(from: window.rootViewController, into: &controllers)
+            let items = controllers.flatMap { controller in
+                (controller.navigationItem.leftBarButtonItems ?? [])
+                    + (controller.navigationItem.rightBarButtonItems ?? [])
             }
+            guard let item = items.first(where: { item in
+                guard let customView = item.customView else { return false }
+                return contains(self, in: customView)
+            }) else { return }
+            item.isEnabled = desiredEnabled
+            item.accessibilityIdentifier = "ssh.editor.save"
+            item.accessibilityTraits = desiredEnabled ? .button : [.button, .notEnabled]
+        }
+
+        private func collectControllers(from controller: UIViewController?, into result: inout [UIViewController]) {
+            guard let controller else { return }
+            result.append(controller)
+            collectControllers(from: controller.presentedViewController, into: &result)
+            for child in controller.children {
+                collectControllers(from: child, into: &result)
+            }
+        }
+
+        private func contains(_ target: UIView, in view: UIView) -> Bool {
+            view === target || view.subviews.contains { contains(target, in: $0) }
         }
     }
 
