@@ -57,7 +57,8 @@ function NumberField({
     if (event.key === "Enter") {
       commit();
       event.currentTarget.select();
-    } else if (event.key === "Escape" && draft !== null) {
+    } else if (event.key === "Escape") {
+      // Escape in a number field only drops the typed text, never closes the window.
       setDraft(null);
       event.preventDefault();
       event.stopPropagation();

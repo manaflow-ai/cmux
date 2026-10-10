@@ -14,16 +14,18 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     public var onClose: (() -> Void)?
 
     /// `content` replaces the SwiftUI view (the React page, `debugSettings.surface`); `onFind`
-    /// then takes Cmd-F instead of the SwiftUI search field.
+    /// then takes Cmd-F instead of the SwiftUI search field. A web view under a transparent title
+    /// bar takes the title bar's drags, so that window keeps a standard title bar.
     public init(model: DebugSettingsModel, content: NSView? = nil, onFind: (() -> Void)? = nil) {
         self.model = model
         let window = DebugSettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: content == nil ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+                : [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = DebugSettingsStrings.windowTitle
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.titleVisibility = content == nil ? .hidden : .visible
+        window.titlebarAppearsTransparent = content == nil
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 680, height: 420)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.debugSettings")

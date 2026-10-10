@@ -236,9 +236,18 @@ export class MockDebugTunablesProvider implements PageClient {
         break;
       case DebugTunablesOps.export: {
         const changes = [...this.overrides.entries()];
-        this.notice = changes.length === 0 ? "Nothing differs from the defaults." : `Copied changed values as JSON (${changes.length}).`;
+        const swift = fields.format === "swift";
+        this.notice =
+          changes.length === 0
+            ? "Nothing differs from the defaults."
+            : swift
+              ? `Copied Swift defaults (${changes.length}).`
+              : `Copied changed values as JSON (${changes.length}).`;
         this.emit();
-        return { text: JSON.stringify(Object.fromEntries(changes), null, 2) } as R;
+        const text = swift
+          ? changes.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")
+          : JSON.stringify(Object.fromEntries(changes), null, 2);
+        return { text } as R;
       }
       case "cmux.app.clipboard.write":
         return {} as R;
