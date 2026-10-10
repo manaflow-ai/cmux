@@ -441,6 +441,11 @@ def parallel_three():
         row("3 workspaces with live agent panes", "the Chief spawns 3 subagents", f"no Chief turn: {reply}", False)
         return
     spawned = wait(lambda: [i for i, s in subs().items() if s.get("session_id")] if len(subs()) >= 3 else None, 120) or []
+    # hq-6d 2026-10-09 (parity timing): a spawn in a turn starts its subagents at once with the
+    # turn's view; it never waits for the compactor to summarize the turn's own tool call.
+    waits = [e.get("settle_ms") for e in trace() if e.get("ev") == "spawn"]
+    row("spawn starts its subagents at once", "the spawn tool waits under 1.5 s before its subagents start",
+        f"spawn waits (ms) {waits}", bool(waits) and all((w or 0) < 1500 for w in waits))
     # The Chief answers a user message while they run: asked first, inside their `sleep 90`
     # (the pane checks below take minutes, so asked after them nothing ran any more).
     running = wait(lambda: [i for i, s in subs().items() if s.get("status") == "running"] or None, 120) or []
