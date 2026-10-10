@@ -2,7 +2,7 @@
 //! brain needs: a change of its conversation, a resync, the upstream socket's
 //! state, or a request for a new lease. Ids come out in the brain's shape.
 
-use cmux_conversation::{Change, Message, Summary};
+use cmux_conversation::{Change, Message, Part, Summary};
 use serde_json::Value;
 
 use super::idmap::to_brain;
@@ -91,12 +91,21 @@ fn wakes(list: Option<&Value>) -> Option<CloudSignal> {
 /// (an image, a file) is dropped rather than losing the whole message.
 pub fn decode_message(mut value: Value, chief: &str) -> Option<Message> {
     to_brain(&mut value, chief);
-    if let Ok(message) = serde_json::from_value::<Message>(value.clone()) {
+    if let Ok(mut message) = serde_json::from_value::<Message>(value.clone()) {
+        skip_unknown(&mut message);
         return Some(message);
     }
     let parts = value.get_mut("parts")?.as_array_mut()?;
     parts.retain(|p| matches!(p.get("type").and_then(Value::as_str), Some("text" | "work")));
     serde_json::from_value(value).ok()
+}
+
+/// Drops the parts this brain cannot read (`Part::Unknown`: an image, a
+/// file, a newer part type) and keeps the rest of the message.
+fn skip_unknown(message: &mut Message) {
+    message
+        .parts
+        .retain(|part| !matches!(part, Part::Unknown(_)));
 }
 
 /// A summary already in brain shape; its last message decoded leniently.
@@ -111,7 +120,10 @@ pub fn decode_summary(mut value: Value) -> Option<Summary> {
 }
 
 fn decode_change(mut value: Value) -> Option<Change> {
-    if let Ok(change) = serde_json::from_value::<Change>(value.clone()) {
+    if let Ok(mut change) = serde_json::from_value::<Change>(value.clone()) {
+        if let Change::Message { message } | Change::MessageUpdated { message } = &mut change {
+            skip_unknown(message);
+        }
         return Some(change);
     }
     for key in ["message", "conversation"] {
