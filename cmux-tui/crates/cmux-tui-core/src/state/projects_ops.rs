@@ -60,12 +60,11 @@ fn rejected(reject: ProjectReject) -> anyhow::Error {
     anyhow::anyhow!("bad request: {}: {detail}", reject.code())
 }
 
-/// This machine's editor sources. Unit tests read fixtures through
-/// `project_sources` directly, so the protocol tests never see the test
-/// host's own editors; `CMUX_PROJECT_SOURCES=off` does the same for an
-/// integration test or a daemon that must not read them.
+/// This machine's editor sources, under `HOME` (and the XDG folders on
+/// Linux). `CMUX_PROJECT_SOURCES=off` turns them off for a daemon that must
+/// not read them.
 fn editor_scans() -> Vec<SourceScan> {
-    if cfg!(test) || std::env::var_os("CMUX_PROJECT_SOURCES").is_some_and(|value| value == "off") {
+    if std::env::var_os("CMUX_PROJECT_SOURCES").is_some_and(|value| value == "off") {
         return Vec::new();
     }
     project_sources::Layout::current()

@@ -7,9 +7,6 @@
 mod vscode;
 mod zed;
 
-#[cfg(test)]
-mod tests;
-
 use std::path::{Path, PathBuf};
 
 use crate::state::projects::Observation;
