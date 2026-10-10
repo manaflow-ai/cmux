@@ -43,6 +43,27 @@
       "value": "********",
       "attribute": "********"
     },
-    "short-secret-html": "masked"
+    "short-secret-html": "masked",
+    "markdown-cut": {
+      "short": true,
+      "note": true,
+      "tail": false
+    },
+    "markdown-placeholder-forged": 1,
+    "markdown-frames-cut": true,
+    "markdown-main": {
+      "main": true,
+      "nav": false
+    },
+    "search-context-capped": true,
+    "extract-cut": {
+      "count": 2,
+      "total": true
+    },
+    "storage-state-cut": "refused-with-note",
+    "tabs-content-cut": {
+      "short": true,
+      "note": true
+    }
   }
 }
