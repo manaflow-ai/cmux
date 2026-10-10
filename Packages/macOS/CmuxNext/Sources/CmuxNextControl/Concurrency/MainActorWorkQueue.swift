@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Synchronization
+import CmuxNextCompat
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).

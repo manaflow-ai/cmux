@@ -32,6 +32,8 @@ use super::renderer_grant::ControlRequestUnanswered;
 
 mod connect;
 pub(crate) mod launch;
+mod pending_control;
+pub(crate) use pending_control::PendingControlResponse;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -302,36 +304,10 @@ impl HostAttachment {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<bool, ClearHistoryFailure> {
-        if !self.record.supports_clear_history {
-            return Ok(false);
+        match self.begin_clear_history(fallback_key)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
-            .map_err(ClearHistoryFailure::known_not_delivered)?;
-        let response = self.send_control_request(
-            MessageKind::ClearHistory,
-            MessageKind::ClearHistoryAck,
-            payload,
-        )?;
-        match response.as_slice() {
-            [CLEAR_HISTORY_ACK_OK] => {}
-            [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => {}
-            [status] => {
-                let Some(failure) = clear_history_ack_failure(*status) else {
-                    self.disconnect();
-                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host returned an unknown clear-history status"
-                    )));
-                };
-                return Err(failure);
-            }
-            _ => {
-                self.disconnect();
-                return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                    "terminal host returned a malformed clear-history response"
-                )));
-            }
-        }
-        Ok(true)
     }
 
     pub fn supports_clear_history(&self) -> bool {
@@ -448,34 +424,10 @@ impl HostAttachment {
         limits: KittyGraphicsLimits,
         deadline: Instant,
     ) -> anyhow::Result<bool> {
-        if self.protocol_version < 3 {
-            return Ok(false);
+        match self.begin_kitty_graphics_limits(limits, deadline)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let limits = limits
-            .validate()
-            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-        encode_kitty_graphics_limits(&mut payload, limits)?;
-        let response = self
-            .send_control_request_with_policy(
-                MessageKind::SetKittyGraphicsLimits,
-                MessageKind::KittyGraphicsLimitsAck,
-                payload,
-                deadline,
-                // Advisory control: a missed ack must degrade graphics for
-                // this surface, not tear down a healthy host connection.
-                false,
-            )
-            .map_err(ClearHistoryFailure::into_error)
-            .context("terminal host did not acknowledge Kitty graphics limits")?;
-        let mut decoder = PayloadDecoder::new(&response);
-        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
-        decoder.finish()?;
-        if acknowledged != limits {
-            self.disconnect();
-            anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
-        }
-        Ok(true)
     }
 
     pub(crate) fn reconfigure_kitty_graphics_for_adoption(
@@ -724,58 +676,8 @@ impl HostAttachment {
         deadline: Instant,
         disconnect_on_timeout: bool,
     ) -> Result<Vec<u8>, ClearHistoryFailure> {
-        let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
-        if request_id == 0 {
-            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                "terminal host control request id exhausted"
-            )));
-        }
-        let (sender, receiver) = sync_channel(1);
-        {
-            let mut waiters = self.control_responses.waiters.lock().unwrap();
-            if waiters.contains_key(&request_id) {
-                return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                    "terminal host control request id collision"
-                )));
-            }
-            waiters.insert(
-                request_id,
-                ControlResponseWaiter::Blocking { kind: response_kind, sender },
-            );
-        }
-        let mut frame = Frame::new(request_kind, payload);
-        frame.version = self.protocol_version;
-        frame.request_id = request_id;
-        let write_result = {
-            let mut writer = self.writer.lock().unwrap();
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
-            if result.is_err() {
-                let _ = writer.shutdown(std::net::Shutdown::Both);
-            }
-            result
-        };
-        if let Err(error) = write_result {
-            self.control_responses.waiters.lock().unwrap().remove(&request_id);
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let response = if remaining.is_zero() {
-            Err(RecvTimeoutError::Timeout)
-        } else {
-            receiver.recv_timeout(remaining)
-        };
-        match response {
-            Ok(frame) => Ok(frame.payload),
-            Err(error) => {
-                self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                if disconnect_on_timeout {
-                    self.disconnect();
-                }
-                Err(ClearHistoryFailure::ambiguous(
-                    ControlRequestUnanswered { request_kind, cause: error }.into(),
-                ))
-            }
-        }
+        self.begin_control_request(request_kind, response_kind, payload, deadline)?
+            .wait(disconnect_on_timeout)
     }
 
     pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {

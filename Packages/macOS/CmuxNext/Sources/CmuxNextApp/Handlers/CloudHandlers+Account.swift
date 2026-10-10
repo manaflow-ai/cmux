@@ -29,8 +29,10 @@ extension CloudHandlers {
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
-    /// `startedByPerson`: the person's own gesture (a Retry click is one).
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = true) -> CloudCreationFlow {
+    /// `startedByPerson`: true only for an action invoked with origin user;
+    /// any other create (a Retry or Dismiss button of the progress view,
+    /// which carries no gesture origin) asks the person first.
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(

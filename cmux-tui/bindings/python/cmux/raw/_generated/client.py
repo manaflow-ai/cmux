@@ -252,6 +252,21 @@ class GeneratedClientMixin:
     def export_layout(self, screen: Union[Id, None, MissingType] = MISSING) -> ExportLayoutResult:
         return self._invoke_command('export-layout', ExportLayoutRequest(screen=screen))
 
+    def feed_local_handoff_abort(self, item: str) -> JsonValue:
+        return self._invoke_command('feed-local-handoff-abort', FeedLocalHandoffAbortRequest(item=item))
+
+    def feed_local_handoff_begin(self, item: str) -> JsonValue:
+        return self._invoke_command('feed-local-handoff-begin', FeedLocalHandoffBeginRequest(item=item))
+
+    def feed_local_handoff_done(self, home: str, item: str) -> JsonValue:
+        return self._invoke_command('feed-local-handoff-done', FeedLocalHandoffDoneRequest(home=home, item=item))
+
+    def feed_local_list(self, *, terminal_id: Union[str, None, MissingType] = MISSING, state: Union[str, None, MissingType] = MISSING, unread: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('feed-local-list', FeedLocalListRequest(terminal_id=terminal_id, state=state, unread=unread))
+
+    def feed_local_read(self, items: List[str]) -> JsonValue:
+        return self._invoke_command('feed-local-read', FeedLocalReadRequest(items=items))
+
     def focus_direction(self, dir: PaneDirection, *, pane: Union[Id, None, MissingType] = MISSING) -> FocusDirectionResult:
         return self._invoke_command('focus-direction', FocusDirectionRequest(dir=dir, pane=pane))
 
@@ -275,6 +290,9 @@ class GeneratedClientMixin:
 
     def get_size_state(self, surface: Id) -> GetSizeStateResult:
         return self._invoke_command('get-size-state', GetSizeStateRequest(surface=surface))
+
+    def history_search(self, query: str, *, kinds: Union[List[str], MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> HistorySearchResult:
+        return self._invoke_command('history-search', HistorySearchRequest(query=query, kinds=kinds, limit=limit))
 
     def identify(self) -> IdentifyResult:
         return self._invoke_command('identify', IdentifyRequest())
@@ -801,6 +819,11 @@ GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
+GeneratedClientMixin.feed_local_handoff_abort.__cmux_command__ = COMMANDS['feed-local-handoff-abort']
+GeneratedClientMixin.feed_local_handoff_begin.__cmux_command__ = COMMANDS['feed-local-handoff-begin']
+GeneratedClientMixin.feed_local_handoff_done.__cmux_command__ = COMMANDS['feed-local-handoff-done']
+GeneratedClientMixin.feed_local_list.__cmux_command__ = COMMANDS['feed-local-list']
+GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-read']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
@@ -809,6 +832,7 @@ GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixel
 GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['get-frontend-browser-history']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
+GeneratedClientMixin.history_search.__cmux_command__ = COMMANDS['history-search']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
 GeneratedClientMixin.import_bookmarks.__cmux_command__ = COMMANDS['import-bookmarks']

@@ -4,27 +4,9 @@ name: cmux-next web bundles
 # This backstop builds the web bundles (build output since cx-vn5, gitignored) on
 # every push that touches their sources. safe-push.sh runs the same build first.
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "webviews/**"
-      - "Resources/markdown-viewer/marked.min.js"
-      - "schemas/settings/**"
-      - "scripts/build-webviews-app.sh"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/cmux-next/build-palette-ranker.sh"
-      - "scripts/cmux-next/build-agent-activity-web.sh"
-      - "scripts/cmux-next/build-optchat-inspector-web.sh"
-      - "scripts/cmux-next/build-pages-web.sh"
-      - "scripts/cmux-next/build-web-bundles.sh"
-      - "scripts/cmux-next/web-bundle-key.py"
-      - "Native/OptChat/optchat-chief/inspector/**"
-      # The strings tables are generated from every CmuxNext catalog.
-      - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
-      - "scripts/cmux-next/regenerate-web-bundles.sh"
-      - "scripts/cmux-next/tests/web-bundles-readonly-sources.test.sh"
-      - ".github/workflows/cmux-next-web-bundles.yml"
-
+  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10);
+  # dispatch this workflow on a ref to run it.
+  workflow_dispatch:
 permissions:
   contents: read
 

@@ -24,6 +24,8 @@ public struct AppSceneView: View {
             switch model.status {
             case .failed(let reason):
                 AppSceneFailureRow(reason: reason)
+            case .disconnected(let reason):
+                AppSceneFailureRow(reason: reason, symbol: "bolt.horizontal", tone: \.tertiary)
             case .loading, .ready:
                 if let root = model.scene.root { AppSceneNodeView(model: model, id: root) }
             }
@@ -37,11 +39,13 @@ public struct AppSceneView: View {
 struct AppSceneFailureRow: View {
     @Environment(\.appSceneColors) private var colors
     let reason: String
+    var symbol = "exclamationmark.triangle"
+    var tone: KeyPath<AppSceneColors, Color> = \.attention
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.space2) {
-            Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(colors.attention)
+            Image(systemName: symbol)
+                .foregroundStyle(colors[keyPath: tone])
             Text(reason)
                 .font(Font(Typography.caption))
                 .foregroundStyle(colors.secondary)

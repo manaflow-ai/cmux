@@ -1,7 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// openBrowser's optional `profile` argument (plans/cmux-next/passwords.md,
 /// section 3.4). "agent" asks for the clean agent profile: one profile with a

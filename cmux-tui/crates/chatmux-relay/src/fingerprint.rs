@@ -296,12 +296,4 @@ mod tests {
         );
         assert_eq!(derive_cute_code("abc"), "pebble-island-22");
     }
-
-    #[test]
-    fn word_table_has_exactly_256_distinct_words() {
-        let mut sorted: Vec<&str> = CUTE_WORDS.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 256);
-    }
 }

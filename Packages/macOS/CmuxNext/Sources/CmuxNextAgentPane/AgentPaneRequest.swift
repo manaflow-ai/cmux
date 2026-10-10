@@ -79,6 +79,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case paneAction(String, cwd: String? = nil)
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
+    /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
+    case archive(Bool)
+    /// New side chat: open the fork `sessionId` the page just made beside this chat.
+    case sideChat(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)

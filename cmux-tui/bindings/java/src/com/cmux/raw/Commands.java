@@ -90,6 +90,11 @@ public final class Commands {
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_HANDOFF_ABORT = new CommandMetadata("feed-local-handoff-abort", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_HANDOFF_DONE = new CommandMetadata("feed-local-handoff-done", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_LIST = new CommandMetadata("feed-local-list", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_READ = new CommandMetadata("feed-local-read", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -98,6 +103,7 @@ public final class Commands {
     public static final CommandMetadata GET_FRONTEND_BROWSER_HISTORY = new CommandMetadata("get-frontend-browser-history", Authority.CONTROL, 12, "frontend-browser-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -330,6 +336,11 @@ public final class Commands {
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
         values.put("export-layout", EXPORT_LAYOUT);
+        values.put("feed-local-handoff-abort", FEED_LOCAL_HANDOFF_ABORT);
+        values.put("feed-local-handoff-begin", FEED_LOCAL_HANDOFF_BEGIN);
+        values.put("feed-local-handoff-done", FEED_LOCAL_HANDOFF_DONE);
+        values.put("feed-local-list", FEED_LOCAL_LIST);
+        values.put("feed-local-read", FEED_LOCAL_READ);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
@@ -338,6 +349,7 @@ public final class Commands {
         values.put("get-frontend-browser-history", GET_FRONTEND_BROWSER_HISTORY);
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("get-size-state", GET_SIZE_STATE);
+        values.put("history-search", HISTORY_SEARCH);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);
         values.put("import-bookmarks", IMPORT_BOOKMARKS);

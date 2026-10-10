@@ -14,7 +14,7 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
@@ -182,7 +182,9 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
-  const entries = sessions.map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>));
+  const entries = sessions
+    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }

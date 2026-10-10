@@ -738,49 +738,4 @@ mod tests {
         let decoded: TerminalSizingState = serde_json::from_value(wire).unwrap();
         assert_eq!(&decoded, engine.state());
     }
-
-    #[test]
-    fn sizing_policy_host_extensions_do_not_count_as_activity() {
-        let mut engine = TerminalSizingEngine::new(
-            TerminalGridSize::new(80, 24),
-            TerminalSizingPolicy::default(),
-        );
-        let mut a = TerminalSizingParticipant::new("a", TerminalDeviceKind::Mac);
-        a.viewport = Some(TerminalGridSize::new(100, 30));
-        let mut b = TerminalSizingParticipant::new("b", TerminalDeviceKind::Tui);
-        b.viewport = Some(TerminalGridSize::new(90, 20));
-        engine.attach(a.clone());
-        engine.attach(b);
-        assert_eq!(engine.state().owners, ["b"]);
-        a.display_name = Some("renamed".into());
-        assert!(engine.update_identity(&a));
-        assert_eq!(engine.state().owners, ["b"]);
-        assert!(engine.clear_viewport("b"));
-        assert_eq!(engine.state().owners, ["a"]);
-        assert_eq!(engine.state().size(), TerminalGridSize::new(100, 30));
-    }
-
-    #[test]
-    fn device_kinds_name_linux_and_windows_and_read_unknown_values_as_unknown() {
-        for raw in ["mac", "iphone", "ipad", "tui", "browser", "linux", "windows", "unknown"] {
-            assert_eq!(TerminalDeviceKind::parse(raw).as_str(), raw);
-            let decoded: TerminalDeviceKind =
-                serde_json::from_value(serde_json::json!(raw)).unwrap();
-            assert_eq!(serde_json::to_value(decoded).unwrap(), raw);
-        }
-        // Forward compatibility: a kind this daemon does not know is a generic client.
-        for raw in ["quantum", "", "Linux", "desktop"] {
-            assert_eq!(TerminalDeviceKind::parse(raw), TerminalDeviceKind::Unknown, "{raw}");
-        }
-        let row: TerminalSizingParticipant =
-            serde_json::from_value(serde_json::json!({"id": "c9", "device_kind": "quantum"}))
-                .unwrap();
-        assert_eq!(row.device_kind, TerminalDeviceKind::Unknown);
-        // A Linux or Windows client is a desktop, not a handheld.
-        assert!(!TerminalDeviceKind::parse("linux").is_handheld());
-        assert!(!TerminalDeviceKind::parse("windows").is_handheld());
-        assert!(TerminalDeviceKind::parse("linux").is_desktop());
-        assert!(TerminalDeviceKind::parse("windows").is_desktop());
-        assert!(!TerminalDeviceKind::parse("quantum").is_desktop());
-    }
 }

@@ -127,6 +127,8 @@ pub mod op_names {
     pub const REACTION_ADD: &str = "reaction.add";
     pub const REACTION_REMOVE: &str = "reaction.remove";
     pub const READ_CURSOR_SET: &str = "read_cursor.set";
+    pub const RUN_GET: &str = "run.get";
+    pub const RUN_LIST: &str = "run.list";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
@@ -177,6 +179,7 @@ pub mod op_names {
     pub const USAGE_CAP_SET: &str = "usage.cap.set";
     pub const USAGE_SUMMARY: &str = "usage.summary";
     pub const USER_ENSURE: &str = "user.ensure";
+    pub const USER_PRESENCE_KEY_LIST: &str = "user.presence_key.list";
     pub const USER_PRESENCE_KEY_REVOKE: &str = "user.presence_key.revoke";
     pub const USER_TEAMS_LIST: &str = "user.teams.list";
     pub const USER_TEXT_CONFIRM_GET: &str = "user.text_confirm.get";
@@ -307,6 +310,8 @@ pub mod op_names {
         REACTION_ADD,
         REACTION_REMOVE,
         READ_CURSOR_SET,
+        RUN_GET,
+        RUN_LIST,
         SERVER_PAIR_APPROVE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
@@ -357,6 +362,7 @@ pub mod op_names {
         USAGE_CAP_SET,
         USAGE_SUMMARY,
         USER_ENSURE,
+        USER_PRESENCE_KEY_LIST,
         USER_PRESENCE_KEY_REVOKE,
         USER_TEAMS_LIST,
         USER_TEXT_CONFIRM_GET,
@@ -490,6 +496,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "reaction.add" => visitor.visit::<ReactionAddOp>(),
         "reaction.remove" => visitor.visit::<ReactionRemoveOp>(),
         "read_cursor.set" => visitor.visit::<ReadCursorSetOp>(),
+        "run.get" => visitor.visit::<RunGetOp>(),
+        "run.list" => visitor.visit::<RunListOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
@@ -540,6 +548,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "usage.cap.set" => visitor.visit::<UsageCapSetOp>(),
         "usage.summary" => visitor.visit::<UsageSummaryOp>(),
         "user.ensure" => visitor.visit::<UserEnsureOp>(),
+        "user.presence_key.list" => visitor.visit::<UserPresenceKeyListOp>(),
         "user.presence_key.revoke" => visitor.visit::<UserPresenceKeyRevokeOp>(),
         "user.teams.list" => visitor.visit::<UserTeamsListOp>(),
         "user.text_confirm.get" => visitor.visit::<UserTextConfirmGetOp>(),

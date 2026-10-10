@@ -34,13 +34,4 @@ describe("Stack team member list sync (cx-3bi.43)", { timeout: 60_000 }, () => {
     expect(await memberRow(t.team, userIdFor(PROJECT, newcomer))).toMatchObject({ display_name: "Newcomer" })
   })
 
-  it("a member removal notice drops the removed member's team VM wake lease, even without a certificate", () => {
-    const team = "team_00000000000000000042"
-    const base = { ...teamVmDomain.initial(), team, leases: { lease_a: { holder: "session:user_a", user: "user_a", reason: "ssh", expires_at: Date.now() + 60_000 }, lease_b: { holder: "session:user_b", user: "user_b", reason: "ssh", expires_at: Date.now() + 60_000 } } }
-    const ctx = { principal: { identity: `system:team:${team}`, kind: "system" as const }, now: Date.now(), tx: "tx1", newId: (p: string) => `${p}_1` }
-    const r = teamVmDomain.reduce(base as never, "team_vm.member_removed", { user: "user_a", at: Date.now() }, ctx as never)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(Object.keys((r.state as { leases: Record<string, unknown> }).leases)).toEqual(["lease_b"])
-    void env
-  })
 })

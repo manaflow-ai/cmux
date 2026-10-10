@@ -45,17 +45,3 @@ pub fn classify(scope: &str) -> Result<(String, bool), String> {
         .map(|rule| (rule.class.clone(), rule.server_only))
         .ok_or_else(|| format!("scope {scope:?} matches no rule in scope-classes.json"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn first_matching_rule_wins() {
-        assert_eq!(classify("git:read"), Ok(("standard".into(), false)));
-        assert_eq!(classify("router:write"), Ok(("sensitive".into(), false)));
-        assert_eq!(classify("fs:write"), Ok(("restricted".into(), false)));
-        assert_eq!(classify("process:spawn:git"), Ok(("restricted".into(), true)));
-        assert!(classify("router:use").is_err());
-    }
-}

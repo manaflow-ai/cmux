@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Why one sidecar request produced no reply.
 nonisolated enum DiffSidecarError: Error, Equatable, Sendable {
@@ -66,6 +66,12 @@ private nonisolated final class Invocation: Sendable {
     private struct State {
         var process: Process?
         var stdin: FileHandle?
+        /// The parent's read ends, held until each reads end of file. The
+        /// Process is released at exit, and with it the Pipes; a FileHandle
+        /// that dies first closes its descriptor and drops the EOF event, so
+        /// a reply that trailed the exit never finished (a 60 s test hang).
+        var replyReader: FileHandle?
+        var stderrReader: FileHandle?
         var reply = Data()
         var stderr = Data()
         var ready = false
@@ -113,6 +119,8 @@ private nonisolated final class Invocation: Sendable {
             state.continuation = continuation
             state.process = process
             state.stdin = input.fileHandleForWriting
+            state.replyReader = output.fileHandleForReading
+            state.stderrReader = errors.fileHandleForReading
             state.requestLimit = limits.request
             return false
         }
@@ -123,6 +131,14 @@ private nonisolated final class Invocation: Sendable {
         do {
             try process.run()
         } catch {
+            // No child holds a write end, so no EOF comes: release the readers here.
+            output.fileHandleForReading.readabilityHandler = nil
+            errors.fileHandleForReading.readabilityHandler = nil
+            state.withLock { state in
+                state.replyReader = nil
+                state.stderrReader = nil
+                state.process = nil
+            }
             fail(.startFailed)
             return
         }
@@ -164,6 +180,7 @@ private nonisolated final class Invocation: Sendable {
     private func receiveStderr(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
+            state.withLock { $0.stderrReader = nil }
             return
         }
         let (stdin, requestLimit) = state.withLock { state -> (FileHandle?, Duration?) in
@@ -187,7 +204,10 @@ private nonisolated final class Invocation: Sendable {
     private func receiveReply(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
-            state.withLock { $0.replyClosed = true }
+            state.withLock { state in
+                state.replyClosed = true
+                state.replyReader = nil
+            }
             finishIfDone()
             return
         }

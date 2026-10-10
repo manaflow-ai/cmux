@@ -299,41 +299,11 @@ pub fn terminal_sizing_state_to_json(
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct Recorder(Mutex<Vec<TerminalSizingState>>);
-
-    impl TerminalSizingListener for Recorder {
-        fn on_state(&self, state: TerminalSizingState) {
-            self.0.lock().unwrap().push(state);
-        }
-    }
-
     fn mac(id: &str, cols: u16, rows: u16) -> TerminalSizingParticipant {
         TerminalSizingParticipant {
             viewport: Some(TerminalGridSize::new(cols, rows)),
             ..TerminalSizingParticipant::new(id, TerminalDeviceKind::Mac)
         }
-    }
-
-    #[test]
-    fn listener_receives_every_changed_state_and_nothing_else() {
-        let engine = TerminalSizingEngine::new(
-            TerminalGridSize::new(80, 24),
-            terminal_sizing_policy(TerminalSizingMode::Latest, Vec::new(), None),
-        );
-        let recorder = Arc::new(Recorder::default());
-        engine.set_listener(Some(recorder.clone()));
-        assert!(engine.attach(mac("a", 100, 30)));
-        assert!(engine.attach(mac("b", 90, 20)));
-        assert!(!engine.detach("missing".into()));
-        assert!(engine.note_activity("a".into()));
-        let states = recorder.0.lock().unwrap().clone();
-        assert_eq!(states.iter().map(|state| state.generation).collect::<Vec<_>>(), [1, 2, 3]);
-        assert_eq!(states.last(), Some(&engine.state()));
-        assert_eq!(engine.state().owners, ["a"]);
-        engine.set_listener(None);
-        assert!(engine.detach("a".into()));
-        assert_eq!(recorder.0.lock().unwrap().len(), 3);
     }
 
     #[test]

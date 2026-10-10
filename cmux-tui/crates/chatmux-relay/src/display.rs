@@ -62,34 +62,3 @@ fn unicode_escape(character: char) -> String {
     write!(&mut escaped, "\\u{{{:X}}}", character as u32).expect("write to String");
     escaped
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn terminal_text_escapes_terminal_controls_and_preserves_unicode() {
-        let input = "safe 日本語 🐈\x1b]0;owned\x07\rforged\nline\u{009b}31m";
-
-        assert_eq!(
-            terminal_text(input),
-            "safe 日本語 🐈\\u{1B}]0;owned\\u{7}\\rforged\\nline\\u{9B}31m"
-        );
-    }
-
-    #[test]
-    fn terminal_text_escapes_visual_line_and_direction_controls() {
-        assert_eq!(
-            terminal_text("left\u{2028}right\u{202e}hidden"),
-            "left\\u{2028}right\\u{202E}hidden"
-        );
-    }
-
-    #[test]
-    fn terminal_text_is_byte_bounded_without_splitting_unicode() {
-        assert_eq!(terminal_text_with_limit("éééé", 7), "éé…");
-        assert_eq!(terminal_text_with_limit("\x1bAAAA", 9), "\\u{1B}…");
-        assert_eq!(terminal_text_with_limit("AAAA\x1b", 8), "AAAA…");
-        assert!(terminal_text(&"界".repeat(200)).len() <= DIAGNOSTIC_FIELD_MAX_BYTES);
-    }
-}

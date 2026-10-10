@@ -64,6 +64,7 @@ pub const MAX_PREVIEW_BYTES: usize = 4096;
 /// Longest emoji reaction, in UTF-8 bytes.
 pub const MAX_EMOJI_BYTES: usize = 64;
 
+// The wire-shape contracts (fixed JSON the cloud reducer reads too).
 #[cfg(test)]
 mod question_tests;
 #[cfg(test)]

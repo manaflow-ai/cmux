@@ -271,7 +271,8 @@ final class WorkspaceRowView: SidebarRowView {
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
         let barWidth = SidebarStyle.groupBarWidth
         let barBottom = lastInGroup ? Metrics.space2 : 0
-        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: 0, width: barWidth, height: max(0, b.height - barBottom))
+        let gapAbove = Metrics.space1 // up through the row spacing above: one unbroken bar (cx-qno.17)
+        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: -gapAbove, width: barWidth, height: max(0, b.height - barBottom + gapAbove))
         groupRail.isHidden = !grouped
         performWithTheme {
             groupRail.backgroundColor = (groupColor ?? .grey).headerFill.cgColor
