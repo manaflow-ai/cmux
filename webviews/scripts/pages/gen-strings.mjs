@@ -115,6 +115,16 @@ export const PAGES = {
       },
     ],
   },
+  // Debug Settings shares the `debugSettings.` keys (and Reset) with the Swift window it replaces.
+  "debug-settings": {
+    out: "webviews/src/pages/debug-settings/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("debugSettings.") || key === "settingsWindow.reset"),
+      },
+    ],
+  },
   // The Keyboard Shortcuts page has its own table in the app's resources.
   keybindings: {
     out: "webviews/src/pages/keybindings/generated/strings.json",

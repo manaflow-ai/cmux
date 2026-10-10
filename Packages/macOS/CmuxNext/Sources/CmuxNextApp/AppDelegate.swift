@@ -234,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
+        AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

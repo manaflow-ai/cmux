@@ -1591,7 +1591,10 @@ function AcpmuxPane() {
         forkSeq,
       }),
       ...(connected && {
-        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+        retry: (rowId: string, prompt: string) =>
+          void callNative("chat.send", { text: prompt, attachments: client.retryAttachmentsFor(rowId) }).catch(
+            () => undefined,
+          ),
       }),
       ...(connected &&
         loginCommand &&
@@ -1926,6 +1929,7 @@ function AcpmuxPane() {
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
+        harnessSwitch.reconcile(next);
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
         snapshotRef.current = next;
@@ -2120,6 +2124,7 @@ function AcpmuxPane() {
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
+            harnessSwitch.reconcile(next);
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
@@ -2256,7 +2261,12 @@ function AcpmuxPane() {
             if (!harnessSwitch.pickMode(String(modeId))) await client.setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value }) => {
-            if (!harnessSwitch.pickConfig(String(configId), String(value)))
+            const summary = snapshotRef.current?.summary;
+            const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
+            if (!harnessSwitch.pickConfig(String(configId), String(value), summary?.sessionId ? {
+              sessionId: summary.sessionId,
+              current,
+            } : undefined))
               await client.setConfig(String(configId), String(value));
           },
           "chat.select": async ({ sessionId }) => {
@@ -2699,7 +2709,7 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+    <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>
         <TurnActionsContext.Provider value={turnActions}>
           <TurnCountsContext.Provider value={turnCountsFor}>
@@ -2850,7 +2860,7 @@ function AcpmuxPane() {
         />
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
-      <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
@@ -3018,6 +3028,14 @@ function AcpmuxPane() {
             }
             composer={composer}
           />
+          {imageView && (
+            <ImageViewer
+              images={imageView.images}
+              index={imageView.index}
+              onIndex={(index) => setImageView((current) => current && { ...current, index })}
+              onClose={() => setImageView(undefined)}
+            />
+          )}
         </section>
       </ShortcutsContext.Provider>
     );

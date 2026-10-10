@@ -737,6 +737,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
 /// Deterministic on purpose: bash without rc files, a fixed one-cell prompt
 /// and no resize, so only the typed line itself wraps (on purpose, to cover
 /// the soft-wrapped rows), and every step waits for the screen it needs.
+#[cfg(unix)]
 #[test]
 fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
     let server = HeadlessServer::start_without_shell_integration("history-clear");
@@ -818,6 +819,7 @@ fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
 }
 
 /// `terminal.output.gap` reasons the session journal holds for `terminal`.
+#[cfg(unix)]
 fn journal_gap_reasons(socket: &std::path::Path, terminal: &str) -> Vec<String> {
     use std::io::{BufRead, BufReader, Write};
     let stream = UnixStream::connect(socket).unwrap();
