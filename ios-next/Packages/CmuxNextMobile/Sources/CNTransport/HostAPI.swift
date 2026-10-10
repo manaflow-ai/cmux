@@ -39,6 +39,8 @@ public enum HostPush: Sendable, Hashable {
         // `events(topic: HostTopic.browserDetached.rawValue)` and decode
         // `BrowserDetachedEvent` instead.
         case .browserDetached: self = .other(topic: event.topic)
+        // Like browser.detached: subscribe to the topic and decode `LayoutResult`.
+        case .layoutChanged: self = .other(topic: event.topic)
         case nil: self = .other(topic: event.topic)
         }
     }
@@ -225,6 +227,15 @@ extension HostClient {
             try? await call(HostMethod.fsUploadCancel.rawValue, FileUploadRef(uploadId: id))
             throw error
         }
+    }
+
+    // layout
+    public func layout() async throws -> MacLayout {
+        try await request(HostMethod.layoutGet.rawValue, as: LayoutResult.self).layout
+    }
+
+    public func focusLayoutTab(paneId: String, tabId: String) async throws {
+        try await call(HostMethod.layoutFocusTab.rawValue, LayoutFocusParams(paneId: paneId, tabId: tabId))
     }
 
     // browser

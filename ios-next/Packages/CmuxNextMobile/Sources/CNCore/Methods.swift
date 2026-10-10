@@ -19,6 +19,7 @@ public enum HostMethod: String, Sendable, CaseIterable {
     case browserScroll = "browser.scroll", browserKey = "browser.key", browserText = "browser.text"
     case browserScreenshot = "browser.screenshot"
     case fsUploadBegin = "fs.upload.begin", fsUploadEnd = "fs.upload.end", fsUploadCancel = "fs.upload.cancel"
+    case layoutGet = "layout.get", layoutFocusTab = "layout.focusTab"
 }
 
 /// Every PROTOCOL §4 event topic.
@@ -27,4 +28,5 @@ public enum HostTopic: String, Sendable, CaseIterable {
     case agentSession = "agent.session", agentItem = "agent.item", agentRemoved = "agent.removed"
     case termUpdated = "term.updated", termExited = "term.exited"
     case browserTab = "browser.tab", browserClosed = "browser.closed", browserDetached = "browser.detached"
+    case layoutChanged = "layout.changed"
 }

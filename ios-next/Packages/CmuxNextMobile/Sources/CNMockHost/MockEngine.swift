@@ -36,6 +36,9 @@ actor MockEngine {
     var streamOwners: [UInt32: UUID] = [:]
     var terminalStreams: [UInt32: String] = [:]
     var uploads: [UInt32: String] = [:]
+    /// Layout: focused tab per pane, and the active pane per workspace.
+    var layoutFocus: [String: String] = [:]
+    var layoutActivePane: [String: String] = [:]
     /// DEBUG `CMUX_NEXT_MOCK_TERMINAL_MIRROR=<cols>x<rows>`: behave like the Mac
     /// bridge (`term.mirror.v1`): every terminal has this grid, resize is ignored.
     nonisolated let mirrorGrid: (cols: Int, rows: Int)? = {
@@ -326,6 +329,12 @@ actor MockEngine {
             let id = try decode(params, FileUploadRef.self).uploadId
             uploads[id] = nil
             streamOwners[id] = nil
+            return Self.empty
+        case .layoutGet:
+            return try encode(LayoutResult(layout: currentLayout()))
+        case .layoutFocusTab:
+            let p = try decode(params, LayoutFocusParams.self)
+            try focusLayoutTab(p)
             return Self.empty
         }
     }
