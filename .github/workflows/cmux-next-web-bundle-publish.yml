@@ -1,0 +1,175 @@
+name: cmux-next web bundle publish
+
+# Publishes the built cmux-next web bundles (agent pane, React pages, Agent
+# Activity, palette ranker, webviews app) per source key on files.cmux.com, like
+# the cmux-tui tree (cx-ycne). GPUI hosts these React pages in CEF and fetches
+# them with scripts/cmux-next/fetch-web-bundles.sh instead of building webviews/
+# with bun + node on every host. Layout (bucket cmux-binaries, public under
+# https://files.cmux.com/):
+#   cmux-next-web/<key>/web-bundles-<sha256>.tar.gz   immutable, content-addressed
+#   cmux-next-web/<key>/manifest.json                 written last; its presence
+#                                                     means the key is complete
+# <key> = scripts/cmux-next/web-bundle-key.py . --source. Pushes that change no
+# bundle input do not run this; a key that is already published is skipped.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "schemas/settings/**"
+      - "Resources/markdown-viewer/marked.min.js"
+      - "scripts/build-webviews-app.sh"
+      - "scripts/check-webviews-bun-version.sh"
+      - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/cmux-next/build-agent-activity-web.sh"
+      - "scripts/cmux-next/build-pages-web.sh"
+      - "scripts/cmux-next/build-palette-ranker.sh"
+      - "scripts/cmux-next/build-optchat-inspector-web.sh"
+      - "scripts/cmux-next/build-web-bundles.sh"
+      - "scripts/cmux-next/web-bundle-key.py"
+      - "scripts/cmux-next/web-bundle-archive.py"
+      - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
+      - ".github/workflows/cmux-next-web-bundle-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keys are content-addressed: the newest push covers the tip, so an older
+  # pending run can be replaced. A started run finishes.
+  group: cmux-next-web-bundle-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The build runs third-party npm code (bun install, Vite), so it holds no
+  # secret: it packs the archive and the manifest as a workflow artifact. The
+  # publish job below gets the R2 credentials, starts from a clean checkout and
+  # runs no bun or node (the cmux-tui artifacts build/publish split).
+  build:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    name: build the web bundles for this source key
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      published: ${{ steps.key.outputs.published }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Source key and whether it is published
+        id: key
+        run: |
+          set -euo pipefail
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          [[ "$key" =~ ^[0-9a-f]{64}$ ]]
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
+          if [[ "$code" == 200 ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "web bundles for $key are already published" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.key.outputs.published != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Give this job its own bun
+        if: steps.key.outputs.published != 'true'
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Setup Node
+        if: steps.key.outputs.published != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        if: steps.key.outputs.published != 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web-bundles-out"
+
+      - name: Pack the archive and the manifest
+        if: steps.key.outputs.published != 'true'
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -euo pipefail
+          [[ "$(python3 scripts/cmux-next/web-bundle-key.py . --source)" == "$KEY" ]] || { echo "the build changed a bundle input" >&2; exit 1; }
+          dir="$RUNNER_TEMP/web-bundles-publish"; mkdir -p "$dir"
+          sha="$(python3 scripts/cmux-next/web-bundle-archive.py pack "$RUNNER_TEMP/web-bundles-out" "$dir/web-bundles.tar.gz")"
+          archive="web-bundles-$sha.tar.gz"
+          mv "$dir/web-bundles.tar.gz" "$dir/$archive"
+          python3 - "$dir/manifest.json" "$KEY" "$archive" "$sha" "$(stat -c %s "$dir/$archive")" <<'PY'
+          import json, os, subprocess, sys
+          path, key, archive, sha, size = sys.argv[1:]
+          outputs = subprocess.run(["python3", "scripts/cmux-next/web-bundle-key.py", os.environ["RUNNER_TEMP"] + "/web-bundles-out", "--outputs"],
+                                   capture_output=True, text=True).stdout.strip()
+          json.dump({"schema": 1, "key": key, "commit": os.environ["GITHUB_SHA"], "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                     "archive": archive, "sha256": sha, "size": int(size),
+                     "bun": subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout.strip(),
+                     "node": subprocess.run(["node", "--version"], capture_output=True, text=True).stdout.strip(),
+                     "outputs": outputs or None}, open(path, "w"), indent=1, sort_keys=True)
+          PY
+          cat "$dir/manifest.json"
+
+      - name: Hand the archive to the publish job
+        if: steps.key.outputs.published != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-web-bundles
+          path: ${{ runner.temp }}/web-bundles-publish
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: needs.build.outputs.published != 'true'
+    name: publish the web bundles to files.cmux.com
+    environment: artifacts
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-web-bundles
+          path: ${{ runner.temp }}/web-bundles-publish
+
+      - name: Upload to R2 (archive first, manifest last)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/web-bundles-publish"
+          archive="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2]; print(m["archive"])' "$dir/manifest.json" "$KEY")"
+          [[ "$archive" =~ ^web-bundles-[0-9a-f]{64}\.tar\.gz$ && -f "$dir/$archive" ]]
+          published() { [[ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?verify=$GITHUB_RUN_ID-$1" || true)" == 200 ]]; }
+          if published a; then echo "key $KEY was published meanwhile; nothing to do"; exit 0; fi
+          up() { python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "cmux-next-web/$KEY/$2" --content-type "$3"; }
+          up "$dir/$archive" "$archive" application/gzip
+          up "$dir/manifest.json" manifest.json application/json || published b
+
+      - name: Verify the publication with the fetch helper
+        env:
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          out="$(scripts/cmux-next/fetch-web-bundles.sh --key "$KEY" --out "$RUNNER_TEMP/web-bundles-fetched")"
+          test -d "$out/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
+          echo "published https://files.cmux.com/cmux-next-web/$KEY/manifest.json" | tee -a "$GITHUB_STEP_SUMMARY"

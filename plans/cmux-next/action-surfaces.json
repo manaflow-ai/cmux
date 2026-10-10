@@ -7064,7 +7064,7 @@
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab next",
+      "cli_name" : "action navigate-next",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7125,7 +7125,7 @@
           "cmd"
         ]
       },
-      "id" : "nextSurface",
+      "id" : "navigate.next",
       "mcp" : "focusMove",
       "palette" : "offered",
       "palette_section" : {
@@ -7136,13 +7136,13 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Next Tab",
-      "title_key" : "action.nextSurface",
+      "title" : "Next Tab or Workspace",
+      "title_key" : "action.navigate.next",
       "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab previous",
+      "cli_name" : "action navigate-previous",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7204,6 +7204,60 @@
           "cmd"
         ]
       },
+      "id" : "navigate.previous",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Tab or Workspace",
+      "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab next",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nextSurface",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Tab in Pane",
+      "title_key" : "action.nextSurface.inPane",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab previous",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "prevSurface",
       "mcp" : "focusMove",
       "palette" : "offered",
@@ -7215,8 +7269,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Previous Tab",
-      "title_key" : "action.prevSurface",
+      "title" : "Previous Tab in Pane",
+      "title_key" : "action.prevSurface.inPane",
       "title_table" : "ActionCatalog"
     },
     {
@@ -16842,6 +16896,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom In",
       "title_key" : "action.agentPaneZoomIn",
       "title_table" : "ActionCatalog"
@@ -16874,6 +16929,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom Out",
       "title_key" : "action.agentPaneZoomOut",
       "title_table" : "ActionCatalog"
@@ -16906,6 +16962,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Actual Size",
       "title_key" : "action.agentPaneZoomReset",
       "title_table" : "ActionCatalog"
@@ -25969,13 +26026,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 5
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 6,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

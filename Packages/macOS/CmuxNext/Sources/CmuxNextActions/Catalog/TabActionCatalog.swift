@@ -126,17 +126,34 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "title", "reset"], category: .tab, symbol: "pencil.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
+            // Previous / Next (Leo 2026-10-09): the focused pane's tabs when it has 2+, else the
+            // sidebar rows (`PreviousNext`). The browser-style keys run these; Ctrl-Tab and
+            // Ctrl-PageDown are `KeyBindingDefaults.tabSwitching`.
+            ActionDescriptor(
+                id: "navigate.next",
+                title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),
+                keywords: ["tab", "workspace", "switch", "next", "sidebar"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
+                category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
+                mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "navigate.previous",
+                title: String(localized: "action.navigate.previous", defaultValue: "Previous Tab or Workspace", bundle: .module),
+                keywords: ["tab", "workspace", "switch", "previous", "sidebar"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+                category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
+                mainMenu: .file
+            ),
             ActionDescriptor(
                 id: "nextSurface",
-                title: String(localized: "action.nextSurface", defaultValue: "Next Tab", bundle: .module),
-                keywords: ["tab", "switch"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
+                title: String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module),
+                keywords: ["tab", "switch", "pane"],
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSurface",
-                title: String(localized: "action.prevSurface", defaultValue: "Previous Tab", bundle: .module),
-                keywords: ["tab", "switch"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+                title: String(localized: "action.prevSurface.inPane", defaultValue: "Previous Tab in Pane", bundle: .module),
+                keywords: ["tab", "switch", "pane"],
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab previous", mainMenu: .file
             ),

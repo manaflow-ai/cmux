@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextRemoteView
-import Synchronization
+import CmuxNextCompat
 
 #if DEBUG
 /// One remote tab's page: owns the decode pipeline from a stream source to

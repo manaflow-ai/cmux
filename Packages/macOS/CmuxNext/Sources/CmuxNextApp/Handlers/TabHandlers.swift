@@ -77,6 +77,8 @@ enum TabHandlers {
     }
 
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind("navigate.next", invoke: { _ in PreviousNext.step(by: 1, ctx.services) })
+        registry.bind("navigate.previous", invoke: { _ in PreviousNext.step(by: -1, ctx.services) })
         registry.bind("nextSurface", invoke: { ctx.paneController($0)?.selectAdjacent(1) })
         registry.bind("prevSurface", invoke: { ctx.paneController($0)?.selectAdjacent(-1) })
         registry.bind("selectSurfaceByNumber", invoke: { invocation in
