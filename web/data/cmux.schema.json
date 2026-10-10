@@ -1740,6 +1740,14 @@
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "hiddenStatusKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Status keys whose pills the sidebar hides, for example [\"claude_code\"]. Only the pill is hidden: hooks, notifications, session restore and other pills are unchanged."
+        },
         "compactAgentStatus": {
           "type": "boolean",
           "default": false,

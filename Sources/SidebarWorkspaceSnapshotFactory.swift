@@ -114,7 +114,7 @@ struct SidebarWorkspaceSnapshotFactory {
         let checklistProgress = workspace.checklistProgressSummary
         let statusEntries = SidebarCompactStatusGlyph.partition(
             detailVisibility.showsMetadata || settings.compactsAgentStatus
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
+                ? workspace.sidebarStatusEntriesInDisplayOrder().filter { !settings.details.hiddenStatusKeys.contains($0.key) }
                 : [],
             compacts: settings.compactsAgentStatus
         )
