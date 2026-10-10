@@ -41,6 +41,7 @@ pub mod question_answer;
 #[cfg(test)]
 mod question_answer_tests;
 pub mod registry;
+pub mod routes;
 pub mod rpc;
 pub mod schema;
 pub mod server;
