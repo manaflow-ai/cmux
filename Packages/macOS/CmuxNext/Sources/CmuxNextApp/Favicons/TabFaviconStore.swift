@@ -9,9 +9,10 @@ import Observation
 ///
 /// Reading `image(for:profile:)` inside an observed scope (a strip
 /// snapshot) starts one fetch for an icon it does not have and re-renders
-/// that scope when the icon arrives: no polling. Fetches go through
-/// `BrowserFaviconLoader` (http(s) only, no cookies, 1 MiB cap, per-profile
-/// cache, shared with the engines' own fetches). A failed URL is not
+/// that scope when the icon arrives: no polling. A live page's icon is fetched
+/// as that page fetches it (a Chromium tab through its own request context);
+/// others go through `BrowserFaviconLoader` (http(s) only, no cookies, 1 MiB
+/// cap, per-profile cache, shared with the engines' own fetches). A failed URL is not
 /// fetched again until it leaves the small failure memory.
 @Observable
 final class TabFaviconStore {
@@ -36,14 +37,15 @@ final class TabFaviconStore {
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads
-    /// (the caller shows a globe) or when there is none.
-    func image(for address: String?, profile: BrowserProfileID) -> TabImage? {
+    /// (the caller shows a globe) or when there is none. `tab`, the live page the icon is
+    /// for, fetches it as that page would (a Chromium tab through its own request context).
+    func image(for address: String?, profile: BrowserProfileID, tab: (any BrowserTab)? = nil) -> TabImage? {
         guard let address, let url = URL(string: address),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
         else { return nil }
         let key = Key(profile: profile, url: url)
         if let image = images.peek(key) { return image }
-        load(key)
+        load(key, tab: tab)
         return nil
     }
 
@@ -53,10 +55,11 @@ final class TabFaviconStore {
         return pending[Key(profile: profile, url: url)] != nil
     }
 
-    private func load(_ key: Key) {
+    private func load(_ key: Key, tab: (any BrowserTab)?) {
         guard pending[key] == nil, failed.peek(key) == nil else { return }
-        pending[key] = Task { [weak self, loader] in
-            let icon = await loader.favicon(at: key.url, profile: key.profile)
+        pending[key] = Task { [weak self, weak tab, loader] in
+            let icon: NSImage?
+            if let tab { icon = await tab.fetchFavicon(key.url) } else { icon = await loader.favicon(at: key.url, profile: key.profile) }
             guard let self else { return }
             self.pending[key] = nil
             if let cgImage = icon?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
