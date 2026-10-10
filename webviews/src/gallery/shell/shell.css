@@ -237,7 +237,7 @@ body {
   border-radius: 5px;
   background: var(--g-panel);
   color: var(--g-text);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .gallery-control-select .ui-select-value {
   max-width: 190px;
@@ -250,7 +250,7 @@ body {
   background: var(--g-panel);
   color: var(--g-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .gallery-more-button:hover,
 .gallery-more-button[aria-expanded="true"] {
@@ -276,7 +276,7 @@ body {
   border-radius: 5px;
   background: var(--g-panel);
   color: var(--g-text);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .gallery-more-grid .ui-select-value {
   max-width: 170px;
@@ -294,7 +294,7 @@ body {
   background: transparent;
   color: var(--g-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .gallery-covers {
   margin: 8px 0 0;

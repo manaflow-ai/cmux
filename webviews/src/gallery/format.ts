@@ -143,7 +143,7 @@ export type AgentPaneVariant = VariantBase & {
   chipHost?: ChipHostFixture;
   /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
    *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
-  then?: Record<string, AcpmuxSnapshot>;
+  afterCall?: Record<string, AcpmuxSnapshot>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

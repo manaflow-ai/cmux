@@ -245,6 +245,11 @@ impl Mux {
         }
         let public_id = registry.terminal_resource_id(terminal_id).ok()??;
         let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        // Kept-layout tabs (`end_terminals` + `keep_layout`, `kept_tabs`)
+        // stay dead on purpose: a frontend starts their new shell.
+        if Self::terminal_tabs_kept_locked(&registry, &state, &public_id).unwrap_or(true) {
+            return None;
+        }
         let content = ContentPublicId::Terminal(public_id.clone());
         let placements = state.placements_of_content(&content).to_vec();
         let slot = *placements.first()?;

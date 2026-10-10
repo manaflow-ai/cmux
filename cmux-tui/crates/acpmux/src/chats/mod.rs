@@ -9,6 +9,7 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+mod activity;
 mod open;
 mod query;
 mod settings;
@@ -26,6 +27,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+pub use activity::{ChatActivity, activity_change, changes_activity};
 pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::ChatQuery;
 pub use settings::{ChatSettings, SettingsRefusal, probe};
@@ -299,6 +301,11 @@ impl ChatService {
 
     pub(crate) fn watch_off(&self, conn: &str) {
         lock(&self.watching).1.remove(conn);
+    }
+
+    /// True while `conn` watches chats (any generation).
+    pub(crate) fn watches(&self, conn: &str) -> bool {
+        lock(&self.watching).1.contains_key(conn)
     }
 
     /// True while the forwarding task of `generation` is the live one.
