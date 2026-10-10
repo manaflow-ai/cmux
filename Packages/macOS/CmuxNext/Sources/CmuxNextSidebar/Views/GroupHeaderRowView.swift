@@ -30,7 +30,7 @@ final class GroupHeaderRowView: SidebarRowView {
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
     private var hasIcon = false
-    private var color: GroupColor = .grey
+    private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -79,7 +79,7 @@ final class GroupHeaderRowView: SidebarRowView {
     func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize)
         guard needsConfigure(content) else { return }
-        color = group.color
+        tint = group.tint
         name.stringValue = group.name
         pinned = group.isPinned
         hasIcon = group.icon != nil
@@ -149,13 +149,13 @@ final class GroupHeaderRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             // Black or white text and glyphs, whichever reads better on the group's color.
-            let ink = color.headerInk
+            let ink = tint.headerInk
             name.textColor = ink
             pin.contentTintColor = ink.withAlphaComponent(0.7)
             chevron.contentTintColor = ink
             moreButton.contentTintColor = ink
             addButton.contentTintColor = ink
-            var fill = color.headerFill
+            var fill = tint.headerFill
             if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: .black) ?? fill }
             if isDropTarget { fill = fill.blended(withFraction: 0.16, of: .black) ?? fill }
             pill.backgroundColor = fill.cgColor

@@ -40,7 +40,7 @@ public nonisolated enum SidebarEdits {
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
-            return mutateGroup(id, in: &sections) { $0.color = color }
+            return mutateGroup(id, in: &sections) { $0.tint = color }
         case let .ungroup(id):
             return ungroup(id, in: &sections)
         case let .toggleCollapse(target):

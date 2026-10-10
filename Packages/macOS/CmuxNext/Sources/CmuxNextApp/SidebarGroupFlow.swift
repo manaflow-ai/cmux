@@ -150,7 +150,7 @@ struct SidebarGroupFlow {
     /// `.renameGroup` / `.setGroupColor`. The editor opens on a new group at
     /// once, under the sidebar's own id: an edit before the daemon made the
     /// group waits for it, and later ones go to the daemon's id.
-    func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupColor? = nil, _ intent: SidebarIntent) {
+    func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupTint? = nil, _ intent: SidebarIntent) {
         // A pending edit until the store holds it, so a recompute (or the
         // pending new group's own edit) never shows the old name or color.
         let token = bridge.rows.add(intent)
@@ -162,8 +162,8 @@ struct SidebarGroupFlow {
         send(editor.created[id] ?? id, name: name, color: color, edit: token)
     }
 
-    private func send(_ id: WorkspaceGroupID, name: String?, color: GroupColor?, edit: SidebarPendingEdits.Token) {
-        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .unchanged
+    private func send(_ id: WorkspaceGroupID, name: String?, color: GroupTint?, edit: SidebarPendingEdits.Token) {
+        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.wire) } ?? .unchanged
         bridge.rows.send("update-personal-group", edit: edit, on: bridge.services.machines.local, resync: { bridge.resync() }) { connection in
             if v2 { return try await connection.state.updateWorkspaceGroup(id.rawValue, name: name, color: colorUpdate) }
             try await connection.updatePersonalGroup(id, name: name, color: colorUpdate)
