@@ -77,7 +77,7 @@ extension SidebarView {
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
-        let rows = list.displayed.rows.map { row -> SidebarDebugRow in
+        let tracked = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]
             var title: String?
             var muted = false
@@ -104,6 +104,12 @@ extension SidebarView {
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
                                    activity: activity, icon: icon, shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.clipsToBounds == true)
         }
+        // TEMP cx-ai79 probe: list subviews that are not a tracked row view.
+        let strays = list.subviews.filter { v in !(v is SidebarDecorationView || v is GroupLineView) && !list.rowViews.values.contains { $0 === v } }.map { v in
+            SidebarDebugRow(key: "stray \(type(of: v)) \((v as? SidebarRowView).map { String(describing: $0.key) } ?? "")", title: nil, frame: .zero, windowFrame: .zero,
+                            viewFrame: v.frame, viewAlpha: v.alphaValue, inList: true, suppressed: false, selected: false, muted: false,
+                            shownFrame: v.layer?.presentation()?.frame ?? v.frame, clips: v.clipsToBounds) }
+        let rows = tracked + strays
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []
         return (rows, selection, dragging)
