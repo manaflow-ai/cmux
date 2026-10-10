@@ -27,6 +27,11 @@ struct NotificationsPopoverView: View {
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
     @State private var loadedWorkspaceTitles: [UUID: String]?
+    // While the popover is up, the workspace digit shortcuts open its rows instead; holding the
+    // modifier numbers them, as it does the sidebar's workspaces. The popover never takes key,
+    // so the monitor watches the window it hangs from.
+    @State private var rowShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,7 +48,15 @@ struct NotificationsPopoverView: View {
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
         }
-        .onAppear { refreshWorkspaceTitles() }
+        .onAppear {
+            refreshWorkspaceTitles()
+            rowShortcutHintMonitor.setHostWindow(NSApp.keyWindow)
+            if showModifierHoldHints { rowShortcutHintMonitor.start() }
+        }
+        .onDisappear { rowShortcutHintMonitor.stop() }
+        .onChange(of: showModifierHoldHints) { _, enabled in
+            if enabled { rowShortcutHintMonitor.start() } else { rowShortcutHintMonitor.stop() }
+        }
         .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
             refreshWorkspaceTitles()
         }
@@ -255,12 +268,17 @@ struct NotificationsPopoverView: View {
             let lastIndex = snapshot.count - 1
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
             let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
+            let numbering = NotificationListShortcutDigit(rowCount: snapshot.count)
+            let hintPrefix = rowShortcutHintPrefix
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
                             workspaceTitle: titleSnapshot[notification.tabId],
+                            shortcutHint: hintPrefix.flatMap { prefix in
+                                numbering.digit(forRowIndex: index).map { "\(prefix)\($0)" }
+                            },
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -366,6 +384,16 @@ struct NotificationsPopoverView: View {
         .padding(24)
     }
 
+
+    /// What goes in front of a row's digit while the modifier is held ("⌘"), or nil while no
+    /// hints should show.
+    private var rowShortcutHintPrefix: String? {
+        let _ = keyboardShortcutSettingsObserver.revision
+        guard showModifierHoldHints, rowShortcutHintMonitor.isModifierPressed else { return nil }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        guard !shortcut.isUnbound else { return nil }
+        return shortcut.numberedDigitHintPrefix
+    }
 
     private var jumpToUnreadShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision

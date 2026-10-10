@@ -5,10 +5,14 @@ struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+            && lhs.shortcutHint == rhs.shortcutHint
     }
 
     let notification: TerminalNotification
     let workspaceTitle: String?
+    /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), shown while the
+    /// modifier is held; nil hides it.
+    var shortcutHint: String? = nil
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
@@ -17,6 +21,8 @@ struct NotificationPopoverRow: View, Equatable {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     private static let rowHeight: CGFloat = 56
+
+    private var showsClearButton: Bool { isHovering && shortcutHint == nil }
 
     var body: some View {
         // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
@@ -53,14 +59,23 @@ struct NotificationPopoverRow: View, Equatable {
 
             clearButton
                 .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
+                .opacity(showsClearButton ? 1 : 0)
+                .allowsHitTesting(showsClearButton)
                 // Dismissal is exposed through the row Button's accessibility action and the
                 // context menu, so hide this hover-only affordance from keyboard focus /
                 // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
                 // invisible button.
-                .accessibilityHidden(!isHovering)
+                .accessibilityHidden(!showsClearButton)
+
+            // The hint takes the clear button's spot, so it never covers the time.
+            if let shortcutHint {
+                ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+                    .accessibilityHidden(true)
+            }
         }
+        .shortcutHintVisibilityAnimation(value: shortcutHint != nil)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
         // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
