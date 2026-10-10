@@ -322,13 +322,16 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
     @State private var addressBarWidth: CGFloat = 0
+    /// The compact state held through a sidebar slide (see
+    /// `SidebarToggleAnimator.isSliding`).
+    @State private var heldChromeCompact: Bool?
 
     /// Below this chrome width the full accessory row would crowd out the
     /// omnibar, so the toolbar tools collapse into More.
     private static let compactChromeWidthThreshold: CGFloat = 420
 
     private var isChromeCompact: Bool {
-        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
+        heldChromeCompact ?? (addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold)
     }
 
     @State private var isBrowserImportHintPopoverPresented = false
@@ -1125,6 +1128,10 @@ struct BrowserPanelView: View {
             .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
                 handleBrowserWebViewClickIntent(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: SidebarToggleAnimator.slideDidLand)) { _ in
+                guard heldChromeCompact != nil else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { heldChromeCompact = nil }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
                 tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
             }
@@ -1146,6 +1153,11 @@ struct BrowserPanelView: View {
                 addressBarHeight = height
             }
             .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+                // Through a sidebar slide the toolbar keeps the tools it
+                // started with; they change, faded, once the slide lands.
+                if SidebarToggleAnimator.isSliding, heldChromeCompact == nil {
+                    heldChromeCompact = isChromeCompact
+                }
                 addressBarWidth = width
             }
     }

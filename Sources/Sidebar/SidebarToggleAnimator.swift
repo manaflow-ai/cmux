@@ -21,6 +21,14 @@ import QuartzCore
 final class SidebarToggleAnimator: ObservableObject {
     private static let animationKey = "cmux.sidebarToggleSlide"
 
+    /// Whether any window's sidebar is sliding. Views whose layout steps with
+    /// their width (the browser toolbar's compact tools) hold their state
+    /// through a slide and change once it lands (`slideDidLand`), so nothing
+    /// pops in or out mid-motion. Main thread only.
+    nonisolated(unsafe) private(set) static var isSliding = false
+    static let slideDidLand = Notification.Name("cmux.sidebarToggleSlideDidLand")
+    private static var slidingAnimators: Set<ObjectIdentifier> = []
+
     private weak var sidebarState: SidebarState?
     private weak var layout: SidebarLayoutModel?
     private var window: () -> NSWindow? = { nil }
@@ -125,9 +133,11 @@ final class SidebarToggleAnimator: ObservableObject {
 #if DEBUG
         let probe = SidebarToggleSlideProbe.begin(visible: visible, window: window, animator: self)
 #endif
+        markSliding(true)
         execute(machine.request(visible: visible, width: Double(layout.width), now: CACurrentMediaTime()), in: window)
         drainQueuedRequests(in: window)
         syncPendingVisibility()
+        if machine.slide == nil { markSliding(false) }
 #if DEBUG
         probe?.keypressDidFinish()
 #endif
@@ -412,6 +422,7 @@ final class SidebarToggleAnimator: ObservableObject {
             // The window closed mid-slide: drop the slide so its layout
             // observer goes with it.
             removeSlideAnimations()
+            markSliding(false)
             return
         }
         let effects = machine.land(generation: generation)
@@ -428,6 +439,15 @@ final class SidebarToggleAnimator: ObservableObject {
         // After the asserts: a queued press may start the next slide.
         drainQueuedRequests(in: window)
         syncPendingVisibility()
+        if machine.slide == nil { markSliding(false) }
+    }
+
+    private func markSliding(_ sliding: Bool) {
+        let id = ObjectIdentifier(self)
+        guard sliding != Self.slidingAnimators.contains(id) else { return }
+        if sliding { Self.slidingAnimators.insert(id) } else { Self.slidingAnimators.remove(id) }
+        Self.isSliding = !Self.slidingAnimators.isEmpty
+        if !sliding { NotificationCenter.default.post(name: Self.slideDidLand, object: nil) }
     }
 
     private func commitVisibility(_ visible: Bool) {
@@ -451,6 +471,7 @@ final class SidebarToggleAnimator: ObservableObject {
         if layout?.docksSidebar != visible {
             layout?.docksSidebar = visible
         }
+        markSliding(false)
     }
 
     private func syncPendingVisibility() {
