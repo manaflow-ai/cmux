@@ -94,7 +94,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
             ? tokens.backgroundOpacity
-            : tokens.wallpaperTintOpacity
+            : max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
         self.art = art
