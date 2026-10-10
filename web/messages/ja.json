@@ -7081,6 +7081,10 @@
     "reserved_port": {
       "message": "ポート1337はCloud VMのcmux接続用に予約されているため、公開できません。",
       "action": "代わりに、ご自身のサーバーが待ち受けているポートを公開してください。"
+    },
+    "rule_capacity": {
+      "message": "Cloud VM のドメインは公開されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
+      "action": "cmux チームに通知済みです。`cmux cloud domains list` を実行してプロビジョニング中の項目を削除するか、サポートにお問い合わせください。"
     }
   },
   "cliAuthIdentity": {

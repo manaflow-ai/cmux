@@ -7171,6 +7171,10 @@
     "reserved_port": {
       "message": "Port 1337 is reserved for the Cloud VM's cmux connection and cannot be published.",
       "action": "Publish the port your own server listens on instead."
+    },
+    "rule_capacity": {
+      "message": "The Cloud VM domain was not published: cmux Cloud has reached its network rule capacity.",
+      "action": "The cmux team has been alerted. Run `cmux cloud domains list` and remove the provisioning entry, or contact support."
     }
   },
   "cliAuthIdentity": {
