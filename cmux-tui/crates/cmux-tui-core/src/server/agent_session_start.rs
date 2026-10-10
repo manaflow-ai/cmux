@@ -240,7 +240,10 @@ fn start_and_bind(
     if let Some(harness) = &params.harness {
         meta["harness"] = json!(harness);
     }
-    let new = json!({"cwd": params.cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
+    // The folder acpmux checked (its canonical path), so a symlink changed
+    // after the trust answer cannot move the agent elsewhere.
+    let cwd = trust.get("cwd").and_then(Value::as_str).ok_or(Refusal::UntrustedFolder)?;
+    let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     let created = link.call("session/new", new, NEW_TIMEOUT).map_err(Refusal::of)?;
     let session = created
         .get("sessionId")
