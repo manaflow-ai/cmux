@@ -48,71 +48,61 @@ impl Surface {
     /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
-        let (mut progress_changed, records) = {
+        let (progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        loop {
-            let (status_revision, status_change) = {
-                let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                records
-                    .claim_pending_change()
-                    .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
-            };
-            #[cfg(test)]
-            if status_revision.is_some() {
-                let hook = PROGRAM_STATUS_AFTER_CLAIM.with(|slot| slot.borrow_mut().take());
-                if let Some(hook) = hook {
-                    hook();
-                }
+        let (status_revision, status_change) = {
+            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            records
+                .claim_pending_change()
+                .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
+        };
+        #[cfg(test)]
+        if status_revision.is_some() {
+            let hook = PROGRAM_STATUS_AFTER_CLAIM.with(|slot| slot.borrow_mut().take());
+            if let Some(hook) = hook {
+                hook();
             }
-            let status_changed = status_change.is_some();
-            if !progress_changed && !status_changed {
-                return;
-            }
-            let Some(mux) = pty.mux.upgrade() else {
-                if let Some(revision) = status_revision {
-                    records
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .finish_change_publication(revision, false);
-                }
-                return;
-            };
-            let mutation =
-                if status_changed { "terminal.program_status" } else { "terminal.progress" };
-            let published = match mux.publish_terminal_progress(self, mutation, status_change) {
-                Ok(published) => published,
-                Err(error) => {
-                    eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
-                    false
-                }
-            };
+        }
+        let status_changed = status_change.is_some();
+        if !progress_changed && !status_changed {
+            return;
+        }
+        let Some(mux) = pty.mux.upgrade() else {
             if let Some(revision) = status_revision {
                 records
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .finish_change_publication(revision, published);
+                    .finish_change_publication(revision, false);
             }
-            if published && status_changed {
-                let alerts =
-                    records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
-                let notifications = pty
-                    .terminal_metadata
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .admit_program_status_alerts(alerts, Instant::now());
-                if !notifications.is_empty() {
-                    mux.post_terminal_notifications(self.id, notifications);
-                }
+            return;
+        };
+        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
+        let published = match mux.publish_terminal_progress(self, mutation, status_change) {
+            Ok(published) => published,
+            Err(error) => {
+                eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+                false
             }
-            if !published {
-                return;
+        };
+        if let Some(revision) = status_revision {
+            records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .finish_change_publication(revision, published);
+        }
+        if published && status_changed {
+            let alerts =
+                records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
+            let notifications = pty
+                .terminal_metadata
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .admit_program_status_alerts(alerts, Instant::now());
+            if !notifications.is_empty() {
+                mux.post_terminal_notifications(self.id, notifications);
             }
-            // A newer report may have arrived while the commit above was in
-            // flight. Drain it now so the reader cannot leave a final status
-            // pending until an unrelated output or topology event.
-            progress_changed = false;
         }
     }
 
