@@ -192,6 +192,8 @@ final class TopHomePageView: NSView {
             let own = store.draft(for: chief) ?? ""
             store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
             store.setDraft("", for: gone)
+            // Its view says the Chief restarted and that Return sends the text.
+            store.noteCarriedDraft(to: chief)
         }
         show(chief)
     }

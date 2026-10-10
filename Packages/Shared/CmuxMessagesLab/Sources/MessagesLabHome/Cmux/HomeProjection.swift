@@ -29,8 +29,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var isSendEnabled = true
     /// The host's notice, MessagesLab's system row under the newest message (nil: none).
     var notice: String? {
-        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(notice)) } }
+        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
     }
+    /// The send's own notice (a held send, text carried from a gone
+    /// conversation: cx-ebm.55); it shows over the host's notice.
+    private var sendNotice: String? {
+        didSet { if sendNotice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
+    }
+    private var shownNotice: String? { sendNotice ?? notice }
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -112,6 +118,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func refresh() {
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
+            sendNotice = nil
             send()
         }
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
@@ -203,7 +210,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         applyHeader()
         for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
-        if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
+        if homeStore.takeCarriedDraft(conversation) { sendNotice = CmuxStrings.chiefRestarted }
+        if shownNotice != nil { controller.dispatch(.cmuxNotice(shownNotice)) }
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
@@ -264,8 +272,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // owner's conversation (and carries the text there) once it answers.
         if homeStore.isCacheOnly(conversation) {
             sendWhenConfirmed = true
+            let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
+            sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
         }
+        sendNotice = nil
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
         // The paths that used to drop a send without a word (cx-ebm.55), one line each,

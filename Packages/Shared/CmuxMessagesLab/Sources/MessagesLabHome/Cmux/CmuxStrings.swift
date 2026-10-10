@@ -11,6 +11,18 @@ enum CmuxStrings {
         String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: .module)
     }
 
+    /// Under the field while a send waits for the owner to name its conversation (cx-ebm.55).
+    static var waitingForChief: String {
+        String(localized: "home.send.waitingForChief", defaultValue: "Waiting for the Chief to connect…", table: "CmuxHome", bundle: .module)
+    }
+    static var waitingToConnect: String {
+        String(localized: "home.send.waitingToConnect", defaultValue: "Waiting to connect…", table: "CmuxHome", bundle: .module)
+    }
+    /// Home moved the typed text from the cache's Chief conversation to the live Chief.
+    static var chiefRestarted: String {
+        String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: .module)
+    }
+
     /// The context menu item that cancels my send while it uploads or after it failed.
     static var cancelUpload: String {
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)

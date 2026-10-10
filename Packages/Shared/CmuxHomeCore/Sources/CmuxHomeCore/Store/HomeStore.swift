@@ -33,6 +33,8 @@ public final class HomeStore {
     public private(set) var confirmed: Set<ConversationID> = []
     /// Conversations the cache seeded at launch.
     @ObservationIgnored var seeded: Set<ConversationID> = []
+    /// Conversations that got the text typed in a gone cache-only one, until their view says so.
+    @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?
     public internal(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
 
@@ -207,6 +209,11 @@ public final class HomeStore {
     /// The cache seeded `id` at launch and no owner has named it since: on the
     /// owner's current inbox, a conversation the owner does not have.
     public func isCacheOnly(_ id: ConversationID) -> Bool { seeded.contains(id) && !confirmed.contains(id) }
+
+    /// Home moved the text typed in a gone cache-only conversation to `id`.
+    public func noteCarriedDraft(to id: ConversationID) { carriedDrafts.insert(id) }
+    /// Whether `id` got such text since its view last asked (one answer per carry).
+    public func takeCarriedDraft(_ id: ConversationID) -> Bool { carriedDrafts.remove(id) != nil }
 
     func confirm(_ ids: some Sequence<ConversationID>) {
         let new = Set(ids).subtracting(confirmed)
