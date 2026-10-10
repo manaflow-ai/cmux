@@ -1,6 +1,6 @@
 import Foundation
 
-/// Decides when a completed Claude session may bypass the restore admission path.
+/// Decides when a completed Claude session may enter automatic restore.
 ///
 /// Claude hook snapshots carry an explicit prompt-turn marker. Only an explicit
 /// `false` proves that no deferred tool continuation is waiting; a missing value
@@ -61,28 +61,6 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
     /// Creates the stateless admission policy.
     public init() {}
 
-    /// Keeps the local `cmux restore` verb for deferred or unknown Claude work.
-    ///
-    /// A normally ended Claude session is launched through its native resume
-    /// command, while every other agent and every unknown marker retains the
-    /// caller's existing restore-verb choice.
-    ///
-    /// - Parameters:
-    ///   - requested: Whether the caller requested the local restore verb.
-    ///   - agentKind: The persisted agent kind.
-    ///   - hadActivePromptTurn: The explicit prompt-turn marker, when present.
-    /// - Returns: Whether the local restore verb should remain selected.
-    public func usesLocalRestoreVerb(
-        requested: Bool,
-        agentKind: String,
-        hadActivePromptTurn: Bool?
-    ) -> Bool {
-        requested && !isNormallyEndedClaude(
-            agentKind: agentKind,
-            hadActivePromptTurn: hadActivePromptTurn
-        )
-    }
-
     /// Returns whether the binding proves a safe, normally completed Claude
     /// session that can use native `claude --resume`.
     ///
@@ -91,7 +69,7 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
     /// case-sensitive, matching Claude's existing identity comparison.
     ///
     /// - Parameter evidence: Captured snapshot and binding evidence.
-    /// - Returns: Whether native Claude resume is admitted.
+    /// - Returns: Whether automatic resume may enter the existing restore admission path.
     public func admits(_ evidence: AdmissionEvidence) -> Bool {
         guard isNormallyEndedClaude(
                   agentKind: evidence.agentKind,

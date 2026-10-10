@@ -495,11 +495,10 @@ import Testing
             ambientEnvironment: ["CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude"]
         ))
 
-        #expect(invocation.arguments.first == "/shim/claude")
-        #expect(invocation.arguments.contains("--resume"))
-        #expect(invocation.arguments.contains(sessionID))
-        #expect(invocation.arguments.contains("--permission-mode"))
-        #expect(invocation.arguments.contains("bypassPermissions"))
+        #expect(invocation.arguments == [
+            "/shim/claude", "--resume", sessionID,
+            "--permission-mode", "bypassPermissions",
+        ])
         #expect(
             invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
                 == "claude:\(sessionID)"

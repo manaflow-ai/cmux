@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -175,6 +176,7 @@ struct ClaudeBackgroundSessionRestoreTests {
     private struct Restored {
         let input: String?
         let binding: SurfaceResumeBindingSnapshot?
+        let record: ControlSurfaceRestoreRecord?
     }
 
     private func restore(
@@ -210,7 +212,16 @@ struct ClaudeBackgroundSessionRestoreTests {
         let panel = try #require(restored.terminalPanel(for: restoredPanelID))
         let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
         let binding = restoredSnapshot.panels.first { $0.id == restoredPanelID }?.terminal?.resumeBinding
-        return Restored(input: panel.surface.debugInitialInputForTesting(), binding: binding)
+        let record = restored.restoredAgentSnapshotsByPanelId[restoredPanelID].map { agent in
+            TerminalController.shared.controlSurfaceAgentContinuationRecord(
+                agent: agent,
+                source: "session-snapshot",
+                restoredWorkingDirectory: fixture.workingDirectory.path,
+                binding: binding,
+                compatibilityBinding: binding
+            )
+        }
+        return Restored(input: panel.surface.debugInitialInputForTesting(), binding: binding, record: record)
     }
 
     @Test("A claude attach pane restores as an attach with the binding's environment")
@@ -272,10 +283,15 @@ struct ClaudeBackgroundSessionRestoreTests {
             kind: "claude", sessionId: sessionID
         )
         #expect(canClaimAtExecution)
+        let record = try #require(restored.record)
+        #expect(record.modeRawValue == "resumeAgent")
+        #expect(record.checkpointID == sessionID)
+        #expect(record.preparedArguments == [executable, "--resume", sessionID, "--permission-mode", "auto"])
+
     }
 
-    @Test("Duplicate normally completed restores claim one native resume", arguments: [false, true])
-    func duplicateNormallyCompletedRestoresDoNotLaunchTwoWriters(deferred: Bool) throws {
+    @Test("Completed panes leave ownership admission to cmux restore", arguments: [false, true])
+    func completedRestoresLeaveClaimsToExecution(indexUnavailable: Bool) throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -295,30 +311,26 @@ struct ClaudeBackgroundSessionRestoreTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: fixture.defaults,
-            restorableAgentIndexProvider: { deferred ? .unavailable : .empty }
+            restorableAgentIndexProvider: { indexUnavailable ? .unavailable : .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
-        if deferred {
-            #expect(restored.deferredAgentResumeRestoresByPanelId.count == 2)
-            restored.resolveDeferredAgentResumeRestores(using: .unavailable)
-            #expect(restored.deferredAgentResumeRestoresByPanelId.count == 2)
-            restored.resolveDeferredAgentResumeRestores(using: .empty)
-            #expect(restored.deferredAgentResumeRestoresByPanelId.isEmpty)
-        }
+        #expect(restored.deferredAgentResumeRestoresByPanelId.isEmpty)
         let inputs = snapshot.panels.compactMap { panel in
             restoredIDs[panel.id].flatMap { panelID in
                 restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
             }
         }
-        if deferred {
-            let states = restored.restoredAgentResumeStatesByPanelId.values
-            #expect(states.filter { $0 == .awaitingAutoResumeCommand }.count == 1)
-            #expect(states.filter { $0 == .manualResumeAvailable }.count == 1)
-        } else {
-            #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
-            #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
-        }
+        #expect(inputs.count == 2)
+        #expect(inputs.allSatisfy { $0 == " cmux restore claude \(sessionID)\n" })
+        let firstClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(firstClaim != nil)
+        let competingClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(competingClaim == nil)
     }
 
     @Test("Completed resume eligibility does not change process liveness")
@@ -470,34 +482,20 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(!input.contains("--resume"), Comment(rawValue: input))
     }
 
-    @Test("Unsafe native resume data fails closed and keeps the binding")
-    func nativeResumeFailureLeavesAnOrdinaryShell() throws {
+    @Test("Disabled automatic resume keeps completed Claude sessions manual", arguments: [false, true])
+    func completedSessionRespectsAutomaticResumeConsent(disableGlobalSetting: Bool) throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-
+        if disableGlobalSetting {
+            fixture.defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        }
         let restored = try restore(fixture) { terminal in
-            var brokenAgent = agent(fixture, hadActivePromptTurn: false)
-            brokenAgent.launchCommand = AgentLaunchCommandSnapshot(
-                // One-shot managed launchers have no resume form. This makes
-                // native resume planning fail closed without changing the
-                // shell-bootstrap safety coverage in AgentResumeArgv.
-                launcher: "omx",
-                executablePath: "/bin/sh",
-                arguments: ["cmux", "omx"],
-                workingDirectory: fixture.workingDirectory.path,
-                environment: [:],
-                capturedAt: 1_791_158_107,
-                source: "environment"
-            )
-            terminal.agent = brokenAgent
-            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: disableGlobalSetting)
             terminal.wasAgentRunning = false
         }
-
-        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        #expect(restored.input == nil)
         #expect(restored.binding?.checkpointId == sessionID)
-        #expect(restored.binding?.autoResume == true)
-        #expect(AgentResumeLaunchGuard.shared.claimResumeLaunch(kind: "claude", sessionId: sessionID))
     }
 
     @Test("A stale registry record on a reused PID does not block the resume fallback")
@@ -674,7 +672,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         (dock.panels[panelID] as? TerminalPanel)?.surface.debugInitialInputForTesting()
     }
 
-    @Test("Completed Dock sessions choose native resume or attach to a live daemon", arguments: [false, true])
+    @Test("Completed Dock sessions use cmux restore or attach to a live daemon", arguments: [false, true])
     func completedDockSessionUsesSafeRestore(hasLiveDaemon: Bool) throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
@@ -692,7 +690,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         let restoredIDs = dock.restoreSessionSnapshot(dockContainer([panel]))
         let restoredID = try #require(restoredIDs[panel.id])
         let input = try #require(dockInput(dock, panelID: restoredID))
-        #expect(input.contains("--resume") == !hasLiveDaemon, Comment(rawValue: input))
+        #expect(input.contains(" restore claude \(sessionID)") == !hasLiveDaemon, Comment(rawValue: input))
         #expect(input.contains("'attach' '\(jobID)'") == hasLiveDaemon, Comment(rawValue: input))
     }
 

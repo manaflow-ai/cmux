@@ -5,35 +5,6 @@ import Testing
 struct NormallyEndedClaudeResumePolicyTests {
     private let policy = NormallyEndedClaudeResumePolicy()
 
-    @Test("Only an explicit completed marker selects native Claude resume")
-    func nativeResumeRequiresExplicitCompletion() {
-        #expect(policy.usesLocalRestoreVerb(
-            requested: true,
-            agentKind: "claude",
-            hadActivePromptTurn: false
-        ) == false)
-        #expect(policy.usesLocalRestoreVerb(
-            requested: true,
-            agentKind: "claude",
-            hadActivePromptTurn: true
-        ))
-        #expect(policy.usesLocalRestoreVerb(
-            requested: true,
-            agentKind: "claude",
-            hadActivePromptTurn: nil
-        ))
-        #expect(policy.usesLocalRestoreVerb(
-            requested: true,
-            agentKind: "codex",
-            hadActivePromptTurn: false
-        ))
-        #expect(policy.usesLocalRestoreVerb(
-            requested: false,
-            agentKind: "claude",
-            hadActivePromptTurn: false
-        ) == false)
-    }
-
     @Test("Normal completion admits a matching trusted hook binding")
     func matchingCompletedBindingAdmits() {
         #expect(policy.admits(evidence(
