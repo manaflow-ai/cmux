@@ -124,8 +124,9 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     }
 
     /// The three outcomes read differently: only a creation failure says nothing
-    /// was created, and only a left-behind session is named. Remote command output
-    /// is never copied into the alert.
+    /// was created, and only a left-behind session reports its cleanup status.
+    /// Remote command output and the host-generated session name are never copied
+    /// into the alert.
     @Test func theAlertSaysWhichStepFailed() {
         let create = RemoteTmuxController.newSessionFailureAlertText(
             host: hostA, failure: .create

@@ -141,7 +141,7 @@ extension RemoteTmuxController {
                 localized: "dialog.remoteTmux.newSessionFailed.message",
                 defaultValue: "tmux new-session failed on the remote host. No workspace was created."
             )
-        case .attach(let sessionName, let removed):
+        case .attach(_, let removed):
             title = String(
                 localized: "dialog.remoteTmux.newSessionAttachFailed.title",
                 defaultValue: "Couldn't Open the New tmux Session on \(host.destination)"
@@ -153,7 +153,7 @@ extension RemoteTmuxController {
                 )
                 : String(
                     localized: "dialog.remoteTmux.newSessionAttachFailed.left.message",
-                    defaultValue: "The session “\(sessionName)” was created, but cmux couldn't attach to it. It is still running on the host."
+                    defaultValue: "The session was created, but cmux couldn't attach to it. It is still running on the host."
                 )
         }
         return (title, message)

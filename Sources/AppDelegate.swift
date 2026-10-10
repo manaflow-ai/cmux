@@ -8659,7 +8659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Whether a sidebar empty-area creation targets a remote-tmux mirror or a
     /// remote Mac, whose new workspaces are placed by the remote side.
     private func sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: TabManager) -> Bool {
-        tabManager.selectedTab?.isRemoteTmuxMirror == true
+        remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: tabManager)
             || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil
     }
 

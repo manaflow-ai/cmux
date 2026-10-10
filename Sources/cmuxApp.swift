@@ -38,6 +38,8 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey)
+    private var remoteTmuxNewWorkspaceOnHostEnabled = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.defaultValue
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
     @State private var browserAvailabilityMenuRevision = 0
@@ -1442,9 +1444,11 @@ struct cmuxApp: App {
     /// must become key before its menu bar opens. Also reads the controller's
     /// mirror-membership, which changes when a mirror is added or removed. A workspace can
     /// start or stop being a mirror while it stays selected, and neither focus nor
-    /// selection changes when that happens.
+    /// selection changes when that happens. The setting read keeps the menu in sync when
+    /// routing is toggled while the selected mirror remains unchanged.
     private var newLocalWorkspaceMenuItemVisible: Bool {
         let _ = historyMenuCoordinator.state
+        let _ = remoteTmuxNewWorkspaceOnHostEnabled
         guard let appDelegate = AppDelegate.shared else { return false }
         let _ = appDelegate.remoteTmuxController.mirrorMembership.workspaceIDs
         return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
