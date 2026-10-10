@@ -68,17 +68,21 @@ impl WorkspaceRegistry {
         )
     }
 
-    /// [`Self::commit_resource_effect`] with `extra` written in the same
-    /// request-side transaction (a notification's local feed rows, B2).
-    pub(crate) fn commit_resource_effect_with(
-        &mut self,
+    /// Prepare a `commit_resource_effect` intent that also writes `extra` in
+    /// its transaction (a notification's local feed rows, B2). The caller
+    /// commits it through the journal writer (`Mux::commit_effect_intent`):
+    /// the receipt and the extra rows land under one SAVEPOINT of a writer
+    /// batch, or in one request-side transaction when the writer is not
+    /// running.
+    pub(crate) fn prepare_effect_outcome_intent_with(
+        &self,
         idempotency_key: &str,
         operation: &str,
         fingerprint: &Value,
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
-        extra: Option<RegistryTransactionWrite<'_>>,
-    ) -> anyhow::Result<u64> {
+        extra: OwnedTransactionWrite,
+    ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
         let (intent, finish) = self.prepare_effect_outcome_intent(
             idempotency_key,
             operation,
@@ -86,7 +90,6 @@ impl WorkspaceRegistry {
             outcome,
             deltas,
         )?;
-        let receipt = self.commit_effect_intent_locally_with(&intent, extra)?;
-        Ok(self.finish_effect_commit(finish, receipt)?.revision())
+        Ok((intent.with_extra_rows(extra), finish))
     }
 }

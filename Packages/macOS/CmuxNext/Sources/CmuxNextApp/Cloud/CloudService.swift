@@ -145,8 +145,10 @@ final class CloudService {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    await self.refresh()
+                    // The install first: the app server path's first list goes
+                    // through the credential relay, which sends the install token.
                     await self.installSignedIn()
+                    await self.refresh()
                 } else {
                     self.dropAllMachines()
                     await self.installIdentity.unbind()
@@ -184,8 +186,8 @@ final class CloudService {
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
-                await refresh()
                 await installSignedIn()
+                await refresh()
             }
         }
     }

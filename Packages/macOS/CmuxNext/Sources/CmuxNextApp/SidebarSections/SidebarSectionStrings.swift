@@ -44,6 +44,10 @@ enum SidebarSectionStrings {
     static var alreadyGrouped: String {
         String(localized: "sidebarSections.alreadyGrouped", defaultValue: "the list is already grouped this way", table: "SidebarSections", bundle: .module)
     }
+    static var noBottomArea: String {
+        String(localized: "sidebarSections.noBottomArea", defaultValue: "the sidebar has no bottom area; sections go above the workspaces",
+               table: "SidebarSections", bundle: .module)
+    }
     static var noneHidden: String {
         String(localized: "sidebarSections.noneHidden", defaultValue: "no sidebar section is hidden", table: "SidebarSections", bundle: .module)
     }
