@@ -772,6 +772,20 @@ impl Brain {
     ) {
         let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
+        // A spawn in this turn gives its subagents this view and the turn's
+        // new messages, one raw line each (the view was rendered before
+        // they were logged).
+        let mut turn_view = view.strip_suffix("</chat>").unwrap_or(view).to_owned();
+        for (id, text) in ids.iter().zip(texts) {
+            let line = optchat_core::view_line(
+                optchat_core::NodeId::new(0, *id),
+                Some(&format!("user: {text}")),
+            );
+            turn_view.push_str(&line);
+            turn_view.push('\n');
+        }
+        turn_view.push_str("</chat>");
+        self.turn_view = Some(turn_view);
         let settle_ms = self
             .settle_clock
             .take()
@@ -965,6 +979,9 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         let outcome_done = outcome.done_draft.take();
+        if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
+            self.turn_view = None;
+        }
         let conversation = self
             .state
             .turn

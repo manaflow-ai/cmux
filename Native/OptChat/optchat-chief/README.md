@@ -78,7 +78,10 @@ The Chief's tools are `zoom`, `date`, `spawn(tasks)` and `tell(id, message)`,
 all served by the host on `optchat/tools.sock` (the `optchat` MCP server on a
 Claude harness, `chief spawn|tell|zoom|date` on any other).
 
-- `spawn` waits for settle, renders the view, and starts one acpmux session per
+- `spawn` in a turn takes that turn's view and its new messages at once
+  (no wait for the compactor to summarize the turn's own tool calls:
+  parity timing 2026-10-09, the settle took 7.2 s of an 8.7 s spawn);
+  outside a turn it waits for settle and renders the view. It starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
   home; a directory that does not exist on the host is reported and

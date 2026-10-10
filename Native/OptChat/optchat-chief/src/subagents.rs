@@ -231,6 +231,13 @@ impl Spawner {
         self
     }
 
+    /// The running turn's view (`Input::TurnView`); None outside a turn.
+    fn turn_view(&self) -> Option<String> {
+        let (reply, answer) = channel();
+        self.send(Input::TurnView { reply }).ok()?;
+        answer.recv().ok().flatten()
+    }
+
     fn send(&self, input: Input) -> Result<(), String> {
         self.tx
             .lock()
@@ -624,13 +631,22 @@ impl Orchestrator for Spawner {
             ));
         }
         let began = Instant::now();
-        // Section 9: the view at spawn time, after settle.
-        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
-            return Err(
-                "the memory is still summarizing, so no subagent started; call spawn again".into(),
-            );
-        }
-        let view = self.chat.render_view().text;
+        // Section 9: the view at spawn time. In a turn, the turn's own view
+        // and new messages, at once (parity timing 2026-10-09: the settle
+        // waited about 7 s for the compactor to summarize the turn's spawn
+        // call); outside a turn, the view after settle.
+        let view = match self.turn_view() {
+            Some(view) => view,
+            None => {
+                if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
+                    return Err(
+                        "the memory is still summarizing, so no subagent started; call spawn again"
+                            .into(),
+                    );
+                }
+                self.chat.render_view().text
+            }
+        };
         let (reply, answer) = channel();
         self.send(Input::SpawnRegister {
             tasks: tasks.clone(),
