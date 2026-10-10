@@ -133,8 +133,9 @@ pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
 /// names when an `agent-session-start` finds nothing there: this binary's
 /// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
-/// the wait for its socket). None with `ACPMUX_SOCKET`: a fixed socket
-/// belongs to an acpmux this daemon does not own.
+/// the wait for its socket), without the daemon's terminal identity. None
+/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
+/// not own.
 #[cfg(unix)]
 pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
     if env_value("ACPMUX_SOCKET").is_some() {
@@ -143,7 +144,13 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
     Some(std::sync::Arc::new(move || {
-        let status = std::process::Command::new(&exe)
+        let mut command = std::process::Command::new(&exe);
+        // acpmux and every agent it starts outlive this call: none of them
+        // may claim the terminal this daemon was started from.
+        for name in TERMINAL_IDENTITY_ENV {
+            command.env_remove(name);
+        }
+        let status = command
             .env("ACPMUX_HOME", &home)
             .args(["acp", "daemon", "start"])
             .stdin(std::process::Stdio::null())
@@ -158,6 +165,13 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
         }
     }))
 }
+
+/// The cmux terminal a process runs in; a detached acpmux has none (the
+/// same claims the detached owner drops, local_owner.rs; socket and config
+/// variables stay).
+#[cfg(unix)]
+const TERMINAL_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
 
 /// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else the tag's own home,
 /// else `~/.acpmux`.

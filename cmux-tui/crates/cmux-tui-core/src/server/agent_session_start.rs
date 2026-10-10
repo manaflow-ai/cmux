@@ -63,6 +63,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessionStarts {
     starter: Mutex<Option<AcpmuxStarter>>,
+    /// One acpmux start at a time; the others connect after it.
+    start_lock: Mutex<()>,
     starting: Mutex<HashSet<SurfaceId>>,
 }
 
@@ -75,18 +77,26 @@ impl AgentSessionStarts {
         self.starter.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    pub(crate) fn has_starter(&self) -> bool {
-        self.starter.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    /// Takes `surface`'s start slot; None while it starts or at the cap.
+    /// The slot is given back when the returned guard drops (also on a panic).
+    fn reserve(mux: &Arc<Mux>, surface: SurfaceId) -> Option<StartSlot> {
+        let starts = &mux.control_clients.agent_sessions.starts;
+        let mut starting = starts.starting.lock().unwrap_or_else(|e| e.into_inner());
+        (starting.len() < MAX_STARTS && starting.insert(surface))
+            .then(|| StartSlot { mux: mux.clone(), surface })
     }
+}
 
-    /// Takes `surface`'s start slot; false while it starts or at the cap.
-    fn reserve(&self, surface: SurfaceId) -> bool {
-        let mut starting = self.starting.lock().unwrap_or_else(|e| e.into_inner());
-        starting.len() < MAX_STARTS && starting.insert(surface)
-    }
+/// A taken start slot.
+struct StartSlot {
+    mux: Arc<Mux>,
+    surface: SurfaceId,
+}
 
-    fn release(&self, surface: SurfaceId) {
-        self.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&surface);
+impl Drop for StartSlot {
+    fn drop(&mut self) {
+        let starts = &self.mux.control_clients.agent_sessions.starts;
+        starts.starting.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.surface);
     }
 }
 
@@ -96,8 +106,7 @@ pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
     harness: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
+    cwd: String,
 }
 
 impl StartParams {
@@ -106,11 +115,10 @@ impl StartParams {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
         });
-        let cwd_ok = self.cwd.as_deref().is_none_or(|cwd| {
-            (1..=MAX_CWD_BYTES).contains(&cwd.len())
-                && cwd.starts_with('/')
-                && !cwd.chars().any(char::is_control)
-        });
+        let cwd = &self.cwd;
+        let cwd_ok = (1..=MAX_CWD_BYTES).contains(&cwd.len())
+            && cwd.starts_with('/')
+            && !cwd.chars().any(char::is_control);
         harness_ok && cwd_ok
     }
 }
@@ -136,27 +144,25 @@ pub(super) fn start(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    let starts = &mux.control_clients.agent_sessions.starts;
-    if !starts.reserve(params.surface) {
+    let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
-    }
+    };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let surface = params.surface;
     let spawned = std::thread::Builder::new()
         .name("mux-agent-start".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let result = run(&worker_mux, client, socket, params);
-            worker_mux.control_clients.agent_sessions.starts.release(surface);
+            drop(slot);
             match result {
                 Ok(data) => ok(&worker_writer, worker_id, data),
                 Err(refusal) => refuse(&worker_writer, worker_id, refusal),
             };
         });
+    // A failed spawn drops the closure and with it the slot.
     if spawned.is_err() {
-        starts.release(surface);
         return refuse(writer, id, Refusal::Limit);
     }
     true
@@ -197,8 +203,13 @@ fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refus
     if let Ok(link) = open() {
         return Ok(link);
     }
-    let starter =
-        mux.control_clients.agent_sessions.starts.starter().ok_or(Refusal::AcpmuxUnavailable)?;
+    let starts = &mux.control_clients.agent_sessions.starts;
+    let starter = starts.starter().ok_or(Refusal::AcpmuxUnavailable)?;
+    let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
+    // Another start may have brought acpmux up while this one waited.
+    if let Ok(link) = open() {
+        return Ok(link);
+    }
     starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
     open().map_err(|_| Refusal::AcpmuxUnavailable)
 }
@@ -215,14 +226,21 @@ fn start_and_bind(
     {
         return Err(Refusal::NotAsking);
     }
+    // The folder must be trusted before an agent starts there (an agent can
+    // run the folder's own hooks and settings at start); this daemon reaches
+    // acpmux over its unix socket, which acpmux's trust gate does not hold,
+    // and the remote side can never answer the question.
+    let trust = link
+        .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
+    if !folder_trusted(&trust, params.harness.as_deref()) {
+        return Err(Refusal::UntrustedFolder);
+    }
     let mut meta = json!({"policy": "ask"});
     if let Some(harness) = &params.harness {
         meta["harness"] = json!(harness);
     }
-    let mut new = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-    if let Some(cwd) = &params.cwd {
-        new["cwd"] = json!(cwd);
-    }
+    let new = json!({"cwd": params.cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     let created = link.call("session/new", new, NEW_TIMEOUT).map_err(Refusal::of)?;
     let session = created
         .get("sessionId")
@@ -235,13 +253,34 @@ fn start_and_bind(
             link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
         refusal
     };
-    settle_asking_mode(link, &session).map_err(end)?;
+    let family = settle_asking_mode(link, &session).map_err(end)?;
+    // The trust answer for the family the session actually runs.
+    if !folder_trusted(&trust, Some(&family)) {
+        return Err(end(Refusal::UntrustedFolder));
+    }
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let (record, _) = mux
         .bind_conversation_tab_session_as(&actor, params.surface, &session, None)
         .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
+}
+
+/// acpmux `trust::session_level` is `trusted`: its own decision for the
+/// folder, else (no decision) the agent's own level for claude and codex,
+/// else the folder level. Anything else (unknown, untrusted, unreadable) is
+/// not trusted.
+fn folder_trusted(trust: &Value, family: Option<&str>) -> bool {
+    let level = |pointer: &str| trust.pointer(pointer).and_then(Value::as_str);
+    let level = if trust.get("decided").and_then(Value::as_bool) == Some(true) {
+        level("/level")
+    } else {
+        match family {
+            Some(family @ ("claude" | "codex")) => level(&format!("/harnesses/{family}")),
+            _ => level("/level"),
+        }
+    };
+    level == Some("trusted")
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
@@ -253,8 +292,8 @@ fn refused_family(table: &Value, family: &str) -> bool {
 
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
-/// asking default; anything else is refused.
-fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<(), Refusal> {
+/// asking default; anything else is refused. Returns the session's family.
+fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
     let read = || {
         link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
             .map_err(Refusal::of)
@@ -277,8 +316,10 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<(), Refusal> {
         (asks, default)
     };
     let table = read()?;
+    let family =
+        table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_string();
     match asks(&table) {
-        (true, _) => Ok(()),
+        (true, _) => Ok(family),
         (false, None) => Err(Refusal::NotAsking),
         (false, Some(default)) => {
             link.call(
@@ -287,7 +328,7 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<(), Refusal> {
                 CALL_TIMEOUT,
             )
             .map_err(|_| Refusal::NotAsking)?;
-            if asks(&read()?).0 { Ok(()) } else { Err(Refusal::NotAsking) }
+            if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
 }

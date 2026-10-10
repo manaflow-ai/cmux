@@ -331,6 +331,8 @@ pub(crate) enum Refusal {
     AcpmuxUnavailable,
     /// `agent-session-start`: the agent has no mode that asks before acting.
     NotAsking,
+    /// `agent-session-start`: the folder is not trusted on this machine.
+    UntrustedFolder,
 }
 
 impl Refusal {
@@ -348,6 +350,7 @@ impl Refusal {
             Self::Bound => "agent_session.bound",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
             Self::NotAsking => "agent_session.not_asking",
+            Self::UntrustedFolder => "agent_session.untrusted_folder",
         }
     }
 
@@ -367,6 +370,7 @@ impl Refusal {
                 "acpmux is not running on this machine and could not be started"
             }
             Self::NotAsking => "this agent has no mode that asks before each action",
+            Self::UntrustedFolder => "the folder is not trusted on this machine",
         }
     }
 
@@ -982,15 +986,15 @@ impl Mux {
 
     /// How this daemon starts its machine's acpmux when an
     /// `agent-session-start` finds nothing on the socket (the binary's
-    /// `cmux acp daemon start`). With it and a socket path the daemon
-    /// advertises `agent-session-start-v1`.
+    /// `cmux acp daemon start`). Without one a start answers
+    /// `agent_session.acpmux_unavailable` while acpmux is down.
     pub fn set_acpmux_starter(&self, starter: Option<AcpmuxStarter>) {
         self.control_clients.agent_sessions.starts.set_starter(starter);
     }
 
-    /// True when the daemon can start sessions in its machine's acpmux.
+    /// True when the daemon serves `agent-session-start` (as attach: an
+    /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
-            && self.control_clients.agent_sessions.starts.has_starter()
     }
 }

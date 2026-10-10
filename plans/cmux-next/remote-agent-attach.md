@@ -113,7 +113,7 @@ Checked against the relay rules before landing on feat-cmux-next:
 
 A new chat in a pane of a Cloud or SSH machine runs in that machine's acpmux. The app creates the
 agent tab in that machine's store with `host` = `registry:<identify.session_id>` and no session,
-then sends `agent-session-start {surface, harness?, cwd?}` to that daemon. The daemon starts the
+then sends `agent-session-start {surface, cwd, harness?}` to that daemon. The daemon starts the
 session in its own acpmux (starting acpmux once, as `cmux acp` does, when nothing listens) and
 binds it to the tab itself (the store's compare-and-swap from null), so the tab then shows through
 the attach path above with no other app change.
@@ -128,19 +128,28 @@ Relay analysis (reviewed with the Cloud lane hq-84 and the chief, 2026-10-10):
   Cloud carrier). The client names only an agent kind (`harness`, resolved by acpmux from its own
   config) and an absolute folder (`cwd`, checked by acpmux). No command, argv, env, policy, mode,
   peer, preset or MCP server param exists (`deny_unknown_fields`).
-- No widening: the session starts with policy `ask` whatever the daemon default is, and must sit
-  in a mode acpmux's remote table (`_acpmux/web_modes`, the remote guard's own data) lists as
-  asking. Refused families (Codex, opencode, D10) are refused before the start when named and
-  after it when a profile derives them; a session in a non-asking mode moves to its family's
-  asking default or is ended (`agent_session.not_asking`). This repeats the remote guard's
-  `session/new` rule because the daemon reaches acpmux over its unix socket, where that guard does
-  not run.
+- No widening at start: the session starts with policy `ask` whatever the daemon default is, and
+  must sit in a mode acpmux's remote table (`_acpmux/web_modes`, the remote guard's own data)
+  lists as asking. Refused families (Codex, opencode, D10) are refused before the start when
+  named and after it when a profile derives them; a session in a non-asking mode moves to its
+  family's asking default or is ended (`agent_session.not_asking`). The folder must already be
+  trusted (acpmux's trust record), checked before the agent starts and again for its real family
+  (`agent_session.untrusted_folder`); the remote side never answers the trust question.
+- What is NOT repeated (security review 2026-10-10, open for the Cloud lane): the daemon is
+  acpmux's unix client, so the session is local-control. acpmux's remote approval floor
+  (`hub/remote_floor.rs`), the Claude sandbox, the folder-profile refusal
+  (`.cmux/harnesses/<id>.toml` under `cwd`) and the agent-tools rule do not apply, the user's
+  saved allow rules apply, and a profile whose argv pins a permission flag reports its cached
+  mode (`claude_stdio/mod.rs`), which the mode check trusts. The "owner already has a shell"
+  argument covers the owner; a Team VM decision is pending.
 - Access to unowned objects: only a tab of this store whose record names this store
   (`registry:` + its own session id) and has no session; a tab recorded for another machine or
   already bound is refused, and a start that loses the bind race ends its new session.
-- Gap: prompts and permission answers from the remote chat then go through the attach verbs on a
-  unix link (local control). Allow from that remote chat is deny-only on feat-cmux-next until
-  cx-0q7o; this start does not change that.
+- Gap: prompts and permission answers from the remote chat go through the attach verbs on a unix
+  link (local control). `agent-session-permission` passes any announced option, allow included:
+  no code makes Allow deny-only today. cx-0q7o owns that; this start does not work around it.
+- Residual: a `session/new` that times out (60 s) after acpmux created the session leaves it
+  running unbound; a failed `_acpmux/kill` on a refused start does too.
 
 ## Daemon config
 
