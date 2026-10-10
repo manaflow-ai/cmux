@@ -43,8 +43,8 @@ extension View {
     }
 }
 
-/// Full-width "Jump to Unread" button above the sidebar footer: the on-screen
-/// ⇧⌘U. It runs `AppDelegate.jumpToLatestUnread()`, the same path as the
+/// Floating "Jump to Unread" glass button above the sidebar footer, at its
+/// leading edge: the on-screen ⇧⌘U. It runs `AppDelegate.jumpToLatestUnread()`, the same path as the
 /// Notifications menu item, the command palette and the configured shortcut,
 /// and only exists while something is unread.
 ///
@@ -102,14 +102,13 @@ struct SidebarJumpToUnreadButton: View {
                 CmuxSystemSymbolImage(
                     systemName: SidebarJumpToUnreadButtonPresentation.systemName,
                     pointSize: 11,
-                    weight: .medium,
-                    tint: Color(nsColor: .secondaryLabelColor)
+                    weight: .semibold,
+                    tint: cmuxAccent.color
                 )
                 Text(resolved.label)
-                    .cmuxFont(size: 12)
+                    .cmuxFont(size: 12, weight: .medium)
                     .foregroundStyle(Color(nsColor: .labelColor))
                     .lineLimit(1)
-                Spacer(minLength: 4)
                 if let countText = resolved.countText {
                     Text(countText)
                         .cmuxFont(size: 9, weight: .semibold)
@@ -121,11 +120,12 @@ struct SidebarJumpToUnreadButton: View {
                 }
             }
             .padding(.leading, 10)
-            .padding(.trailing, 4)
-            .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
+            .padding(.trailing, 6)
+            .frame(height: 28)
             .contentShape(Capsule())
         }
-        .buttonStyle(SidebarJumpToUnreadBarButtonStyle())
+        .buttonStyle(SidebarJumpToUnreadGlassButtonStyle())
+        .fixedSize()
         .accessibilityElement(children: .ignore)
         .safeHelp(resolved.helpText)
         .accessibilityLabel(resolved.label)
@@ -134,26 +134,46 @@ struct SidebarJumpToUnreadButton: View {
     }
 }
 
-/// Bordered capsule with the footer buttons' hover and press feedback.
-private struct SidebarJumpToUnreadBarButtonStyle: ButtonStyle {
+/// A floating Liquid Glass capsule (a material capsule before macOS 26) with
+/// a hairline rim and a soft shadow; brighter on hover, pressed in on click.
+private struct SidebarJumpToUnreadGlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        SidebarJumpToUnreadBarButtonBody(configuration: configuration)
+        SidebarJumpToUnreadGlassButtonBody(configuration: configuration)
     }
 }
 
-private struct SidebarJumpToUnreadBarButtonBody: View {
-    let configuration: SidebarJumpToUnreadBarButtonStyle.Configuration
+private struct SidebarJumpToUnreadGlassButtonBody: View {
+    let configuration: SidebarJumpToUnreadGlassButtonStyle.Configuration
     @State private var isHovered = false
 
-    private var fillOpacity: Double {
-        if configuration.isPressed { return 0.16 }
-        return isHovered ? 0.12 : 0.08
+    private var highlightOpacity: Double {
+        if configuration.isPressed { return 0.0 }
+        return isHovered ? 0.06 : 0.0
     }
 
     var body: some View {
         configuration.label
-            .background(Capsule().fill(Color.primary.opacity(fillOpacity)))
-            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+            .sidebarJumpToUnreadGlass()
+            .overlay(Capsule().fill(Color.white.opacity(highlightOpacity)).allowsHitTesting(false))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5))
+            .shadow(color: Color.black.opacity(0.24), radius: 8, y: 3)
+            .brightness(configuration.isPressed ? -0.06 : 0)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .onHover { isHovered = $0 }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func sidebarJumpToUnreadGlass() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: Capsule())
+        } else {
+            background(.regularMaterial, in: Capsule())
+        }
+        #else
+        background(.regularMaterial, in: Capsule())
+        #endif
     }
 }
