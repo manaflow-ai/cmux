@@ -35,6 +35,8 @@ struct CloudTeamPickerRow: View {
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnification
 
     var body: some View {
@@ -52,7 +54,7 @@ struct CloudTeamPickerRow: View {
             CloudTeamPickerMenuAnchor(
                 isPresented: $presentation.isPresented,
                 helpText: helpText,
-                makeChip: { [currentTeamName, isEnabled, layoutDirection, globalFontMagnification] isHighlighted in
+                makeChip: { [currentTeamName, isEnabled, layoutDirection, colorScheme, colorSchemeContrast, globalFontMagnification] isHighlighted in
                     AnyView(
                         chipLabel(
                             teamName: currentTeamName,
@@ -60,6 +62,8 @@ struct CloudTeamPickerRow: View {
                             isHighlighted: isHighlighted
                         )
                         .environment(\.layoutDirection, layoutDirection)
+                        .environment(\.colorScheme, colorScheme)
+                        .environment(\.colorSchemeContrast, colorSchemeContrast)
                         .environment(\.cmuxGlobalFontMagnificationPercent, globalFontMagnification)
                     )
                 },
