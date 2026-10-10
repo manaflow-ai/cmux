@@ -25,9 +25,9 @@ final class SidebarRows {
         self.model = model
     }
 
-    /// The layout the sidebar draws: the store's with the Chats setting.
+    /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
     static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.chatsLayout(enabled: DesignSettings.shared.sidebarSections.showChats)
+        document.withoutChats
     }
 
     /// Shows `live` (when given) with the pending edits applied.
