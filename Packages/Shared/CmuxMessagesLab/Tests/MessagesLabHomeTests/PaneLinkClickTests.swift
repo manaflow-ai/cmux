@@ -20,6 +20,9 @@ import Testing
         HomeMarkdownPolicy.installed = false
         let (p, c) = Fixture2.projection()
         let link = "cmux://chief/0a1b2c3d/session/01a12318-9c7f-7000-beab-7686172b0ca3"
+        #expect(HomeAppLinks.isSubagentLink(try #require(URL(string: link))))
+        #expect(MarkdownLinkPolicy.sanitize(link) == link)
+        #expect(MDInlineParser.parse("[a1](\(link))").spans.compactMap(\.link) == [link])
         p.apply(items: [Fixture2.item(1, Fixture2.them, "Started [a1](\(link)); not [this](cmux://open) or [that](cmux://tab/tab_1).")],
                 summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
