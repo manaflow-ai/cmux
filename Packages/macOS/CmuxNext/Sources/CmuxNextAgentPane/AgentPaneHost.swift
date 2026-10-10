@@ -64,10 +64,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                daemonReady: @escaping @Sendable (String) async -> Void = { _ in }) {
+                daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
-        self.daemonReady = daemonReady
+        self.daemonReady = daemonReady ?? { _ in }
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {

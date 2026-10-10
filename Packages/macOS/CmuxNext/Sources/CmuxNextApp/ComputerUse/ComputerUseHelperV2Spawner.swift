@@ -22,10 +22,11 @@ nonisolated final class ComputerUseHelperV2Child: Sendable {
         input.withLock { descriptor in
             guard descriptor >= 0 else { return false }
             return line.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return raw.isEmpty }
                 var offset = 0
                 while offset < raw.count {
                     // concurrency-allow: @concurrent, so never on the main actor; one short control line into a pipe the helper drains.
-                    let written = Darwin.write(descriptor, raw.baseAddress! + offset, raw.count - offset)
+                    let written = Darwin.write(descriptor, base + offset, raw.count - offset)
                     if written <= 0 { if errno == EINTR { continue }; return false }
                     offset += written
                 }
