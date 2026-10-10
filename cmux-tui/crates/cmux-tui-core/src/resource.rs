@@ -482,6 +482,28 @@ pub enum OperationClass {
     Local,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocalOperation {
+    #[serde(rename = "sidebar_plugin.list")]
+    SidebarPluginList,
+    #[serde(rename = "sidebar_plugin.install")]
+    SidebarPluginInstall,
+    #[serde(rename = "sidebar_plugin.use")]
+    SidebarPluginUse,
+    #[serde(rename = "sidebar_plugin.update")]
+    SidebarPluginUpdate,
+    #[serde(rename = "sidebar_plugin.remove")]
+    SidebarPluginRemove,
+    #[serde(rename = "sidebar_plugin.use_builtin")]
+    SidebarPluginUseBuiltin,
+}
+
+impl LocalOperation {
+    pub const fn class(self) -> OperationClass {
+        OperationClass::Local
+    }
+}
+
 impl ResourceOperation {
     pub const fn class(self) -> OperationClass {
         if matches!(
@@ -593,8 +615,8 @@ impl ResourceOperation {
 }
 
 mod envelope;
+mod hex;
 mod journal;
-mod local_operation;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -603,8 +625,8 @@ mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
+use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
-pub use local_operation::LocalOperation;
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -781,16 +803,6 @@ impl ContentPublicId {
             Self::Browser(id) => id.as_str(),
         }
     }
-}
-
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
-    }
-    output
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
