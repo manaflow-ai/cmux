@@ -75,7 +75,8 @@ enum CmuxEmbeddedConfigSchema {
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "descriptionKey": "schemaDescriptions.actions",
+      "description": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
       "type": "object",
       "additionalProperties": true
     },

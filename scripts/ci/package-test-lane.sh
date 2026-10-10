@@ -136,6 +136,7 @@ select_packages() {
     CmuxTestSupport
     CmuxUpdaterUI
     CmuxWindowing
+    CmuxTextActions
   )
 
   changed="$work/changed-files.txt"
