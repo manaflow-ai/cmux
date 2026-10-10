@@ -6,10 +6,12 @@ import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
+import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
+import { useRecentlyClosed } from "./recentlyClosed";
 import {
   defaultHarness,
   initialSelection,
@@ -32,7 +34,7 @@ export type NewTabScreenActions = {
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
-  onJump(target: "tab" | "workspace" | "here", id: string): void;
+  onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -139,6 +141,7 @@ export function NewTabScreen(props: Props) {
   const current = selected < rows.length ? selected : -1;
   const t = useT();
   const device = useDeviceChats();
+  const closed = useRecentlyClosed();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
@@ -390,6 +393,7 @@ export function NewTabScreen(props: Props) {
       {sections.tools && (tools.length > 0 || props.onAddHarness) && (
         <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
       )}
+      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
       )}
