@@ -104,7 +104,7 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
             intentSettlements.append((intent.transaction, .applied))
         }
         let confirmedTabs = debugTabCensus()
@@ -119,6 +119,14 @@ extension DaemonStore {
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
         return result
+    }
+
+    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
+    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
+    /// the split before them showed the pane unsplit for one turn.
+    private func awaitsRecords(_ intent: PendingIntent) -> Bool {
+        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        return !ProvisionalSplit.daemonPlaces(provisional, in: self)
     }
 
     /// A new connection replaces the last one (`run(connection:)`): its

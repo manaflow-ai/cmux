@@ -47,8 +47,10 @@ final class PageGoneView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func show(_ exit: BrowserProcessExit) {
-        titleLabel.stringValue = Strings.pageGoneTitle(exit.reason)
-        messageLabel.stringValue = Strings.pageGoneMessage(exit.reason)
+        // A Chromium tab says what Chrome's sad tab says.
+        let chromium = exit.engine == .cef
+        titleLabel.stringValue = chromium ? Strings.pageGoneChromiumTitle : Strings.pageGoneTitle(exit.reason)
+        messageLabel.stringValue = chromium ? Strings.pageGoneChromiumMessage : Strings.pageGoneMessage(exit.reason)
         if let code = exit.codeDescription {
             codeLabel.stringValue = Strings.pageGoneErrorCode(code)
             codeLabel.isHidden = false

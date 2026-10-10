@@ -192,7 +192,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// workspace that holds the tab (cmux windows hold workspaces).
     func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
         switch disposition {
-        case .currentTab: page.load(url)
+        case .currentTab:
+            // The host's own pages and routed chrome:// pages, as a plain Return does.
+            if let key = services?.cache.key(of: page), services?.cache.existingBrowser(key)?.chrome.loadOverride?(url) == true { return }
+            page.load(url)
         case .newBackgroundTab: browserTab(page, didRequest: .openURL(url, .backgroundTab))
         case .newForegroundTab: browserTab(page, didRequest: .openURL(url, .foregroundTab))
         case .newWindow: browserTab(page, didRequest: .openURL(url, .newWindow))

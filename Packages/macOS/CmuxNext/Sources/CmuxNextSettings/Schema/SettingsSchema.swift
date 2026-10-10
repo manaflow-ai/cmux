@@ -155,7 +155,7 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+        ] + TabSettingsSchema.paneTabBars(group: tabs) + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),

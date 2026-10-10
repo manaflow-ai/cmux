@@ -2107,6 +2107,39 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
+    "tabs.tabBar.agent" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Agent Chats",
+      "type" : "string"
+    },
+    "tabs.tabBar.browser" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Browser Panes",
+      "type" : "string"
+    },
+    "tabs.tabBar.terminal" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Terminal Panes",
+      "type" : "string"
+    },
     "tasks.layout" : {
       "default" : "inbox",
       "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",

@@ -83,6 +83,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -125,6 +126,17 @@ export default agentPaneEntry({
     "without-tools": {
       note: "The reserved Tools region is omitted when no host action can run.",
       ready: newTab({ tools: [] }),
+      snapshot: noChat(manySessions(3)),
+    },
+    "split-open-tabs": {
+      note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
+      ready: newTab({
+        openTabs: [
+          { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
+          { id: "t3", kind: "agent", title: "cmux-next chief" },
+        ],
+      }),
       snapshot: noChat(manySessions(3)),
     },
     "with-tools": {

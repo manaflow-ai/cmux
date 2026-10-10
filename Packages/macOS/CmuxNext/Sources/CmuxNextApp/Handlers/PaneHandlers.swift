@@ -74,13 +74,16 @@ enum PaneHandlers {
         // The one tool-split rule (AppServices.toolSplit, cx-yihq): never a new column; from the
         // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one or
         // the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
+        // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7).
+        let page = NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
         switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
-            break
+            if page, let controller { return NewTabPage.split(controller, edge: edge(direction)) }
         case .refused(let reason):
             return ctx.refuse(reason)
         case .tab(let strip):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
+            if page { return strip.newTabPage() }
             return strip.newTerminalTab(cwd: invocation["cwd"]?.stringValue, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
