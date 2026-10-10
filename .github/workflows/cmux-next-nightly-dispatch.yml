@@ -1,9 +1,11 @@
 name: cmux-next nightly dispatcher
 
-# feat-cmux-next pushes keep the fast Swift canary. This schedule advances the
-# protected nightly-next branch to the latest canary
-# green head; the existing nightly workflow then runs the Release, scheme and
-# daemon coverage and publishes through its normal guarded path.
+# GitHub evaluates schedules from the default branch. Once this workflow is on
+# main, its 30-minute tick advances the protected nightly-next branch to the
+# newest canary-green head with a published cmux-tui tree; workflow_dispatch is
+# available for a bounded manual tick while the change is stacked.
+# The existing nightly workflow then runs Release, scheme and daemon coverage
+# and publishes through its normal guarded path.
 on:
   schedule:
     - cron: "*/30 * * * *"
@@ -17,29 +19,123 @@ jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Dispatch the latest feat-cmux-next head
+      - name: Check out the current feat-cmux-next history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 100
+          persist-credentials: false
+
+      - name: Find the newest canary-green candidates
+        id: candidates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { owner, repo } = context.repo;
-            const { data: ref } = await github.rest.git.getRef({
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner,
               repo,
-              ref: 'heads/feat-cmux-next',
+              workflow_id: 'cmux-next.yml',
+              event: 'push',
+              branch: 'feat-cmux-next',
+              per_page: 100,
             });
-            const sha = ref.object.sha;
+            const candidates = [];
+            const seen = new Set();
+            for (const run of runs) {
+              if (run.head_branch !== 'feat-cmux-next' || run.event !== 'push') continue;
+              const sha = (run.head_sha || '').toLowerCase();
+              if (!/^[0-9a-f]{40}$/.test(sha) || seen.has(sha)) continue;
+              seen.add(sha);
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner,
+                repo,
+                run_id: run.id,
+                filter: 'latest',
+                per_page: 100,
+              });
+              if (jobs.some((job) => job.name === 'cmux-next Swift canary' && job.conclusion === 'success')) {
+                candidates.push(sha);
+              }
+              // A burst can leave many historical runs. The first 50 unique
+              // heads bound the dispatcher work while covering the normal
+              // promotion window.
+              if (seen.size >= 50) break;
+            }
+            core.setOutput('shas', JSON.stringify(candidates));
+            core.notice(candidates.length
+              ? `Found ${candidates.length} canary-green feat-cmux-next candidate(s)`
+              : 'No canary-green feat-cmux-next candidate is ready yet');
+
+      - name: Select the newest candidate with a published cmux-tui tree
+        id: selected
+        env:
+          CANDIDATES: ${{ steps.candidates.outputs.shas }}
+        run: |
+          set -euo pipefail
+          tip="$(git rev-parse HEAD)"
+          selected=""
+          while IFS= read -r sha; do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+            git merge-base --is-ancestor "$sha" "$tip" || continue
+            git checkout --detach --quiet "$sha"
+            if CMUX_TUI_TREE_DISPATCH=0 \
+              CMUX_TUI_TREE_SEARCH_COMMITS=50 \
+              CMUX_TUI_TREE_MAX_AGE_HOURS=24 \
+              CMUX_TUI_TREE_SAME_PATHS='.github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock' \
+              scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published >/dev/null 2>"$RUNNER_TEMP/cmux-next-tree-resolution.log"; then
+              selected="$sha"
+              break
+            fi
+          done < <(python3 -c 'import json,sys; print("\n".join(json.loads(sys.argv[1])))' "$CANDIDATES")
+          if [[ -n "$selected" ]]; then
+            echo "sha=$selected" >> "$GITHUB_OUTPUT"
+            echo "Selected canary-green, tree-ready candidate $selected"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            echo "No canary-green candidate has a published tree in the bounded window; leaving nightly-next unchanged"
+          fi
+
+      - name: Dispatch the guarded nightly-next promotion
+        if: steps.selected.outputs.sha != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SHA: ${{ steps.selected.outputs.sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
             await github.rest.actions.createWorkflowDispatch({
               owner,
               repo,
               workflow_id: 'nightly.yml',
               ref: 'main',
               inputs: {
-                promote_nightly_next_sha: sha,
-                // The schedule itself is the cadence. Do not apply the old
+                promote_nightly_next_sha: process.env.SHA,
+                // The dispatcher itself is the cadence. Do not apply the old
                 // two-hour promotion debounce to this lane.
                 promote_nightly_next_debounce: 'false',
               },
             });
-            core.notice(`Requested nightly-next promotion for feat-cmux-next ${sha}`);
+            core.notice(`Requested nightly-next promotion for canary-green ${process.env.SHA}`);
+
+      - name: Continue an accepted pending nightly-next notarization
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: 'nightly.yml',
+                ref: 'nightly-next',
+                inputs: { nightly_next_continue_only: 'true' },
+              });
+              core.notice('Requested the nightly-next notarization continuation tick');
+            } catch (error) {
+              core.warning(`Could not request nightly-next continuation: ${error.message}`);
+            }
