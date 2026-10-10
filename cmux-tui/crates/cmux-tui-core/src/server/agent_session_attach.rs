@@ -67,7 +67,9 @@ use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
-pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost};
+pub use agent_session_start::{
+    AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -1002,10 +1004,10 @@ impl Mux {
         self.control_clients.agent_sessions.starts.set_starter(starter);
     }
 
-    /// The machine kind the binary read from this machine's own identity at
-    /// start. Until it is set, `agent-session-start` refuses
+    /// How the binary reads this machine's kind from its own identity (at
+    /// each `agent-session-start`). Until it is set, the verb refuses
     /// (`agent_session.host_unverified`).
-    pub fn set_agent_start_host(&self, host: AgentStartHost) {
+    pub fn set_agent_start_host(&self, host: AgentStartHostSource) {
         self.control_clients.agent_sessions.starts.set_host(host);
     }
 

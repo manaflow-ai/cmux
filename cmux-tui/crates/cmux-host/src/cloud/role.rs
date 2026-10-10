@@ -556,6 +556,10 @@ impl Worker {
             Ok(bound) => bound,
             Err(e) => return log(&format!("bound.json unreadable: {e}")),
         };
+        // A machine bound by an older build has no kind record yet.
+        if let Err(e) = super::client::record_owner_kind(&mut self.store) {
+            log(&format!("vm-kind write: {e}"));
+        }
         let loaded = match ensure_install_key(&mut self.store, &self.instance_id, &self.rng) {
             Ok(loaded) => loaded,
             Err(e) => return log(&format!("install key: {e}")),

@@ -129,6 +129,9 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
                 continue;
             }
             Some(b) if client.as_ref().is_none_or(|(have, _)| *have != b) => {
+                if let Err(e) = super::enroll::record_team_kind(paths) {
+                    eprintln!("cmux host team-ssh sync: {e}");
+                }
                 let made = SystemRandom::new();
                 let key = super::enroll::team_key(paths, &b.instance_id, &made);
                 let http = JsonPoster::new().map(PosterHttp);

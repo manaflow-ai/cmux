@@ -51,8 +51,8 @@ pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
-/// What kind of machine this daemon runs on, as the binary read it from the
-/// machine's own identity at start (never from a request). A remote start
+/// What kind of machine this daemon runs on, as the binary reads it from the
+/// machine's own identity at each start (never from a request). A remote start
 /// is served only on [`AgentStartHost::Allowed`]; a daemon that was never
 /// told refuses (fail closed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,11 +74,14 @@ const NEW_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
+/// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
+pub type AgentStartHostSource = Arc<dyn Fn() -> AgentStartHost + Send + Sync>;
+
 /// The starter and the tabs being started.
 #[derive(Default)]
 pub(crate) struct AgentSessionStarts {
     starter: Mutex<Option<AcpmuxStarter>>,
-    host: Mutex<Option<AgentStartHost>>,
+    host: Mutex<Option<AgentStartHostSource>>,
     /// One acpmux start at a time; the others connect after it.
     start_lock: Mutex<()>,
     starting: Mutex<HashSet<SurfaceId>>,
@@ -89,13 +92,16 @@ impl AgentSessionStarts {
         *self.starter.lock().unwrap_or_else(|e| e.into_inner()) = starter;
     }
 
-    pub(crate) fn set_host(&self, host: AgentStartHost) {
+    pub(crate) fn set_host(&self, host: AgentStartHostSource) {
         *self.host.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
     }
 
-    /// Ok on an allowed host; the refusal otherwise (also when unset).
+    /// Ok on an allowed host; the refusal otherwise (also when unset). The
+    /// kind is read again for every start, so a bind or team enroll that
+    /// lands after the daemon started counts at once.
     fn host_gate(&self) -> Result<(), Refusal> {
-        match *self.host.lock().unwrap_or_else(|e| e.into_inner()) {
+        let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        match source.map(|read| read()) {
             Some(AgentStartHost::Allowed) => Ok(()),
             Some(AgentStartHost::TeamVm) => Err(Refusal::TeamVmBlocked),
             Some(AgentStartHost::UnknownCloud) | None => Err(Refusal::HostUnverified),

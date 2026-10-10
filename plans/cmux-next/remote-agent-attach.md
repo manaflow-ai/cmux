@@ -122,9 +122,13 @@ Relay analysis (reviewed with the Cloud lane hq-84 and the chief, 2026-10-10):
 
 - Team VMs (hq-84 + chief rule, 2026-10-10): the verb refuses on a team VM
   (`agent_session.team_vm_blocked`) and on a Cloud VM whose kind the daemon cannot tell
-  (`agent_session.host_unverified`, fail closed), decided from the machine's own identity at
-  daemon start (cmux-tui/src/agent_start_host.rs), never from the request. Owner VMs and plain
-  SSH hosts stay allowed. `CMUX_AGENT_START_HOST` can only make the kind stricter (test seam).
+  (`agent_session.host_unverified`, fail closed), decided from the machine's own identity at each
+  start (cmux-tui/src/agent_start_host.rs), never from the request. cmux-host records the kind in
+  the root-owned, world-readable `/etc/cmux/vm-kind` (`owner` at a machine bind, `team` at a team
+  enroll and every team sync pass), because the daemon cannot read /var/lib/cmux. Owner VMs and
+  plain SSH hosts stay allowed. `CMUX_AGENT_START_HOST` can only make the kind stricter (test
+  seam). Not containment: a member with a shell can run an agent directly; the gate only keeps the
+  app from starting local-control chats on team VMs.
 - Who: the same trusted local (Unix) connections as the attach verbs; the remote relay and
   WebSocket clients are refused. A Team VM daemon runs as the member's own uid, so a member starts
   only into a tab of their own store.

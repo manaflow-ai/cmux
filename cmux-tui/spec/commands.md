@@ -7779,12 +7779,12 @@ it runs; otherwise `agent_session.untrusted_folder` (the remote side cannot
 answer the trust question; the user answers it on the machine). There is no command, env, policy, mode,
 peer, preset or MCP server param; an unknown param is
 `agent_session.bad_request`. The daemon's machine decides first, from its
-own identity read at start and never from the request: a team VM (the team
-binding `/var/lib/cmux/team-bound.json` or the team files root `/srv/team`,
-root:`cmux-ssh`) answers `agent_session.team_vm_blocked`, and a Cloud VM whose
-kind the daemon cannot tell (no root-owned bind record, or a team marker it
-cannot check) answers `agent_session.host_unverified`; Macs, SSH hosts and
-owner-bound Cloud VMs go on. The session starts with permission policy `ask`
+own identity read at each start and never from the request: on a Cloud VM, a
+team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that cmux-host
+writes at a team enroll, or the team files root `/srv/team`, root:`cmux-ssh`)
+answers `agent_session.team_vm_blocked`, and a VM with no readable kind or a
+kind other than `owner` answers `agent_session.host_unverified`; Macs, SSH
+hosts and owner VMs (kind `owner`, written at a machine bind) go on. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a

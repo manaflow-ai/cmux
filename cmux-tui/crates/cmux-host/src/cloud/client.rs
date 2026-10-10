@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
 use super::wire::{
-    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, WG_KEY_FILE, parse_bind_file,
+    BIND_FILE, BOUND_FILE, VM_KIND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, WG_KEY_FILE, parse_bind_file,
 };
 
 /// One JSON POST: `(status, body)`, or a transport error.
@@ -180,8 +180,20 @@ pub fn bind_machine(
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
+    if let Err(e) = record_owner_kind(store) {
+        return BindResult::Retry(format!("vm-kind write: {e}"));
+    }
     store.remove(BIND_FILE);
     BindResult::Bound(Box::new(bound))
+}
+
+/// Records this machine as an owner VM ([`VM_KIND_FILE`]) unless a team
+/// enroll already recorded it as a team VM.
+pub fn record_owner_kind(store: &mut dyn Store) -> Result<(), String> {
+    if store.read(VM_KIND_FILE).is_some_and(|kind| kind.trim() == "team") {
+        return Ok(());
+    }
+    store.write(VM_KIND_FILE, "owner\n", 0o644)
 }
 
 /// Tokens through `/v1/auth/challenge` + `/v1/auth/token` (signing the

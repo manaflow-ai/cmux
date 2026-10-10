@@ -2410,7 +2410,7 @@ fn run_server(
     #[cfg(unix)]
     mux.set_acpmux_starter(acp::daemon_acpmux_starter());
     #[cfg(unix)]
-    mux.set_agent_start_host(agent_start_host::detect(|name| std::env::var(name).ok()));
+    mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
