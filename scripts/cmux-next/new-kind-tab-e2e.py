@@ -2,14 +2,15 @@
 """Live check of New <Kind> Tab (cmuxterm-hq#1829, cx-9r5w) on a running tagged cmux-next build.
 
 `newTab.ofKind` opens a tab of the selected tab's kind whatever `tabs.newTabKind` says: on a
-browser tab it opens a browser tab, while Cmd-T's action (`newTab.default`, the New Tab page by
-default) does not. The old id `newTab.sameKind` still runs Cmd-T's action, so keybindings and
-scripts keep working. A browser tab's menu titles the action by its kind ("New Browser Tab").
+browser tab it opens a browser tab, while Cmd-T (`newTab.default`, the New Tab page by default
+when the user presses it) does not. The old id `newTab.sameKind` still runs Cmd-T's action, so
+keybindings and scripts keep working. A browser tab's menu titles the action by its kind ("New Browser Tab").
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket, runs the actions the way the palette and keybindings do
-(`action.run`, with `focus` so a run may select what it opens, as a keypress does), counts browser tabs through the daemon socket's `list-workspaces`, and reads the
-browser tab row's menu (`debug.sidebar_rows` `menu_x`/`menu_y`, with Show Tabs Under Workspaces
+(`action.run`, with `focus` so a run may select what it opens) and presses Cmd-T as the user
+does (`debug.key`; a script's `newTab.default` takes the selected tab's kind), counts browser
+tabs through the daemon socket's `list-workspaces`, and reads the browser tab row's menu (`debug.sidebar_rows` `menu_x`/`menu_y`, with Show Tabs Under Workspaces
 on). It never launches or quits the app.
 
 Usage: new-kind-tab-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--daemon-socket PATH] [--out DIR]
@@ -125,13 +126,19 @@ def main():
     row("New <Kind> Tab on a browser tab opens a browser tab", f"browser tabs {before} -> {before + 1}",
         f"reply {reply}; browser tabs {before} -> {browsers()}", bool(grew))
 
+    # Cmd-T as the user presses it (debug.key: the key router, user origin) on that browser
+    # tab opens the New Tab page (tabs.newTabKind's default), not a browser tab.
     time.sleep(1)  # test harness
-    before = browsers()
+    before_tabs, before = len(daemon_tabs()), browsers()
+    print("Cmd-T:", rpc("debug.key", {"key": "t", "modifiers": ["command"]}), flush=True)
+    opened = wait(lambda: len(daemon_tabs()) > before_tabs, 15)
+    time.sleep(2)  # test harness: give a wrong browser tab time to appear
+    row("Cmd-T on a browser tab still opens the New Tab page", f"one more tab; browser tabs stay {before}",
+        f"tabs {before_tabs} -> {len(daemon_tabs())}; browser tabs {browsers()}", bool(opened) and browsers() == before)
+
     reply = action("newTab.sameKind")
-    time.sleep(3)  # test harness: give a wrong browser tab time to appear
-    row("the old id newTab.sameKind still runs Cmd-T's action (New Tab page, no browser tab)",
-        f"no error; browser tabs stay {before}", f"reply {reply}; browser tabs {browsers()}",
-        "error" not in (reply or {}) and browsers() == before)
+    row("the old id newTab.sameKind runs Cmd-T's action", "no error; runs newTab.default",
+        f"reply {reply}", "error" not in (reply or {}) and (reply or {}).get("action") == "newTab.default")
 
     if not tab_rows():
         print("workspace tabs toggle:", action("sidebar.workspaceTabs.toggle"), flush=True)
