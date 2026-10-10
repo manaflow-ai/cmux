@@ -14,10 +14,15 @@ import Foundation
 ///   closure as the button: a confirmed tab starts in view mode). This
 ///   bypasses the person rule on purpose: the DEBUG socket stands in for the
 ///   person's click. Control and upstream media still need the person.
-extension AppControl {
-    func registerRemoteViewDebugMethods(_ services: AppServices) {
+/// Registers `debug.remote_view` (not an `AppControl` extension: that type
+/// is over its god-type budget).
+struct RemoteViewDebugMethods {
+    let services: AppServices
+
+    func register(on router: ControlRouter?) {
         #if DEBUG
-        service?.router.register([
+        let services = self.services
+        router?.register([
             .async("debug.remote_view") { [weak services] call in
                 guard let services else { return .null }
                 return await remoteViewDebug(call.params, services: services)
