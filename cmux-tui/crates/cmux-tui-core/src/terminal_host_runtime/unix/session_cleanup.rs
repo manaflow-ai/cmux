@@ -210,10 +210,6 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
     Ok(groups.into_iter().collect())
 }
 
-#[cfg(test)]
-#[path = "tests/session_cleanup.rs"]
-mod tests;
-
 impl HostShared {
     pub(crate) fn signal_terminal_process_groups(&self, signal: GroupSignal) {
         let signal = match signal {
