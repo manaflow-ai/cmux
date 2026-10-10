@@ -197,10 +197,13 @@ def scrub_gallery_host(text: str, live_url: str, body_path: str) -> str:
     parsed = urllib.parse.urlparse(live_url)
     if not parsed.netloc:
         return text
-    host = re.escape(parsed.netloc)
-    absolute = re.compile(rf"https?://{host}(?:[^\s)]*)?", re.IGNORECASE)
+    hostname = parsed.hostname
+    if not hostname:
+        return text
+    host = re.escape(hostname)
+    absolute = re.compile(rf"https?://{host}(?::\d+)?(?:[^\s)]*)?", re.IGNORECASE)
     text = absolute.sub(body_path, text)
-    return re.sub(rf"(?<![\w.-]){host}(?![\w.-])", body_path, text)
+    return re.sub(rf"(?<![\w.-]){host}(?::\d+)?(?![\w.-])", body_path, text, flags=re.IGNORECASE)
 
 
 def showcase_section(markdown: str, gallery_path: str) -> str:
