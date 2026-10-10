@@ -21,6 +21,17 @@ extension Strings {
         String(localized: "browser.pageGone.message", defaultValue: "Other tabs are not affected. Reload to open the page again.", bundle: .module)
     }
 
+    /// Chrome's sad tab title (IDS_SAD_TAB_TITLE) for a Chromium tab.
+    static var pageGoneChromiumTitle: String {
+        String(localized: "browser.pageGone.chromium.title", defaultValue: "Aw, Snap!", bundle: .module)
+    }
+
+    /// Chrome's sad tab message (IDS_SAD_TAB_MESSAGE) for a Chromium tab.
+    static var pageGoneChromiumMessage: String {
+        String(localized: "browser.pageGone.chromium.message",
+               defaultValue: "Something went wrong while displaying this webpage.", bundle: .module)
+    }
+
     static func pageGoneErrorCode(_ code: String) -> String {
         String(format: String(localized: "browser.pageGone.errorCode", defaultValue: "Error code: %@", bundle: .module), code)
     }

@@ -23,10 +23,14 @@ public nonisolated struct BrowserProcessExit: Hashable, Sendable {
     public var reason: Reason
     /// Exit code or signal number, when the engine reports one.
     public var code: Int?
+    /// The engine whose content process ended: the sad tab uses that
+    /// browser's wording (Chrome's "Aw, Snap!" for Chromium).
+    public var engine: BrowserEngineKind?
 
-    public init(reason: Reason, code: Int? = nil) {
+    public init(reason: Reason, code: Int? = nil, engine: BrowserEngineKind? = nil) {
         self.reason = reason
         self.code = code
+        self.engine = engine
     }
 
     /// Maps CEF's `cef_termination_status_t` (TS_ABNORMAL_TERMINATION = 0,
@@ -41,7 +45,7 @@ public nonisolated struct BrowserProcessExit: Hashable, Sendable {
         case 5: .integrityFailure
         default: .abnormal
         }
-        return BrowserProcessExit(reason: reason, code: code == 0 ? nil : code)
+        return BrowserProcessExit(reason: reason, code: code == 0 ? nil : code, engine: .cef)
     }
 
     /// Error code text for the sad tab: "SIGSEGV" when the process
