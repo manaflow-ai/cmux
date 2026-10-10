@@ -236,6 +236,19 @@ extension BrowserPanel {
             .flatMap({ Int($0.split(separator: ":").last ?? "") }),
            url.scheme?.lowercased() == "http",
            url.port == listenerPort { return nil }
+        // A forward restart leaves WebKit history and in-flight commits
+        // pointing at the retired listener. Resolve that stale loopback URL
+        // against this pane's stable service identity before asking the
+        // provider to rebind; otherwise the old ephemeral port is mistaken
+        // for the SSH host's service port.
+        if let remoteURL = cloudAccess.remoteURL,
+           cloudAccess.model?.route == .loopback,
+           var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            parts.scheme = remoteURL.scheme
+            parts.host = remoteURL.host
+            parts.port = remoteURL.port
+            return parts.url
+        }
         return privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) ?? url
     }
 
