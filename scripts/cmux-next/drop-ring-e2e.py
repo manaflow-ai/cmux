@@ -6,10 +6,11 @@
 Launches the tagged app (no activation, automation socket, own config), opens a
 workspace with two terminal tabs in one pane, then drags the second tab with
 real mouse events (`debug.mouse`) to the right edge of the pane body and
-releases: the drop splits the pane. While the new split settles, it reads the
-drop overlay (`debug.drop_highlight` `report`) every 50 ms for 2 s. It fails if
-the ring is drawn again after the drop (the layout's frames used to show the
-hidden ring at its last target, and it stayed), or if the drop did not split.
+releases: the drop splits the pane. Then a new column animates the strip.
+Through both it reads the drop overlay (`debug.drop_highlight` `report`) every
+50 ms. It fails if the ring is drawn again after the drop (the layout's frames
+used to show the hidden ring at its last target, and it stayed), or if the
+drop did not split.
 Writes samples.json, after-drop.png and app.log to DIR. Quits only the app it
 started.
 """
@@ -103,14 +104,23 @@ try:
     report["drag"] = {"from": start, "to": drop}
     report["drop_reply"] = rpc("debug.mouse", {"action": "drag", "x": start[0], "y": start[1],
                                                "to_x": drop[0], "to_y": drop[1], "steps": 24})
+    report["strips_after"] = len(wait(lambda: len(strips()) > report["strips_before"] and strips(), 3) or strips())
     began = time.time()
     while time.time() - began < 2.0:
         sample = rpc("debug.drop_highlight", {"report": True}) or {}
         sample["t"] = round(time.time() - began, 3)
         report["samples"].append(sample)
         time.sleep(0.05)  # test harness sampling interval
+    # Any later layout animation runs the layout's frames: a new column
+    # scrolls the strip. The hidden ring must not come back with them.
+    report["new_column"] = rpc("action.run", {"action": "newColumn", "focus": True})
+    began = time.time()
+    while time.time() - began < 2.0:
+        sample = rpc("debug.drop_highlight", {"report": True}) or {}
+        sample["t"] = round(2.0 + time.time() - began, 3)
+        report["samples"].append(sample)
+        time.sleep(0.05)  # test harness sampling interval
     report["after"] = rpc("debug.drop_highlight", {"report": True})
-    report["strips_after"] = len(strips())
     report["snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "after-drop.png")})
     # The ring may still be fading out right after the release; from 0.4 s on it must be gone.
     shown = [s for s in report["samples"] if s["t"] >= 0.4 and (s.get("showing") or (s.get("ring_opacity") or 0) > 0)]
