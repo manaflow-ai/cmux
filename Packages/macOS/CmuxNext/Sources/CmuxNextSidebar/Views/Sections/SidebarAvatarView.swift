@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
 /// 2): the current profile's initial (signed in: the cmux user's picture,
@@ -63,8 +64,7 @@ final class SidebarAvatarView: NSView {
 
     // theme-scoped: called only from draw(_:) inside performWithTheme
     private func drawChevron(tint: NSColor) {
-        let config = NSImage.SymbolConfiguration(pointSize: SidebarStyle.avatarChevronSize, weight: .semibold)
-        guard let image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
+        let image = NSImage.icon(.disclosureExpanded, size: .iconRowSize(forLabelPointSize: SidebarStyle.avatarChevronSize))
         let tinted = image.tinted(tint)
         let box = chevronFrame
         let size = tinted.size

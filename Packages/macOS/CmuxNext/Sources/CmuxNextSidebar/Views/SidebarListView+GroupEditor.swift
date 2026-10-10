@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 // The group editor (cx-rcby): the chip, its more button, a right-click on
 // the header, Return on a focused header, the Rename action and a new group
@@ -16,14 +17,14 @@ struct SidebarGroupEditing {
     static func standardItems() -> [[SidebarGroupEditorItem]] {
         [
             [
-                SidebarGroupEditorItem(id: "workspaceGroup.newWorkspace", title: GroupEditorStrings.newWorkspace, symbol: "plus.square.on.square"),
-                SidebarGroupEditorItem(id: "workspaceGroup.moveToNewWindow", title: GroupEditorStrings.moveToNewWindow, symbol: "macwindow.badge.plus"),
-                SidebarGroupEditorItem(id: "workspaceGroup.closeWorkspaces", title: GroupEditorStrings.close, symbol: "xmark.square"),
+                SidebarGroupEditorItem(id: "workspaceGroup.newWorkspace", title: GroupEditorStrings.newWorkspace, icon: .workspaceNew),
+                SidebarGroupEditorItem(id: "workspaceGroup.moveToNewWindow", title: GroupEditorStrings.moveToNewWindow, icon: .windowNew),
+                SidebarGroupEditorItem(id: "workspaceGroup.closeWorkspaces", title: GroupEditorStrings.close, icon: .actionClose),
             ],
             [
-                SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, symbol: "square.stack.3d.up.slash"),
-                SidebarGroupEditorItem(id: "workspaceGroup.delete", title: GroupEditorStrings.delete, symbol: "trash"),
-                SidebarGroupEditorItem(id: moreActionsItem, title: GroupEditorStrings.moreActions, symbol: "ellipsis.circle"),
+                SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, icon: .groupUngroup),
+                SidebarGroupEditorItem(id: "workspaceGroup.delete", title: GroupEditorStrings.delete, icon: .actionDelete),
+                SidebarGroupEditorItem(id: moreActionsItem, title: GroupEditorStrings.moreActions, icon: .actionMore),
             ],
         ]
     }

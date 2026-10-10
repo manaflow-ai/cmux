@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
@@ -11,29 +12,27 @@ final class SidebarIconButton: NSButton {
     /// header's ink); nil uses the secondary text color, primary on hover.
     var tintOverride: NSColor? { didSet { needsDisplay = true } }
 
-    /// Replacing the symbol or label redraws the button (a disclosure's chevron).
-    var symbol: String { didSet { if symbol != oldValue { renderedSize = 0; renderSymbol() } } }
-    private let weight: NSFont.Weight
+    /// Replacing the icon or label redraws the button (a disclosure's chevron).
+    var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
     var label: String {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
             toolTip = label
             renderedSize = 0
-            renderSymbol()
+            renderIcon()
         }
     }
-    /// Point size read at layout time so density changes apply live.
+    /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
 
-    init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, weight: NSFont.Weight = .semibold, label: String) {
-        self.symbol = symbol
-        self.weight = weight
+    init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.icon = icon
         self.label = label
         self.pointSize = pointSize
         super.init(frame: .zero)
-        renderSymbol()
+        renderIcon()
         imagePosition = .imageOnly
         isBordered = false
         setAccessibilityLabel(label)
@@ -51,17 +50,18 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
-    private func renderSymbol() {
+    private func renderIcon() {
         let size = pointSize()
         guard size != renderedSize else { return }
         renderedSize = size
-        let config = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(config)
+        let image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: size))
+        image.accessibilityDescription = label
+        self.image = image
     }
 
     override func layout() {
         super.layout()
-        renderSymbol()
+        renderIcon()
     }
 
     override var wantsUpdateLayer: Bool { true }
