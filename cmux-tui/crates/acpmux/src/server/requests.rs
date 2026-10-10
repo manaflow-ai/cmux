@@ -806,6 +806,15 @@ async fn dispatch_request(
         | method::MUX_HARNESS_RESTORE
         | method::MUX_HARNESS_DOCTOR
         | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        method::MUX_ROUTE_LIST
+        | method::MUX_ROUTE_SHOW
+        | method::MUX_ROUTE_ADD
+        | method::MUX_ROUTE_EDIT
+        | method::MUX_ROUTE_REMOVE
+        | method::MUX_ROUTE_RESTORE
+        | method::MUX_ROUTE_TEST
+        | method::MUX_ROUTE_DEFAULT_SET
+        | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }

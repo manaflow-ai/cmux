@@ -429,6 +429,12 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // The chat's route changed during the turn: move it before the next
+        // one starts (route_switch.rs). A restart that fails leaves the
+        // harness stopped; the next prompt's spawn reports why.
+        if session.route_switch.load(Ordering::SeqCst) {
+            let _ = self.restart_on_route(session).await;
+        }
         drop(guard);
         if let Ok(v) = &mut result {
             merge_mux_meta(v, ids);
@@ -497,6 +503,19 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // A failure on a bound route names the route and its fallback
+        // (route_switch.rs), in the error's data and the turn result.
+        let route_info = match &result {
+            Err(e) => self.route_failure(session, &e.message).await,
+            Ok(_) => None,
+        };
+        if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
+            match &mut e.data {
+                Some(Value::Object(data)) => data.extend(info.clone()),
+                None => e.data = Some(Value::Object(info.clone())),
+                Some(_) => {}
+            }
+        }
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -529,6 +548,9 @@ impl Hub {
                     let agent_error =
                         (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
                     o.extend(self.turn_error_fields(session, agent_error));
+                    if let Some(Value::Object(info)) = &route_info {
+                        o.extend(info.clone());
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
