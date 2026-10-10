@@ -1,0 +1,118 @@
+name: cmux-next base autofix
+
+# After each cmux-next run on a feat-cmux-next push, repairs the base's
+# mechanical reds in one commit on top of that push, so no pull request has to
+# carry them: the generated files the Mac generated-files job rebuilt (its
+# cmux-next-generated-patch artifact: action contracts, CI target graph) and
+# cargo fmt in cmux-tui (scripts/cmux-next/base-autofix.sh). A frozen path
+# (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
+# is reported and never written; missing cmux-tui tree inputs are reported
+# (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
+# app-ffi-release.yml's app-ffi-repin pull request.
+#
+# Push identity: github-actions[bot] through this job's GITHUB_TOKEN
+# (contents: write). No ruleset or branch protection applies to
+# feat-cmux-next (2026-10-09). GITHUB_TOKEN cannot push workflow files, and its
+# pushes start no workflow: the repair commit is verified by the next push's
+# cmux-next run, which is enough for mechanical fixes, and the bot cannot loop.
+#
+# Dry run until the repo variable CMUX_NEXT_BASE_AUTOFIX is 1: it repairs and
+# commits locally, and the summary shows what it would push.
+on:
+  workflow_run:
+    workflows: [cmux-next]
+    types: [completed]
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-base-autofix
+  cancel-in-progress: true
+
+jobs:
+  autofix:
+    name: autofix feat-cmux-next
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && github.event.workflow_run.head_branch == 'feat-cmux-next' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      # Absent when the run regenerated nothing.
+      - name: Download the regenerated files
+        id: generated
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Repair
+        run: |
+          set -euo pipefail
+          generated=()
+          [[ -d "$RUNNER_TEMP/generated" ]] && generated=(--generated "$RUNNER_TEMP/generated")
+          scripts/cmux-next/base-autofix.sh ${generated[@]+"${generated[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
+          { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit the repairs
+        id: commit
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "Nothing to repair at ${HEAD_SHA:0:12}." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12}" \
+            -m "$(grep '^fixed: ' "$RUNNER_TEMP/autofix.txt" | sed 's/^fixed: /- /')" \
+            -m "scripts/cmux-next/base-autofix.sh: $RUN_URL"
+          git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push the repairs
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          # The checkout keeps no credentials; the token is used only here.
+          TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$ENABLED" != true ]]; then
+            echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
+          current="$("${with_auth[@]}" git ls-remote "$remote" refs/heads/feat-cmux-next | awk '{print $1}')"
+          if [[ "$current" != "$HEAD_SHA" ]]; then
+            echo "feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
+          if ! "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
+            echo "feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"

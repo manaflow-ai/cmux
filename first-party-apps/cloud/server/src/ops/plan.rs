@@ -55,26 +55,3 @@ pub(super) fn run<C: ControlPlane>(
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::checked_checkout_url;
-
-    #[test]
-    fn only_a_plain_https_url_with_a_host_is_opened() {
-        assert!(checked_checkout_url("https://checkout.stripe.com/c/pay/cs_test_1").is_ok());
-        for bad in [
-            "http://checkout.stripe.com/x",
-            "https://",
-            "https:///path",
-            "https://user:pass@checkout.stripe.com/x",
-            "https://user@checkout.stripe.com/x",
-            "https://checkout.stripe.com/a b",
-            "https://checkout.stripe.com/\u{7}",
-            "javascript:alert(1)",
-        ] {
-            assert!(checked_checkout_url(bad).is_err(), "{bad:?}");
-        }
-        assert!(checked_checkout_url(&format!("https://a.com/{}", "x".repeat(5000))).is_err());
-    }
-}

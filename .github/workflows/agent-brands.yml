@@ -20,7 +20,7 @@ on:
       - .xcode-version
       - .github/workflows/agent-brands.yml
   push:
-    branches: [main, feat-cmux-next]
+    branches: [main]
     paths:
       - design/agent-icons/**
       - scripts/agent-icons/**

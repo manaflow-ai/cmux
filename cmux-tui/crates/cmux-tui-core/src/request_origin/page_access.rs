@@ -99,7 +99,14 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
-        | Op::SessionJournalHookPut => Access::Denied(Denied::FileSystem),
+        | Op::SessionJournalHookPut
+        // The user's folders (project-list-v1): read and edited by the app, never a page.
+        | Op::ProjectList
+        | Op::ProjectObserve
+        | Op::ProjectAdd
+        | Op::ProjectUpdate
+        | Op::ProjectRemove
+        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
