@@ -23,6 +23,8 @@ protocol SidebarDelegate: AnyObject {
     // v1.1 (defaults in the extension below).
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem]
+    // v1.2 (default in the extension below).
+    func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int)
 }
 
 /// v1.1: the context-menu actions an owner supports for one conversation. An action that is
@@ -112,6 +114,8 @@ extension SidebarDelegate {
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) {}
     func sidebar(_ sidebar: SidebarController, setMuted muted: Bool, for id: ConversationID) {}
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
+    /// v1.2: a pinned tile was dragged to `index` in the pinned order (default: the tiles go back).
+    func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) {}
 }
 
 /// v1.1: where the sidebar's strings come from. Every sidebar string is in one catalog,
@@ -158,7 +162,32 @@ enum SidebarStrings {
     /// "%d unread messages" (accessibility).
     static var unreadFormat: String { s("sidebar.unread", "%d unread") }
     static var muted: String { s("sidebar.muted", "Alerts hidden") }
+    /// v1.2: the filter button and its items.
+    static var filter: String { s("sidebar.filter", "Filter") }
+    static func filterName(_ f: SidebarFilter) -> String {
+        switch f {
+        case .all: return s("sidebar.filter.all", "All Messages")
+        case .knownSenders: return s("sidebar.filter.known", "Known Senders")
+        case .unknownSenders: return s("sidebar.filter.unknown", "Unknown Senders")
+        case .unread: return s("sidebar.filter.unread", "Unread Messages")
+        case .spam: return s("sidebar.filter.spam", "Spam")
+        case .recentlyDeleted: return s("sidebar.filter.recentlyDeleted", "Recently Deleted")
+        }
+    }
+    /// v1.2: accessibility text of a row whose newest message was not delivered.
+    static var notDelivered: String { s("sidebar.notDelivered", "Not Delivered") }
     static var image: String { s("sidebar.preview.image", "Image") }
+    /// v1.2: "Draft: %@", the row preview of a conversation with unsent text (to verify).
+    static var draftFormat: String { s("sidebar.preview.draft", "Draft: %@") }
+
+    /// The row's preview line (and its accessibility text) when nobody is typing: my draft,
+    /// else the newest tapback, else the newest message (one line of text; newlines become spaces).
+    static func preview(_ c: ConversationSummary) -> String {
+        let text: String
+        if c.hasDraft, let d = c.draft { text = String(format: draftFormat, d) }
+        else { text = c.lastReaction.map(reaction) ?? c.preview }
+        return text.replacingOccurrences(of: "\n", with: " ")
+    }
 
     /// The reaction preview: "Lucas loved “…”", "Loved “…”" (from me in a 1:1, the sender
     /// is left out as Messages does), or "Lucas reacted 🔥 to “…”".
@@ -299,7 +328,11 @@ struct SidebarPalette: Equatable {
     var groupDisc: CGColor
     var bubble: CGColor
     var bubbleText: CGColor
+    /// The typing dots' lit and dim levels.
     var typingDot: CGColor
+    var typingDotDim: CGColor
+    /// The ring around a pinned group's recent-sender avatars (the list's background; to verify).
+    var senderRing: CGColor
 
     /// `unreadColor`, `selectionColor`: the host's colors (v1.1; nil: the system's). Each is
     /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
@@ -332,7 +365,11 @@ struct SidebarPalette: Equatable {
                 // pinned preview bubble; light: #E9E9EB (the transcript's light link card).
                 bubble: dark ? p3(59, 59, 61) : p3(233, 233, 235),
                 bubbleText: dark ? p3(255, 255, 255) : p3(0, 0, 0),
-                typingDot: dark ? p3(150, 150, 154) : p3(142, 142, 147))
+                // The transcript's measured typing dots (dark: lit 133/133/135, dim 91/91/94 on 59/59/61);
+                // light: UNVERIFIED (the transcript is dark only).
+                typingDot: dark ? p3(133, 133, 135) : p3(142, 142, 147),
+                typingDotDim: dark ? p3(91, 91, 94) : p3(196, 196, 200),
+                senderRing: NSColor.windowBackgroundColor.cgColor)
         }
         appearance.performAsCurrentDrawingAppearance { palette = build() }
         return palette ?? build()

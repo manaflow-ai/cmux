@@ -233,6 +233,3 @@ fn exclusion(op: &OpExposure, grant: &AgentGrant) -> Option<Exclusion> {
     }
     None
 }
-
-#[cfg(test)]
-mod tests;

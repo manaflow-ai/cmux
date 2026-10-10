@@ -6,8 +6,8 @@ import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 
 type HeaderToolsProps = {
-  onTerminal: () => void;
-  onBrowser: () => void;
+  onTerminal: (mode: "toggle" | "open") => void;
+  onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
   summary: ReactNode;
   menu: () => ChatMenuItem[];

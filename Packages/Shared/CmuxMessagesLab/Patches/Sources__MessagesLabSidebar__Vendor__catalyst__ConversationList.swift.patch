@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift
-@@ -83,7 +83,7 @@
+@@ -118,7 +118,7 @@
      /// The unpinned rows' indices into `items`.
      func listIndices() -> [Int] {
          let p = Set(pinned)
@@ -9,7 +9,7 @@
      }
  }
  
-@@ -160,9 +160,9 @@
+@@ -195,9 +195,9 @@
              z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
              return z ^ (z >> 31)
          }
@@ -21,7 +21,7 @@
      }
  
      static let firstNames = ["Lucas", "Maya", "Noah", "Ava", "Ethan", "Zoe", "Oliver", "Priya", "Mateo", "Hana",
-@@ -216,24 +216,22 @@
+@@ -251,24 +251,22 @@
              if i == 0, let lead { items.append(lead); continue }
              // Gaps grow down the list: minutes at the top, days further down.
              let spread = i < 12 ? 2_400.0 : i < 60 ? 14_000 : 90_000
@@ -52,3 +52,26 @@
          }
          return ConversationListSnapshot(items: items, pinned: pins)
      }
+@@ -365,12 +363,17 @@
+         items.append(gone)
+         items.sort { $0.lastAt > $1.lastAt }
+         // Two unknown senders (the Unknown Senders filter).
+-        for i in items.indices where ["state-row-date", "state-row-long-name"].contains(items[i].id) { items[i].knownSender = false }
+-        // Pinned groups show who wrote last.
+-        for i in items.indices where items[i].id == "state-pin-group-unread" { items[i].recentSenders = [ava.id, zoe.id] }
+-        for i in items.indices where items[i].id == "state-pin-muted-group" { items[i].recentSenders = [hana.id, mateo.id, iris.id] }
+         let pins = ["pin-unread", "pin-typing", "pin-group-unread", "pin-unread-typing", "pin-muted-group", "pin-read"].map { "state-" + $0 }
+-        for i in items.indices where pins.contains(items[i].id) { items[i].pinned = true }
++        // cmux: element-wise, no index math (crash ratchet)
++        items = items.map { item in
++            var item = item
++            if ["state-row-date", "state-row-long-name"].contains(item.id) { item.knownSender = false }
++            // Pinned groups show who wrote last.
++            if item.id == "state-pin-group-unread" { item.recentSenders = [ava.id, zoe.id] }
++            if item.id == "state-pin-muted-group" { item.recentSenders = [hana.id, mateo.id, iris.id] }
++            if pins.contains(item.id) { item.pinned = true }
++            return item
++        }
+         return ConversationListSnapshot(items: items, pinned: pins)
+     }
+ 
