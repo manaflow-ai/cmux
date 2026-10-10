@@ -30,4 +30,9 @@ public nonisolated enum TerminalHostLoss: Sendable, Equatable {
     case sessionShutdown
     /// The owner no longer finds the host it recorded.
     case hostMissing
+    /// The owner restarted the terminal after host losses until its restart
+    /// budget ran out.
+    case restartExhausted
+    /// The owner's restart after a host loss failed.
+    case restartFailed
 }

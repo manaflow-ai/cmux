@@ -1,14 +1,16 @@
 //! The manual restart of a dead terminal tab (`restart-tab`,
 //! `tab-restart-v1`, plans/cmux-next/ownership.md section 3.2, cx-7e7b).
 //!
-//! It covers the tabs the automatic respawn leaves dead: a crash-loop
-//! refusal, a host loss whose reason never respawns, a process end the tab
-//! kept (`on_exit` keep), and a tab kept by keep-layout. The user asked, so
-//! any end of the terminal's last incarnation qualifies and the crash-loop
-//! bound does not apply (nor counts the attempt). The restart runs the L2
-//! worker (`run_terminal_respawn`): the same terminal id gets a new shell
-//! and incarnation in its tabs, below the previous screen and the marker
-//! line. The tab id, placement, name, pin and group stay.
+//! It covers the tabs the automatic respawn leaves dead: a terminal whose
+//! supervisor used every attempt (`restart_exhausted`) or whose respawn
+//! launch failed (`restart_failed`), a host loss whose reason never
+//! respawns, a process end the tab kept (`on_exit` keep), and a tab kept by
+//! keep-layout. The user asked, so any end of the terminal's last
+//! incarnation qualifies, no backoff applies, and the supervisor's attempt
+//! count starts over (`supervisor.rs`). The restart runs the L2 worker
+//! (`run_terminal_respawn`): the same terminal id gets a new shell and
+//! incarnation in its tabs, below the previous screen and the marker line.
+//! The tab id, placement, name, pin and group stay.
 
 use super::*;
 
@@ -112,22 +114,25 @@ impl Mux {
         let ContentPublicId::Terminal(public_id) = content.clone() else {
             return Err(TabRestartError::NotTerminal.into());
         };
-        let (terminal_id, old_incarnation) = {
-            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let terminal_id =
-                registry.live_terminal_host_id(&public_id)?.ok_or(TabRestartError::NotTerminal)?;
-            let record =
-                registry.terminal_record(&terminal_id)?.ok_or(TabRestartError::NotTerminal)?;
-            if record.lifecycle != TerminalLifecycle::Exited {
-                return Err(TabRestartError::NotDead.into());
-            }
-            let incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
-            (terminal_id, incarnation)
-        };
-        // A leaf lock, alone: one restart (or automatic respawn) at a time.
+        // The automatic plan's lock order: registry, pinned state, then the
+        // pending leaf lock.
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let terminal_id =
+            registry.live_terminal_host_id(&public_id)?.ok_or(TabRestartError::NotTerminal)?;
+        let record = registry.terminal_record(&terminal_id)?.ok_or(TabRestartError::NotTerminal)?;
+        if record.lifecycle != TerminalLifecycle::Exited {
+            return Err(TabRestartError::NotDead.into());
+        }
+        let recorded = TerminalEnd::from_receipt(record.exit.as_ref()).exit().clone();
+        let old_incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         {
             let mut pending = self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner);
-            if pending.contains_key(public_id.as_str()) {
+            if pending.contains_key(public_id.as_str())
+                || pending.values().any(|(id, marker)| {
+                    id == &terminal_id && *marker == PendingTerminal::Respawning
+                })
+            {
                 return Err(TabRestartError::NotDead.into());
             }
             pending.insert(
@@ -135,15 +140,20 @@ impl Mux {
                 (terminal_id.clone(), PendingTerminal::Respawning),
             );
         }
-        let old_runtime = {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let placements = state.placements_of_content(&content).to_vec();
-            let old_runtime = state.remove_catalog_terminal(&public_id);
-            for placement in &placements {
-                state.surfaces.remove(placement);
-            }
-            old_runtime
-        };
+        // The user asked: the supervisor starts over for this terminal, so a
+        // later loss of the new shell gets the full backoff schedule again.
+        self.terminal_respawns
+            .guard
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .forget(&terminal_id);
+        let placements = state.placements_of_content(&content).to_vec();
+        let old_runtime = state.remove_catalog_terminal(&public_id);
+        for placement in &placements {
+            state.surfaces.remove(placement);
+        }
+        drop(state);
+        drop(registry);
         Ok(RespawnPlan {
             terminal_id,
             public_id,
@@ -152,6 +162,8 @@ impl Mux {
             slot: surface,
             identity: TabResourceIdentity::new(tab_id, content),
             old_runtime,
+            delay: Duration::ZERO,
+            recorded,
             user_restart: true,
         })
     }

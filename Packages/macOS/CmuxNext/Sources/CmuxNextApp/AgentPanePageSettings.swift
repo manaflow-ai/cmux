@@ -8,9 +8,11 @@ import Observation
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
+    private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
+    private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setShowContextUsage(_:)``).
     private weak var settings: SettingsController?
@@ -35,6 +37,13 @@ final class AgentPanePageSettings {
             }
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
+        zoomObservation = Task { [weak self] in
+            for await value in Observations({ settings.snapshot.agentPaneZoom }) {
+                guard let self else { return }
+                zoom = value
+                push()
+            }
+        }
         composerObservation = Task { [weak self] in
             for await value in Observations({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
@@ -48,12 +57,14 @@ final class AgentPanePageSettings {
     /// observation above then pushes to every page.
     func setShowContextUsage(_ show: Bool) async throws {
         try await settings?.set(.bool(show), at: AgentPaneComposerSetting.showContextUsagePath)
+
     }
 
     /// Gives `view` the current values (the view pushes only a change).
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
+        view.zoom = zoom
         composer.push(to: view)
     }
 }

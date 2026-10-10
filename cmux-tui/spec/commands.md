@@ -1931,12 +1931,13 @@ object{surface:Id, url:string, title:string|null, favicon_url:string|null, owner
 | since | protocol 12 additive extension; capability `tab-restart-v1` (Unix owners) |
 
 Restarts a terminal tab whose shell ended: a host loss the automatic respawn
-refused (the crash-loop bound) or never covers, a process end the tab kept
+gave up on (`restart_exhausted`, `restart_failed`) or never covers, a process end the tab kept
 (`on_exit` keep), or a tab kept by `shutdown-daemon` `keep_layout`. It runs
 the automatic respawn's worker: the same terminal id gets a new shell and a
 new incarnation in every tab that shows it, below the previous screen and one
 dim marker line; the tab id, placement, name, pin and group stay. An explicit
-restart is not bounded by the crash-loop limit and does not count toward it.
+restart has no backoff and resets the respawn supervisor's attempt count for
+the terminal.
 The reply comes when the worker started; the tree shows the tab adopting,
 then running, or dead again when the launch failed. Errors (`error_code`):
 `tab-not-dead` (the terminal runs, launches or already restarts),
@@ -7493,6 +7494,59 @@ client_streams, opened, refused, limits, audit}`. `audit` holds the last 256
 finished or refused connections (`client`, `stream`, `host`, `port`,
 `outcome`, byte counts, duration). The daemon also writes one log line per
 record.
+
+## Browser runtimes
+
+`browser-runtime-v1` lets a trusted local (Unix) client run a browser on the
+daemon's own machine: the daemon starts the remote browser host
+(`cmux-remote-browser-host`), and the client reaches the host's loopback port
+through `loopback-forward-v1` on the same link, so a cmux app on another
+machine shows a page that runs here (an SSH machine's browser tab). No
+listening socket leaves the machine. It is off for a connection until that
+client sends `set-client-info` with `capabilities:["browser-runtime-v1"]`;
+otherwise every command answers `browser-runtime.not-enabled`. WebSocket
+clients and the remote relay are refused. These commands bypass the ordered
+surface queue.
+
+The host comes only from the install directory: `<data dir>/cmux-tui/browser-host`
+(macOS `~/Library/Application Support`, else `$XDG_DATA_HOME` or
+`~/.local/share`), or `CMUX_TUI_BROWSER_HOST_DIR`. `current` names the
+installed version's directory; its executable is
+`host.app/Contents/MacOS/cmux-remote-browser-host` on macOS and
+`cmux-remote-browser-host` elsewhere. No command takes a path or a host
+argument. A runtime belongs to its connection: the end of the connection stops
+its runtimes. Limits: 4 runtimes per connection, 16 per daemon
+(`browser-runtime.limit`).
+
+### browser-runtime-status
+
+`{id, cmd:"browser-runtime-status"}` returns `{installed, platform,
+runtimes}`: `installed` is the installed version (the name of the directory
+that `current` names) or null, `platform` is `<os>-<arch>` of the daemon
+(for example `macos-aarch64`), and `runtimes` lists this connection's runtimes
+as `{runtime, port}`.
+
+### browser-runtime-start
+
+`{id, cmd:"browser-runtime-start", url?}` starts the host with
+`--serve --listen 127.0.0.1:0 --lifeline [--url URL]`. `url` is the first
+page (http or https, at most 8 KiB; else `browser-runtime.bad-url`). The
+daemon writes a new 32-byte secret (64 hex characters) as the first line of
+the host's stdin and keeps the pipe open as its lifeline; the secret is never
+in argv, the environment, a log or an event. The reply comes when the host
+prints `{"listening":"127.0.0.1:PORT"}`:
+`{runtime, port, secret, installed}`. The client sends `secret` as the
+`cmux.rd/1` hello token through a `loopback-open` stream to `port`. Errors:
+`browser-runtime.not-installed`, `browser-runtime.start-failed` (the host
+exited or did not listen within 45 s; the message ends with the end of the
+host's log).
+
+### browser-runtime-stop
+
+`{id, cmd:"browser-runtime-stop", runtime}` closes the host's lifeline and
+answers `{stopped:true}`; a host still running 5 s later is killed with its
+process group. A runtime of another connection, or one already stopped, is
+`browser-runtime.unknown`.
 
 ## Agent session attach
 

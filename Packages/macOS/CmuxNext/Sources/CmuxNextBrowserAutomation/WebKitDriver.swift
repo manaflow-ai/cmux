@@ -18,6 +18,8 @@ public final class WebKitDriver: DriverCallHandler {
     weak var provider: (any AutomationTabProvider)?
     /// The page agent install source from the host (`hello.ack agent_bundle`).
     public var agentBundle: String?
+    /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
+    public var cookieBackups: CookieBackups?
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
@@ -63,7 +65,9 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.pdf": return try await tabPDF(params)
         case "dialog.respond": return try dialogs.respond(params)
         case "cookies.get": return try await cookiesGet(params)
+        case "cookies.set": return try await cookiesSet(params)
         case "cookies.clear": return try await cookiesClear(params)
+        case "cookies.restore": return try await cookiesRestore(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
         }
     }
