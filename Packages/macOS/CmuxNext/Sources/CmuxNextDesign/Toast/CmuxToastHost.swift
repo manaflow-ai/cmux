@@ -75,6 +75,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
     public func hide(_ toast: CmuxToastView, animated: Bool) {
         guard let (handle, _, _, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
         handle.onDismiss = nil
+        // While it fades, the page under it gets the next click.
+        handle.stopTakingMouse()
         CmuxToastMotion.disappear(toast, animated: animated) { handle.dismiss() }
     }
 }

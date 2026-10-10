@@ -3,9 +3,10 @@ import AppKit
 /// How a toast arrives, restacks and leaves (cx-f6i7). It rises from the
 /// window's bottom edge, where toasts live, as it fades in; when a toast
 /// below it goes, it slides down to its new slot from where it is on screen;
-/// it fades out in place when it ends. A toast replaced by a newer one goes
-/// in one frame, so two different toasts never crossfade. Reduce Motion
-/// keeps the fades and drops the movement (`Motion.set` snaps it).
+/// it fades out in place when it ends. A toast replaced by a newer one with
+/// its id goes in one frame, so two different toasts never crossfade.
+/// Reduce Motion keeps the fades and drops the movement (`Motion.set` snaps
+/// it).
 @MainActor
 enum CmuxToastMotion {
     /// How far below its slot a new toast starts.
@@ -30,9 +31,10 @@ enum CmuxToastMotion {
         Motion.set(layer, "transform.translation.y", to: CGFloat(0), spring: .move, from: shown + offset)
     }
 
-    /// Fades `toast` out, then runs `remove`. `animated` false removes it now.
+    /// Fades `toast` out, then runs `remove`. `animated` false removes it now,
+    /// as does a window off every screen (its fade would never finish).
     static func disappear(_ toast: CmuxToastView, animated: Bool, remove: @escaping @MainActor () -> Void) {
-        guard animated, let layer = layer(of: toast), Motion.duration(.fadeOut) > 0 else { return remove() }
+        guard animated, Motion.canAnimate(in: toast), let layer = layer(of: toast), Motion.duration(.fadeOut) > 0 else { return remove() }
         toast.onHover = nil
         CATransaction.begin()
         CATransaction.setCompletionBlock {
