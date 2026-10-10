@@ -1715,6 +1715,7 @@
     "tunnel.rotate-key",
     "usage.cap.set",
     "user.ensure",
+    "user.presence_key.list",
     "user.presence_key.revoke",
     "user.teams.list",
     "user.text_confirm.get",
