@@ -674,6 +674,7 @@ fn application_protocols(header: &str, authentication: &str) -> String {
         .join(", ")
 }
 
+#[cfg(test)]
 pub(super) fn parse_connect_authority_with_loopback(
     authority: &str,
     allow_loopback: bool,
