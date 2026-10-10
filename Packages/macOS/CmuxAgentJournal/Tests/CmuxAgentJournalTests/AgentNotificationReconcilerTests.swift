@@ -192,14 +192,14 @@ struct AgentNotificationReconcilerTests {
         #expect(later.invalidatedCorrelationKeys.isEmpty)
 
         let replacement = reconciler.apply(
-            event(3, .sessionStarted, source: "claude", session: "new", notify: false,
+            event(6, .sessionStarted, source: "claude", session: "new", notify: false,
                   surfaceID: destination)
         )
         #expect(replacement.disposition == .observation)
         #expect(replacement.invalidatedCorrelationKeys == [destinationErrorIdentity])
         #expect(
             reconciler.apply(
-                event(4, .errorReported, source: "claude", session: "old", surfaceID: destination)
+                event(7, .errorReported, source: "claude", session: "old", surfaceID: destination)
             ).disposition == .stale
         )
     }
@@ -350,6 +350,22 @@ struct AgentNotificationReconcilerTests {
         #expect(resumed.disposition == .accepted)
         #expect(resumed.identity != old.identity)
         #expect(reconciler.apply(event(5, .turnCompleted, source: source)).disposition == .stale)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func sameSessionStartRetiresPriorNotification(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        let failure = reconciler.apply(event(1, .errorReported, source: source))
+        let failureIdentity = try #require(failure.identity)
+        let recovery = event(2, .sessionStarted, source: source, turn: nil, notify: false)
+
+        let recovered = reconciler.apply(recovery)
+        #expect(recovered.disposition == .observation)
+        #expect(recovered.invalidatedCorrelationKeys == [failureIdentity])
+        #expect(reconciler.lifecycleEvent(recovery).draft.kind == .sessionStarted)
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: source)).disposition == .accepted
+        )
     }
 
     @Test(arguments: ["claude", "codex"])
