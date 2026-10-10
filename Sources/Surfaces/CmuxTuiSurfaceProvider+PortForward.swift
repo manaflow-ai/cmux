@@ -124,13 +124,18 @@ extension CmuxTuiSurfaceProvider {
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
+        // Keep the URL the user opened as the browser's logical service
+        // identity. SSH still uses `privateURL` for policy validation and the
+        // access model's target, but the loopback listener is only a transport
+        // detail and must not replace `localhost:<port>` in the address bar.
+        let logicalURL = machine.isSSH ? url : privateURL
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
             browser.bindCloudBrowserNavigation()
-            browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: logicalURL, resourceID: resourceID)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID, request: request)
+            browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID, request: request)
         }
         materializedPanels.insert(browser.id)
         return true

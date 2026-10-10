@@ -298,6 +298,25 @@ struct CloudDesktopAccessTests {
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
     }
 
+    @Test("A forwarded SSH document keeps the logical localhost service URL")
+    func forwardedDocumentDisplaysServiceURL() async throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "127.0.0.1", port: 4000), coordinator: nil,
+            wake: {}, startForward: { _ in 51_636 }, stopForward: {}, route: .loopback
+        )
+        let state = CloudBrowserAccessState()
+        let service = try #require(URL(string: "http://localhost:4000/projects/123?tab=logs#tail"))
+        state.configure(model: model, url: service)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let listener = try #require(state.nextURL())
+        #expect(listener.absoluteString == "http://127.0.0.1:51636/projects/123?tab=logs#tail")
+        state.didCommit(url: listener)
+        state.didFinish(url: listener)
+        #expect(state.displayURL(listener) == service)
+        await model.retire()
+    }
+
     @Test("Leaving a Cloud page clears its resource provenance")
     func leavingCloudClearsResourceIdentity() {
         let state = CloudBrowserAccessState()

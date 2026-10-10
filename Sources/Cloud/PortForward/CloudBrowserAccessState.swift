@@ -330,10 +330,23 @@ final class CloudBrowserAccessState {
         return parts.url ?? remoteURL
     }
 
-    /// A bootstrap document belongs to WebKit, not to the user's navigation.
-    /// Keep the requested Cloud origin until a real service document commits.
+    /// WebKit loads loopback forwards through an ephemeral local listener, but
+    /// the browser chrome should continue to identify the remote service the
+    /// user opened. Preserve the listener's path/query/fragment while swapping
+    /// its transport authority back to the stable service authority.
     func displayURL(_ observedURL: URL?) -> URL? {
-        guard let remoteURL, !hasCommittedNavigation,
+        guard let remoteURL else { return nil }
+        if model?.route == .loopback,
+           let observedURL,
+           observedURL.scheme?.lowercased() == "http",
+           owns(observedURL),
+           let logicalURL = sessionURL(currentURL: observedURL) {
+            return logicalURL
+        }
+        // A bootstrap document belongs to WebKit, not to the user's
+        // navigation. Keep the requested Cloud origin until a real service
+        // document commits.
+        guard !hasCommittedNavigation,
               observedURL == nil || observedURL?.scheme == "about" else { return nil }
         return remoteURL
     }
