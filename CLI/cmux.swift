@@ -11396,6 +11396,7 @@ struct CMUXCLI {
         let rest = Array(commandArgs.dropFirst())
         switch sub {
         case "displays":
+            try rejectUnexpectedArguments(rest, commandName: "window displays", valueOptions: [], maxPositionals: 0)
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
         case "display":
             try runWindowDisplayCommand(
@@ -11567,17 +11568,32 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        if commandArgs.contains("--list") || commandArgs.contains("-l") {
+        // Strip --window and its value first, so a value like `-l` isn't read as the list flag.
+        let (_, withoutWindow) = parseOption(commandArgs, name: "--window")
+        let optionTerminator = withoutWindow.firstIndex(of: "--") ?? withoutWindow.endIndex
+        let lists = withoutWindow[..<optionTerminator].contains { $0 == "--list" || $0 == "-l" }
+        // One display name (quote a name with spaces), or none when listing.
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "window display",
+            valueOptions: ["--window"],
+            flags: ["--list", "-l"],
+            maxPositionals: lists ? 0 : 1
+        )
+        if lists {
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
             return
         }
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        guard let displayName = positional.first, !displayName.isEmpty else {
+        guard let displayName = firstPositionalArgument(withoutWindow, valueOptions: []), !displayName.isEmpty else {
             throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
         }
         var params: [String: Any] = ["display": displayName]
-        if let windowOverride {
-            let normalized = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+        // --window works after the subcommand too; dropping it would move every main window.
+        if let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride) {
+            guard let normalized = try normalizeWindowHandle(windowRaw, client: client) else {
+                // An empty --window would otherwise be sent as an empty window id.
+                throw missingOptionValueError("--window", commandName: "window display")
+            }
             params["window_id"] = normalized
         }
         let response = try client.sendV2(method: "window.display", params: params)
