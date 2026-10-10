@@ -219,14 +219,19 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     }
 
     /// A persistent WebKit profile's cookie store (`cookies.restore`): the
-    /// built-in profile or one the profile book still holds; never a private one.
+    /// built-in profile, one the profile book still holds, or the store of
+    /// an open tab of the profile; never a private one.
     func cookieStore(profile: BrowserProfileID) -> WKHTTPCookieStore? {
         guard let services else { return nil }
         let profileStore = services.cache.webKit.profileStore
         guard !profileStore.isOffTheRecord(profile) else { return nil }
         let book = services.browserProfiles.book
-        guard profile == .default || book.profiles.contains(where: { book.engineProfile(for: $0.id) == profile }) else { return nil }
-        return profileStore.dataStore(for: profile).httpCookieStore
+        if profile == .default || book.profiles.contains(where: { book.engineProfile(for: $0.id) == profile }) {
+            return profileStore.dataStore(for: profile).httpCookieStore
+        }
+        return automationTabs(all: true).map(\.tab).first {
+            $0.profileID == profile && $0.webView.configuration.websiteDataStore.isPersistent
+        }?.webView.configuration.websiteDataStore.httpCookieStore
     }
 
     /// Tabs belong to the person's layout: the provider never closes one.
