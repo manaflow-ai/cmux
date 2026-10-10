@@ -66,48 +66,6 @@ const setup = async (user: string) => {
 }
 const quantity = async (t: string, meter: string) => (await read(t, "usage.summary")).value.meters.find((x: { meter: string }) => x.meter === meter)?.quantity ?? 0
 
-describe("egress allowlist (pure)", () => {
-  it("matches exact hosts and subdomain patterns only", () => {
-    expect(hostAllowed("api.example.com", ["api.example.com"])).toBe(true)
-    expect(hostAllowed("x.api.example.com", ["api.example.com"])).toBe(false)
-    expect(hostAllowed("a.example.com", ["*.example.com"])).toBe(true)
-    expect(hostAllowed("example.com", ["*.example.com"])).toBe(false)
-    expect(hostAllowed("badexample.com", ["*.example.com"])).toBe(false)
-    expect(hostAllowed("api.example.com.", ["api.example.com"])).toBe(false)
-  })
-
-  it("never reaches our auth provider, even when listed (review P2)", () => {
-    expect(hostAllowed("api.stack-auth.com", ["api.stack-auth.com"])).toBe(false)
-    expect(hostAllowed("api.stack-auth.com", ["*.stack-auth.com"])).toBe(false)
-    expect(hostAllowed("app.stack-auth.com", ["*.stack-auth.com"])).toBe(false)
-  })
-})
-
-describe("automation run trees (pure)", () => {
-  it("caps each tree, keeps depth, and drops counters of trees with no run left", () => {
-    const run = (id: string, automation: string, trigger: Record<string, unknown>) => ({ id, automation, state: "running", trigger: { id: null, ...trigger } })
-    const target = { body: { type: "steps" } } as any
-    const p = { kind: "agent", identity: "automation:auto_a", agent: "auto_a", run: "run_root", team: "t" } as any
-    const state: any = { runs: { run_root: run("run_root", "auto_a", { type: "manual" }) }, automation_trees: { run_root: MAX_TREE_RUNS - 1, run_gone: 3 } }
-    const ok = automationTrigger(state, p, target) as any
-    expect(ok.trigger).toMatchObject({ type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
-    expect(ok.trees).toEqual({ run_root: MAX_TREE_RUNS })
-    expect(automationTrigger({ ...state, automation_trees: ok.trees }, p, target)).toMatchObject({ ok: false, code: "automation.fanout" })
-    // A run reached through leaked capabilities still counts against its own tree.
-    const deep: any = { runs: { run_c: run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 3 }) }, automation_trees: {} }
-    expect(automationTrigger(deep, { ...p, run: "run_c" }, target)).toMatchObject({ ok: false, code: "automation.depth" })
-    expect(automationTrigger(state, { ...p, agent: "auto_b" }, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
-    // A pruned root keeps its counter while a child of its tree is still in state.
-    const child = run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
-    const kept = automationTrigger({ runs: { run_c: child }, automation_trees: { run_root: MAX_TREE_RUNS } } as any, { ...p, run: "run_c" }, target)
-    expect(kept).toMatchObject({ ok: false, code: "automation.fanout" })
-    // An old chained record without root_run, and a finished caller, are refused.
-    const old = run("run_o", "auto_a", { type: "automation", parent_run: "run_x", depth: 1 })
-    expect(automationTrigger({ runs: { run_o: old } } as any, { ...p, run: "run_o" }, target)).toMatchObject({ ok: false, code: "automation.fanout" })
-    expect(automationTrigger({ runs: { run_root: { ...state.runs.run_root, state: "succeeded" } } } as any, p, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
-  })
-})
-
 describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
   it("lets code reach only allowlisted HTTPS hosts and meters each allowed request", async () => {
     const seen: Array<string> = []

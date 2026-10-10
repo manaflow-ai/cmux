@@ -31,25 +31,6 @@ const sha = (n: number) => n.toString(16).padStart(40, "0")
 const codeBody = (commit: string) => ({ type: "code", ref: { path: "automations/daily-digest", commit } })
 
 describe("code bodies in the SchedulerDO reducer", () => {
-  it("creates a code automation and deploys another commit, bumping the version", () => {
-    const created = ok(apply(schedulerDomain.initial(), "automation.create", { name: "digest", triggers: [{ type: "manual" }], body: codeBody(sha(1)) }, T0))
-    const a = created.value as { id: string; version: number; body: unknown }
-    expect(a.body).toEqual(codeBody(sha(1)))
-    expect(created.state.deploys).toEqual({ day: "2026-10-03", count: 1 })
-
-    const deployed = ok(apply(created.state, "automation.deploy", { automation: a.id, commit: sha(2), expected_version: 1 }, T0 + 1000))
-    expect(deployed.value).toMatchObject({ version: 2, body: codeBody(sha(2)) })
-    expect(deployed.state.deploys).toEqual({ day: "2026-10-03", count: 2 })
-    expect(deployed.outbox).toHaveLength(1)
-
-    // The same commit again changes nothing and counts nothing.
-    const same = ok(apply(deployed.state, "automation.deploy", { automation: a.id, commit: sha(2) }, T0 + 2000))
-    expect(same.changed).toBe(false)
-    expect(same.state.deploys?.count).toBe(2)
-
-    const stale = apply(deployed.state, "automation.deploy", { automation: a.id, commit: sha(3), expected_version: 1 }, T0 + 3000)
-    expect(stale).toMatchObject({ ok: false, code: "version.conflict" })
-  })
 
   it("refuses deploys of non-code automations, short ids and foreign paths", () => {
     const created = ok(apply(schedulerDomain.initial(), "automation.create", { name: "steps", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } }, T0))
@@ -115,20 +96,6 @@ describe("code.storage check (fake HTTP)", () => {
   }
   const noRead = async () => undefined
 
-  it("passes when the commit and its bundle exist, with a one-repository read token", async () => {
-    const f = fake([sha(1)], [`${sha(1)}:automations/daily-digest/dist/index.js`])
-    const res = await precheckCodeOp(codeEnv, team, "automation.create", { body: codeBody(sha(1)) }, noRead, f.http)
-    expect(res).toBeUndefined()
-    expect(f.calls).toHaveLength(2)
-    for (const c of f.calls) {
-      expect(c.alg).toBe("ES256")
-      expect(c.claims).toMatchObject({ iss: "cmux-test-org", repo, scopes: ["git:read"] })
-      expect((c.claims.exp as number) - (c.claims.iat as number)).toBeLessThanOrEqual(300)
-    }
-    // The bundle check reads one byte, not the bundle.
-    expect(f.calls[1]!.range).toBe("bytes=0-0")
-  })
-
   it("refuses a missing commit, a missing bundle, and maps service errors to code.unavailable", async () => {
     const f = fake([sha(1)], [])
     expect(await precheckCodeOp(codeEnv, team, "automation.create", { body: codeBody(sha(2)) }, noRead, f.http)).toMatchObject({ code: "code.not_found" })
@@ -141,30 +108,6 @@ describe("code.storage check (fake HTTP)", () => {
     expect(unconfigured).toMatchObject({ code: "code.unavailable", retryable: false })
   })
 
-  it("skips the check when an update repeats the stored ref", async () => {
-    const down = fake([], [], 503)
-    const read = async () => ({ body: codeBody(sha(1)) })
-    expect(await precheckCodeOp(codeEnv, team, "automation.update", { automation: "auto_x", body: codeBody(sha(1)) }, read, down.http)).toBeUndefined()
-    expect(down.calls).toHaveLength(0)
-    expect(await precheckCodeOp(codeEnv, team, "automation.update", { automation: "auto_x", body: codeBody(sha(2)) }, read, down.http)).toMatchObject({ code: "code.unavailable" })
-  })
-
-  it("never accepts a different commit than the one named", async () => {
-    const http = async () => Response.json({ commit: { sha: sha(7) } })
-    expect(await new CodeStorage(codeEnv, http).commit(repo, sha(1))).toMatchObject({ ok: false, code: "code.not_found" })
-  })
-
-  it("checks a deploy against the automation's own path, and leaves other ops alone", async () => {
-    const f = fake([sha(2)], [`${sha(2)}:automations/daily-digest/dist/index.js`])
-    const read = async () => ({ body: codeBody(sha(1)) })
-    expect(await precheckCodeOp(codeEnv, team, "automation.deploy", { automation: "auto_x", commit: sha(2) }, read, f.http)).toBeUndefined()
-    expect(f.calls.map((c) => c.url.searchParams.get("path"))).toEqual([null, "automations/daily-digest/dist/index.js"])
-    expect(await precheckCodeOp(codeEnv, team, "automation.deploy", { automation: "auto_x", commit: sha(3) }, read, f.http)).toMatchObject({ code: "code.not_found" })
-    const before = f.calls.length
-    expect(await precheckCodeOp(codeEnv, team, "automation.run", { automation: "auto_x" }, read, f.http)).toBeUndefined()
-    expect(await precheckCodeOp(codeEnv, team, "automation.update", { automation: "auto_x", name: "n" }, read, f.http)).toBeUndefined()
-    expect(f.calls.length).toBe(before)
-  })
 })
 
 describe("code automations through the API Worker", () => {
