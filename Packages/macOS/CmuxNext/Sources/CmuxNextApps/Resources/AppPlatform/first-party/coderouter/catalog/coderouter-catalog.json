@@ -1,0 +1,167 @@
+{
+  "family": "coderouter",
+  "operations": [
+    {
+      "name": "coderouter.app.open",
+      "owner": "app:cmux/coderouter",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Open CodeRouter"
+      },
+      "docs": "Open the CodeRouter pane.",
+      "since": "coderouter/1",
+      "export": "open"
+    },
+    {
+      "name": "coderouter.app.connect_account",
+      "owner": "app:cmux/coderouter",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude",
+              "openai",
+              "anthropic",
+              "openrouter",
+              "bedrock"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "connect-account",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Connect Account to CodeRouter"
+      },
+      "docs": "Connect a provider account to CodeRouter; cmux handles the secret.",
+      "since": "coderouter/1",
+      "export": "connectAccount"
+    },
+    {
+      "name": "coderouter.app.create_key",
+      "owner": "app:cmux/coderouter",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      },
+      "cli": {
+        "path": "create-key",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Create CodeRouter API Key"
+      },
+      "docs": "Create a CodeRouter API key; cmux shows it once in its own sheet.",
+      "since": "coderouter/1",
+      "export": "createKey"
+    },
+    {
+      "name": "coderouter.app.run_test",
+      "owner": "app:cmux/coderouter",
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "test",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Test CodeRouter"
+      },
+      "docs": "Send one tiny test prompt through CodeRouter.",
+      "since": "coderouter/1",
+      "export": "runTest"
+    },
+    {
+      "name": "coderouter.app.start_onboarding",
+      "owner": "app:cmux/coderouter",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "setup",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Set Up CodeRouter"
+      },
+      "docs": "Start the CodeRouter setup.",
+      "since": "coderouter/1",
+      "export": "startOnboarding"
+    }
+  ]
+}
