@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextPages
 
 /// One window's top pages: one view per route, made on first show and kept
 /// for the window's life, so a page keeps its state (scroll, search, the
@@ -24,12 +23,7 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
-            // Debug Settings `home.surface`: the React channels Home, else the native Home.
-            if let page = PageFactory(services: services).homeChannelsWebPage() {
-                view = InternalPageView(key: LocalPageTab.makeKey(.homeChannels), page: .homeChannels, content: page)
-            } else {
-                view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
-            }
+            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
@@ -67,9 +61,6 @@ final class TopPageHost {
     func teardown() {
         for (route, view) in views {
             view.removeFromSuperview()
-            // The channels Home is a web page outside the internal page providers: close it so
-            // its event subscription ends with the window.
-            if route == .home, let page = (view as? InternalPageView)?.content as? PageWebView { page.close() }
             if case .page(let id) = route, let key = keys[route] { services?.pages.provider(id)?.tabClosed(key) }
         }
         views.removeAll()

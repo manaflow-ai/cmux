@@ -18,10 +18,8 @@ extension PageDescriptor {
 }
 
 extension PageFactory {
-    /// The React channels Home when Debug Settings `home.surface` is `web`, else nil (the native
-    /// Home). The tunable goes when one Home becomes the only one.
+    /// The React channels Home (a tab next to the native Home; both read the same owners).
     func homeChannelsWebPage() -> PageWebView? {
-        guard PageTunables.home.value == .web else { return nil }
         let home = services.home
         let provider = HomeChannelsPageProvider(source: home.homeRouter, me: ParticipantID(ConversationParticipant.localUserID))
         let routes = [PageRoute(prefix: "cmux.home.", provider: provider)]

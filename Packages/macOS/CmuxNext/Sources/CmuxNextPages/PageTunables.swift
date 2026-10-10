@@ -50,16 +50,10 @@ public nonisolated struct PageTunables {
         "coderouter.surface", section, "CodeRouter page", help: "Opens the CodeRouter app as the React page. New tabs use it.",
         default: .native, code: "PageTunables.coderouter")
 
-    /// Home as the React channels page (cmux.home-channels) instead of the native Home. Windows
-    /// opened after the change use it.
-    public static let home = Tunable<PageImplementation>.choice(
-        "home.surface", section, "Home page", help: "Shows Home as the React channels page. New windows use it.",
-        default: .native, code: "PageTunables.home")
-
     /// The Cloud page's machine list layout (the Cloud lead's prototype variants; rows default).
     public static let cloudMachinesLayout = Tunable<CloudMachinesLayout>.choice(
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, home.descriptor, cloudMachinesLayout.descriptor] }
+    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, cloudMachinesLayout.descriptor] }
 }
