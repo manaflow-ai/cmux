@@ -157,8 +157,27 @@ export default agentPaneEntry({
     },
     "template-classic": {
       note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
-      ready: newTab({ template: "classic" }),
+      ready: newTab({ template: "classic", templateSwitcher: true }),
       snapshot: noChat(manySessions(4)),
+    },
+    "switcher-off": {
+      note: "The template switcher is off by default until it is styled (cx-7qqu): no dots.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen"));
+        if (ctx.document.querySelector(".nt-templates"))
+          throw new Error("the template dots show with the switcher off");
+      },
+    },
+    "switcher-on": {
+      note: "With Debug Settings newTab.templateSwitcher on, a dot switches the page in place (cx-7qqu).",
+      ready: newTab({ templateSwitcher: true }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
+      },
     },
   },
 });

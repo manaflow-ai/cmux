@@ -23,5 +23,11 @@ nonisolated enum NewTabTunables {
         help: "Prototype design of the new tab screen. Applies to the next new tab.",
         default: .b, code: "NewTabTunables.layout")
 
-    static var all: [TunableDescriptor] { [layout.descriptor] }
+    /// Off until the switcher is styled (cx-7qqu); the saved template applies either way.
+    static let templateSwitcher = Tunable<Bool>.toggle(
+        "newTab.templateSwitcher", .tabs, "New tab template switcher",
+        help: "Shows the template dots that switch the new tab page in place. Applies to the next new tab.",
+        default: false, code: "NewTabTunables.templateSwitcher")
+
+    static var all: [TunableDescriptor] { [layout.descriptor, templateSwitcher.descriptor] }
 }
