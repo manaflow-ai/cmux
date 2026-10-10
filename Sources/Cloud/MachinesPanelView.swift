@@ -547,6 +547,7 @@ struct MachinesPanelView: View {
     private func refreshCoderouterAccounts() async {
         coderouterState.select(currentCoderouterScope)
         guard let scope = currentCoderouterScope else { return }
+        guard let readRevision = coderouterState.beginRefresh(for: scope) else { return }
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(scope.teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
@@ -560,7 +561,8 @@ struct MachinesPanelView: View {
                 accounts: snapshot.accounts,
                 organizationID: snapshot.organizationID,
                 teamScope: snapshot.scope,
-                for: scope
+                for: scope,
+                startedAt: readRevision
             )
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
@@ -568,7 +570,7 @@ struct MachinesPanelView: View {
             guard !Task.isCancelled, currentCoderouterScope == scope else { return }
             // Same-team rows remain useful during a transient error, but the
             // add destination is withdrawn until a fresh read succeeds.
-            coderouterState.fail(for: scope)
+            coderouterState.fail(for: scope, startedAt: readRevision)
         }
     }
 

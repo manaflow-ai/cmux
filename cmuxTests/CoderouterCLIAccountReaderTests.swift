@@ -553,6 +553,52 @@ struct CoderouterAccountStateTests {
         )
         #expect(state.accounts.map(\.id) == ["a1"])
     }
+
+    @Test("A stale post-removal read stays hidden until absence is confirmed")
+    func postRemovalReadDoesNotReinsertAccount() {
+        var state = loaded(Self.teamA, ["a1", "a2"])
+        let inFlightRead = state.beginRefresh(for: Self.teamA)
+        #expect(state.removeOptimistically(accountID: "a2", for: Self.teamA) == 1)
+        #expect(
+            !state.apply(
+                accounts: [account("a1"), account("a2")],
+                organizationID: "org-team-a",
+                teamScope: .teamOption,
+                for: Self.teamA,
+                startedAt: inFlightRead
+            )
+        )
+
+        // The CLI write succeeded, but the first read can still observe its
+        // old account list. Keep the row pending until a later read omits it.
+        state.finishRemoval(accountID: "a2")
+        #expect(state.pendingRemovalIDs == ["a2"])
+        let staleRead = state.beginRefresh(for: Self.teamA)
+        #expect(
+            state.apply(
+                accounts: [account("a1"), account("a2")],
+                organizationID: "org-team-a",
+                teamScope: .teamOption,
+                for: Self.teamA,
+                startedAt: staleRead
+            )
+        )
+        #expect(state.accounts.map(\.id) == ["a1"])
+        #expect(state.pendingRemovalIDs == ["a2"])
+
+        let confirmedRead = state.beginRefresh(for: Self.teamA)
+        #expect(
+            state.apply(
+                accounts: [account("a1")],
+                organizationID: "org-team-a",
+                teamScope: .teamOption,
+                for: Self.teamA,
+                startedAt: confirmedRead
+            )
+        )
+        #expect(state.accounts.map(\.id) == ["a1"])
+        #expect(state.pendingRemovalIDs.isEmpty)
+    }
 }
 
 @MainActor
