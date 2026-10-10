@@ -13,7 +13,8 @@ extension UpdaterService {
     public var readyCard: UpdateReadyCard? {
         guard let pill = footerPill ?? askedWhileStaged else { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
-        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes)
+        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
+                               changelog: stagedChangelog)
     }
 
     /// The staged update's pill when the user asked to check while it waits.
