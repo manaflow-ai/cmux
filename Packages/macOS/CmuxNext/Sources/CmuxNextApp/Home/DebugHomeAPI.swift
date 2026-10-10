@@ -33,19 +33,28 @@ enum DebugHomeAPI {
         }
     }
 
-    /// Kinds: send {conversation, text}, react {conversation, message,
-    /// emoji, part?}, read {conversation, seq}, create_group {title,
-    /// participants}.
+    /// Kinds: send {conversation, text, thread_root?}, edit {conversation,
+    /// message, text}, retract {conversation, message}, react and unreact
+    /// {conversation, message, emoji, part?}, read {conversation, seq},
+    /// create_group {title, participants}.
     static func op(_ json: JSONValue) -> HomeOp? {
         let conversation = json["conversation"]?.stringValue.map(ConversationID.init) ?? ConversationID("")
         let message = json["message"]?.stringValue.map(MessageID.init) ?? MessageID("")
         let text = json["text"]?.stringValue ?? ""
         switch json["kind"]?.stringValue {
         case "send":
-            return .sendMessage(conversation: conversation, parts: [.text(text)])
+            return .sendMessage(conversation: conversation, parts: [.text(text)],
+                                threadRoot: json["thread_root"]?.stringValue.map(MessageID.init))
+        case "edit":
+            return .editMessage(message: message, conversation: conversation, parts: [.text(text)])
+        case "retract":
+            return .retractMessage(message: message, conversation: conversation)
         case "react":
             return .addReaction(message: message, conversation: conversation, reaction: .emoji(json["emoji"]?.stringValue ?? ""),
                                 partIndex: json["part"]?.intValue ?? 0)
+        case "unreact":
+            return .removeReaction(message: message, conversation: conversation, reaction: .emoji(json["emoji"]?.stringValue ?? ""),
+                                   partIndex: json["part"]?.intValue ?? 0)
         case "read":
             return .setReadCursor(conversation: conversation, seq: Seq(json["seq"]?.intValue ?? 0))
         case "create_group":
