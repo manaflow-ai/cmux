@@ -143,6 +143,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "chat.sideChat":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "shortcut.edit":
