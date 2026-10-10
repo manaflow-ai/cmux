@@ -125,6 +125,16 @@ public struct AgentNotificationReconciler: Sendable {
                 session.deliveredSurfaceIDs.removeValue(forKey: identity)
             }
         }
+        if draft.kind == .sessionStarted, sessions[sessionKey] != nil {
+            // A reused native session id still marks a new authoritative
+            // boundary after restart, /clear, or auto-resume. Retire every
+            // receipt from the prior turn and reset its lifecycle projection
+            // before later hooks can reuse the old StopFailure state.
+            boundaryInvalidations.append(contentsOf: session.delivered.values)
+            session = Session()
+            session.surfaceID = draft.surfaceId
+            session.agentKey = draft.agentKey
+        }
         let movedFromPreviousSurface = session.surfaceID != nil && session.surfaceID != draft.surfaceId
         session.surfaceID = draft.surfaceId
         session.agentKey = draft.agentKey
