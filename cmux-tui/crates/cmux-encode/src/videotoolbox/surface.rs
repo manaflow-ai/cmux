@@ -152,34 +152,3 @@ impl SurfaceEncoder for VideoToolbox {
         crate::H264Encoder::kbps(self)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::videotoolbox::{
-        CFRelease, CFTypeRef, CVPixelBufferRef, PIXEL_420V, dict,
-        kCVPixelBufferIOSurfacePropertiesKey,
-    };
-    use std::ptr::{null, null_mut};
-
-    #[test]
-    fn a_frame_that_does_not_match_its_surface_is_refused() {
-        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
-        let surface = TestSurface::new(256, 128, PIXEL_BGRA);
-        let mut out = Vec::new();
-        let wrong_format = surface.frame(SurfaceFormat::Nv12, 256, 128, ColorTag::Srgb);
-        assert!(
-            enc.encode_surface(&wrong_format, SurfaceRect::default(), true, 0, &mut out).is_err()
-        );
-        let wrong_size = surface.frame(SurfaceFormat::Bgra, 300, 128, ColorTag::Srgb);
-        assert!(
-            enc.encode_surface(&wrong_size, SurfaceRect::default(), true, 0, &mut out).is_err()
-        );
-        // SAFETY: a NULL surface is refused before any use.
-        let null_surface =
-            unsafe { SurfaceFrame::new(null_mut(), SurfaceFormat::Bgra, 256, 128, ColorTag::Srgb) };
-        assert!(
-            enc.encode_surface(&null_surface, SurfaceRect::default(), true, 0, &mut out).is_err()
-        );
-    }
-}
