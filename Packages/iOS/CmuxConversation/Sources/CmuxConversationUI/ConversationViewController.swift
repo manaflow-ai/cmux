@@ -1223,7 +1223,8 @@ final class TranscriptCollectionView: UICollectionView {
         let geometry = (bounds.height, headerBottom)
         if lastMaskGeometry.map({ $0 != geometry }) ?? true {
             lastMaskGeometry = geometry
-            let ramp = ConversationTopEdgeFade.ramp(height: bounds.height, headerBottom: headerBottom)
+            // A mask fades the transcript out fully, so it keeps the light ramp's shape.
+            let ramp = ConversationTopEdgeGeometry.ramp(height: bounds.height, headerBottom: headerBottom, dark: false)
             topFadeMask.colors = ramp.map { UIColor.black.withAlphaComponent(1 - $0.wash).cgColor }
             topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
         }

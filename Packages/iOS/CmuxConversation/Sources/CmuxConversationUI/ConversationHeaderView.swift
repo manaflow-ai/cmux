@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Messages header: glass back capsule (with unread count), a centered
@@ -27,7 +28,9 @@ final class ConversationHeaderView: UIView {
     let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true)
     let nameButton = UIButton(type: .system)
     private let nameLabel = UILabel()
-    private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .black)))
+    /// ChatKit's title chevron: `chevron.compact.forward` at the body size,
+    /// heavy, small scale, in tertiary label color.
+    private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .heavy, scale: .small)))
     let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true)
     let trailingButton = UIButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
@@ -49,8 +52,9 @@ final class ConversationHeaderView: UIView {
         backButton.tintColor = .label
         backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
         backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
-        unreadPill.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.85, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
-        unreadLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        // Dark: a near-white pill (243) under the count; light keeps the inverse.
+        unreadPill.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
+        unreadLabel.font = .systemFont(ofSize: ConversationHeaderGeometry.unreadFontSize, weight: .medium)
         unreadLabel.textColor = UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
         unreadLabel.textAlignment = .center
         backGlass.contentView.addSubview(unreadPill)
@@ -75,13 +79,15 @@ final class ConversationHeaderView: UIView {
         namePillGlass.contentView.addSubview(nameLabel)
         // The pill's button speaks the name; the label is its visual only.
         nameLabel.isAccessibilityElement = false
-        chevron.tintColor = .systemGray2
+        chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .center
         chevron.isAccessibilityElement = false
         namePillGlass.contentView.addSubview(chevron)
         nameButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
         nameButton.accessibilityIdentifier = "conversation.header.name"
 
+        // The buttons sit on the navigation bar's layout margin (16 or 20 pt).
+        preservesSuperviewLayoutMargins = true
         addSubview(trailingGlass)
         trailingGlass.contentView.addSubview(trailingButton)
         trailingButton.tintColor = .label
@@ -132,7 +138,8 @@ final class ConversationHeaderView: UIView {
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
-            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: isX ? 17 : 19, weight: isX ? .semibold : .regular)), for: .normal)
+            // The action glyph is a bar button's default symbol (body, 17 pt regular).
+            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: isX ? .semibold : .regular)), for: .normal)
             self.trailingButton.accessibilityLabel = mode == .cancel
                 ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
                 : mode == .close
@@ -172,18 +179,21 @@ final class ConversationHeaderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let top = safeAreaInsets.top
-        let margin: CGFloat = 16
+        let margin = ConversationHeaderGeometry.sideMargin(layoutMargin: layoutMargins.left)
         let hasUnread = !unreadPill.isHidden
         unreadLabel.sizeToFit()
-        let pillWidth = max(26, unreadLabel.bounds.width + 14)
-        let backWidth: CGFloat = hasUnread ? 44 + pillWidth + 4 : 44
+        let unreadWidth = hasUnread ? unreadLabel.bounds.width : nil
+        let backWidth = ConversationHeaderGeometry.backWidth(unreadTextWidth: unreadWidth)
         backGlass.frame = CGRect(x: margin, y: top, width: backWidth, height: 44)
-        backButton.frame = CGRect(x: 2, y: 0, width: 40, height: 44)
-        unreadPill.frame = CGRect(x: 36, y: 11, width: pillWidth, height: 22)
-        unreadPill.layer.cornerRadius = 11
-        unreadLabel.frame = unreadPill.bounds
+        let chevronShift = hasUnread ? ConversationHeaderGeometry.unreadChevronShift : 0
+        backButton.frame = CGRect(x: 2 + chevronShift, y: ConversationHeaderGeometry.backChevronDrop, width: 40, height: 44)
+        if let unreadWidth {
+            unreadPill.frame = ConversationHeaderGeometry.unreadPillFrame(textWidth: unreadWidth)
+            unreadPill.layer.cornerRadius = unreadPill.bounds.height / 2
+            unreadLabel.frame = unreadPill.bounds
+        }
 
-        trailingGlass.frame = CGRect(x: bounds.width - margin - 44, y: top, width: 44, height: 44)
+        trailingGlass.frame = CGRect(x: bounds.width - ConversationHeaderGeometry.sideMargin(layoutMargin: layoutMargins.right) - 44, y: top, width: 44, height: 44)
         trailingButton.frame = trailingGlass.bounds
 
         let avatarSize: CGFloat = avatars.count > 1 ? 40 : 60
@@ -248,21 +258,17 @@ final class ConversationHeaderView: UIView {
 }
 /// Messages' top scroll edge: the transcript washes out toward the
 /// background under the header without blurring. Measured on iOS 26
-/// Messages: a flat 85.5% wash down to 74 pt above the header's bottom, then
-/// an S-shaped ramp that clears 46 pt below it. The system soft edge effect
-/// blurs the whole header height instead, so this replaces it.
+/// Messages: a flat 85.5% wash (60% in dark mode) down to 74 pt above the
+/// header's bottom, then an S-shaped ramp that clears 46 pt below it. The
+/// system soft edge effect blurs the whole header height instead, so this
+/// replaces it.
 ///
 /// Over a conversation background there is no single color to wash toward
 /// (gradients, animated looks, photos), so the transcript is masked with the
 /// same ramp instead (`TranscriptCollectionView.topFadeHeaderBottom`): its
 /// content fades out and the background itself shows under the header.
 final class ConversationTopEdgeFade: UIView {
-    /// (offset from the header's bottom, wash opacity)
-    static let stops: [(CGFloat, CGFloat)] = [
-        (-74, 0.855), (-49, 0.78), (-34, 0.66), (-19, 0.47), (-4, 0.26),
-        (6, 0.17), (16, 0.08), (26, 0.04), (41, 0.01), (46, 0),
-    ]
-    static let extent: CGFloat = 46
+    static let extent = ConversationTopEdgeGeometry.extent
 
     private let gradient = CAGradientLayer()
 
@@ -280,25 +286,12 @@ final class ConversationTopEdgeFade: UIView {
         gradient.frame = bounds
         guard bounds.height > 0 else { return }
         let color = ConversationTheme.background.resolvedColor(with: traitCollection)
-        let ramp = Self.ramp(height: bounds.height, headerBottom: bounds.height - Self.extent)
+        let ramp = ConversationTopEdgeGeometry.ramp(height: bounds.height, headerBottom: bounds.height - Self.extent, dark: traitCollection.userInterfaceStyle == .dark)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradient.colors = ramp.map { color.withAlphaComponent($0.wash).cgColor }
         gradient.locations = ramp.map { NSNumber(value: Double($0.location)) }
         CATransaction.commit()
-    }
-
-    /// The wash as gradient stops over a span of `height` points whose
-    /// header bottom sits at `headerBottom`: unit locations and wash opacity,
-    /// flat at the top and clear from `extent` below the header down.
-    static func ramp(height: CGFloat, headerBottom: CGFloat) -> [(location: CGFloat, wash: CGFloat)] {
-        guard height > 0 else { return [] }
-        var ramp = [(location: CGFloat(0), wash: stops[0].1)]
-        for (offset, alpha) in stops {
-            ramp.append((min(1, max(0, headerBottom + offset) / height), alpha))
-        }
-        if ramp[ramp.count - 1].location < 1 { ramp.append((1, 0)) }
-        return ramp
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
