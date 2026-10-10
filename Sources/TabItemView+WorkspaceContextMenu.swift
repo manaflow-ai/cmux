@@ -155,7 +155,10 @@ extension TabItemView {
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
-            let currentColorHex = workspaceSnapshot.customColorHex.flatMap {
+            // The menu edits persisted manual colors. An origin tint is only a
+            // rendering fallback and must not appear selected or prefill the
+            // custom-color editor as though the user chose it.
+            let currentColorHex = (workspaceSnapshot.hasManualCustomColor ? workspaceSnapshot.customColorHex : nil).flatMap {
                 WorkspaceTabColorSettings.normalizedHex($0)
             }
 

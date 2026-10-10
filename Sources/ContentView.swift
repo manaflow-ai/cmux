@@ -17117,7 +17117,7 @@ struct TabItemView: View, Equatable {
 
     func promptCustomColor(targetIds: [UUID]) {
         guard let hex = WorkspaceCustomColorPrompt.run(
-            currentHex: workspaceSnapshot.customColorHex,
+            currentHex: workspaceSnapshot.hasManualCustomColor ? workspaceSnapshot.customColorHex : nil,
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
         ) else { return }
         applyTabColor(hex, targetIds: targetIds)
