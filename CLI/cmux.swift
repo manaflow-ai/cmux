@@ -29669,26 +29669,28 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            if let acceptedSessionId, !isForkSessionLaunch {
-                // A SessionStart is a recovery/ownership boundary. Retire the
-                // previous turn's summary before any notification hook can
-                // reuse its StopFailure text for the recovered session. The
-                // accepted upsert clears these fields in the same transaction.
-                if let priorSurface = sessionStartResult?.previousOwnedSurface {
-                    // A moved session leaves a physical notification/status
-                    // behind on its old pane; retire that pane explicitly.
-                    _ = try? sendV1Command(
-                        "clear_notifications --tab=\(priorSurface.workspaceId) --panel=\(priorSurface.surfaceId)",
-                        client: client
-                    )
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: priorSurface.workspaceId,
-                        surfaceId: priorSurface.surfaceId,
-                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-                        icon: "pause.circle.fill",
-                        color: "#8E8E93"
-                    )
+            if let acceptedSessionId {
+                if !isForkSessionLaunch {
+                    // A SessionStart is a recovery/ownership boundary. Retire the
+                    // previous turn's summary before any notification hook can
+                    // reuse its StopFailure text for the recovered session. The
+                    // accepted upsert clears these fields in the same transaction.
+                    if let priorSurface = sessionStartResult?.previousOwnedSurface {
+                        // A moved session leaves a physical notification/status
+                        // behind on its old pane; retire that pane explicitly.
+                        _ = try? sendV1Command(
+                            "clear_notifications --tab=\(priorSurface.workspaceId) --panel=\(priorSurface.surfaceId)",
+                            client: client
+                        )
+                        try? setClaudeStatus(
+                            client: client,
+                            workspaceId: priorSurface.workspaceId,
+                            surfaceId: priorSurface.surfaceId,
+                            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                            icon: "pause.circle.fill",
+                            color: "#8E8E93"
+                        )
+                    }
                 }
                 publishAgentSurfaceResumeBinding(
                     client: client,
