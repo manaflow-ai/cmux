@@ -56,12 +56,20 @@ struct SidebarJumpToUnreadButton: View {
     enum Style: String, CaseIterable {
         /// Glass capsule centered on its own row above the sidebar footer.
         case sCentered
+        /// The same, compact: "↳ (3)" at rest, the label only on hover.
+        case sCompact
         /// The same capsule at the bottom center of the window, hosted in
         /// AppKit above the terminal portal (see `WindowOverlay`).
         case windowBottom
 
-        var placement: Placement { self == .sCentered ? .aboveFooter : .windowBottom }
-        var debugTitle: String { self == .sCentered ? "Debug: Style Sidebar Bottom Center" : "Debug: Style Window Bottom Center" }
+        var placement: Placement { self == .windowBottom ? .windowBottom : .aboveFooter }
+        var debugTitle: String {
+            switch self {
+            case .sCentered: return "Debug: Style Sidebar Bottom Center"
+            case .sCompact: return "Debug: Style Sidebar Compact"
+            case .windowBottom: return "Debug: Style Window Bottom Center"
+            }
+        }
     }
 
     /// Where an instance sits; each renders only the styles placed there.
@@ -159,7 +167,12 @@ struct SidebarJumpToUnreadButton: View {
                     } else {
                         let arrow = SidebarJumpToUnreadButtonPresentation.systemName
                         CmuxSystemSymbolImage(systemName: arrow, pointSize: 11, weight: .semibold, tint: cmuxAccent.color)
-                        title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
+                        if style != .sCompact {
+                            title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
+                        } else if isHovered {
+                            title(String(localized: "sidebar.jumpToUnread.compactTitle", defaultValue: "Jump to Unread"))
+                                .transition(.opacity.animation(.easeOut(duration: 0.12).delay(0.08)))
+                        }
                         // Hovering swaps the count for the key that does the same thing.
                         if isHovered, let shortcutText = resolved.shortcutText {
                             Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
