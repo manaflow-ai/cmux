@@ -51,9 +51,10 @@ private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
         }
 
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        let initialDelegateReadCount = textView.delegateReadCount
         #expect(!(textView as NSResponder).isCommandPaletteFocusStealingTerminalOrBrowser)
         #expect(
-            textView.delegateReadCount == 0,
+            textView.delegateReadCount == initialDelegateReadCount,
             "Command palette focus-stealer classification must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
         )
     }

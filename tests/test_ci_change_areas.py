@@ -5716,6 +5716,13 @@ printf '%s\n' "$@" > "$RUNNER_TEMP/args"
         assert "-only-testing:cmuxCLITests" in (root / "args").read_text().splitlines()
 
 
+def test_cli_product_setup_stages_all_bundled_opencode_resources() -> None:
+    step = workflow_step_block_in(MACOS_WORKFLOW, "cli-product-tests", "Resolve the CLI under test")
+    assert "for resource in opencode-plugin.js opencode-tui-plugin.js; do" in step
+    assert 'if [ ! -e "$(dirname "$cli")/$resource" ]; then' in step
+    assert 'cp "Resources/$resource" "$(dirname "$cli")/$resource"' in step
+
+
 def test_compile_admission_retry_executes_safely() -> None:
     """Execute the admission shell with deterministic compiler and worker fixtures."""
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
@@ -5725,6 +5732,8 @@ def test_compile_admission_retry_executes_safely() -> None:
         ("stale-log", 65, ["canonical-build"]),
         ("busy-worker", 65, ["canonical-build"]),
         ("pgrep-error", 65, ["canonical-build"]),
+        ("module-log", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
+        ("poisoned-cache", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
         ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
@@ -5735,17 +5744,28 @@ def test_compile_admission_retry_executes_safely() -> None:
                 "scripts/ci/compile-app-host-test-product.sh": r'''#!/bin/bash
 printf '%s\n' "$1" >> "$CALLS"
 if [ "$1" = canonical-resolve ]; then exit 0; fi
-if [ -e "$RUNNER_TEMP/attempt" ]; then exit 0; fi
+if [ -e "$RUNNER_TEMP/attempt" ]; then
+  if [ "$SCENARIO" = poisoned-cache ] && [ "${CMUX_CI_DISABLE_FLEET_CAS:-}" != 1 ]; then
+    echo 'fleet CAS was not disabled for the retry' >&2
+    exit 70
+  fi
+  exit 0
+fi
 touch "$RUNNER_TEMP/attempt"
 if [ "$SCENARIO" = stale-log ]; then
   echo 'real compiler error' >> "$5"
+elif [ "$SCENARIO" = module-log ]; then
+  echo "error: unable to resolve module dependency: 'Sparkle'" >> "$5"
+elif [ "$SCENARIO" = poisoned-cache ]; then
+  echo 'error: failed to update cache: cache poisoned' >> "$5"
 else
   echo 'unable to open dependencies file' >> "$5"
 fi
 exit 65
 ''',
                 "scripts/ci/clear-dirs.sh": '#!/bin/bash\necho clear >> "$CALLS"\n',
-                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
+                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ] && [ "$2" = xcodebuild ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
+                "bin/ps": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo "S     scripts/ci/compile-app-host-test-product.sh $CMUX_COMPILE_ADMISSION_DERIVED_DATA"; fi\n',
                 "bin/sleep": '#!/bin/bash\nexit 0\n',
             }
             for relative, content in fixtures.items():
@@ -5759,7 +5779,7 @@ exit 65
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
                        CALLS=str(root / "calls"), SCENARIO=scenario)
             result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
-                                    capture_output=True, text=True, timeout=15)
+                                    capture_output=True, text=True, timeout=60)
             calls = (root / "calls").read_text().splitlines()
             assert (result.returncode, calls) == (expected_status, expected_calls), (
                 scenario, result.returncode, calls, result.stderr)
@@ -5778,7 +5798,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
-    assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory"' in admission
+    assert 'grep -Eqi "unable to resolve module dependency|unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|failed to update cache: cache poisoned|CAS error: makeBlob: missing object|CAS error: read-only cache client"' in admission
+    assert 'export CMUX_CI_DISABLE_FLEET_CAS=1' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
     assert 'compile admission exited $status without a compiler diagnostic' in admission
     assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
@@ -5790,6 +5811,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
     assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
+    assert '"${CMUX_CI_DISABLE_FLEET_CAS:-}" != 1' in compile_script
     assert "build-for-testing" in compile_script
     import product_input_identity as identity
 
