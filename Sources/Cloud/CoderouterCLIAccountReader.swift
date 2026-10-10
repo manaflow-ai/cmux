@@ -418,6 +418,11 @@ enum CoderouterCLIAccountReader {
             throw error
         }
 
+        // `Pipe` keeps the parent's writer handles alive independently of the
+        // child. Close them after the child exits so the drain tasks observe
+        // EOF and the refresh can finish. The cancellation path closes the
+        // same handles when a read is interrupted.
+        cancellation.closeWriters()
         let stdout = await stdoutRead.value
         let stderr = await stderrRead.value
         guard status == 0 else {
@@ -475,6 +480,10 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
                 _ = Darwin.kill(identifier, SIGKILL)
             }
         }
+        closeWriters()
+    }
+
+    func closeWriters() {
         try? stdoutWriter.close()
         try? stderrWriter.close()
     }
