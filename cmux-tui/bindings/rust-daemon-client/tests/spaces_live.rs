@@ -1,6 +1,7 @@
 //! `DaemonClient` against a real cmux-tui daemon: a space (profile) write
-//! is reported as DaemonEvent::PersonalChanged, and `list-personal` reads as
-//! `Spaces`.
+//! is reported as DaemonEvent::PersonalChanged, `list-personal` reads as
+//! `Spaces`, and a pinned workspace is in its space only (the membership
+//! rule over the daemon's own pins and follows).
 //!
 //! Runs when `CMUX_SDK_LIVE_TUI_BIN` names a built `cmux-tui` binary (the
 //! `cmux-tui-sdks.yml` live conformance job sets it). Without the variable the
@@ -9,7 +10,9 @@
 #![cfg(unix)]
 
 use cmux_daemon_client::cmux;
-use cmux_daemon_client::{DEFAULT_SPACE, DaemonClient, DaemonConfig, DaemonEvent, Spaces};
+use cmux_daemon_client::{
+    DEFAULT_SPACE, DaemonClient, DaemonConfig, DaemonEvent, Spaces, WorkspaceRef,
+};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -124,6 +127,39 @@ fn space_writes_report_personal_changed_and_list_personal_reads_as_spaces_live_d
     let live = after.space("prof_live").expect("the new space");
     assert_eq!((live.name.as_str(), live.color.as_deref()), ("Live", Some("green")));
     assert_eq!(after.position("prof_live"), Some(after.spaces.len() - 1));
+
+    // Move Workspace to Space (pin-workspace): the pinned workspace is in
+    // that space only; another workspace of the same session stays in the
+    // spaces that follow the session (default follows the local session).
+    let tree = raw
+        .request_raw(serde_json::Map::from_iter([(
+            "cmd".to_string(),
+            serde_json::Value::from("list-workspaces"),
+        )]))
+        .unwrap();
+    let data = &tree["data"];
+    let session = data["registry_id"].as_str().expect("registry_id").to_string();
+    let key = data["workspaces"][0]["key"].as_str().expect("a workspace key").to_string();
+    raw.pin_workspace(cmux::raw::PinWorkspaceRequest {
+        session_id: session.clone(),
+        workspace_key: key.clone(),
+        profile: "prof_live".into(),
+    })
+    .unwrap();
+    wait_for(
+        &rx,
+        "personal-changed after the pin",
+        |e| matches!(e, DaemonEvent::PersonalChanged { personal_revision } if *personal_revision > after.revision),
+    );
+    let pinned =
+        Spaces::from_personal(&raw.list_personal(cmux::raw::ListPersonalRequest {}).unwrap())
+            .unwrap();
+    let workspace = WorkspaceRef { session: session.clone(), key };
+    assert_eq!(pinned.spaces_of(&workspace), ["prof_live"]);
+    assert!(pinned.closes(&workspace, "prof_live"), "only prof_live shows it");
+    let other = WorkspaceRef { session, key: "not-pinned".into() };
+    assert_eq!(pinned.spaces_of(&other), [DEFAULT_SPACE]);
+    assert!(!pinned.closes(&other, "prof_live"));
     raw.close();
 
     client.stop();

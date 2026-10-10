@@ -72,8 +72,6 @@ mod mirror_state_tests;
 mod mirror_tab_groups_tests;
 #[cfg(test)]
 mod mirror_tests;
-#[cfg(test)]
-mod spaces_tests;
 
 pub use attach::{
     AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
