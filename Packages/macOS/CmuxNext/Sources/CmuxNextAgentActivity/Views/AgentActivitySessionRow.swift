@@ -1,5 +1,6 @@
-import CmuxAgentBrands
 import AppKit
+import CmuxAgentBrands
+import CmuxNextIcons
 import SwiftUI
 
 struct AgentActivitySessionRow: View {
@@ -30,9 +31,9 @@ struct AgentActivitySessionRow: View {
                         AgentActivityBadge(text: badge)
                     }
                     Spacer(minLength: 0)
-                    AgentActivityCount(symbol: "cursorarrow.click", value: session.acts)
+                    AgentActivityCount(icon: .computeruseClick, value: session.acts)
                     if session.errors > 0 {
-                        AgentActivityCount(symbol: "exclamationmark.triangle", value: session.errors, tint: colors.danger)
+                        AgentActivityCount(icon: .statusWarning, value: session.errors, tint: colors.danger)
                     }
                 }
                 Text(session.targetApps.joined(separator: ", "))

@@ -491,6 +491,17 @@
    ]
   },
   {
+   "name": "window.new",
+   "meaning": "Move to a new window / new window",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-window-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-window-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/><path d='M3.801 8.75h16.398'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-window-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.801 8.75h16.398'/></g><circle cx='17.466' cy='17.488' r='4.555' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-window-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></g></svg>",
+   "alts": [],
+   "note": "workspace.new's frame and plus badge with a title bar instead of the sidebar split.",
+   "replaces": [
+    "macwindow.badge.plus"
+   ]
+  },
+  {
    "name": "remote.display",
    "meaning": "Remote desktop / a machine's display (Remote View)",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='4' width='17' height='12.5' rx='2.5'/><path d='M12 16.5V20M8.75 20h6.5'/></svg>",
@@ -499,6 +510,17 @@
    "note": "Monitor on a stand, rx 2.5 (frame). Solid fills the screen; the stand stays a stroke.",
    "replaces": [
     "display"
+   ]
+  },
+  {
+   "name": "group.ungroup",
+   "meaning": "Ungroup workspaces",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-group-ungroup' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-group-ungroup)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M9.282 4.752v14.496'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-group-ungroup' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.282 4.752v14.496'/><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-group-ungroup)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g><path d='M4 4l16 16' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "The workspace drawing with the shared blocked slash (top-left to bottom-right), cut like the site.permission.*.blocked icons.",
+   "replaces": [
+    "square.stack.3d.up.slash"
    ]
   }
  ]

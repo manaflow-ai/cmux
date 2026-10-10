@@ -12,7 +12,7 @@ final class SectionHeaderRowView: SidebarRowView {
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
     private let chevron = NSImageView()
-    let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
+    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
     private enum StatusTone { case success, attention, quiet, danger }
     private var statusTone: StatusTone?

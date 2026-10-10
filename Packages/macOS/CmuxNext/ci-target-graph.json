@@ -62,6 +62,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -191,7 +192,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
       "targets": [
         "CmuxNextApps",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -234,7 +236,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -259,6 +262,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -681,6 +685,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
