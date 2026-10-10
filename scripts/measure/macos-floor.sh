@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Measure how much CmuxNext code needs a newer macOS than FLOOR.
-# Usage: scripts/measure/macos-floor.sh <floor major, e.g. 13> [out dir]
-# Fleet: cmux-ci run --class exclusive --script scripts/measure/macos-floor.sh --ref SHA
-#        --arg 13 --artifact artifacts/macos-floor.tar.gz
+# Usage: scripts/measure/macos-floor.sh <floor major, e.g. 13> [check floor...]
+#   The check floors (default: the floor) re-typecheck the same pass-1 modules
+#   at each listed major, e.g. `13 14 15`. Output dir: $MACOS_FLOOR_OUT or
+#   artifacts/macos-floor.
+# Fleet: cmux-ci run --class isolated --script scripts/measure/macos-floor.sh --ref SHA
+#        --arg=13 --arg=14 --arg=15 --artifact artifacts/macos-floor.tar.gz
 # Measurement only: never land the Package.swift edits it makes.
 #
 # It edits Package.swift files in the tree it runs in (run it in a throwaway
@@ -15,9 +18,9 @@
 # Output: <out>/pass1.log, <out>/pass2-<module>.log, <out>/errors.txt.
 set -uo pipefail
 FLOOR="${1:?floor major}"
-OUT="${2:-$(git rev-parse --show-toplevel)/artifacts/macos-floor}"
-# Extra floors to re-typecheck against the same pass-1 modules (for example "14 15").
-CHECK_FLOORS="${CHECK_FLOORS:-$FLOOR}"
+shift
+OUT="${MACOS_FLOOR_OUT:-$(git rev-parse --show-toplevel)/artifacts/macos-floor}"
+CHECK_FLOORS="${*:-$FLOOR}"
 mkdir -p "$OUT"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"

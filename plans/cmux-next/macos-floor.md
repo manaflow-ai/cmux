@@ -1,6 +1,11 @@
 # cmux-next minimum macOS
 
-Status: proposal (2026-10-09). Not landed. Today cmux-next requires macOS 26
+Status: decided 2026-10-10 by Lawrence: **cmux-next supports macOS 14 Sonoma
+and newer.** Work: bead epic cx-s6wi (steps: .1 Tart launch smoke 14/15/26,
+.2 exact measurement, .3 Mutex/Atomic in CmuxNextCompat, .4 Observations
+helper, .5 Liquid Glass fallback, .6 Speech fallback, .7 other API sites,
+.8 deployment target flip, .9 CI compile at floor 14). Until step .8 lands,
+cmux-next still requires macOS 26
 (`Packages/macOS/CmuxNext/Package.swift` `.macOS(.v26)`, the `cmux-next` Xcode
 target `MACOSX_DEPLOYMENT_TARGET = 26.0`, and `MACOSX_DEPLOYMENT_TARGET=26.0` in
 `scripts/cmux-next/build-app-ffi.sh`, `build-rd-ffi.sh`,
