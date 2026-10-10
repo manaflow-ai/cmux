@@ -92,6 +92,24 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
             tabBar.onSelect = { [weak self] index in self?.showPage(index, animated: true) }
             view.addSubview(tabBar)
         }
+        // Content under the collapsed header blurs out with UIKit's scroll
+        // edge effect (Messages' details: ScrollEdgeEffectView, soft).
+        if #available(iOS 26.0, *) {
+            let interaction = UIScrollEdgeElementContainerInteraction()
+            interaction.scrollView = infoPage.table
+            interaction.edge = .top
+            header.addInteraction(interaction)
+            edgeInteractions = [interaction]
+            if let tabBar {
+                let tabs = UIScrollEdgeElementContainerInteraction()
+                tabs.scrollView = infoPage.table
+                tabs.edge = .top
+                tabBar.addInteraction(tabs)
+                edgeInteractions.append(tabs)
+            }
+            infoPage.table.topEdgeEffect.style = .soft
+            backgroundsPage?.scroll.topEdgeEffect.style = .soft
+        }
 
         backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
         backButton.tintColor = .label
@@ -134,12 +152,15 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     /// (light) blur at the share of its strength that is radius 16.
     private func applyBlur() {
         guard blurAnimator == nil else { return }
-        let style: UIBlurEffect.Style = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        blurAnimator = Self.pausedBlur(blur, style: traitCollection.userInterfaceStyle == .dark ? .dark : .light)
+    }
+
+    private static func pausedBlur(_ view: UIVisualEffectView, style: UIBlurEffect.Style) -> UIViewPropertyAnimator {
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
-        animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: style) }
+        animator.addAnimations { view.effect = UIBlurEffect(style: style) }
         animator.pausesOnCompletion = true
-        animator.fractionComplete = Self.blurShareOfStyle
-        blurAnimator = animator
+        animator.fractionComplete = blurShareOfStyle
+        return animator
     }
 
     /// Radius 16 of the style's ~30 (see `ConversationViewController.blurShareOfStyle`).
@@ -187,12 +208,16 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
         let layout = ConversationDetailsHeaderGeometry.layout(width: bounds.width, safeTop: view.safeAreaInsets.top, offset: currentOffset, showsTabs: tabBar != nil, isGroup: isGroup)
-        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(layout.quickActions.maxY, layout.titleTop + ConversationDetailsHeaderGeometry.titleHeight))
+        // The header spans to the tabs (or its own bottom): UIKit's scroll
+        // edge effect sizes its pocket from it, as in Messages (166.44 pt
+        // collapsed, soft blur 64.8 pt past it).
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: tabBar == nil ? layout.height : layout.tabBar.maxY)
         header.apply(layout)
         if let tabBar {
             tabBar.frame = layout.tabBar
             tabBar.selection = pageFraction
         }
+
     }
 
     // MARK: Pages
@@ -204,7 +229,23 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard scrollView === pages else { return }
-        tabBar?.selectedIndex = Int(round(pageFraction))
+        pageDidSettle(Int(round(pageFraction)))
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard scrollView === pages else { return }
+        pageDidSettle(Int(round(pageFraction)))
+    }
+
+    private var edgeInteractions: [AnyObject] = []
+
+    private func pageDidSettle(_ index: Int) {
+        tabBar?.selectedIndex = index
+        if #available(iOS 26.0, *) {
+            for case let interaction as UIScrollEdgeElementContainerInteraction in edgeInteractions {
+                interaction.scrollView = index == 0 ? infoPage.table : backgroundsPage?.scroll
+            }
+        }
     }
 
     func showPage(_ index: Int, animated: Bool) {
