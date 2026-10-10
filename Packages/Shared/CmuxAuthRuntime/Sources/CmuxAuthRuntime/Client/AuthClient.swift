@@ -42,7 +42,9 @@ public protocol AuthClient: Sendable {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser?
 
     /// List the teams the signed-in user belongs to.
-    /// - Returns: The user's teams; empty when no user is signed in.
+    /// - Returns: The user's teams.
+    /// - Throws: An error when no signed-in user can be resolved or the
+    ///   current-user lookup fails.
     func listTeams() async throws -> [CMUXAuthTeam]
 
     /// Read Stack Auth's cross-device selected team, when the backend exposes
