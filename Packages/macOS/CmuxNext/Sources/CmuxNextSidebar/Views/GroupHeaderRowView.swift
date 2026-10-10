@@ -30,6 +30,10 @@ final class GroupHeaderRowView: SidebarRowView {
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
     private var hasIcon = false
+    /// No members: the + is not offered (the editor's New Workspace in Group
+    /// is), so a click on it can never race the editor closing on a new,
+    /// still empty group that then goes.
+    private var isEmpty = false
     private var color: GroupColor = .grey
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
@@ -80,6 +84,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize)
         guard needsConfigure(content) else { return }
         color = group.color
+        isEmpty = group.workspaces.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
         hasIcon = group.icon != nil
@@ -153,8 +158,8 @@ final class GroupHeaderRowView: SidebarRowView {
             name.textColor = ink
             pin.contentTintColor = ink.withAlphaComponent(0.7)
             chevron.contentTintColor = ink
-            moreButton.contentTintColor = ink
-            addButton.contentTintColor = ink
+            moreButton.tintOverride = ink
+            addButton.tintOverride = ink
             var fill = color.headerFill
             if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: .black) ?? fill }
             if isDropTarget { fill = fill.blended(withFraction: 0.16, of: .black) ?? fill }
@@ -203,11 +208,14 @@ final class GroupHeaderRowView: SidebarRowView {
         // Shown to VoiceOver only when it shows; the header's custom action edits the group always.
         moreButton.setAccessibilityElement(showsMore)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
-        addButton.isHidden = onAdd == nil
-        addButton.alphaValue = showsMore ? 1 : 0
-        addButton.setAccessibilityElement(showsMore && onAdd != nil)
+        addButton.frame.origin.x = max(pad, addButton.frame.minX)
+        let offersAdd = onAdd != nil && !isEmpty
+        // Hidden, not only transparent, while it does not show: a click
+        // there before any hover collapses the group as before.
+        addButton.isHidden = !offersAdd || !showsMore
+        addButton.setAccessibilityElement(showsMore && offersAdd)
         // The badge and activity keep their place whether or not the buttons show.
-        var trailing = (onAdd == nil ? moreButton.frame.minX : addButton.frame.minX) - Metrics.space2
+        var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight

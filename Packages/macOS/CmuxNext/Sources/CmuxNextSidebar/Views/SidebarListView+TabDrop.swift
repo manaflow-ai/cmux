@@ -87,8 +87,10 @@ extension SidebarListView {
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight) }
         case let .beforeTab(workspace, tab):
             // An insertion line on the tab row's top edge.
+            // Inside a group the line starts right of the group's line, as the row does.
             return displayed.row(for: .tab(workspace, tab)).map { row in
-                NSRect(x: inset, y: frame(for: row).minY - 1, width: max(0, bounds.width - inset * 2), height: 2)
+                let rowFrame = frame(for: row)
+                return NSRect(x: rowFrame.minX, y: rowFrame.minY - 1, width: rowFrame.width, height: 2)
             }
         }
     }
