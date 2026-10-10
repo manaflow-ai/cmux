@@ -48,6 +48,11 @@ fn rows() -> &'static BTreeMap<String, Value> {
     })
 }
 
+/// Whether the backend catalog owns `op` (an app fragment may not define it).
+pub(super) fn is_backend_op(op: &str) -> bool {
+    rows().contains_key(op)
+}
+
 /// The policy of served op `op`, or `None` when no server may run it.
 pub(super) fn policy(op: &str) -> Option<Policy> {
     if NEVER_ROUTED.contains(&op) {

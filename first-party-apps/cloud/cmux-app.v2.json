@@ -78,6 +78,7 @@
   "scopes": {
     "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
     "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
+    "cloud:execute": "Upgrade a classic Cloud machine: cmux installs its daemon on the machine. Only you can start an upgrade.",
     "fs:write": "Write and make files on your Cloud machines. Removing a file and copying files to or from this Mac always need you."
   },
   "optionalScopes": {

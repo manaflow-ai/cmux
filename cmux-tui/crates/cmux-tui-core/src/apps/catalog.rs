@@ -261,7 +261,7 @@ impl Sources {
             std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
         // From the daemon's own bundle; the override counts only inside it (cx-0uo1, cx-e0cs).
         let first_party = crate::first_party_dir::current();
-        let bundled = match std::env::var_os("CMUX_APPS_DIRS") {
+        let bundled = match crate::first_party_dir::apps_dirs() {
             Some(list) => std::env::split_paths(&list).collect(),
             None => exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(),
         };
@@ -362,21 +362,39 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         }
         _ => {}
     }
-    let tier =
-        if first_party && kind != DirKind::Local { Tier::FirstParty } else { Tier::Unverified };
+    // First-party only from the shipped first-party directory: a cmux/ or
+    // manaflow-ai/ id in a bundled or CMUX_APPS_DIRS directory is not
+    // first-party (it cannot run a native server or serve backend ops).
+    let tier = if first_party && kind == DirKind::FirstParty {
+        Tier::FirstParty
+    } else {
+        Tier::Unverified
+    };
     let source = if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled
     };
-    Ok(Package {
+    let package = Package {
         version: manifest["version"].as_str().unwrap_or_default().to_string(),
         id,
         tier,
         source,
         dir: dir.to_path_buf(),
         manifest,
-    })
+    };
+    // A fragment may not define an op the backend catalog owns: such an op
+    // is served only through serves.ops, with the backend's policy (fail
+    // closed, never a weaker app-declared policy).
+    if let Some((name, _)) =
+        package.catalog_ops().into_iter().find(|(name, _)| super::serves::is_backend_op(name))
+    {
+        return Err(format!(
+            "{}: its catalog fragment defines {name}, a backend-owned op; list it in serves.ops instead",
+            package.id
+        ));
+    }
+    Ok(package)
 }
 
 #[cfg(test)]
