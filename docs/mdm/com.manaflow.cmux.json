@@ -58,6 +58,14 @@
       "title" : "Show Context Usage",
       "type" : "boolean"
     },
+    "agentPane.zoom" : {
+      "default" : 1,
+      "description" : "The display size for agent chat. Cmd-0 resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -165,21 +173,34 @@
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
     },
     "appearance.background" : {
       "default" : "none",
-      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "description" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "desktop"
       ],
       "title" : "Background",
       "type" : "string"
@@ -644,6 +665,46 @@
       "title" : "Calculator Answers",
       "type" : "boolean"
     },
+    "browser.omnibar.cornerRadius" : {
+      "default" : "theme",
+      "description" : "Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile.",
+      "enum" : [
+        "theme",
+        "capsule"
+      ],
+      "title" : "Address Bar Corners",
+      "type" : "string"
+    },
+    "browser.omnibar.glass" : {
+      "default" : "regular",
+      "description" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.",
+      "enum" : [
+        "regular",
+        "clear",
+        "off"
+      ],
+      "title" : "Address Bar Glass",
+      "type" : "string"
+    },
+    "browser.omnibar.glassTint" : {
+      "default" : "background",
+      "description" : "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none.",
+      "enum" : [
+        "background",
+        "accent",
+        "none"
+      ],
+      "title" : "Glass Tint",
+      "type" : "string"
+    },
+    "browser.omnibar.glassTintStrength" : {
+      "default" : 0.35,
+      "description" : "browser.omnibar.glassTintStrength",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Tint Strength",
+      "type" : "number"
+    },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
       "description" : "Completes a site you typed before or visit often.",
@@ -662,6 +723,12 @@
       "default" : true,
       "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
       "title" : "Search Suggestions",
+      "type" : "boolean"
+    },
+    "browser.omnibar.shadow" : {
+      "default" : false,
+      "description" : "A soft shadow under the glass address bar.",
+      "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
     "browser.remoteLocalhost" : {
