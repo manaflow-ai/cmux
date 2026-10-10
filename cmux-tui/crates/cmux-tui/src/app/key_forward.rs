@@ -39,6 +39,7 @@ impl App {
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
         }
+        self.acknowledge_viewed_tab(surface_id);
         let Some(surface) = self.session.surface(surface_id) else { return };
         if surface.kind() == SurfaceKind::Browser {
             let key = input.ui_key();
