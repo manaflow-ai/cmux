@@ -262,9 +262,8 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
-            // This Mac's git reads would read this Mac's folders, not the chat's machine's, and
-            // the other machine's store keeps its own record of the session (no bind from here).
-            model.onGit = nil
+            // The other machine's store keeps its own record of the session (no bind from here).
+            // Its git reads go to that machine's daemon (``gitLink``).
             model.onSessionChange = nil
         }
         guard let view = makeView(model) else { return nil }
