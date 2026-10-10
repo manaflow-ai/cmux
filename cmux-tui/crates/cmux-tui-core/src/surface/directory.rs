@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static PROGRAM_STATUS_AFTER_CLAIM: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
 /// A newly adopted host must confirm even an absent cwd at a new resource revision.
 pub(super) enum PublishedDirectory {
     Unreported,
@@ -53,6 +59,13 @@ impl Surface {
                     .claim_pending_change()
                     .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
             };
+            #[cfg(test)]
+            if status_revision.is_some() {
+                let hook = PROGRAM_STATUS_AFTER_CLAIM.with(|slot| slot.borrow_mut().take());
+                if let Some(hook) = hook {
+                    hook();
+                }
+            }
             let status_changed = status_change.is_some();
             if !progress_changed && !status_changed {
                 return;
@@ -208,3 +221,6 @@ impl PtyTerminalRuntime {
         }
     }
 }
+
+#[cfg(test)]
+mod program_status_publication_tests;
