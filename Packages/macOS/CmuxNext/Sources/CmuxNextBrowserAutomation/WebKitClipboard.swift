@@ -10,7 +10,10 @@ import WebKit
 /// clipboard, a cut's deletion, a paste's text through the text input
 /// client, which is trusted input). A key the page's `keydown` prevented
 /// runs no command.
-extension WebKitDriver {
+@MainActor
+struct WebKitClipboard {
+    let driver: WebKitDriver
+
     /// The most bytes (base64) one tab's clipboard holds.
     private static let maxClipboardBytes = 32 << 20
 
@@ -64,12 +67,12 @@ extension WebKitDriver {
     }
 
     func clipboardRead(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (_, session) = try target(params)
+        let (_, session) = try driver.target(params)
         return .object(["items": .array(session.clipboard)])
     }
 
     func clipboardWrite(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (_, session) = try target(params)
+        let (_, session) = try driver.target(params)
         var size = 0
         var items: [DriverJSON] = []
         for item in try params.array("items") {
@@ -87,16 +90,16 @@ extension WebKitDriver {
     /// `input.key` down of a Copy, Cut or Paste shortcut: the key goes to the
     /// page, then the command runs against the tab's clipboard.
     func clipboardKey(_ kind: String, _ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let (tab, session) = try target(params)
-        _ = try await run(Self.recordKey, [:], nil, AgentWorld.hostWorld, tab)
-        _ = try await inputKey(params, nativeCommand: false)
+        let (tab, session) = try driver.target(params)
+        _ = try await driver.run(Self.recordKey, [:], nil, AgentWorld.hostWorld, tab)
+        _ = try await driver.inputKey(params, nativeCommand: false)
         let pasted: [Any] = kind == "paste" ? session.clipboard.map(\.foundationValue) : []
         let result = try await CallDeadline.run(.seconds(5), what: kind) { () throws(DriverError) in
-            try await self.run(Self.runCommand, ["kind": kind, "items": pasted], nil, AgentWorld.hostWorld, tab)
+            try await driver.run(Self.runCommand, ["kind": kind, "items": pasted], nil, AgentWorld.hostWorld, tab)
         }
         guard case .object(let fields) = result else { return .null }
         if kind == "paste" {
-            if case .string(let text)? = fields["insert"] { _ = try await inputInsertText(DriverParams(method: "input.insertText", json: .object([
+            if case .string(let text)? = fields["insert"] { _ = try await driver.inputInsertText(DriverParams(method: "input.insertText", json: .object([
                 "targetId": .string(tab.id.rawValue), "text": .string(text),
             ]))) }
             return .null
