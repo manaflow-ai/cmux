@@ -87,6 +87,7 @@ select_packages() {
     CmuxRemoteWorkspace
     CmuxRemoteSession
     CmuxAgentChat
+    CmuxAgentSessionLabels
     CmuxAgentSessionStore
     CmuxAuthRuntime
     CmuxWorkspacePresence
