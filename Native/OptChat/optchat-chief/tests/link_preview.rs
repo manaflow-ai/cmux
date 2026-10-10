@@ -164,7 +164,10 @@ fn a_reply_with_a_url_line_goes_as_text_then_a_filled_card() {
 #[test]
 fn a_failed_fetch_sends_the_card_with_its_url_only() {
     let (parts, h) = reply_with("Here it is:\nhttps://example.com/x", Arc::new(Canned(None)));
-    assert_eq!(parts, vec![text("Here it is:"), card("https://example.com/x")]);
+    assert_eq!(
+        parts,
+        vec![text("Here it is:"), card("https://example.com/x")]
+    );
     assert!(h.owner.lock().unwrap().uploads.is_empty());
 }
 
@@ -200,7 +203,10 @@ fn a_redirect_or_an_image_on_a_private_address_is_never_requested() {
                 "https://example.com/redirect",
                 Hop::Redirect("https://169.254.169.254/latest".into()),
             ),
-            ("https://example.com/page", Hop::Body(page.as_bytes().to_vec())),
+            (
+                "https://example.com/page",
+                Hop::Body(page.as_bytes().to_vec()),
+            ),
         ],
         asked: Mutex::new(Vec::new()),
     });
