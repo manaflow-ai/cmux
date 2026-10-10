@@ -109,6 +109,7 @@ public struct AgentNotificationReconciler: Sendable {
             }
         }
         var session = sessions[sessionKey] ?? Session()
+        let originalSessionBeforeMove = session
         if session.superseded && draft.kind != .sessionStarted {
             return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
         }
@@ -124,16 +125,46 @@ public struct AgentNotificationReconciler: Sendable {
                 session.deliveredSurfaceIDs.removeValue(forKey: identity)
             }
         }
+        let movedFromPreviousSurface = session.surfaceID != nil && session.surfaceID != draft.surfaceId
         session.surfaceID = draft.surfaceId
         session.agentKey = draft.agentKey
+
+        /// Commits a pane move even when the event is later suppressed by an
+        /// identity or freshness guard, preserving origin invalidations and
+        /// the move watermark together.
+        func finalizeMovedDecision(_ decision: AgentNotificationDecision) -> AgentNotificationDecision {
+            guard movedFromPreviousSurface else { return decision }
+            let moveIsFresh = draft.occurredAtMs > originalSessionBeforeMove.occurredAtMs
+                || (draft.occurredAtMs == originalSessionBeforeMove.occurredAtMs
+                    && event.sequence > originalSessionBeforeMove.sequence)
+            guard moveIsFresh else {
+                session = originalSessionBeforeMove
+                return decision
+            }
+            session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
+            session.sequence = max(session.sequence, event.sequence)
+            storeSession(session, for: sessionKey, indexKey: boundaryKey)
+            guard !boundaryInvalidations.isEmpty else { return decision }
+            return .init(
+                decision.disposition,
+                identity: decision.identity,
+                invalidatedCorrelationKeys: boundaryInvalidations + decision.invalidatedCorrelationKeys,
+                notificationEvent: decision.notificationEvent,
+                projectsLifecycle: decision.projectsLifecycle
+            )
+        }
         let context = draft.attention
         if draft.kind == .stateChanged, draft.declaredPhase == nil {
-            storeSession(session, for: sessionKey, indexKey: boundaryKey)
-            return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
+            if !movedFromPreviousSurface {
+                storeSession(session, for: sessionKey, indexKey: boundaryKey)
+                return .init(.observation)
+            }
+            return finalizeMovedDecision(.init(.observation))
         }
         let incomingTurn = context?.turnIdentity
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind),
            let request = context?.requestIdentity, session.resolvedRequests.contains(request) {
+            session = originalSessionBeforeMove
             return .init(.stale)
         }
         let isResolution = draft.kind == .attentionResolved
@@ -218,44 +249,53 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let isAttention = [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind)
         if isAttention, let incomingTurn, let currentTurn = session.nativeTurn,
-           incomingTurn != currentTurn, session.seenTurns.contains(incomingTurn) { return .init(.stale) }
+           incomingTurn != currentTurn, session.seenTurns.contains(incomingTurn) {
+            session = originalSessionBeforeMove
+            return .init(.stale)
+        }
         if isAttention, context?.requestIdentity == nil, !session.attentionIdentities.isEmpty {
             // A generic permission reminder adds no new request identity. Do not
             // let it re-notify or advance the watermark past a real later request.
-            guard context?.notification != nil else { return .init(.observation, projectsLifecycle: false) }
+            guard context?.notification != nil else {
+                return finalizeMovedDecision(.init(.observation, projectsLifecycle: false))
+            }
             guard session.attentionIdentities.count == 1,
-                  let identity = session.attentionIdentities.first else { return .init(.observation, projectsLifecycle: false) }
+                  let identity = session.attentionIdentities.first else {
+                return finalizeMovedDecision(.init(.observation, projectsLifecycle: false))
+            }
             var reminder = draft
             reminder.attention?.notification?.correlationKey = session.delivered[identity]
-            return .init(.accepted, identity: identity,
+            return finalizeMovedDecision(.init(.accepted, identity: identity,
                 notificationEvent: AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: reminder),
-                projectsLifecycle: false)
+                projectsLifecycle: false))
         }
         let independentRequest = isAttention && context?.requestIdentity != nil && session.phase == .needsInput
         if !independentRequest && (draft.occurredAtMs < session.occurredAtMs
             || (draft.occurredAtMs == session.occurredAtMs && event.sequence < session.sequence)) {
+            session = originalSessionBeforeMove
             return .init(.stale)
         }
         if draft.kind == .messagePublished {
             guard !session.ended else {
-                return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
+                session = originalSessionBeforeMove
+                return .init(.stale)
             }
             guard context?.notification != nil else {
-                storeSession(session, for: sessionKey, indexKey: boundaryKey)
-                return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
+                return finalizeMovedDecision(.init(.observation))
             }
             let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
-            storeSession(session, for: sessionKey, indexKey: boundaryKey)
-            return .init(
+            return finalizeMovedDecision(.init(
                 .accepted,
-                identity: Self.key([sessionKey, "message", key]),
-                invalidatedCorrelationKeys: boundaryInvalidations
-            )
+                identity: Self.key([sessionKey, "message", key])
+            ))
         }
         if (draft.kind == .turnCompleted || draft.kind == .idleObserved), let incomingTurn,
            let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
             guard session.phase != .running, session.phase != .needsInput,
-                  !session.seenTurns.contains(incomingTurn) else { return .init(.stale) }
+                  !session.seenTurns.contains(incomingTurn) else {
+                session = originalSessionBeforeMove
+                return .init(.stale)
+            }
             session.turn = incomingTurn
             session.nativeTurn = incomingTurn
             session.completionIdentity = nil
@@ -266,12 +306,10 @@ public struct AgentNotificationReconciler: Sendable {
                   !session.ended else {
                 // Even a delayed idle observation commits a pane move so the
                 // origin receipt invalidations cannot be lost on this early exit.
-                storeSession(session, for: sessionKey, indexKey: boundaryKey)
-                return .init(
+                return finalizeMovedDecision(.init(
                     .delayed,
-                    invalidatedCorrelationKeys: boundaryInvalidations,
                     projectsLifecycle: false
-                )
+                ))
             }
             session.phase = .idle
             session.rootStopped = true
@@ -279,6 +317,8 @@ public struct AgentNotificationReconciler: Sendable {
             session.sequence = max(session.sequence, event.sequence)
             storeSession(session, for: sessionKey, indexKey: boundaryKey)
             guard context?.notification != nil else {
+                session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
+                session.sequence = max(session.sequence, event.sequence)
                 return .init(.observation, invalidatedCorrelationKeys: boundaryInvalidations)
             }
             // A structured idle reminder is a distinct presentation from the
@@ -315,15 +355,24 @@ public struct AgentNotificationReconciler: Sendable {
             )
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,
-           session.phase == .needsInput || session.phase == .idle { return .init(.stale) }
+           session.phase == .needsInput || session.phase == .idle {
+            session = originalSessionBeforeMove
+            return .init(.stale)
+        }
         if draft.kind == .turnStarted, let key = context?.eventIdentity,
-           session.starts.contains(key) { return .init(.stale) }
+           session.starts.contains(key) {
+            session = originalSessionBeforeMove
+            return .init(.stale)
+        }
         if draft.kind == .turnCompleted, session.nativeTurn == nil, let incomingTurn {
             session.turn = incomingTurn
             session.nativeTurn = incomingTurn
         }
         if draft.kind == .turnCompleted, let key = context?.eventIdentity {
-            if let boundTurn = session.completionTurns[key], boundTurn != session.turn { return .init(.stale) }
+            if let boundTurn = session.completionTurns[key], boundTurn != session.turn {
+                session = originalSessionBeforeMove
+                return .init(.stale)
+            }
             session.completionTurns[key] = session.turn
         }
         var invalidated: [String] = boundaryInvalidations

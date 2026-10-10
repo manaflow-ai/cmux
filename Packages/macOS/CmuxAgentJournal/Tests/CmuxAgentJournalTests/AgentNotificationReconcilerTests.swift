@@ -174,13 +174,29 @@ struct AgentNotificationReconcilerTests {
         )
         #expect(moved.disposition == .accepted)
         #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+        let destinationError = reconciler.apply(
+            event(3, .errorReported, source: "claude", session: "old", surfaceID: destination)
+        )
+        let destinationErrorIdentity = try #require(destinationError.identity)
+        #expect(destinationError.disposition == .accepted)
+        let late = reconciler.apply(
+            event(4, .errorReported, source: "claude", session: "old", occurredAt: 1, surfaceID: origin)
+        )
+        #expect(late.disposition == .stale)
+        #expect(late.invalidatedCorrelationKeys.isEmpty)
+        let later = reconciler.apply(
+            event(5, .messagePublished, source: "claude", session: "old", request: "later",
+                  surfaceID: destination)
+        )
+        #expect(later.disposition == .accepted)
+        #expect(later.invalidatedCorrelationKeys.isEmpty)
 
         let replacement = reconciler.apply(
             event(3, .sessionStarted, source: "claude", session: "new", notify: false,
                   surfaceID: destination)
         )
         #expect(replacement.disposition == .observation)
-        #expect(replacement.invalidatedCorrelationKeys.isEmpty)
+        #expect(replacement.invalidatedCorrelationKeys == [destinationErrorIdentity])
         #expect(
             reconciler.apply(
                 event(4, .errorReported, source: "claude", session: "old", surfaceID: destination)
@@ -203,6 +219,11 @@ struct AgentNotificationReconcilerTests {
         )
         #expect(moved.disposition == .delayed)
         #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+        #expect(
+            reconciler.apply(
+                event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+            ).disposition == .stale
+        )
     }
 
     @Test func contextPersistsAndIdempotentAppendRejectsChangedEvidence() throws {
