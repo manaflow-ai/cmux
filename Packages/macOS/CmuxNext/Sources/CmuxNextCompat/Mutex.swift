@@ -38,7 +38,7 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
 
 extension Mutex: @unchecked Sendable where Value: ~Copyable {} // crash-allow: the lock serializes every access, as in Synchronization.Mutex
 
-/// The heap cells behind ``Mutex`` and ``Atomic``: one `os_unfair_lock` and
+/// The heap cell behind ``Mutex``: one `os_unfair_lock` and
 /// the value it protects. The lock needs a stable address, so it lives in its
 /// own allocation, never inline in a struct.
 final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: every access holds lockPointer
