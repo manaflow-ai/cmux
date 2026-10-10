@@ -89,6 +89,7 @@ action with that CLI name: `cmux action list --noun {scope}` lists them.
 
 const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
+       cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
