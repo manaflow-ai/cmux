@@ -56,6 +56,7 @@ pub(crate) struct LocalServerMessages {
     pub suggestion: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
+    pub all_sessions_agent_refused: &'static str,
 }
 
 impl LocalServerMessages {
@@ -136,6 +137,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     suggestion: "Did you mean `{candidate}`?",
     unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
     stop_timeout: "timed out waiting for the local server to stop",
+    all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
 };
 
 pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
@@ -193,4 +195,5 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     suggestion: "`{candidate}` のことですか？",
     unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
     stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
+    all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
 };
