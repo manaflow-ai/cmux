@@ -131,7 +131,7 @@ nonisolated struct HomeBrainHost: Sendable {
         // Chief home's env.
         if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale(),
            let pid = await ChiefHostStop.stop(home: ChiefHome(root: muxHome, isolated: false)) {
-            _ = await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+            _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
         // A live host reads the token file at each connect: keep its binding.
         if runningHostHasToken { return .reusedRunningHost }
