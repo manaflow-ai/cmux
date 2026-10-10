@@ -94,13 +94,18 @@ impl EventSource for UnixInternalEventSource {
                     TTY_TOKEN => {
                         loop {
                             match self.tty_fd.read(&mut self.tty_buffer) {
+                                // End of input: the terminal is gone. The poll
+                                // keeps reporting this descriptor ready, so
+                                // retrying here would spin without ever yielding.
+                                // The kind is the whole signal, so a caller can
+                                // recognize it without carrying this crate's
+                                // wording into its own messages.
+                                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                                 Ok(read_count) => {
-                                    if read_count > 0 {
-                                        self.parser.advance(
-                                            &self.tty_buffer[..read_count],
-                                            read_count == TTY_BUFFER_SIZE,
-                                        );
-                                    }
+                                    self.parser.advance(
+                                        &self.tty_buffer[..read_count],
+                                        read_count == TTY_BUFFER_SIZE,
+                                    );
                                 }
                                 Err(e) => {
                                     // No more data to read at the moment. We will receive another event
@@ -110,6 +115,11 @@ impl EventSource for UnixInternalEventSource {
                                     // once more data is available to read.
                                     else if e.kind() == io::ErrorKind::Interrupted {
                                         continue;
+                                    }
+                                    // Any other failure, `EIO` on a hung-up pty
+                                    // among them, is final for this descriptor.
+                                    else {
+                                        return Err(e);
                                     }
                                 }
                             };
