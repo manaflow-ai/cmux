@@ -56,6 +56,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var lastAgent: String?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
+    /// The SSH or Cloud machine the page opens on, for the folder label (`host ~`); nil on this Mac.
+    public var host: String?
     /// Actions available from the New Tab page's Tools section.
     public var tools: [Tool]
     /// Identifies the opening whose focused field must acknowledge readiness.
@@ -68,7 +70,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil,
-                templateSwitcher: Bool? = nil) {
+                templateSwitcher: Bool? = nil, host: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -83,6 +85,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.templateSwitcher = templateSwitcher
         self.lastAgent = lastAgent
         self.home = home
+        self.host = host
         self.tools = tools
         self.inputToken = nil
     }

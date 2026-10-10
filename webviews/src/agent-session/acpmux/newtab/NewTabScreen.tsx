@@ -62,6 +62,8 @@ type Props = NewTabScreenActions & {
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
+  /// The SSH or Cloud machine the page opens on; its home reads `host ~`, never a bare `~`.
+  host?: string;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -283,7 +285,7 @@ export function NewTabScreen(props: Props) {
         <ProjectChooser
           projects={props.projects ?? []}
           current={project}
-          {...(project ? { currentLabel: projectLabel(project) } : {})}
+          {...(project ? { currentLabel: machineLabel(projectLabel(project), props.host) } : {})}
           icon={<FolderIcon />}
           onPick={pickProject}
           {...(browseProject ? { onBrowse: browseProject } : {})}
@@ -522,4 +524,9 @@ function rowAction(t: Translate, row: ScreenRow): string {
     case "history":
       return t("newTabPage.row.history");
   }
+}
+
+/// A remote machine's home is labeled with its host (`devbox ~`), so it never reads as this Mac's home.
+function machineLabel(label: string, host: string | undefined): string {
+  return host && label === "~" ? `${host} ~` : label;
 }

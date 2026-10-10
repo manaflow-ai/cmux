@@ -167,7 +167,8 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent,
             home: machine.home, tools: tools(services, targetID: selected?.id),
             template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil,
+            host: machine.host
         )
     }
 

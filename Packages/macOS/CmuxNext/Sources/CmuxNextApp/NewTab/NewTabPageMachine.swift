@@ -11,20 +11,23 @@ struct NewTabPageMachine {
     /// This Mac's home for a local tab; nil on another machine, whose home the app does not
     /// know, so a typed `~/path` is never read as a file on this Mac.
     let home: String?
+    /// The machine's name for the user on an SSH or Cloud machine (the page labels a remote
+    /// home `host ~`, never a bare `~` that reads as this Mac); nil on this Mac.
+    let host: String?
 
     @MainActor init(_ services: AppServices, selected: TabModel?) {
         guard let selected else {
-            (cwd, home) = (nil, NSHomeDirectory())
+            (cwd, home, host) = (nil, NSHomeDirectory(), nil)
             return
         }
         let daemon = services.machines.daemon(forTab: selected)
         guard !daemon.isLocal else {
-            (cwd, home) = (selected.cwd, NSHomeDirectory())
+            (cwd, home, host) = (selected.cwd, NSHomeDirectory(), nil)
             return
         }
         let store = daemon.store
         let workspace = store.pane(containing: selected.surface).flatMap { store.workspace(containing: $0.handle) }
         let folder = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).lazy.compactMap(\.cwd).first
-        (cwd, home) = (selected.cwd ?? folder, nil)
+        (cwd, home, host) = (selected.cwd ?? folder, nil, services.machines.machineName(daemon.machineID) ?? daemon.machineID)
     }
 }

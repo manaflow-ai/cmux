@@ -3071,6 +3071,7 @@ function AcpmuxPane() {
               tools={newTab.tools}
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+              {...(newTab.host ? { host: newTab.host } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(
