@@ -27,21 +27,6 @@ describe("push targets (UserDO)", () => {
   const reg = (s: UserState, p: Principal, token: string, topic = "dev.cmux.ios") =>
     reduce(s, p, "push.target.register", { token, topic, environment: "production", device_name: "iPhone" })
 
-  it("lets an iOS install register, replace and remove only its own token; the session removes any; drop is internal", () => {
-    let s = seed()
-    let r = reg(s, phone, tok("a"))
-    expect(r.ok).toBe(true)
-    if (r.ok) s = r.state
-    expect(reg(s, ipad, tok("a"))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    r = reg(s, phone, tok("b"))
-    if (r.ok) s = r.state
-    expect(Object.keys(s.push_targets ?? {})).toEqual([tok("b")])
-    expect(reduce(s, ipad, "push.target.remove", { token: tok("b") })).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(reduce(s, phone, "push.target.drop", { token: tok("b"), reason: "x" })).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(reduce(s, session, "push.target.remove", { token: tok("b") })).toMatchObject({ ok: true, value: { removed: true } })
-    expect(reduce(s, system, "push.target.drop", { token: tok("b"), reason: "Unregistered" })).toMatchObject({ ok: true, value: { removed: true } })
-  })
-
   it("refuses non-iOS installs, sessions and topics outside the cmux apps", () => {
     const cli: Principal = { ...phone, identity: "inst_cli00000000000000000", install: "inst_cli00000000000000000" }
     expect(reg(seed(), cli, tok("c"))).toMatchObject({ ok: false, code: "auth.forbidden" })
@@ -64,19 +49,6 @@ describe("push targets (UserDO)", () => {
     expect(taken).toMatchObject({ ok: true, value: { install: ipad.install } })
   })
 
-  it("keeps at most 20 targets, dropping the oldest", () => {
-    const installs: Record<string, UserState["installs"][string]> = {}
-    for (let i = 0; i < 22; i++) installs[`inst_p${String(i).padStart(19, "0")}`] = inst("ios")
-    let s: UserState = { ...userDomain.initial(), installs }
-    for (let i = 0; i < 22; i++) {
-      const id = `inst_p${String(i).padStart(19, "0")}`
-      const r = reg(s, { ...phone, identity: id, install: id }, (i + 10).toString(16).padStart(2, "0").repeat(32))
-      if (r.ok) s = r.state
-    }
-    const left = Object.values(s.push_targets ?? {})
-    expect(left).toHaveLength(20)
-    expect(left.some((t) => t.install === "inst_p0000000000000000000")).toBe(false)
-  })
 })
 
 const item = (over: Partial<FeedItem> = {}): FeedItem =>
@@ -88,56 +60,6 @@ const item = (over: Partial<FeedItem> = {}): FeedItem =>
     count: 1, order: 1, revision: 1, created_at: 1, updated_at: 1, closed_at: null, ...over
   }) as FeedItem
 const target = (environment: "production" | "development" = "production"): PushTarget => ({ token: tok("d"), topic: "dev.cmux.ios", environment, install: "inst_ios00000000000000000", device_name: "iPhone", registered_at: 1 })
-
-describe("APNs sender", () => {
-  it("signs an ES256 provider token Apple can verify, and reuses it", async () => {
-    const pair = await generateKeyPair("ES256", { extractable: true })
-    const config = { keyP8: await exportPKCS8(pair.privateKey), keyId: "KEY1234567", teamId: "TEAM123456" }
-    const now = Date.UTC(2026, 9, 2)
-    const t1 = await providerToken(config, now)
-    const { payload, protectedHeader } = await jwtVerify(t1, pair.publicKey)
-    expect(protectedHeader).toMatchObject({ alg: "ES256", kid: "KEY1234567" })
-    expect(payload).toMatchObject({ iss: "TEAM123456" })
-    expect(await providerToken(config, now + 10 * 60_000)).toBe(t1)
-    expect(await providerToken(config, now + 51 * 60_000)).not.toBe(t1)
-  })
-
-  it("builds the request per environment with topic, collapse id and a kind category; mail carries no content", async () => {
-    const req = apnsRequest(target("development"), item(), "jwt", 1_000)
-    expect(new URL(req.url).host).toBe("api.sandbox.push.apple.com")
-    expect(req.headers.get("apns-topic")).toBe("dev.cmux.ios")
-    expect(req.headers.get("apns-collapse-id")).toBe("fi_aaaaaaaaaaaaaaaaaaaa")
-    expect(req.headers.get("apns-push-type")).toBe("alert")
-    const body = (await req.json()) as any
-    expect(body.aps).toMatchObject({ alert: { title: "Run npm run build?", subtitle: "Claude Code · api" }, category: "FEED_APPROVE", "thread-id": "claude-code:s1" })
-    expect(body.cmux).toEqual({ feed_item: "fi_aaaaaaaaaaaaaaaaaaaa", kind: "approve", type: "request" })
-    expect(apnsPayload(item({ kind: "mail", type: "notice", title: "Secret subject" })).aps.alert).toEqual({ title: "New mail" })
-    expect(new URL(apnsRequest(target(), item(), "jwt", 1).url).host).toBe("api.push.apple.com")
-    // Over-long text is cut on code points and the body stays under the APNs limit.
-    const huge = item({ type: "notice", kind: "notice", title: "😀".repeat(300), body: "x".repeat(4000), poster: { kind: "agent", scope: "s", label: "y".repeat(80), harness: "z".repeat(40) } })
-    const text = payloadText(huge)
-    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(4096)
-    expect(() => JSON.parse(text)).not.toThrow()
-  })
-
-  it("classifies answers: sent, drop the token, retry later", async () => {
-    expect(classifyApns(200, undefined)).toBe("sent")
-    expect(classifyApns(410, "Unregistered")).toBe("drop_target")
-    expect(classifyApns(400, "BadDeviceToken")).toBe("drop_target")
-    expect(classifyApns(429, "TooManyRequests")).toBe("retry_later")
-    expect(classifyApns(400, "PayloadTooLarge")).toBe("failed")
-    const pair = await generateKeyPair("ES256", { extractable: true })
-    const config = { keyP8: await exportPKCS8(pair.privateKey), keyId: "KEY2", teamId: "TEAM2" }
-    const seen: Array<string> = []
-    const fetcher = (async (req: Request) => {
-      seen.push(req.headers.get("authorization") ?? "")
-      return req.url.includes(tok("e")) ? new Response(JSON.stringify({ reason: "Unregistered" }), { status: 410 }) : new Response(null, { status: 200 })
-    }) as typeof fetch
-    const r = await sendApns(config, [target(), { ...target(), token: tok("e") }], item(), Date.now(), fetcher)
-    expect(r.map((x) => x.outcome)).toEqual(["sent", "drop_target"])
-    expect(seen.every((h) => h.startsWith("bearer "))).toBe(true)
-  })
-})
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default

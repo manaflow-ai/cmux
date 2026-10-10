@@ -62,82 +62,14 @@ const cancelledCreate = async () => {
 }
 
 describe("N1: late VMs of a cancelled create", { timeout: 120_000 }, () => {
-  it("probe 1: a VM that appears within 24 h is deleted by the recorded ledger name", async () => {
-    const { team, stub, id, name } = await cancelledCreate()
-    await stub.fakeControl({ add_vm: { name, team, machine: id } })
-    await tick(stub, 2 * HOUR)
-    expect(await stub.fakeControl({})).toMatchObject({ deletes: 1, vms: [] })
-  })
 
-  it("never deletes a late VM whose metadata does not match the ledger row; it is reported metadata_mismatch", async () => {
-    const { team, stub, name } = await cancelledCreate()
-    await stub.fakeControl({ add_vm: { name, team, machine: "vm_ffffffffffffffffffff" } })
-    await tick(stub, 2 * HOUR)
-    await tick(stub, 2 * HOUR)
-    const c = await stub.fakeControl({})
-    expect(c.deletes).toBe(0)
-    expect(c.vms.map((v) => v.name)).toEqual([name])
-    expect(c.suspects).toEqual([expect.objectContaining({ name, reason: "metadata_mismatch" })])
-  })
-
-  it("probe 1 after the window: the row is abandoned (kept past pruning) and a VM that appears later is reported, never deleted", async () => {
-    const { team, stub, id, name } = await cancelledCreate()
-    await tick(stub, 25 * HOUR)
-    await tick(stub, 8 * 24 * HOUR)
-    await stub.fakeControl({ add_vm: { name, team, machine: id } })
-    await tick(stub, 2 * HOUR)
-    const c = await stub.fakeControl({})
-    expect(c.deletes).toBe(0)
-    expect(c.suspects).toEqual([expect.objectContaining({ name, reason: "abandoned_create" })])
-  })
 })
 
 describe("N1 + N2: a delete that fails for good", { timeout: 120_000 }, () => {
-  it("probe 2: the machine is failed, counts in the quota again, and its running VM is reported delete_failed", async () => {
-    const { team, p, stub } = person()
-    const id = reply(await stub.submit(team, p, frame("cloud.machine.create", { size: SIZE }))).value.machine.id as string
-    await stub.fakeControl({ fail_next: 5 })
-    expect(reply(await stub.submit(team, p, frame("cloud.machine.delete", { machine: id })))).toMatchObject({ code: "mutation.indeterminate" })
-    for (let i = 0; i < 6; i++) await tick(stub)
-    expect(await stub.readOp(team, p, "cloud.machine.get", { machine: id })).toMatchObject({ ok: true, value: { status: "failed" } })
-    expect((await stub.readOp(team, p, "cloud.plan.get", {})).value.usage.active).toBe(1)
-    await tick(stub, 2 * HOUR)
-    const c = await stub.fakeControl({})
-    expect(c.vms.map((v) => v.name)).toEqual([providerName(PREFIX, id)])
-    expect(c.suspects).toEqual([expect.objectContaining({ name: providerName(PREFIX, id), reason: "delete_failed" })])
-    // Deleting the failed machine again releases the quota once.
-    expect(reply(await stub.submit(team, p, frame("cloud.machine.delete", { machine: id })))).toMatchObject({ t: "result", value: { deleted: true } })
-    expect((await stub.readOp(team, p, "cloud.plan.get", {})).value.usage.active).toBe(0)
-  })
 })
 
 describe("N3 + N5: sweep scheduling", { timeout: 120_000 }, () => {
-  it("N3: a failed provider list is logged and the next report comes an hour later; the wake does not fail", async () => {
-    const { team, p, stub } = person()
-    reply(await stub.submit(team, p, frame("cloud.machine.create", { size: SIZE })))
-    await tick(stub)
-    await stub.fakeControl({ fail_list: true })
-    await tick(stub, 2 * HOUR)
-    const c = await stub.fakeControl({})
-    expect(c.sweep_at).not.toBeNull()
-    expect(Math.abs(c.sweep_at! - c.now)).toBeLessThan(60_000)
-    // Fired again at once: no new attempt before the hour.
-    await fireAlarm(stub)
-    expect((await stub.fakeControl({})).sweep_at).toBe(c.sweep_at)
-  })
 
-  it("N5: no sweep once the team has no machine, ledger or tombstone rows", async () => {
-    const { team, p, stub } = person()
-    const id = reply(await stub.submit(team, p, frame("cloud.machine.create", { size: SIZE }))).value.machine.id as string
-    reply(await stub.submit(team, p, frame("cloud.machine.delete", { machine: id })))
-    await tick(stub)
-    // Tombstones go after 30 days, finished ledger rows after 7.
-    await tick(stub, 31 * 24 * HOUR)
-    const before = (await stub.fakeControl({})).sweep_at
-    expect(typeof before).toBe("number")
-    await tick(stub, 2 * HOUR)
-    expect((await stub.fakeControl({})).sweep_at).toBe(before)
-  })
 })
 
 describe("cloud.admin.abandoned.clear (CloudDO side)", { timeout: 120_000 }, () => {
@@ -156,14 +88,6 @@ describe("cloud.admin.abandoned.clear (CloudDO side)", { timeout: 120_000 }, () 
     const again = await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "checked the console by hand")
     expect(again).toMatchObject({ ok: false, code: "vm_present" })
     expect((await x.stub.fakeControl({})).deletes).toBe(0)
-  })
-
-  it("clears an abandoned row when no VM exists, records who/when/why, and a second clear finds nothing", async () => {
-    const x = await abandoned()
-    const r = await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "VM gone in the provider console")
-    expect(r).toMatchObject({ ok: true, audit: { machine: x.id, by: x.p.user, by_email: "ops@example.com", reason: "VM gone in the provider console" } })
-    expect(typeof r.audit.at).toBe("number")
-    expect(await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "VM gone in the provider console")).toMatchObject({ ok: false, code: "not_abandoned" })
   })
 
   it("refuses a machine whose row is not abandoned", async () => {

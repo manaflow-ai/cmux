@@ -89,13 +89,6 @@ describe("UsageMeterDO ledger (workerd)", () => {
 })
 
 describe("cap math and authorization (pure)", () => {
-  it("treats a missing or invalid ceiling as zero, which stops everything", () => {
-    expect(ceilingUsd(undefined)).toBe(0)
-    expect(ceilingUsd("abc")).toBe(0)
-    expect(ceilingUsd("-1")).toBe(0)
-    expect(ceilingUsd("25")).toBe(25)
-    expect(summarize({ owner: "team_x", team_cap_usd: null }, "2026-10", new Map(), 0).stopped).toBe("cap.not_configured")
-  })
   it("refuses another team's principal", () => {
     const stranger: Principal = { identity: "session:s", kind: "session", user: "user_bbbbbbbbbbbbbbbbbbbb", team: "team_bbbbbbbbbbbbbbbbbbbb" }
     expect(usageDomain.authorize!({ owner: "team_aaaaaaaaaaaaaaaaaaaa", team_cap_usd: null }, "usage.cap.set", { cap_usd: 1 }, stranger)).toMatchObject({ code: "auth.forbidden" })

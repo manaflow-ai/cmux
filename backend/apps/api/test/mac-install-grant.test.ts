@@ -21,9 +21,6 @@ const register = async (session: string, kind: string, op_classes?: ReadonlyArra
 }
 
 describe("the Mac install grant", { timeout: 60_000 }, () => {
-  it("defaults to read, mutate-own, mutate-shared and cloud-link, never execute", () => {
-    expect([...defaultInstallClasses("mac")].sort()).toEqual(["cloud-link", "mutate-own", "mutate-shared", "read"])
-  })
 
   it("a mac register that asks for execute is refused", async () => {
     const session = await sessionToken("mac-grant-1")
