@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d8af24573f9c339d6563da82b3c318a379a00bf114e6c33746cee9f443be0fb1.
+// cmux-tui mux protocol 12, IR 4439f0cc6d7d083091ce91f267dc8423b97ca0405e90960be83ec73bf19b1cc1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,7 +61,7 @@ pub struct AgentSessionSource {
     /// The agent kind the chat was started with.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub harness: Optional<String>,
-    /// install: and the stable install id of the machine whose acpmux runs the session, chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it, or registry: and this store's identify.session_id (the session daemon's own machine runs it; agent-session-start).
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     pub host: String,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
