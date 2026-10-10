@@ -177,6 +177,7 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
+        if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
         let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
@@ -202,7 +203,7 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }
-        let url = recordURL(tab)
+        let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
@@ -317,11 +318,10 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
-        showPendingNotice(on: entry, key: key)
+        showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
-        entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f'
+IR_SHA256 = 'e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388'
 
 
 @dataclass(frozen=True)
@@ -1112,6 +1112,64 @@ COMMANDS = {
         None,
         {
             'screen': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-abort': CommandMetadata(
+        'feed-local-handoff-abort',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-begin': CommandMetadata(
+        'feed-local-handoff-begin',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-done': CommandMetadata(
+        'feed-local-handoff-done',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'home': CommandFieldMetadata(None, None),
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-list': CommandMetadata(
+        'feed-local-list',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'state': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'unread': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-read': CommandMetadata(
+        'feed-local-read',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'items': CommandFieldMetadata(None, None),
         },
     ),
     'focus-direction': CommandMetadata(
