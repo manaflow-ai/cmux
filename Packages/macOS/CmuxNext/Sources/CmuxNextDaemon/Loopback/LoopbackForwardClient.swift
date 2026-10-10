@@ -24,6 +24,9 @@ public actor LoopbackForwardClient {
     private var transport: LineTransport?
     private var table = LoopbackStreamTable()
     private var connecting: Task<LineTransport, any Error>?
+    /// Set by `close()`: a closed client never connects again, also for an
+    /// open that captured it or a connect in flight (cx-bj1o review).
+    private var isClosed = false
     private var nextStream: UInt64 = 1
     /// The connected daemon has `browser-runtime-v1` and this connection opted in.
     var runtimeEnabled = false
@@ -63,6 +66,7 @@ public actor LoopbackForwardClient {
 
     /// Closes the connection and every stream.
     public func close() {
+        isClosed = true
         connecting?.cancel()
         connecting = nil
         transport?.close()
@@ -73,6 +77,7 @@ public actor LoopbackForwardClient {
     // MARK: Private
 
     func liveTransport() async throws -> LineTransport {
+        if isClosed { throw LoopbackForwardError.unavailable("the forwarding connection is closed") }
         if let transport, !transport.isClosed { return transport }
         transport = nil
         if let connecting { return try await connecting.value }
@@ -80,6 +85,10 @@ public actor LoopbackForwardClient {
         connecting = task
         defer { connecting = nil }
         let transport = try await task.value
+        guard !isClosed else {
+            transport.close()
+            throw LoopbackForwardError.unavailable("the forwarding connection is closed")
+        }
         self.transport = transport
         return transport
     }
