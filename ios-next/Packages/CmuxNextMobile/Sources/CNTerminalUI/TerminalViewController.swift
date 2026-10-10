@@ -409,6 +409,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         relayoutAccessories(animated: true)
     }
 
+    private func endInputFocus() {
+        if composerFocused {
+            requestComposerFocus(false)
+            composerHost?.view.endEditing(true)
+        }
+        if terminalView.isFirstResponder { terminalView.resignFirstResponder() }
+    }
+
     private func requestComposerFocus(_ focused: Bool) {
         model.composerWantsFocus = focused
         model.composerFocusRequest += 1
@@ -451,6 +459,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         guard let window = view.window else { return }
         let end = window.convert(change.endFrame, from: window.screen.coordinateSpace)
         keyboardFrame = change.hiding || end.minY >= window.bounds.maxY - 1 ? nil : end
+        // The keyboard went down (swipe, Hide key, anything): drop focus so a
+        // tap on the composer field or the terminal brings it back. Not with
+        // a hardware keyboard, where the software keyboard is never shown.
+        if keyboardFrame == nil, !GhosttyTerminalView.hardwareKeyboardAttached { endInputFocus() }
         let animations = {
             self.placeAccessories()
             self.view.layoutIfNeeded()
