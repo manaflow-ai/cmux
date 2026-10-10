@@ -7,6 +7,26 @@
 
 use serde_json::Value;
 
+/// Rendered text one delivery hands an agent at once; later messages wait
+/// for the next one. Codex keeps 2,500 tokens of hook output by default.
+pub const MAX_BATCH_BYTES: usize = 8 * 1024;
+
+/// The oldest of `oldest_first` that fit in one delivery of at most
+/// [`MAX_BATCH_BYTES`]; always at least one.
+pub fn batch(oldest_first: Vec<Value>) -> Vec<Value> {
+    let mut batch = Vec::new();
+    let mut bytes = 0;
+    for message in oldest_first {
+        let size = message["body"].as_str().map_or(0, str::len) + 512;
+        if !batch.is_empty() && bytes + size > MAX_BATCH_BYTES {
+            break;
+        }
+        bytes += size;
+        batch.push(message);
+    }
+    batch
+}
+
 /// Render `messages` (`AgentMessageSnapshot` values) oldest first.
 pub fn render(messages: &[Value]) -> String {
     let total = messages.len();
