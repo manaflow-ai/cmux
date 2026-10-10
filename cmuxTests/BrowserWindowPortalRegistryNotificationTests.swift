@@ -247,16 +247,20 @@ struct BrowserWindowPortalRegistryNotificationTests {
         let manager = TabManager()
         manager.window = window
         let workspace = try #require(manager.selectedWorkspace)
+        let initialTerminalID = try #require(workspace.focusedPanelId)
         let browserID = try #require(manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
         let browser = try #require(workspace.browserPanel(for: browserID))
+        #expect(workspace.closePanel(initialTerminalID, force: true))
+        #expect(workspace.panels[initialTerminalID] == nil)
         defer {
             workspace.setPortalRenderingEnabled(false, reason: "test.cleanup")
             BrowserWindowPortalRegistry.detach(webView: browser.webView)
         }
 
         // Reset any setup follow-up, then enter through the geometry-only path.
-        // The browser anchor is still unattached, so browser visibility remains
-        // pending after the geometry pass and must trigger a second scoped flush.
+        // The browser is the only rendered panel, so geometry converges while
+        // its unattached anchor keeps browser visibility pending. That pending
+        // browser retry must trigger a second scoped flush.
         workspace.setPortalRenderingEnabled(false, reason: "test.reset")
         contentView.layoutFlushCount = 0
         workspace.setPortalRenderingEnabled(true, reason: "test.geometryOnly")
