@@ -618,8 +618,12 @@ final class FeedCoordinator: @unchecked Sendable {
     /// prompt, or stop hook can only follow the decision. AskUserQuestion and
     /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
     static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
-        guard event.feedHookSentAtMs != nil,
-              event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
+        guard event.feedHookSentAtMs != nil else { return false }
+        // OpenCode's TUI process can outlive an archived/deleted session.
+        // Its ordered SessionEnd must retire waiters even when notifications
+        // were muted and no semantic notification correlation key was stored.
+        if event.source == "opencode" { return event.hookEventName == .sessionEnd }
+        guard event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
             return false
         }
         switch event.hookEventName {

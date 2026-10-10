@@ -20,6 +20,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
   let client = null;
   let buffered = "";
   let telemetrySequence = 0;
+  let lastHookSentAtMs = 0;
   const pending = new Map();
   const messageRoles = new Map();
   const sessions = new Map();
@@ -629,6 +630,9 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   const base = (sessionId, extra) => {
+    // A session can end in the same millisecond as its final request. Preserve
+    // strict ordering so the app can retire its waiters without notifications.
+    lastHookSentAtMs = Math.max(Date.now(), lastHookSentAtMs + 1);
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
     const workspaceId =
@@ -645,6 +649,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       _ppid: process.pid,
       cwd: extra?.cwd || state.cwd || ctx?.directory,
       ...extra,
+      _hook_sent_at_ms: lastHookSentAtMs,
     };
     if (workspaceId) event.workspace_id = workspaceId;
     if (surfaceId) event.surface_id = surfaceId;
