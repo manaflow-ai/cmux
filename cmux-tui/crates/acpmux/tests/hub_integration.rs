@@ -1273,6 +1273,51 @@ async fn prompt_ids_and_turn_ids_are_echoed_and_accepted_early() {
 }
 
 #[tokio::test]
+async fn queued_prompts_are_accepted_queued_and_watchers_see_the_queue() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "q").await;
+    let mut w = connect(&hub).await;
+    let snap = w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    // The watch result is the session list.
+    assert!(snap["sessions"].as_array().unwrap().iter().any(|s| s["sessionId"] == id));
+
+    let first = c.send(method::SESSION_PROMPT, prompt(&id, "slow", Some("p-slow"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-slow").await;
+    let second = c.send(method::SESSION_PROMPT, prompt(&id, "after", Some("p-after"))).await;
+    let acc = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-after").await;
+    assert_eq!(acc["queued"], true);
+    assert_eq!(acc["position"], 1);
+    let queue = hub.session_summary(&hub.resolve("q").unwrap())["queue"].clone();
+    assert_eq!(queue[0]["promptId"], "p-after");
+
+    // Watchers learn about the queue on enqueue and on dequeue, with the
+    // session id at the top level.
+    let enq = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["kind"] == "queue" && p["recordKind"] == "queued"
+        })
+        .await;
+    assert_eq!(enq["sessionId"], id);
+    assert_eq!(enq["session"]["queued"], 1);
+    let deq = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["kind"] == "queue" && p["recordKind"] == "dequeued"
+        })
+        .await;
+    assert_eq!(deq["sessionId"], id);
+    assert_eq!(deq["session"]["queued"], 0);
+
+    assert!(c.response(first).await.0.is_ok());
+    let r = c.response(second).await.0.unwrap();
+    assert_eq!(r["_meta"]["acpmux"]["turnId"], acc["turnId"]);
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let queued = find(&events, "queued")[0];
+    assert_eq!(queued.msg["promptId"], "p-after");
+    assert_eq!(queued.msg["turnId"], acc["turnId"]);
+    assert_eq!(find(&events, "dequeued")[0].msg["turnId"], acc["turnId"]);
+}
+
+#[tokio::test]
 async fn watchers_get_permission_pending_and_auto_approvals() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "perm").await;
@@ -1438,9 +1483,6 @@ mod lifecycle_fixes;
 
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
-
-#[path = "hub_integration/queue.rs"]
-mod queue;
 
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
