@@ -15,8 +15,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use super::*;
 use super::projection_crosscheck::projection_difference;
+use super::*;
 use crate::diagnostics::ProjectionSpans;
 use crate::resource::{BrowserPublicId, WorkspacePublicId};
 use crate::workspace_registry::{RegistryTerminal, ResourceTopologySnapshot};

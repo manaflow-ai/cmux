@@ -133,8 +133,8 @@ fn the_child_of_an_ungrouped_tab_stays_ungrouped() {
 }
 
 /// A second link tab, opened after a group's child landed, keeps every
-/// client's view of the strip current (cx-d0d.61: the scoped projection
-/// once dropped a reordered tab here).
+/// client's view of the strip current (cx-d0d.61: the projection cross-check
+/// once compared the journal's decorated grouped tab with an undecorated one).
 #[test]
 fn a_second_child_after_a_grouped_child_keeps_the_strip_current() {
     let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-second");
