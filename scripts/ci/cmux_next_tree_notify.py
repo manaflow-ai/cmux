@@ -103,6 +103,14 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
     tiers = marker.get("tiers")
     if not isinstance(tiers, list) or not tiers or any(tier not in TIERS for tier in tiers):
         return None
+    dev_daily = marker.get("dev_daily", False)
+    if dev_daily:
+        if marker.get("dev_daily_sha") != marker.get("sha"):
+            return None
+        if marker.get("branch") != f"cmux-next-dev-{marker['sha']}":
+            return None
+    elif dev_daily is not False:
+        return None
     if marker.get("origin") == "push":
         return marker if REF.match(str(marker.get("branch", ""))) else None
     if marker.get("origin") == "pull_request":
@@ -165,6 +173,8 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             "same_tree_origin": marker["origin"],
             "same_tree_origin_run": str(run_id or ""),
         }
+        if marker.get("dev_daily"):
+            inputs.update(dev_daily="true", dev_daily_sha=marker["dev_daily_sha"])
         for ref in dispatch_refs(marker, repo):
             status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": ref, "inputs": inputs})
             if status == 204:
