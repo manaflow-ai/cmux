@@ -134,6 +134,9 @@ fn an_unreadable_registry_is_kept_with_its_sidecars() {
     let session = "rr-corrupt";
     assert!(start_owner(&dir.0, session).1, "the first start serves");
     let session_dir = session_dir(&dir.0);
+    // A stopped owner can leave a valid WAL whose frames SQLite would read in
+    // place of the damaged main file; the damage under test is the file alone.
+    let _ = fs::remove_file(session_dir.join(format!("{REGISTRY}-wal")));
     let garbage = vec![0x5a_u8; 8192];
     fs::write(session_dir.join(REGISTRY), &garbage).unwrap();
     fs::write(session_dir.join(format!("{REGISTRY}-shm")), b"shared memory index").unwrap();
