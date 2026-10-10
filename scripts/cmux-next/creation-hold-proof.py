@@ -11,7 +11,9 @@ in order, in the expected terminal:
 - resolve: release the resolution -> the new pane;
 - fail: `fail_next`, release -> the original pane (the split failed);
 - workspace: switch to another workspace (`workspace.selectLastUsed`) -> that workspace's terminal;
-- window: make a second window key (`debug.window.focus`) -> that window's terminal;
+- window: a key typed into a second window (Return, through `debug.key`) -> the held keys run
+  first, into the terminal that has focus in their own window (here the new pane: the app runs
+  without a key window, so `NSApplication.sendEvent` sends them to their own window);
 - click: click the original pane (`debug.mouse`) -> the original pane.
 The expected terminal's screen is read over the daemon socket. Exit 1 when any run failed.
 """
@@ -89,17 +91,14 @@ WS_B = run_action("workspace.newAtBottom")["created"][0]
 time.sleep(1.0)
 WS_A = run_action("workspace.newAtBottom")["created"][0]
 time.sleep(1.5)
+in_a = next(w for w in topology()["windows"] if w["key"] == WIN_A)["workspaces"]
+if WS_A not in in_a or WS_B not in in_a:
+    raise SystemExit(f"setup: workspaces not in window A: {WS_A} {WS_B} {in_a}")
 
 
 def first_surface(ws):
     pane = sorted(panes(ws).values(), key=lambda p: p["id"])[0]
     return pane["id"], pane["tabs"][0]["surface"]
-
-
-def window_terminal(window_key):
-    win = next(w for w in topology()["windows"] if w["key"] == window_key)
-    ws = win.get("workspace") or win.get("selected_workspace")
-    return first_surface(ws)[1] if ws else None
 
 
 rows, n = [], 0
@@ -119,8 +118,7 @@ for rnd in range(ROUNDS):
             run_action("workspace.selectLastUsed")
             expect = first_surface(WS_B)[1]
         elif case == "window":
-            rpc("debug.window.focus", {"window": WIN_B})
-            expect = window_terminal(WIN_B)
+            key(WIN_B, "return")
         elif case == "click":
             rpc("debug.mouse", {"window": WIN_A, "pane": original_pane})
             expect = original_surface
@@ -128,22 +126,21 @@ for rnd in range(ROUNDS):
         held_after_end = sum(int(v) for v in rpc("debug.creation_hold")["held"].values())
         rpc("debug.creation_hold", {"pause": False})
         time.sleep(2.0)
-        if case == "resolve":
+        if case in ("resolve", "window"):
             new = set(panes(WS_A)) - before
             expect = panes(WS_A)[new.pop()]["tabs"][0]["surface"] if new else None
         elif case == "fail":
             expect = original_surface
         lines = screen(expect) if expect else []
         row = {"n": n, "case": case, "held": held, "held_after_end": held_after_end,
-               "ok": held == len("echo " + marker) + 1 and lines.count(marker) == 1,
+               "ok": held == len("echo " + marker) + 1 and lines.count(marker) == 1
+                     and (case in ("resolve", "fail") or held_after_end == 0),
                "tail": lines[-3:]}
         rows.append(row)
         print(json.dumps(row), flush=True)
         # Back to a two-pane-free workspace A in window A.
         if case == "workspace":
             run_action("workspace.selectLastUsed")
-        if case == "window":
-            rpc("debug.window.focus", {"window": WIN_A})
         for pane_id in set(panes(WS_A)) - {original_pane}:
             for tab in panes(WS_A)[pane_id]["tabs"]:
                 run_action("closeTab", target=f"tab:{tab['id']}")

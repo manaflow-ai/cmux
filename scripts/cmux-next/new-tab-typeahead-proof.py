@@ -7,8 +7,9 @@ Cmd-T after launch, the cold path)
 
 Each run sends Cmd-T through `debug.key`, then TEXT (default `hello`) one key at a time as
 separate socket calls, with no wait for the page; then reads the New Tab field
-(`debug.new_tab {"action": "field"}`) once it settles, and closes the tab with Cmd-W. A run is
-ok when the field holds TEXT exactly. Exit 1 when any run lost or reordered a key.
+(`debug.new_tab {"action": "field"}`) once it settles, and closes the page's tab. It works in a
+workspace of its own (one terminal). A run is ok when the field holds TEXT exactly. Exit 1 when
+any run lost or reordered a key.
 """
 import json, socket, sys, time
 
@@ -30,8 +31,18 @@ def rpc(method, params=None, timeout=30):
 
 
 window = rpc("snapshot.get")["topology"]["windows"][0]["key"]
+WS = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True, "wait": True})["created"][0]
+time.sleep(1.5)
+
+
+def tabs():
+    w = next(w for w in rpc("snapshot.get")["topology"]["workspaces"] if w["id"] == WS)
+    return {t["id"] for sc in w["screens"] for p in sc["panes"] for t in p["tabs"]}
+
+
 rows = []
 for run in range(RUNS):
+    before = tabs()
     t0 = time.perf_counter()
     rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window})
     for ch in TEXT:
@@ -49,7 +60,8 @@ for run in range(RUNS):
     row = {"run": run, "typed_ms": round(typed_ms, 1), "field": field, "ok": (field or {}).get("text") == TEXT}
     rows.append(row)
     print(json.dumps(row), flush=True)
-    rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+    for tab in tabs() - before:
+        rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}", "wait": True})
     time.sleep(0.8)
 print(json.dumps({"summary": {"runs": len(rows), "ok": sum(r["ok"] for r in rows),
                               "lost": [r["run"] for r in rows if not r["ok"]]}}))
