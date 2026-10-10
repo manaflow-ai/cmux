@@ -29,6 +29,10 @@ enum DebugNewTab {
             return openAndType(params, services: services)
         case "field":
             return await field(params, services)
+        case "open_tab":
+            // Clicks Open Tabs row `index` of the focused split page (cx-jfo7), as a person does.
+            let index = params["index"]?.intValue ?? 0
+            return await field(params, services, before: "document.querySelectorAll('.nt-open-tab')[\(index)]?.click();")
         case "bench_close", "bench_bang", "bench_open":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             switch params["action"]?.stringValue {
@@ -42,7 +46,7 @@ enum DebugNewTab {
             services.newTabSpares.retarget(window)
             return state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type or field")])
+            return .object(["error": .string("unknown action; use state, open_and_type, field or open_tab")])
         }
     }
 
@@ -98,14 +102,17 @@ enum DebugNewTab {
         ])
     }
 
-    private static func field(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
+    private static func field(_ params: [String: JSONValue], _ services: AppServices, before: String = "") async -> JSONValue {
         guard let pane = controller(params, services)?.content?.focusedPane, let key = pane.currentTabKey,
               let view = services.agentTabs.existingView(key) else {
             return .object(["error": .string("the focused pane shows no agent page")])
         }
         let script = """
+            \(before)
             const field = document.querySelector('.nt-field, .acpmux-newtab-field');
-            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field });
+            const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
+            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
+                                    open_tabs: openTabs });
             """
         guard let text = try? await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page) as? String,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {

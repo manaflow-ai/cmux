@@ -177,6 +177,12 @@
 }
 /* The host actions (ToolsRow): one quiet row under the field, text and a small glyph, the shortcut
    in the tooltip (board principle 5). */
+/* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
+.nt-open-tabs{margin-top:12px;display:flex;flex-direction:column}
+.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 10px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500}
+.nt-open-tab{width:100%;height:28px;border:0;background:none;font:inherit;font-size:var(--text-detail);text-align:left}
+.nt-open-tab:hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px}
 .nt-tool-host{display:contents}
 .nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
