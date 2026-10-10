@@ -118,6 +118,21 @@ pub fn serve_terminal_host_stdio(
     {
         thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
+    // Debug builds only: when the named FIFO exists, the host waits before
+    // Ready until the test opens it for writing, so a test can hold several
+    // launches open at once and prove they overlap. A test killed before it
+    // opens the gate leaves the host waiting 30 s at most.
+    #[cfg(debug_assertions)]
+    if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_HOST_READY_GATE")
+        && Path::new(&gate).exists()
+    {
+        let (opened, wait) = std::sync::mpsc::channel();
+        let _ = thread::Builder::new().name("host-ready-gate".into()).spawn(move || {
+            let _ = fs::File::open(&gate);
+            let _ = opened.send(());
+        });
+        let _ = wait.recv_timeout(Duration::from_secs(30));
+    }
 
     let ready = HostReady {
         selected_version: PROTOCOL_VERSION,
