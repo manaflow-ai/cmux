@@ -1,0 +1,561 @@
+#if os(iOS)
+import CNCore
+import CNTransport
+import CoreGraphics
+import Foundation
+import ImageIO
+import Observation
+import UIKit
+import os
+
+/// The last decoded frame of a tab.
+struct PageFrame {
+    var image: CGImage
+    /// CSS size the frame was rendered at.
+    var cssSize: CGSize
+    /// Average color of the top rows, used to fill the status-bar strip.
+    var topColor: UIColor
+    var seq: UInt32
+    /// Document scroll offset (CSS px) at capture time, when the host sends it.
+    var scroll: CGPoint?
+    /// Remote page zoom at capture time (1 when unknown).
+    var pageScale: CGFloat = 1
+
+    var uiImage: UIImage { UIImage(cgImage: image) }
+}
+
+// CGImage and UIColor are immutable; frames cross from the decoder task.
+extension PageFrame: @unchecked Sendable {}
+
+/// Viewport the phone asks the host to render.
+struct BrowserViewport: Hashable, Sendable {
+    var width: Int
+    var height: Int
+    var scale: Double
+    var mobile: Bool
+}
+
+/// Browser state and transport for `BrowserRoot`: the tab list, the one
+/// attached frame stream, per-tab last frames and thumbnails, viewport, and
+/// ordered input.
+@MainActor
+@Observable
+final class BrowserModel {
+    @ObservationIgnored let connection: HostConnection
+
+    private(set) var tabs: [BrowserTab] = []
+    private(set) var activeTabId: String?
+    private(set) var frames: [String: PageFrame] = [:]
+    private(set) var thumbnails: [String: UIImage] = [:]
+    /// Tabs opened from the phone that show the local start page until the
+    /// user navigates.
+    private(set) var startPageTabs: Set<String> = []
+    private(set) var desktopTabs: Set<String> = []
+    private(set) var loaded = false
+    private(set) var errorText: String?
+    /// Short-lived message for a failed action (shown as a toast).
+    var notice: String?
+    /// Tab whose screencast another phone took over (`browser.detached`,
+    /// reason `displaced`). Its last frame stays on screen, dimmed.
+    private(set) var displacedTabId: String?
+
+    // Viewport inputs (points).
+    @ObservationIgnored private var viewSize: CGSize = .zero
+    @ObservationIgnored private var topInset: CGFloat = 0
+    @ObservationIgnored private var bottomObscured: CGFloat = 0
+    @ObservationIgnored private var screenScale: CGFloat = 3
+
+    // Stream.
+    @ObservationIgnored private var streamId: UInt32?
+    @ObservationIgnored private var streamTabId: String?
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
+    @ObservationIgnored private var streamClient: HostClient?
+    @ObservationIgnored private var attachToken = 0
+    @ObservationIgnored private var sentViewport: BrowserViewport?
+    @ObservationIgnored private var viewportInFlight = false
+    @ObservationIgnored private var thumbnailRequests: Set<String> = []
+    @ObservationIgnored private var pendingAttach: String?
+    /// Next attach follows a Request Mobile/Desktop Website tap.
+    @ObservationIgnored private var explicitModeChange = false
+
+    @ObservationIgnored private var perf = FramePerf()
+    @ObservationIgnored lazy var input = BrowserInputPump { [weak self] in self?.connection.client }
+
+    init(connection: HostConnection) {
+        self.connection = connection
+    }
+
+    var activeTab: BrowserTab? { tabs.first { $0.id == activeTabId } }
+    var activeFrame: PageFrame? { activeTabId.flatMap { frames[$0] } }
+    var activeIndex: Int? { tabs.firstIndex { $0.id == activeTabId } }
+
+    func showsStartPage(_ tabId: String?) -> Bool {
+        guard let tabId else { return true }
+        if startPageTabs.contains(tabId) { return true }
+        guard let url = tabs.first(where: { $0.id == tabId })?.url else { return false }
+        return url.isEmpty || url == "about:blank" || url.hasPrefix("chrome://newtab")
+    }
+
+    func isDesktop(_ tabId: String?) -> Bool { tabId.map { desktopTabs.contains($0) } ?? false }
+
+    // MARK: Loading
+
+    /// Loads the tab list and attaches the active tab. Runs on every
+    /// connection generation.
+    func reload() async {
+        guard let client = connection.client else { return }
+        do {
+            let list = try await client.listTabs()
+            errorText = nil
+            tabs = list
+            loaded = true
+            let routed = pendingRoute.flatMap { id in list.contains { $0.id == id } ? id : nil }
+            pendingRoute = nil
+            let keep = routed ?? activeTabId.flatMap { id in list.contains { $0.id == id } ? id : nil }
+            let next = keep ?? list.first(where: \.active)?.id ?? list.first?.id
+            // A reconnect invalidates the old stream id; attach again.
+            streamId = nil
+            streamTabId = nil
+            sentViewport = nil
+            input.reset()
+            if let next {
+                activeTabId = next
+                await attach(next)
+            } else {
+                activeTabId = nil
+            }
+        } catch {
+            errorText = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+    }
+
+    func handle(_ push: HostPush) {
+        switch push {
+        case .browserTab(let tab):
+            if let i = tabs.firstIndex(where: { $0.id == tab.id }) {
+                if tabs[i].url != tab.url, !tab.url.isEmpty, tab.url != "about:blank" { startPageTabs.remove(tab.id) }
+                tabs[i] = tab
+            } else {
+                tabs.append(tab)
+            }
+            if tab.id == pendingRoute { open(tabId: tab.id) }
+        case .browserClosed(let tabId):
+            removeLocally(tabId)
+        default:
+            break
+        }
+    }
+
+    // MARK: Viewport
+
+    /// Called by the page surface whenever its size, safe area or the
+    /// software keyboard over it changes.
+    func setGeometry(size: CGSize, topInset: CGFloat, bottomObscured: CGFloat, scale: CGFloat) {
+        viewSize = size
+        self.topInset = topInset
+        self.bottomObscured = bottomObscured
+        screenScale = scale
+        if let tabId = pendingAttach, viewport(for: tabId) != nil {
+            pendingAttach = nil
+            Task { await attach(tabId) }
+            return
+        }
+        pushViewport()
+    }
+
+    func viewport(for tabId: String?) -> BrowserViewport? {
+        guard viewSize.width > 0 else { return nil }
+        let w = viewSize.width
+        let h = max(100, viewSize.height - topInset - bottomObscured)
+        if isDesktop(tabId) {
+            let cssW = 980.0
+            let ratio = cssW / Double(w)
+            return BrowserViewport(width: Int(cssW), height: Int((Double(h) * ratio).rounded()),
+                                   scale: max(1, Double(screenScale) / ratio), mobile: false)
+        }
+        return BrowserViewport(width: Int(w.rounded()), height: Int(h.rounded()), scale: Double(screenScale), mobile: true)
+    }
+
+    private func pushViewport() {
+        guard let tabId = streamTabId, streamId != nil, let vp = viewport(for: tabId), vp != sentViewport else { return }
+        guard !viewportInFlight else { return }
+        viewportInFlight = true
+        sentViewport = vp
+        Task {
+            if let client = connection.client {
+                try? await client.setViewport(BrowserViewportParams(tabId: tabId, width: vp.width, height: vp.height, scale: vp.scale))
+            }
+            viewportInFlight = false
+            // A newer size arrived while this one was in flight.
+            if let latest = viewport(for: streamTabId), latest != sentViewport { pushViewport() }
+        }
+    }
+
+    // MARK: Stream
+
+    func attach(_ tabId: String) async {
+        attachToken += 1
+        displacedTabId = nil
+        let token = attachToken
+        await detachStream()
+        guard let client = connection.client, let vp = viewport(for: tabId) else {
+            // No size yet: attach once the surface reports its geometry.
+            pendingAttach = tabId
+            return
+        }
+        pendingAttach = nil
+        input.reset()
+        do {
+            let result = try await client.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height,
+                                                                        scale: vp.scale, mobile: vp.mobile, frameMeta: true,
+                                                                        reloadForMode: explicitModeChange ? true : nil))
+            explicitModeChange = false
+            guard token == attachToken else {
+                try? await client.detachTab(streamId: result.streamId)
+                client.closeStream(id: result.streamId)
+                return
+            }
+            merge(result.tab)
+            streamId = result.streamId
+            streamTabId = tabId
+            streamClient = client
+            sentViewport = vp
+            let sid = result.streamId
+            let frames = client.openBrowserStream(id: sid)
+            streamTask = Task { [weak self] in
+                for await frame in frames {
+                    // Ack on receipt (before decoding), so the host's window of
+                    // unacked frames is spent on the network, not on this
+                    // phone's decoder. Undecodable frames are acked too.
+                    Task { try? await client.ackFrame(streamId: sid, seq: frame.seq) }
+                    let decoded = await Self.decode(frame)
+                    guard let self, self.streamId == sid else { return }
+                    if let decoded {
+                        self.frames[tabId] = decoded
+                        self.perf.frameShown(scrollY: decoded.scroll?.y, bytes: frame.image.count)
+                    }
+                }
+            }
+            // The size may have changed while attaching.
+            pushViewport()
+        } catch {
+            if token == attachToken { errorText = (error as? LocalizedError)?.errorDescription ?? "\(error)" }
+        }
+    }
+
+    private func detachStream() async {
+        streamTask?.cancel()
+        streamTask = nil
+        if let sid = streamId, let client = streamClient {
+            try? await client.detachTab(streamId: sid)
+            client.closeStream(id: sid)
+        }
+        streamId = nil
+        streamTabId = nil
+        streamClient = nil
+        sentViewport = nil
+    }
+
+    /// `browser.detached`: the host already ended the stream, so drop it
+    /// locally without a `browser.detach` and stop sending input to it.
+    func handleDetached(_ event: BrowserDetachedEvent) {
+        guard event.streamId == streamId else { return }
+        streamTask?.cancel()
+        streamTask = nil
+        streamClient?.closeStream(id: event.streamId)
+        streamId = nil
+        streamTabId = nil
+        streamClient = nil
+        sentViewport = nil
+        input.reset()
+        displacedTabId = event.tabId
+    }
+
+    /// "View here": take the tab back from the other device.
+    func reattachDisplaced() {
+        guard let tabId = displacedTabId else { return }
+        Task { await attach(tabId) }
+    }
+
+    func detachAll() {
+        attachToken += 1
+        Task { await detachStream() }
+    }
+
+    nonisolated static func decode(_ frame: BrowserFrame) async -> PageFrame? {
+        let data = frame.image
+        return await Task.detached(priority: .userInitiated) { () -> PageFrame? in
+            let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+            guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateImageAtIndex(src, 0, options) else { return nil }
+            return PageFrame(image: image, cssSize: CGSize(width: Double(frame.cssWidth), height: Double(frame.cssHeight)),
+                             topColor: topColor(of: image), seq: frame.seq,
+                             scroll: frame.meta.map { CGPoint(x: Double($0.scrollX), y: Double($0.scrollY)) },
+                             pageScale: frame.meta.map { CGFloat($0.pageScale) } ?? 1)
+        }.value
+    }
+
+    /// Average color of the first few pixel rows.
+    nonisolated static func topColor(of image: CGImage) -> UIColor {
+        let rows = max(1, image.height / 300)
+        guard let strip = image.cropping(to: CGRect(x: 0, y: 0, width: image.width, height: rows)) else { return .white }
+        var px = [UInt8](repeating: 0, count: 16 * 4)
+        let ok = px.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(data: buf.baseAddress, width: 16, height: 1, bitsPerComponent: 8, bytesPerRow: 64,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(strip, in: CGRect(x: 0, y: 0, width: 16, height: 1))
+            return true
+        }
+        guard ok else { return .white }
+        var r = 0, g = 0, b = 0
+        for i in 0..<16 { r += Int(px[i * 4]); g += Int(px[i * 4 + 1]); b += Int(px[i * 4 + 2]) }
+        return UIColor(red: CGFloat(r) / 16 / 255, green: CGFloat(g) / 16 / 255, blue: CGFloat(b) / 16 / 255, alpha: 1)
+    }
+
+    #if DEBUG
+    @ObservationIgnored private var debugSecondPhone: HostClient?
+
+    /// DEBUG (`CMUX_NEXT_BROWSER_DISPLACE=1`): opens a second link through
+    /// the same connector, as another phone would, and attaches the active
+    /// tab so the host displaces this phone's stream.
+    func simulateDisplacementIfRequested() async {
+        guard ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_DISPLACE"] == "1", debugSecondPhone == nil,
+              let hostId = connection.hostId, let tabId = activeTabId, let vp = viewport(for: tabId) else { return }
+        do {
+            let transport = try await connection.connector.connect(hostId: hostId)
+            let other = HostClient(transport: transport)
+            debugSecondPhone = other
+            _ = try await other.hello(connection.clientInfo)
+            _ = try await other.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height, scale: vp.scale))
+        } catch {
+            debugSecondPhone = nil
+        }
+    }
+    #endif
+
+    // MARK: Tabs
+
+    /// Tab requested by the shell before the tab list loaded.
+    @ObservationIgnored private var pendingRoute: String?
+
+    /// Shows `tabId` (a drawer row). Waits for the tab list if needed.
+    func open(tabId: String) {
+        guard loaded, tabs.contains(where: { $0.id == tabId }) else {
+            pendingRoute = tabId
+            return
+        }
+        pendingRoute = nil
+        select(tabId)
+    }
+
+    func select(_ tabId: String) {
+        guard tabId != activeTabId || streamTabId != tabId else { return }
+        activeTabId = tabId
+        // Show the overview thumbnail until the first live frame arrives.
+        if frames[tabId] == nil, let cg = thumbnails[tabId]?.cgImage, let vp = viewport(for: tabId), cg.width > 0 {
+            frames[tabId] = PageFrame(image: cg, cssSize: CGSize(width: Double(vp.width), height: Double(vp.width) * Double(cg.height) / Double(cg.width)),
+                                      topColor: Self.topColor(of: cg), seq: 0)
+        }
+        Task { await attach(tabId) }
+    }
+
+    /// Opens a new tab showing the start page; returns its id.
+    @discardableResult
+    func newTab(url: String? = nil) async -> String? {
+        guard let client = connection.client else { return nil }
+        do {
+            let tab = try await client.createTab(url: url ?? "about:blank")
+            merge(tab)
+            if url == nil { startPageTabs.insert(tab.id) }
+            activeTabId = tab.id
+            await attach(tab.id)
+            return tab.id
+        } catch {
+            errorText = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            return nil
+        }
+    }
+
+    /// Removes the tab at once and closes it in Chrome. If the host refuses,
+    /// the tab comes back and the error is shown.
+    func close(_ tabId: String) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let tab = tabs[index]
+        let wasActive = activeTabId == tabId
+        removeLocally(tabId)
+        Task {
+            do {
+                guard let client = connection.client else { throw HostClientError.notConnected }
+                try await client.closeTab(tabId)
+            } catch {
+                if !tabs.contains(where: { $0.id == tabId }) { tabs.insert(tab, at: min(index, tabs.count)) }
+                if wasActive { select(tabId) }
+                notice = "Couldn't close \(tab.title.isEmpty ? tab.displayHost : tab.title): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            }
+        }
+    }
+
+    private func removeLocally(_ tabId: String) {
+        guard let i = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs.remove(at: i)
+        frames[tabId] = nil
+        thumbnails[tabId] = nil
+        startPageTabs.remove(tabId)
+        desktopTabs.remove(tabId)
+        if activeTabId == tabId {
+            activeTabId = nil
+            if !tabs.isEmpty {
+                select(tabs[min(i, tabs.count - 1)].id)
+            } else {
+                detachAll()
+            }
+        }
+    }
+
+    private func merge(_ tab: BrowserTab) {
+        if let i = tabs.firstIndex(where: { $0.id == tab.id }) { tabs[i] = tab } else { tabs.append(tab) }
+    }
+
+    /// Thumbnail image for a card: the live frame for the active tab, else a
+    /// `browser.screenshot` (fetched once per overview).
+    func cardImage(_ tabId: String) -> UIImage? {
+        if let f = frames[tabId], tabId == activeTabId { return f.uiImage }
+        return thumbnails[tabId] ?? frames[tabId]?.uiImage
+    }
+
+    func refreshThumbnails() {
+        thumbnailRequests.removeAll()
+        for tab in tabs where tab.id != activeTabId { requestThumbnail(tab.id) }
+    }
+
+    func requestThumbnail(_ tabId: String) {
+        guard !thumbnailRequests.contains(tabId), !showsStartPage(tabId), let client = connection.client else { return }
+        thumbnailRequests.insert(tabId)
+        Task {
+            guard let shot = try? await client.screenshot(tabId), let data = shot.data else { return }
+            let image = await Task.detached { UIImage(data: data)?.preparingForDisplay() }.value
+            if let image { thumbnails[tabId] = image }
+        }
+    }
+
+    // MARK: Navigation
+
+    func navigate(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let tabId = activeTabId else { return }
+        startPageTabs.remove(tabId)
+        Task { try? await connection.client?.navigate(tabId, to: Self.normalize(trimmed)) }
+    }
+
+    static func normalize(_ text: String) -> String {
+        if text.contains("://") { return text }
+        let looksLikeHost = !text.contains(" ") && (text.contains(".") || text.hasPrefix("localhost"))
+        if looksLikeHost { return "https://" + text }
+        let q = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+        return "https://www.google.com/search?q=" + q
+    }
+
+    func goBack() { if let id = activeTabId { Task { try? await connection.client?.goBack(id) } } }
+    func goForward() { if let id = activeTabId { Task { try? await connection.client?.goForward(id) } } }
+
+    func reloadOrStop() {
+        guard let tab = activeTab else { return }
+        Task {
+            if tab.loading { try? await connection.client?.stopLoading(tab.id) } else { try? await connection.client?.reload(tab.id) }
+        }
+    }
+
+    func openOnMac() { if let id = activeTabId { Task { try? await connection.client?.activateTab(id) } } }
+
+    func toggleDesktop() {
+        guard let id = activeTabId else { return }
+        if desktopTabs.contains(id) { desktopTabs.remove(id) } else { desktopTabs.insert(id) }
+        explicitModeChange = true
+        // The host applies `mobile` at attach time; attach again.
+        Task { await attach(id) }
+    }
+
+    // MARK: Input (CSS px)
+
+    func sendTouch(_ type: TouchEventType, points: [TouchPoint]) {
+        guard let id = streamTabId else { return }
+        perf.touch(type, scrollY: activeFrame?.scroll?.y)
+        input.send(.touch(BrowserTouchParams(tabId: id, type: type, points: points)))
+    }
+
+    func sendKey(_ key: DOMKey) {
+        guard let id = streamTabId else { return }
+        input.send(.key(BrowserKeyParams(tabId: id, type: .down, key: key.key, code: key.code, text: key.text, modifiers: key.modifiers)))
+        input.send(.key(BrowserKeyParams(tabId: id, type: .up, key: key.key, code: key.code, modifiers: key.modifiers)))
+    }
+
+    func sendText(_ text: String) {
+        guard let id = streamTabId, !text.isEmpty else { return }
+        input.send(.text(BrowserTextParams(tabId: id, text: text)))
+    }
+}
+
+/// Measures what the phone sees while a finger drags the page: frames shown
+/// per second and the time from the first touch move to the first frame that
+/// shows the page scrolled. Logged as `dev.cmux.next` / `browser.perf`.
+struct FramePerf {
+    private static let log = Logger(subsystem: "dev.cmux.next", category: "browser.perf")
+    private var dragStart: CFTimeInterval?
+    private var firstMove: CFTimeInterval?
+    private var scrollAtMove: CGFloat?
+    private var latency: Double?
+    private var frames: [CFTimeInterval] = []
+    private var bytes = 0
+
+    mutating func touch(_ type: TouchEventType, scrollY: CGFloat?) {
+        let now = CACurrentMediaTime()
+        switch type {
+        case .start:
+            dragStart = now; firstMove = nil; latency = nil; frames = []; bytes = 0; scrollAtMove = scrollY
+        case .move:
+            if firstMove == nil { firstMove = now; scrollAtMove = scrollY }
+        case .end, .cancel:
+            guard let start = dragStart, firstMove != nil else { dragStart = nil; return }
+            // Frames until 300 ms after release still belong to the drag.
+            let window = max(0.001, (frames.last ?? now) - start)
+            let gaps = zip(frames.dropFirst(), frames).map { $0 - $1 }
+            let fps = Double(frames.count) / window
+            let count = frames.count
+            let maxGap = Int((gaps.max() ?? 0) * 1000)
+            let ms = Int(window * 1000)
+            let fpsText = String(format: "%.1f", fps)
+            let latencyText = latency.map { String(Int($0 * 1000)) } ?? "-"
+            let kb = count > 0 ? bytes / count / 1024 : 0
+            Self.log.notice("drag: \(count) frames in \(ms) ms = \(fpsText) fps, max gap \(maxGap) ms, first scroll frame after \(latencyText) ms, \(kb) KB/frame")
+            dragStart = nil
+        }
+    }
+
+    mutating func frameShown(scrollY: CGFloat?, bytes frameBytes: Int) {
+        guard dragStart != nil else { return }
+        let now = CACurrentMediaTime()
+        frames.append(now)
+        bytes += frameBytes
+        if latency == nil, let t = firstMove, let y = scrollY, let y0 = scrollAtMove, abs(y - y0) > 0.5 { latency = now - t }
+    }
+}
+
+extension BrowserTab {
+    /// Registrable host shown in the address capsule: no scheme, path or `www.`.
+    var displayHost: String {
+        guard let host = URL(string: url)?.host(percentEncoded: false), !host.isEmpty else {
+            return url.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
+        }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// Search query when the tab shows a search results page.
+    var searchQuery: String? {
+        guard let comps = URLComponents(string: url), let host = comps.host,
+              host.contains("google.") || host.contains("duckduckgo.") || host.contains("bing.") else { return nil }
+        return comps.queryItems?.first { $0.name == "q" }?.value
+    }
+}
+#endif

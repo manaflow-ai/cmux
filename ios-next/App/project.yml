@@ -1,0 +1,85 @@
+name: CmuxNextMobile
+options:
+  bundleIdPrefix: dev.cmux.next
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: 7WLXT3NR37
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Ghostty's simulator slice is arm64-only.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+    CMUX_NEXT_API_BASE: "https://cmux-next-mobile.debussy.workers.dev"
+packages:
+  CmuxNextMobile:
+    path: ../Packages/CmuxNextMobile
+targetTemplates:
+  CmuxNextApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+    dependencies:
+      - package: CmuxNextMobile
+        product: CNAppShell
+    info:
+      path: ${target_name}/Info.plist
+      properties:
+        CFBundleDisplayName: ${displayName}
+        CmuxNextAPIBase: $(CMUX_NEXT_API_BASE)
+        CmuxNextShell: ${shell}
+        NSLocalNetworkUsageDescription: "cmux connects directly to your Mac when it is on the same network."
+        NSCameraUsageDescription: "Attach photos to agent prompts."
+        NSPhotoLibraryUsageDescription: "Attach photos to agent prompts."
+        NSMicrophoneUsageDescription: "Dictate prompts to your agents."
+        NSSpeechRecognitionUsageDescription: "Turn your dictation into prompt text."
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [$(PRODUCT_BUNDLE_IDENTIFIER)]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: CmuxNextSceneDelegate
+    entitlements:
+      path: ${target_name}/App.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
+targets:
+  Drawer:
+    templates: [CmuxNextApp]
+    templateAttributes:
+      displayName: "cmux next"
+      shell: drawer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.drawer
+        PRODUCT_NAME: CmuxNextDrawer
+  Tabs:
+    templates: [CmuxNextApp]
+    templateAttributes:
+      displayName: "cmux next tabs"
+      shell: tabs
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.tabs
+        PRODUCT_NAME: CmuxNextTabs
+schemes:
+  Drawer:
+    build: {targets: {Drawer: all}}
+    run: {config: Debug}
+  Tabs:
+    build: {targets: {Tabs: all}}
+    run: {config: Debug}

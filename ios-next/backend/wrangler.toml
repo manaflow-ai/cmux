@@ -1,0 +1,49 @@
+name = "cmux-next-mobile"
+main = "src/index.ts"
+account_id = "0c1675e0def6de1ab3a50a4e17dc5656"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+# Console logs only. Invocation logs would record request URLs, and the
+# deprecated `/v1/signal?token=` form carries a credential in the URL.
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = false
+
+[vars]
+# Stack Auth project accepted by /v1/auth/stack (cmux prod). A separate dev
+# deployment may also set STACK_DEV_PROJECT_ID and DEV_STACK_ENABLED = "true";
+# production must not (anyone can sign up in the dev project).
+STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+DEV_STACK_ENABLED = "false"
+# Direct Sign in with Apple is off (the app signs in with Apple through Stack).
+# Set to "dev.cmux.next.drawer,dev.cmux.next.tabs" to enable; a nonce is then required.
+APPLE_AUDIENCES = ""
+# Custom URL schemes the OAuth flow may redirect back to.
+OAUTH_REDIRECT_SCHEMES = "cmux-next,dev.cmux.next.drawer,dev.cmux.next.tabs"
+# Sender address for login codes. Must be on a domain onboarded for
+# Cloudflare Email Sending. Empty disables email login (503).
+EMAIL_FROM = ""
+
+[[durable_objects.bindings]]
+name = "SIGNAL_ROOM"
+class_name = "SignalRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalRoom"]
+
+# Cloudflare Email Sending. The sender domain is set by EMAIL_FROM.
+[[send_email]]
+name = "EMAIL"
+
+# Per-IP limit on unauthenticated auth and pairing routes.
+[[ratelimits]]
+name = "AUTH_LIMITER"
+namespace_id = "73141"
+simple = { limit = 30, period = 60 }
