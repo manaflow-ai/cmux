@@ -4,12 +4,12 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence } from "./team-reads.ts"
-import { firstOwner, homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
 import { signInRulesOf, type SignInRules } from "./team-sign-in-rules.ts"
-import { StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
+import { noOwnerOf, StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -19,12 +19,12 @@ import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
+import { memberAdminExternal } from "./team-member-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
-
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
 
@@ -310,6 +310,7 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
   async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
+  async memberAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return memberAdminExternal({ ...this.sshDeps(entity), stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env) }, principal, frame) }
   private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
@@ -484,7 +485,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return role && state?.team ? { role, display_name: state.team.display_name, kind: state.team.kind } : null
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
-
+  async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
@@ -493,7 +494,5 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")] }))
 
-  protected maySubscribe(state: TeamState, principal: Principal): boolean {
-    return memberOf(state, this.rows, principal.user) !== undefined
-  }
+  protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
 }

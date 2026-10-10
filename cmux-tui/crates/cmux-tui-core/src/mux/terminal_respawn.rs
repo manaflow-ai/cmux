@@ -431,7 +431,7 @@ impl Mux {
             .context("respawned terminal has no host identity")?
             .incarnation;
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let Some(mut durable) = registry.terminal_record(&plan.terminal_id)? else {
             return Ok(false);
         };

@@ -52,7 +52,7 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
             }
             "stream_event" => {

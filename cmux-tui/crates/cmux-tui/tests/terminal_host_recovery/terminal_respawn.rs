@@ -257,11 +257,17 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
     kill_current_shell_and_host(&harness, &terminal_id);
     wait_for_respawn(&harness, &terminal_id, &incarnation);
     let surface = tab_named(&harness, "agent")["surface"].as_u64().expect("surface");
-    // The screen after the marker, unwrapped (an 80-column prompt wraps).
+    // The screen after the marker without whitespace. The prompt is the
+    // host user's (user@host:cwd), so the typed command can wrap at any
+    // column of the 80-column screen, also right at a space, which the
+    // screen text drops as trailing blank: with the blanks gone, every wrap
+    // position reads the same.
     let after_marker = |text: &str| {
-        text.rsplit_once(MARKER).map(|(_, tail)| tail.replace('\n', "")).unwrap_or_default()
+        text.rsplit_once(MARKER)
+            .map(|(_, tail)| tail.split_whitespace().collect::<String>())
+            .unwrap_or_default()
     };
-    let command = "claude --resume abc-123";
+    let command = "claude--resumeabc-123";
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while !after_marker(&screen(&harness, surface)).contains(command) {
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
