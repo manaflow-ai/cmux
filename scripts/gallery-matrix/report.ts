@@ -298,7 +298,7 @@ function layered(o, mode) {
 }
 function metricsText(m) {
   if (!m) return "";
-  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
+  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (typeof m.settleMs === "number" ? " · settled " + m.settleMs.toFixed(1) + " ms" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
 }
 function settleLatency(frames) {
   const values = (frames || []).map((frame) => frame.play && frame.play.settleMs).filter((value) => typeof value === "number" && Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
@@ -348,7 +348,7 @@ function card(o, i) {
       const src = f.head || f.base;
       const cell = el("button", {type: "button", class: "frame-cell"}, ...(src ? [img(src, f.label)] : []), el("span", {class: "frame-label"}, f.label), el("span", {class: "tag " + f.status}, f.status));
       if (f.play) cell.append(el("span", {class: "frame-metrics" + (f.play.status === "fail" ? " fail" : "")}, metricsText(f.play) + (f.play.problems.length ? " · " + f.play.problems.join("; ") : "")));
-      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
+      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames || f.basePlay.settleMs !== f.play.settleMs)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
       cell.onclick = () => select(f, cell);
       strip.append(cell);
     }
