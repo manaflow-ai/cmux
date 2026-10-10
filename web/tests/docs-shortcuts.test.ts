@@ -62,7 +62,7 @@ describe("keyboard shortcuts docs", () => {
   test("table aliases are extra keys on their action's row", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect(rows.get("resizePaneLeft")!.combos).toContainEqual(["⌃", "⌘", "←"]);
-    expect(rows.get("nextSurface")!.combos).toContainEqual(["⌃", "⇥"]);
+    expect(rows.get("navigate.next")!.combos).toContainEqual(["⌃", "⇥"]);
   });
 
   test("titles are the app's own translations", () => {
