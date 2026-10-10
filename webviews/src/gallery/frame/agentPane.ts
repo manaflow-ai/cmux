@@ -37,7 +37,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {
-    const after = method && state.then && Object.hasOwn(state.then, method) ? state.then[method] : undefined;
+    const after =
+      method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
     // In a task after the answer, as the app's transport sends a snapshot.
     if (after) setTimeout(() => window.cmuxAcpmuxBridge?.receive(structuredClone(after)), 0);
   };

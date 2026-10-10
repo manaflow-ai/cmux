@@ -12,7 +12,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import type { ServerWebSocket } from "bun";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
@@ -34,7 +33,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
   const peerNow = () => Date.now() - SKEW_MS;
 
   let promptAt = 0;
-  let socket: ServerWebSocket<unknown> | undefined;
+  let socket: Bun.ServerWebSocket<unknown> | undefined;
   const summary = () => ({
     sessionId: SESSION,
     peer: PEER,
