@@ -79,8 +79,13 @@ fn a_crash_resumes_the_live_view_saved_at_the_last_message() {
         db: Some(dir.path().join(DB_FILE)),
         ..config(6_000).0
     };
-    let chat = OptChat::open_with(dir.path().join("a"), config, instant(300), Arc::new(SystemClock))
-        .unwrap();
+    let chat = OptChat::open_with(
+        dir.path().join("a"),
+        config,
+        instant(300),
+        Arc::new(SystemClock),
+    )
+    .unwrap();
     assert_eq!(chat.loaded(), Loaded::Resumed);
     assert!(chat.wait_idle(None, WAIT));
     assert_eq!(chat.render_view(), live);
@@ -113,10 +118,19 @@ fn a_checkpoint_far_behind_is_resumed_not_folded() {
         db: Some(dir.path().join(DB_FILE)),
         ..config(6_000).0
     };
-    let chat = OptChat::open_with(dir.path().join("a"), config, instant(300), Arc::new(SystemClock))
-        .unwrap();
+    let chat = OptChat::open_with(
+        dir.path().join("a"),
+        config,
+        instant(300),
+        Arc::new(SystemClock),
+    )
+    .unwrap();
     assert_eq!(chat.loaded(), Loaded::Resumed);
-    assert_ne!(chat.state(key).unwrap().unwrap(), old, "saved again at start");
+    assert_ne!(
+        chat.state(key).unwrap().unwrap(),
+        old,
+        "saved again at start"
+    );
     assert_eq!(chat.status().messages, 5_100);
 }
 
