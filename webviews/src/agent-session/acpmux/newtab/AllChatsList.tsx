@@ -24,7 +24,11 @@ export type AllChatsPage = {
 };
 
 /// The host's `chats.page`; rejects or resolves undefined when the daemon cannot answer.
-export type LoadChatsPage = (params: { query?: string; cursor?: string; limit: number }) => Promise<AllChatsPage | undefined>;
+export type LoadChatsPage = (params: {
+  query?: string;
+  cursor?: string;
+  limit: number;
+}) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
 const ROW_HEIGHT = 32;
@@ -35,10 +39,12 @@ type State = {
   nextCursor?: string;
   loading: boolean;
   loaded: boolean;
+  /// The daemon's index has finished its first scan (`ready`); before that an empty page is not "No chats".
+  ready: boolean;
   design: AllChatsDesign;
 };
 
-const initial: State = { query: "", rows: [], loading: false, loaded: false, design: "age" };
+const initial: State = { query: "", rows: [], loading: false, loaded: false, ready: false, design: "age" };
 
 function design(value: unknown): AllChatsDesign | undefined {
   return value === "quiet" || value === "age" || value === "project" ? value : undefined;
@@ -49,40 +55,46 @@ function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
   return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
 }
 
-/// The pages of one query: a new query starts over at the first page; a reply for an older query
-/// or cursor is dropped (latest wins).
+/// The pages of one query: a new query starts over at the first page (its old cursor is dropped
+/// at once, so no page of the old query is asked for again); a reply for an older query is
+/// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
+/// latest one in a ref, so a parent render never restarts the list.
 function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initial);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
   const generation = useRef(0);
   const inFlight = useRef<string | undefined>(undefined);
-  const fetchPage = useCallback(
-    (query: string, cursor: string | undefined) => {
-      const ticket = cursor ? generation.current : ++generation.current;
-      const marker = `${ticket}:${cursor ?? ""}`;
-      if (inFlight.current === marker) return;
-      inFlight.current = marker;
-      setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, loading: true }));
-      void load({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
-        .catch(() => undefined)
-        .then((page) => {
-          if (ticket !== generation.current) return;
-          if (inFlight.current === marker) inFlight.current = undefined;
-          setState((s) => {
-            const fresh = rowsOf(page);
-            const rows = cursor ? [...s.rows, ...fresh.filter((row) => !s.rows.some((old) => old.key === row.key))] : fresh;
-            return {
-              ...s,
-              rows,
-              ...(page?.nextCursor && fresh.length > 0 ? { nextCursor: page.nextCursor } : { nextCursor: undefined }),
-              loading: false,
-              loaded: true,
-              design: design(page?.design) ?? s.design,
-            };
-          });
+  const fetchPage = useCallback((query: string, cursor: string | undefined) => {
+    const ticket = cursor ? generation.current : ++generation.current;
+    const marker = `${ticket}:${cursor ?? ""}`;
+    if (inFlight.current === marker) return;
+    inFlight.current = marker;
+    setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, nextCursor: undefined, loading: true }));
+    void latestLoad
+      .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
+      .catch(() => undefined)
+      .then((page) => {
+        if (ticket !== generation.current) return;
+        if (inFlight.current === marker) inFlight.current = undefined;
+        setState((s) => {
+          // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
+          if (!page) return { ...s, loading: false, loaded: true, ...(cursor ? { nextCursor: cursor } : {}) };
+          const fresh = rowsOf(page);
+          const known = new Set(s.rows.map((row) => row.key));
+          const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
+          return {
+            ...s,
+            rows,
+            nextCursor: page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined,
+            loading: false,
+            loaded: true,
+            ready: page.ready !== false,
+            design: design(page.design) ?? s.design,
+          };
         });
-    },
-    [load],
-  );
+      });
+  }, []);
   // The first page when the list mounts (the page is a fresh view each time it shows).
   useEffect(() => {
     fetchPage("", undefined);
@@ -105,6 +117,7 @@ export function AllChatsList({
   const nt = useNt();
   const { state, fetchPage } = useChatPages(load);
   const menuKey = useRef<string | undefined>(undefined);
+  const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
   const count = rows.length + (nextCursor ? 1 : 0);
   const loadMore = useCallback(
@@ -118,7 +131,8 @@ export function AllChatsList({
     if (!row) return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
     const title = row.title ?? t("sidebar.newChat");
     const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const meta = state.design === "age" ? ageLabel(row.updatedAt, now, t) : state.design === "project" ? project : undefined;
+    const meta =
+      state.design === "age" ? ageLabel(row.updatedAt, now, t) : state.design === "project" ? project : undefined;
     return (
       <div
         key={row.key}
@@ -143,7 +157,14 @@ export function AllChatsList({
     );
   };
   const items = onOpenInTerminal
-    ? [{ id: "terminal", label: t("shell.openInTerminal"), onSelect: () => menuKey.current && onOpenInTerminal(menuKey.current) }]
+    ? [
+        {
+          id: "terminal",
+          label: t("shell.openInTerminal"),
+          disabled: !menuTarget,
+          onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+        },
+      ]
     : [];
   return (
     <section className="nt-all" aria-label={nt("allChats")}>
@@ -159,19 +180,21 @@ export function AllChatsList({
         />
       </header>
       {state.loaded && rows.length === 0 ? (
-        <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+        state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
-        <ContextMenu items={items}>
-          <VirtualList
-            className="nt-all-list"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
-            role="list"
-            label={nt("allChats")}
-            count={count}
-            estimateSize={() => ROW_HEIGHT}
-            overscan={10}
-            renderRow={renderRow}
-          />
+        <ContextMenu items={items} onOpen={() => setMenuTarget(menuKey.current)}>
+          <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
+            <VirtualList
+              className="nt-all-list"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
+              role="list"
+              label={nt("allChats")}
+              count={count}
+              estimateSize={() => ROW_HEIGHT}
+              overscan={10}
+              renderRow={renderRow}
+            />
+          </div>
         </ContextMenu>
       )}
     </section>
