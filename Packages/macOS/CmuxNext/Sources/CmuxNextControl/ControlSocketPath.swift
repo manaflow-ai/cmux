@@ -70,6 +70,32 @@ public struct ControlSocketPath: Sendable {
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? nil : slug
     }
+
+    /// Returns the local control-socket paths on which another cmux build may be listening.
+    ///
+    /// The classic app uses `/tmp/cmux.sock`; cmux-next uses the channel and tagged paths
+    /// resolved above. The directory scan is deliberately limited to `/tmp` and to cmux's
+    /// own prefixes, so a stale or unrelated Unix socket is never treated as a peer without
+    /// a successful `system.identify` response.
+    public func peerSocketPaths(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        var paths = Set([
+            "/tmp/cmux.sock",
+            "/tmp/cmux-nightly.sock",
+            "/tmp/cmux-rc.sock",
+            "/tmp/cmux-staging.sock",
+            "/tmp/cmux-debug.sock",
+            home.appending(path: ".local/state/cmux/cmux.sock").path,
+        ])
+        if let entries = try? fileManager.contentsOfDirectory(atPath: "/tmp") {
+            for entry in entries where ["cmux-debug-", "cmux-nightly-", "cmux-rc-", "cmux-staging-"].contains(where: entry.hasPrefix) {
+                paths.insert("/tmp/" + entry)
+            }
+        }
+        return paths.sorted()
+    }
 }
 
 /// Who may use the socket. Raw values match the old app's

@@ -70,6 +70,16 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 cliName: "history resume", mainMenu: .window
             ),
             ActionDescriptor(
+                id: "session.moveHere", title: t("action.session.moveHere", "Move My Sessions Here…"),
+                keywords: ["session", "move", "transfer", "build", "terminal", "agent", "adopt"], category: .agents,
+                symbol: "arrow.down.to.line.compact", surfaces: [.palette, .keyboard],
+                arguments: [
+                    ActionArgument(name: "source", title: t("argument.session.source", "Source Build"), kind: .string, isRequired: false),
+                    ActionArgument(name: "ids", title: t("argument.session.ids", "Session IDs"), kind: .string, isRequired: false),
+                ],
+                cliName: "session move-here", mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "history.reopen", title: t("action.history.reopen", "Reopen Last Closed Item"),
                 keywords: ["history", "reopen", "undo", "closed", "tab", "screen"], category: .window,
                 symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard],

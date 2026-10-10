@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()
+        services.sessionTransfer.announceAvailablePeers()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
