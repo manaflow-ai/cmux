@@ -16815,6 +16815,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom In",
       "title_key" : "action.agentPaneZoomIn",
       "title_table" : "ActionCatalog"
@@ -16847,6 +16848,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Zoom Out",
       "title_key" : "action.agentPaneZoomOut",
       "title_table" : "ActionCatalog"
@@ -16879,6 +16881,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
+      "palette_suggested" : null,
       "title" : "Agent Chat: Actual Size",
       "title_key" : "action.agentPaneZoomReset",
       "title_table" : "ActionCatalog"
@@ -20328,141 +20331,6 @@
       "palette_suggested" : null,
       "title" : "Upgrade to cmux Pro",
       "title_key" : "action.palette.pro.upgrade",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings onboarding",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.welcomeChecklist",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding…",
-      "title_key" : "action.palette.onboarding",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "settings continue-setup",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "onboarding.continueSetup",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Continue Setup…",
-      "title_key" : "action.onboarding.continueSetup",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "settings import-classic-sessions",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.importClassicSessions",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import Classic cmux Sessions…",
-      "title_key" : "action.palette.importClassicSessions",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action import-and-sync-show",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "importAndSync.show",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import and Sync…",
-      "title_key" : "action.importAndSync.show",
-      "title_table" : "Localizable"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "settings onboarding-gallery",
-      "context_menu" : "devOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.onboardingGallery",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Onboarding Gallery",
-      "title_key" : "action.palette.onboardingGallery",
       "title_table" : "ActionCatalog"
     },
     {
@@ -25942,13 +25810,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 5
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 6,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33663,10 +33531,6 @@
     {
       "name" : "homeTranscriptRow",
       "source" : "CmuxNextHome\/NativeTranscript\/HomeRowHostView.swift"
-    },
-    {
-      "name" : "onboardingImportProfile",
-      "source" : "CmuxNextOnboarding\/Variants\/Import\/ImportProfileMenu.swift"
     }
   ],
   "version" : 1
