@@ -8352,6 +8352,17 @@
             }
           },
           "description": "Sources already imported (palette_usage.import)."
+        },
+        "hidden": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Usage keys of the rows the user hid from the palette (palette_usage.hide)."
         }
       },
       "extra": false
@@ -14009,6 +14020,57 @@
         "validation.invalid"
       ]
     },
+    "palette_usage.forget": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reset Ranking: forgets every use and learned pick of the row; a row with no history commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "palette_usage.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -14030,6 +14092,66 @@
         "name": "PaletteUsageSnapshot"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.hide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          },
+          "hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "True hides the row from the palette (it shows only for a query that is its whole title); false shows it again. Default true."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Hiding a hidden row or showing a shown one commits no change.",
+          "At most 2048 rows are hidden at once; a hide beyond that commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "resource.not_found",

@@ -88,6 +88,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::PaletteUsageGet
             | Op::PaletteUsageRecord
             | Op::PaletteUsageImport
+            | Op::PaletteUsageHide
+            | Op::PaletteUsageForget
             | Op::WorkspaceEnsureHome
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
@@ -671,6 +673,22 @@ pub(crate) fn dispatch(
             let commit = mux
                 .state_palette_usage_import(&mutation(&request)?, &source, &entries)
                 .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageHide => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let hidden = fields.get("hidden").and_then(Value::as_bool).unwrap_or(true);
+            let commit = mux
+                .state_palette_usage_hide(&mutation(&request)?, &key, hidden)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageForget => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let commit =
+                mux.state_palette_usage_forget(&mutation(&request)?, &key).map_err(state_error)?;
             state_result(mux, commit)
         }
         // workspace-kind-v1: the one home workspace, created by the store.
