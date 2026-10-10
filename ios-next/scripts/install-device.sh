@@ -47,11 +47,11 @@ xcrun devicectl device install app --device "$device" "$app" >/dev/null
 echo "installed $bundle_id on $device"
 
 if [[ "$launch" == 1 ]]; then
-  json="{}"
+  args=(--device "$device" --terminate-existing)
   if [[ ${#envs[@]} -gt 0 ]]; then
     json="$(python3 -c 'import json,sys;print(json.dumps(dict(e.split("=",1) for e in sys.argv[1:])))' "${envs[@]}")"
+    args+=(--environment-variables "$json")
   fi
-  xcrun devicectl device process launch --device "$device" --terminate-existing \
-    --environment-variables "$json" "$bundle_id" >/dev/null
+  xcrun devicectl device process launch "${args[@]}" "$bundle_id" >/dev/null
   echo "launched $bundle_id"
 fi
