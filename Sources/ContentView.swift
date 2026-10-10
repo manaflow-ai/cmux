@@ -12864,7 +12864,6 @@ struct VerticalTabsSidebar: View, Equatable {
         )
     }
 
-
     // Applies one stable overlay/autohide scroller config and never toggles it.
     // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
     // while agents update rows) re-flashes the overlay knob so it never reaches
@@ -15558,7 +15557,7 @@ struct SidebarFooterButtons: View {
                 UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarJumpToUnreadBar(presentationMode: presentationMode)
         .task(id: billingPlanRefreshID) {
             guard let flow = accountFlow, flow.isAuthenticated else { return }
             await flow.refreshBillingPlan()

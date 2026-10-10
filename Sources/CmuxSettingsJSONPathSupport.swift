@@ -429,10 +429,7 @@ enum SidebarSettingsFileMapping {
         .init(jsonKey: "showSSH", defaultsKey: SidebarWorkspaceDetailDefaults.showSSHKey),
         .init(jsonKey: "showPorts", defaultsKey: SidebarWorkspaceDetailDefaults.showPortsKey),
         .init(jsonKey: "showLog", defaultsKey: SidebarWorkspaceDetailDefaults.showLogKey),
-        .init(
-            jsonKey: "showProgress",
-            defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey
-        ),
+        .init(jsonKey: "showProgress", defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey),
         .init(
             jsonKey: "showAgentUsage",
             defaultsKey: SidebarWorkspaceDetailDefaults.showAgentUsageKey
@@ -449,6 +446,7 @@ enum SidebarSettingsFileMapping {
             jsonKey: "compactAgentStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
         ),
+        .init(jsonKey: "showJumpToUnreadButton", defaultsKey: sidebar.showJumpToUnreadButton.userDefaultsKey),
     ]
 
     static func branchLayoutStoredValue(_ rawValue: String) -> Bool? {

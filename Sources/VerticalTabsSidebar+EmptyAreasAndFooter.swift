@@ -79,6 +79,7 @@ enum SidebarFooterControl: CaseIterable, Equatable {
     case upgrade
     case extensions
     case update
+    case jumpToUnread
 }
 
 enum SidebarFooterPresentationPolicy {
@@ -274,7 +275,6 @@ struct SidebarAccountAvatar: View {
             .frame(width: size, height: size, alignment: .center)
         }
     }
-
 }
 
 struct SidebarMobileConnectButton: View {
