@@ -20,6 +20,14 @@ enum NotificationSettingsHandlers {
             let list = JSONValue.array(muted.sorted().map(JSONValue.string))
             context.writeSetting("mute workspace", ["notifications", "mutedWorkspaces"], list, reloadOnFailure: true)
         })
+        // Dismiss Highlight (cx-epgo): hides the workspace's attention rings
+        // until a newer notification; presentation only, nothing is written.
+        registry.bind("notifications.dismissHighlight", run: { invocation in
+            guard let workspace = context.scope(invocation).workspace else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
+            }
+            notifications.dismissHighlight(workspace)
+        })
         registry.bind("notifications.toggleBanners", run: { _ in
             let next: DesktopNotificationMode = notifications.preferences.desktop == .never ? .unlessFocused : .never
             notifications.preferences.desktop = next
