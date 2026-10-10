@@ -258,15 +258,6 @@ mod windows_stubs {
     /// An adopted session id. Windows v1 adopts no session.
     pub(crate) enum SessionId {}
 
-    impl super::super::shared::host_shared::HostShared {
-        /// Windows: Job Object termination arrives with `sys/windows.rs`.
-        pub(crate) fn signal_terminal_process_groups(&self, _signal: super::GroupSignal) {}
-    }
-
-    pub(crate) fn kill_process_group(_pid: u32) -> anyhow::Result<bool> {
-        Err(unsupported().into())
-    }
-
     pub(crate) fn remove_released_pty_lock(
         _record_path: &Path,
         _terminal_id: &str,

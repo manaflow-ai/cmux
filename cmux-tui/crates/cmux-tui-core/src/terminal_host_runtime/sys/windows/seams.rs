@@ -24,8 +24,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, ResetEvent,
-    SetEvent, WaitForSingleObject,
+    CreateEventW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, ResetEvent, SetEvent, TerminateProcess, WaitForSingleObject,
 };
 
 use super::super::super::{HOST_CONNECT_RETRY_INTERVAL, HOST_CONNECT_RETRY_WINDOW};
@@ -185,6 +185,38 @@ pub(crate) fn process_definitely_gone(pid: u32) -> bool {
     };
     // SAFETY: a valid process handle with SYNCHRONIZE.
     unsafe { WaitForSingleObject(process.as_raw_handle() as HANDLE, 0) == WAIT_OBJECT_0 }
+}
+
+/// The ProcessTree seam, Windows side: the terminal's child tree runs in
+/// the host's terminal Job Object (`cmux_pty::windows_jobs`). Windows has no
+/// group hangup: `Hangup` does nothing and `terminate_and_wait` goes on to
+/// the child kill and the escalation; `Kill` ends every process in the job.
+impl super::super::super::shared::host_shared::HostShared {
+    pub(crate) fn signal_terminal_process_groups(&self, signal: super::super::GroupSignal) {
+        if signal == super::super::GroupSignal::Kill {
+            cmux_pty::windows_jobs::terminate_every_job(1);
+        }
+    }
+}
+
+/// End the host process `pid` (an unadoptable host whose live lease the
+/// caller holds proof of). Ok(false) when no such process is open to us.
+/// Its terminal's job sets no kill-on-close, so the shell tree is not ended
+/// with it (the Unix `killpg` ends the host's group).
+pub(crate) fn kill_process_group(pid: u32) -> anyhow::Result<bool> {
+    // SAFETY: plain call; a null handle is failure.
+    let process = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
+    if process.is_null() {
+        return Ok(false);
+    }
+    // SAFETY: the handle opened above, closed by OwnedHandle.
+    let process = unsafe {
+        <std::os::windows::io::OwnedHandle as std::os::windows::io::FromRawHandle>::from_raw_handle(
+            process,
+        )
+    };
+    // SAFETY: a process handle with PROCESS_TERMINATE.
+    Ok(unsafe { TerminateProcess(process.as_raw_handle() as HANDLE, 1) } != 0)
 }
 
 /// NTFS journals directory changes; there is no directory flush to call.

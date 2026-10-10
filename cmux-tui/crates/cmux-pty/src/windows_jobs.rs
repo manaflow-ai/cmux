@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use portable_pty::{Child, ChildKiller, ExitStatus};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, TerminateJobObject,
 };
 
 /// The open job handles, as integers (a HANDLE is a pointer).
@@ -67,6 +67,19 @@ pub fn contains(process: *mut c_void) -> bool {
     })
 }
 
+/// Ends every process in every terminal job of this process with
+/// `exit_code` (`TerminateJobObject`) and returns how many jobs it ended.
+/// For a terminal-host process, which runs one terminal: the Windows side of
+/// the host's final process-group kill (cx-ko2e). A daemon that runs several
+/// terminals in-process must not call it.
+pub fn terminate_every_job(exit_code: u32) -> usize {
+    let jobs = jobs();
+    jobs.iter()
+        // SAFETY: open job handles this process created (full access).
+        .filter(|&&job| unsafe { TerminateJobObject(job as HANDLE, exit_code) } != 0)
+        .count()
+}
+
 /// A spawned child and its job.
 #[derive(Debug)]
 pub(crate) struct JobChild {
@@ -106,5 +119,28 @@ impl Child for JobChild {
 
     fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
         self.child.as_raw_handle()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ending the jobs ends the child and the process it started (the whole
+    /// tree), with the given exit code.
+    #[test]
+    fn terminating_every_job_ends_the_child_tree() {
+        let child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "ping -n 60 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let mut child = JobChild::new(Box::new(child));
+        assert!(child._job.is_some(), "the child is in a job");
+        assert!(terminate_every_job(7) >= 1);
+        let started = std::time::Instant::now();
+        let status = child.wait().unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert_eq!(status.exit_code(), 7, "child {pid}");
     }
 }

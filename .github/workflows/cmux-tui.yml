@@ -1041,6 +1041,10 @@ jobs:
           cargo test -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             terminal_host_runtime::sys::windows:: -- --test-threads=1
+          # The host's final kill: TerminateJobObject on its terminal job.
+          cargo test -p cmux-pty --lib --locked \
+            --target x86_64-pc-windows-gnu \
+            windows_jobs:: -- --test-threads=1
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
 
