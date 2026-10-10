@@ -12,6 +12,8 @@ mod acp;
 mod agent_browser_provider;
 mod agent_hook_install;
 mod agent_plugin_config;
+#[cfg(unix)]
+mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -30,8 +32,6 @@ mod local_actor;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
-#[cfg(unix)]
-mod agent_start_host;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
