@@ -27,24 +27,20 @@ extension WebKitDriver {
             await afterPendingMouseEvents(webView)
             return .null
         }
+        // A right-click's native menu is suppressed by the web view
+        // (`WebKitWebView.willOpenMenu`).
         let button = MouseEventPlan.Button(rawValue: try params.optionalString("button") ?? "left") ?? .left
-        if button == .right, type != "move" {
-            // WebKit would pop a native context menu on the user's screen,
-            // taking their mouse and keyboard; it needs a suppression hook in
-            // WebKitTab first.
-            throw DriverError(.unsupported, "input.mouse: right-click is not supported by the WebKit driver yet")
-        }
         guard let eventType = session.mouse.eventType(for: type, button: button) else {
             throw DriverError(.invalid, "input.mouse: type: expected move, down, up or wheel, got \(type)")
         }
         session.mouseLocation = css
         let clickCount = Int(try params.optionalNumber("clickCount") ?? 1)
-        guard let event = NSEvent.mouseEvent(
+        guard let made = NSEvent.mouseEvent(
             with: eventType, location: location, modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: eventType == .mouseMoved ? 0 : max(1, clickCount),
             pressure: type == "up" || eventType == .mouseMoved ? 0 : 1
-        ) else {
+        ), let event = Self.withButtonNumber(made) else {
             throw DriverError(.invalid, "input.mouse: could not create a mouse event")
         }
         deliver(event, to: webView)
@@ -151,13 +147,26 @@ extension WebKitDriver {
         }
     }
 
+    /// A middle-button event with its button number (2): `NSEvent.mouseEvent`
+    /// leaves it 0, and WebKit reports the DOM button from it. The number is
+    /// set on the event's own Quartz form, which keeps its window and place.
+    /// Other events are returned as they are.
+    private static func withButtonNumber(_ event: NSEvent) -> NSEvent? {
+        guard [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(event.type) else { return event }
+        guard let cg = event.cgEvent?.copy() else { return nil }
+        cg.setIntegerValueField(.mouseEventButtonNumber, value: Int64(CGMouseButton.center.rawValue))
+        return NSEvent(cgEvent: cg)
+    }
+
     private static func wheelEvent(window: NSWindow, location: NSPoint, deltaX: Double, deltaY: Double, flags: NSEvent.ModifierFlags) -> NSEvent? {
         // Page deltas scroll content; wheel deltas are the finger direction.
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(clamping: Int(-deltaY.rounded())), wheel2: Int32(clamping: Int(-deltaX.rounded())), wheel3: 0) else { return nil }
-        let screen = window.convertPoint(toScreen: location)
-        let height = NSScreen.screens.first?.frame.height ?? 0
-        cg.location = CGPoint(x: screen.x, y: height - screen.y)
+        // The Quartz location AppKit gives its own event at this window point.
+        guard let place = NSEvent.mouseEvent(with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                             clickCount: 0, pressure: 0)?.cgEvent?.location else { return nil }
+        cg.location = place
         cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
         // Without a window the event's location stays in screen space and

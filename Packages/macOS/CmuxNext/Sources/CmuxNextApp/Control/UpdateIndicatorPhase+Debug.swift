@@ -31,7 +31,8 @@ extension UpdateNote {
         switch params["note"]?.stringValue {
         case "check_failed": self = .checkFailed
         case "found": self = .found(version: params["version"]?.stringValue ?? "1.99.0")
-        case "requires_newer_macos": self = .needsNewerMacOS(required: params["required"]?.stringValue ?? "27.0")
+        case "requires_newer_macos":
+            self = .needsNewerMacOS(version: params["version"]?.stringValue ?? "1.99.0", required: params["required"]?.stringValue ?? "27.0")
         default: self = .upToDate
         }
     }
