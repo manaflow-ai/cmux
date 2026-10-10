@@ -105,10 +105,11 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// The title as the row shows it. Renaming and other title affordances keep using `title`.
         var displayTitle: String {
             guard let hostTitleSuffix else { return title }
-            return String(
+            let format = String(
                 localized: "sidebar.workspace.titleWithHost",
-                defaultValue: "\(title) · \(hostTitleSuffix)"
+                defaultValue: "%1$@ · %2$@"
             )
+            return String(format: format, title, hostTitleSuffix)
         }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
