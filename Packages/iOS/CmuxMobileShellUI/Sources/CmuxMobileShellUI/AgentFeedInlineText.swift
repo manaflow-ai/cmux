@@ -188,11 +188,6 @@ final class AgentFeedInlineTextView: UIView {
             height = max(height, layout.extraLineFragmentRect.maxY)
         }
         measuredSize = CGSize(width: width, height: ceil(height))
-        if needsExpansion {
-            // Keep the inline button's 44-point hit target inside this view,
-            // including a one-line preview shortened by the Mac.
-            measuredSize.height = max(44, measuredSize.height + max(0, (44 - font.lineHeight) / 2))
-        }
         let entry = AgentFeedInlineTextCacheEntry(
             displayedText: displayed,
             measuredSize: measuredSize,
@@ -245,6 +240,15 @@ final class AgentFeedInlineTextView: UIView {
                                       y: max(0, rect.midY - 22),
                                       width: max(44, rect.width), height: 44)
         }
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        // See more keeps its 44-point activation target without reserving a
+        // phantom 44-point row height. UIKit otherwise rejects taps that land
+        // below this view's one-line text bounds before the button can see
+        // them.
+        super.point(inside: point, with: event)
+            || (!moreButton.isHidden && moreButton.frame.contains(point))
     }
 
     private func ensureTextLayout() {

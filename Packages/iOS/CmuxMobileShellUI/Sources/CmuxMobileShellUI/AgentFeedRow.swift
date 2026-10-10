@@ -146,7 +146,7 @@ struct AgentFeedRow: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             avatar
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 authorLine
                 if let quoted = model.presentation.quotedUserMessage {
                     quotedMessage(quoted)
@@ -330,7 +330,8 @@ struct AgentFeedRow: View, Equatable {
         return content
             .padding(.leading, sender.tailEdge == .leading ? tailSide : 12)
             .padding(.trailing, sender.tailEdge == .trailing ? tailSide : 12)
-            .padding(.vertical, vertical)
+            .padding(.top, vertical)
+            .padding(.bottom, vertical + AgentFeedBubbleShape.tailReserve)
     }
 
     /// Places a bubble on its sender's side of the text column.
@@ -344,11 +345,11 @@ struct AgentFeedRow: View, Equatable {
                 content
                     .frame(maxWidth: .infinity, alignment: sender.alignment)
             } else {
-                HStack {
-                    if sender == .user { Spacer(minLength: 0) }
-                    content.fixedSize(horizontal: true, vertical: false)
-                    if sender == .agent { Spacer(minLength: 0) }
-                }
+                // Keep the short-message candidate at its intrinsic width so
+                // ViewThatFits can select it. Alignment is applied after the
+                // fit so a compact user bubble still sits on the trailing
+                // edge instead of expanding to the whole text column.
+                content.fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -368,36 +369,33 @@ struct AgentFeedRow: View, Equatable {
             sender: sender,
             vertical: 7
         )
-        let compactContent = content.overlay(
-            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-        )
 
         return Group {
             if message.contains("\n") {
-                // Multiline quotes use the entire text column.
-                bubbleSide(
-                    content,
-                    sender: sender,
-                    fullWidth: true
-                )
-                .overlay(
-                    AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                        .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-                )
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    bubbleSide(compactContent, sender: sender, fullWidth: false)
-                    bubbleSide(
-                        content,
-                        sender: sender,
-                        fullWidth: true
-                    )
+                // Explicitly multiline messages use the available width, as
+                // they do in Messages.
+                bubbleSide(content, sender: sender, fullWidth: true)
                     .overlay(
                         AgentFeedBubbleShape(tailEdge: sender.tailEdge)
                             .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
                     )
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    // A short one-line message hugs its content. If its
+                    // intrinsic width cannot fit, fall back to a wrapped
+                    // bubble spanning the text column.
+                    bubbleSide(content, sender: sender, fullWidth: false)
+                        .overlay(
+                            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+                        )
+                    bubbleSide(content, sender: sender, fullWidth: true)
+                        .overlay(
+                            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+                        )
                 }
+                .frame(maxWidth: .infinity, alignment: sender.alignment)
             }
         }
     }
@@ -449,6 +447,7 @@ struct AgentFeedRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .disabled(isReplyPending || model.item.userReply != nil)
+        .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
@@ -536,10 +535,6 @@ struct AgentFeedRow: View, Equatable {
             sender: .user,
             vertical: 7
         )
-        let compactContent = content.background(
-            AgentFeedBubbleShape(tailEdge: .trailing)
-                .fill(Color.accentColor)
-        )
 
         return VStack(alignment: .leading, spacing: 6) {
             Group {
@@ -551,13 +546,18 @@ struct AgentFeedRow: View, Equatable {
                         )
                 } else {
                     ViewThatFits(in: .horizontal) {
-                        bubbleSide(compactContent, sender: .user, fullWidth: false)
+                        bubbleSide(content, sender: .user, fullWidth: false)
+                            .background(
+                                AgentFeedBubbleShape(tailEdge: .trailing)
+                                    .fill(Color.accentColor)
+                            )
                         bubbleSide(content, sender: .user, fullWidth: true)
                             .background(
                                 AgentFeedBubbleShape(tailEdge: .trailing)
                                     .fill(Color.accentColor)
                             )
                     }
+                    .frame(maxWidth: .infinity, alignment: BubbleSender.user.alignment)
                 }
             }
             .accessibilityElement(children: .ignore)
