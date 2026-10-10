@@ -214,7 +214,7 @@ public struct IntentLog: Hashable, Sendable {
     }
 
     static func isSettled(_ entry: PendingIntent, by mirror: HomeMirror) -> Bool {
-        if case .sendMessage(let conversation, _) = entry.intent.op,
+        if case .sendMessage(let conversation, _, _) = entry.intent.op,
            mirror.message(clientID: entry.intent.key, in: conversation) != nil {
             return true
         }
@@ -228,7 +228,7 @@ public struct IntentLog: Hashable, Sendable {
     /// Pending sends for one conversation, in the order the user made them.
     public func sends(in conversation: ConversationID) -> [PendingIntent] {
         entries.filter {
-            if case .sendMessage(let target, _) = $0.intent.op { return target == conversation }
+            if case .sendMessage(let target, _, _) = $0.intent.op { return target == conversation }
             return false
         }
     }
