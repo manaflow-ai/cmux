@@ -3,22 +3,25 @@ import CmuxIrxTransport
 import Foundation
 
 extension MobileHostIrxRuntime {
-    /// The registry owns outgoing sessions; this runtime owns their shared v2 endpoint.
-    func makeDeviceClient(identity: AuthenticatedSessionIdentity, teamID: String?) -> DeviceIrxClient? {
+    /// The registry owns outgoing sessions; this runtime owns their shared v2
+    /// endpoint. `teamID` remains in the composition signature for callers
+    /// that also construct the team-scoped host, but outgoing device access is
+    /// account-scoped.
+    func makeDeviceClient(identity: AuthenticatedSessionIdentity, teamID _: String?) -> DeviceIrxClient? {
         guard DevicesFeature.isEnabled else { return nil }
         let client = DeviceIrxClient(context: { [weak self] in
             guard let self else { throw DeviceLinkError.notConnected }
-            return try await self.deviceClientContext(identity: identity, teamID: teamID)
+            return try await self.deviceClientContext(identity: identity)
         }, journal: Self.journal)
         outgoingDeviceClient = client
         return client
     }
 
     /// Reads only the active account's v2 control service; no second registration occurs.
-    func deviceClientContext(identity: AuthenticatedSessionIdentity, teamID: String?) async throws -> DeviceIrxClientContext {
+    func deviceClientContext(identity: AuthenticatedSessionIdentity) async throws -> DeviceIrxClientContext {
         guard DevicesFeature.isEnabled else { throw DeviceLinkError.notConnected }
         await activationTask?.value
-        guard auth?.authenticatedSessionIdentity == identity, auth?.resolvedTeamID == teamID,
+        guard auth?.authenticatedSessionIdentity == identity,
               isNetworkingAllowed, let control = controlService,
               let supervisor = endpointSupervisor, let device = cachedState?.device else { throw DeviceLinkError.notConnected }
         let generation = generationToken
@@ -27,7 +30,7 @@ extension MobileHostIrxRuntime {
             allowsDirectPaths: Self.pathMode == .automatic,
             isCurrent: { @MainActor [weak self] in
                 self?.generationToken == generation && DevicesFeature.isEnabled
-                    && self?.auth?.authenticatedSessionIdentity == identity && self?.auth?.resolvedTeamID == teamID
+                    && self?.auth?.authenticatedSessionIdentity == identity
                     && self?.isNetworkingAllowed == true
             },
             accountDirectory: { [weak account] in
