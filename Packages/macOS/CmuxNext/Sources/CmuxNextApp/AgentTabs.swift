@@ -146,7 +146,7 @@ final class AgentTabStore {
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
-    var gitLink: ((String) -> AgentPaneGitLink?)?
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
