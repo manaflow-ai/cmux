@@ -87,6 +87,13 @@ nonisolated extension BrowserMediaState {
           document.addEventListener('cmux-media-mute', (event) => {
             if (typeof event.detail === 'boolean') muteTab(event.detail);
           }, true);
+          // A frame that loads after the mute hears it at once.
+          addEventListener('load', (event) => {
+            const frame = event.target;
+            if (tabMuted && frame && (frame.tagName === 'IFRAME' || frame.tagName === 'FRAME')) {
+              try { frame.contentWindow.postMessage({ cmuxMediaMute: true }, '*'); } catch (_) {}
+            }
+          }, true);
           addEventListener('message', (event) => {
             const data = event.data;
             if (window !== top && data && typeof data.cmuxMediaMute === 'boolean') muteTab(data.cmuxMediaMute);
@@ -163,7 +170,7 @@ extension BrowserTab {
     /// heard the tab's mute yet (a new page, a new frame) hears it now.
     func keepAudioMute(after report: BrowserMediaState?) {
         guard let report, report.isTabMuted != state.isAudioMuted else { return }
-        let muted = state.isAudioMuted
-        Task { await media(.muteTab(muted)) }
+        // Sends the state when it runs, so a quick Mute then Unmute ends right.
+        Task { await media(.muteTab(state.isAudioMuted)) }
     }
 }

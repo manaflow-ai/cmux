@@ -385,8 +385,7 @@ final class TabCell {
             titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
-            machineLayer?.opacity = 0
-            profileLayer?.opacity = 0
+            for badge in [machineLayer, profileLayer, audioLayer] { badge?.opacity = 0 }
         }
     }
 

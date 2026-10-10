@@ -5,7 +5,8 @@ import CmuxNextTabs
 /// A browser tab's sound in the tab strip and its Mute Tab action
 /// (cx-d0d.24, Chrome's tab audio indicator): a speaker while the page
 /// plays sound, crossed out while the tab is muted. The page's media script
-/// mutes every frame's media (`BrowserAudioMuting`); Web Audio is not muted.
+/// mutes the media of the page and the frames its scripts run in
+/// (`BrowserAudioMuting`).
 @MainActor
 enum BrowserTabAudio {
     /// What the strip shows for a page in state `state`.

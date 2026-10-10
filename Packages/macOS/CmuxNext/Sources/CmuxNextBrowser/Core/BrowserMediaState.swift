@@ -81,9 +81,12 @@ public nonisolated enum BrowserMediaCommand: Hashable, Sendable {
     case muteTab(Bool)
 }
 
-/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps every frame's
-/// media muted, across navigations, until Unmute. Pages built on the media
-/// scripts (WebKit and Chromium) adopt it. Web Audio is not muted.
+/// A page whose tab can be muted (cx-d0d.24): Mute Tab keeps the media of
+/// the page and its frames muted, across navigations, until Unmute. Pages
+/// built on the media scripts (WebKit and Chromium) adopt it. It sets the
+/// elements' `muted`, which the page sees. Not muted: Web Audio, media in
+/// shadow roots, Chromium's out-of-process frames, and a new document's
+/// first moments, until its report brings the mute back.
 @MainActor
 public protocol BrowserAudioMuting: AnyObject {
     func setAudioMuted(_ muted: Bool)

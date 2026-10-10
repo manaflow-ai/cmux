@@ -86,6 +86,6 @@ final class CEFMediaBridge {
 extension CEFTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         machine.apply(.audioMutedChanged(muted))
-        Task { await media(.muteTab(muted)) }
+        Task { await media(.muteTab(state.isAudioMuted)) }
     }
 }
