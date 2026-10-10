@@ -318,18 +318,6 @@ extension Motion {
         return flash
     }
 
-    /// Hides a layer for the first half of a `token` move and fades it back in
-    /// over the second: a row another row passes over (cx-ai79). Nil when
-    /// moves snap.
-    public static func passOverAnimation(_ token: MotionSpring) -> CAAnimation? {
-        guard animatesMovement else { return nil }
-        let hide = CAKeyframeAnimation(keyPath: "opacity")
-        hide.values = [0, 0, 1]
-        hide.keyTimes = [0, 0.5, 1]
-        hide.duration = duration(token)
-        return hide
-    }
-
     /// A crossfade layer action for swapped contents (`CALayer.actions`).
     /// Its duration is 0, so it takes the enclosing `transaction(_:_:)`'s token.
     public static var crossfadeAction: CATransition {

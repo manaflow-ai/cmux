@@ -29,13 +29,15 @@ nonisolated enum SidebarRowTransition {
         return CGRect(x: current.minX, y: runTop ?? current.minY, width: current.width, height: 0)
     }
 
-    /// Each row of `layout` that `other` lacks, keyed to the y of the first
-    /// row of its run (consecutive such rows), in `layout`'s coordinates.
-    static func runTops(of layout: SidebarLayout, missingFrom other: SidebarLayout) -> [SidebarRowKey: CGFloat] {
+    /// Each row of `layout` that `other` lacks (or that `reopened` names),
+    /// keyed to the y of the first row of its run (consecutive such rows), in
+    /// `layout`'s coordinates.
+    static func runTops(of layout: SidebarLayout, missingFrom other: SidebarLayout,
+                        reopened: Set<SidebarRowKey> = []) -> [SidebarRowKey: CGFloat] {
         var tops: [SidebarRowKey: CGFloat] = [:]
         var top: CGFloat?
         for row in layout.rows {
-            guard other.row(for: row.key) == nil else { top = nil; continue }
+            guard other.row(for: row.key) == nil || reopened.contains(row.key) else { top = nil; continue }
             let start = top ?? row.y
             top = start
             tops[row.key] = start

@@ -34,6 +34,7 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
+    var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -197,8 +198,12 @@ final class SidebarListView: NSView {
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
         let animate = animated && !old.rows.isEmpty
-        // New rows open from the top of their run, so only the rows below move (cx-ai79).
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old)
+        // New rows open from their run's top, so only the rows below move; a row still opening
+        // that the next update moves (appended, then placed below) opens again there (cx-ai79).
+        let now = CACurrentMediaTime()
+        openingRows = openingRows.filter { animate && now - $0.value < Motion.duration(MotionSpring.move) }
+        let reopened = Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key))
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
             let existing = rowViews[row.key]
@@ -207,29 +212,32 @@ final class SidebarListView: NSView {
             let view = existing ?? dequeue(row.key)
             view.targetSize = target.size
             configure(view, row: row, animated: animate)
-            if existing == nil {
+            let opens = animate && (existing == nil ? old.row(for: row.key) == nil : reopened.contains(row.key))
+            if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
+                view.layer?.removeAllAnimations()
                 Motion.withoutAnimation {
-                    if animate, let previous = old.row(for: row.key) {
-                        view.frame = frame(for: previous)
-                    } else if animate {
-                        // An inserted row grows in its own slot; an expanded one comes out from under its header.
+                    if opens {
+                        // An inserted row grows from its run's top; an expanded one comes out from under its header.
                         view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
                         view.alphaValue = 0
                         view.clipsToBounds = true
                     } else {
-                        view.frame = target
+                        view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
                     }
                 }
+            }
+            if existing == nil {
                 addSubview(view, positioned: .above, relativeTo: decorations)
                 rowViews[row.key] = view
             }
             if suppressed.contains(row.key) {
                 view.frame = target
                 view.alphaValue = 0
-            } else if animate, existing == nil, old.row(for: row.key) == nil {
+            } else if opens {
                 appearing.append((view, target))
+                openingRows[row.key] = now
                 (view as? GroupHeaderRowView)?.playAppear()
             } else {
                 targets.append((view, target))
