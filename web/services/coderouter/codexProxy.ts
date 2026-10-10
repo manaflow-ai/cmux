@@ -10,7 +10,13 @@ import {
 import { CodeRouterCredentialBroken, freshCredential, stickyRefreshPatience } from "./refresh";
 import type { StickyRefreshPatience } from "./refreshSignal";
 import { fetchProviderRead } from "./providerFetch";
-import { RESPONSES_PROVIDERS, type CodeRouterCredential } from "./types";
+import {
+  GROK_RESPONSES_PROVIDERS,
+  RESPONSES_PROVIDERS,
+  responsesProvidersForModel,
+  type CodeRouterCredential,
+  type CodeRouterProvider,
+} from "./types";
 import { captureCoderouterEvent } from "./analytics";
 import {
   addCoderouterBreadcrumb,
@@ -56,6 +62,8 @@ const OPENAI_UPSTREAM = "https://api.openai.com/v1/responses";
 const OPENAI_MODELS_UPSTREAM = "https://api.openai.com/v1/models";
 const OPENROUTER_UPSTREAM = "https://openrouter.ai/api/v1/responses";
 const OPENROUTER_MODELS_UPSTREAM = "https://openrouter.ai/api/v1/models";
+const XAI_UPSTREAM = "https://api.x.ai/v1/responses";
+const XAI_MODELS_UPSTREAM = "https://api.x.ai/v1/models";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -196,6 +204,7 @@ async function capacityRetryAfterMs(
   identity: RouteTokenIdentity,
   request: Request,
   deadlineAt: number,
+  providers: readonly CodeRouterProvider[],
 ): Promise<number | null | undefined> {
   if (!dependencies.nextAvailableAt) return null;
   const lookup = dependencies.nextAvailableAt;
@@ -206,7 +215,7 @@ async function capacityRetryAfterMs(
       runtime.now,
       (signal) => lookup({
         teamId: identity.teamId,
-        provider: RESPONSES_PROVIDERS,
+        provider: providers,
         access: accountAccessForIdentity(identity),
         signal,
       }),
@@ -269,6 +278,7 @@ async function proxyCodexRequestWith(
     if (value) forwardedHeaders.set(name, value);
   }
   const sessionKey = sessionKeyFromRequest(request);
+  const providers = responsesProvidersForModel(await requestModel(request));
   /** Accounts tried this round; cleared when the request holds for capacity. */
   const attempted: string[] = [];
   let attemptCount = 0;
@@ -282,7 +292,7 @@ async function proxyCodexRequestWith(
    * failed), plain backoff still applies.
    */
   const holdForNextRound = async (): Promise<boolean> => {
-    const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
+    const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt, providers);
     const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
     if (!(await hold.wait(retryAfterMs, request.signal))) return false;
     addCoderouterBreadcrumb("routing", "Holding Codex request for capacity", {
@@ -321,7 +331,7 @@ async function proxyCodexRequestWith(
         (signal) => dependencies.select({
           teamId: identity.teamId,
           access: accountAccessForIdentity(identity),
-          provider: RESPONSES_PROVIDERS,
+          provider: providers,
           sessionKey,
           excludedAccountIds: attempted,
           signal,
@@ -355,7 +365,7 @@ async function proxyCodexRequestWith(
     if (!account) {
       if (
         attempt === 0 &&
-        !await teamHasCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now)
+        !await teamHasCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now, providers)
       ) {
         noAccountConfigured = true;
         break;
@@ -1270,11 +1280,12 @@ export const proxyCodexModels = createCodexModelsProxy({
 
 type ResponsesCredential = Extract<
   CodeRouterCredential,
-  { provider: "codex" | "openai-apikey" | "openrouter-apikey" }
+  { provider: "codex" | "openai-apikey" | "openrouter-apikey" | "xai-apikey" }
 >;
 
 function servesResponses(credential: CodeRouterCredential): credential is ResponsesCredential {
-  return (RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider);
+  return (RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider) ||
+    (GROK_RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider);
 }
 
 // Keep the last rejection available until another attempt supplies a response.
@@ -1295,7 +1306,8 @@ function discardUpstreamResponse(response: Response | null): null {
  * Forwards one Responses call to the account's own upstream. Codex sign-ins go
  * to the ChatGPT backend with the account header; an OpenAI key goes to the
  * public API; an OpenRouter key goes to OpenRouter, whose model catalog is
- * vendor-prefixed, so a bare OpenAI model id is rewritten to `openai/<id>`.
+ * vendor-prefixed, so a bare OpenAI model id is rewritten to `openai/<id>`; an
+ * xAI key goes to api.x.ai, which only ever receives Grok models.
  */
 async function sendResponses(
   request: Request,
@@ -1327,6 +1339,12 @@ async function sendResponses(
       headers.delete("openai-beta");
       body = await openRouterBody(request);
       break;
+    case "xai-apikey":
+      url = XAI_UPSTREAM;
+      headers.set("authorization", `Bearer ${credential.apiKey}`);
+      headers.delete("session_id");
+      headers.delete("openai-beta");
+      break;
   }
   // Bounded to headers only: a hung upstream fails over instead of holding
   // the function for the full maxDuration; the body streams unbounded.
@@ -1338,6 +1356,25 @@ async function sendResponses(
     duplex: "half",
     cache: "no-store",
   } as RequestInit & { duplex: "half" }, headersTimeoutMs);
+}
+
+/**
+ * The `model` of a plain JSON Responses body, read from a clone so the
+ * original still streams upstream. A compressed or unparsable body yields
+ * `undefined`, which keeps the default provider pool.
+ */
+async function requestModel(request: Request): Promise<string | undefined> {
+  if (request.headers.get("content-encoding")) return undefined;
+  try {
+    const parsed: unknown = await request.clone().json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const model = (parsed as { model?: unknown }).model;
+      return typeof model === "string" ? model : undefined;
+    }
+  } catch {
+    // Not JSON: the upstream answers it.
+  }
+  return undefined;
 }
 
 /** Rewrites a bare model id to OpenRouter's `openai/<id>`; anything else passes through. */
@@ -1416,6 +1453,11 @@ function modelsRequest(
           "user-agent": userAgent,
         },
       };
+    case "xai-apikey":
+      return {
+        url: new URL(XAI_MODELS_UPSTREAM),
+        headers: { authorization: `Bearer ${credential.apiKey}`, "user-agent": userAgent },
+      };
   }
 }
 
@@ -1477,13 +1519,14 @@ async function teamHasCodexAccount(
   requestSignal: AbortSignal,
   deadlineAt: number,
   now: () => number,
+  providers: readonly CodeRouterProvider[] = RESPONSES_PROVIDERS,
 ): Promise<boolean> {
   const lookup = dependencies.hasConfiguredAccount;
   if (!lookup) return true;
   try {
     return await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
       teamId: identity.teamId,
-      provider: RESPONSES_PROVIDERS,
+      provider: providers,
       access: accountAccessForIdentity(identity),
       signal,
     }));

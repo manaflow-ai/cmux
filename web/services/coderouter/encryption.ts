@@ -286,7 +286,7 @@ function strictBase64(value: string, label: string): Buffer {
 
 function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
-  if (value.provider === "openai-apikey" || value.provider === "openrouter-apikey") {
+  if (value.provider === "openai-apikey" || value.provider === "openrouter-apikey" || value.provider === "xai-apikey") {
     return parseApiKeyCredential(value.provider, value);
   }
   const {
@@ -339,7 +339,7 @@ function parseCredential(value: unknown): CodeRouterCredential | null {
 }
 
 function parseApiKeyCredential(
-  provider: "openai-apikey" | "openrouter-apikey",
+  provider: "openai-apikey" | "openrouter-apikey" | "xai-apikey",
   value: Record<string, unknown>,
 ): CodeRouterCredential | null {
   return string(value.apiKey) && string(value.accountId) && typeof value.label === "string"

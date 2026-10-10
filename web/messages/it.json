@@ -3175,6 +3175,7 @@
       "accountChatgpt": "Abbonamento ChatGPT (workspace personale o di team)",
       "accountOpenAiKey": "Chiave API OpenAI",
       "accountOpenRouterKey": "Chiave API OpenRouter",
+      "accountXaiKey": "Chiave API xAI",
       "accountOpencodeGo": "Abbonamento OpenCode Go",
       "accountClaudeSubscription": "Claude Max o Pro (token di configurazione di Claude Code)",
       "accountAnthropicKey": "Chiave API Anthropic",

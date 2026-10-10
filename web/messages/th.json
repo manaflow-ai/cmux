@@ -3180,6 +3180,7 @@
       "accountChatgpt": "การสมัครใช้งาน ChatGPT (workspace ส่วนตัวหรือของทีม)",
       "accountOpenAiKey": "API key ของ OpenAI",
       "accountOpenRouterKey": "API key ของ OpenRouter",
+      "accountXaiKey": "API key ของ xAI",
       "accountOpencodeGo": "การสมัครใช้งาน OpenCode Go",
       "accountClaudeSubscription": "Claude Max หรือ Pro (setup token ของ Claude Code)",
       "accountAnthropicKey": "API key ของ Anthropic",

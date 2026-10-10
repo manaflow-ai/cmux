@@ -3175,6 +3175,7 @@
       "accountChatgpt": "Подписка ChatGPT (личное или командное рабочее пространство)",
       "accountOpenAiKey": "API-ключ OpenAI",
       "accountOpenRouterKey": "API-ключ OpenRouter",
+      "accountXaiKey": "API-ключ xAI",
       "accountOpencodeGo": "Подписка OpenCode Go",
       "accountClaudeSubscription": "Claude Max или Pro (токен настройки Claude Code)",
       "accountAnthropicKey": "API-ключ Anthropic",

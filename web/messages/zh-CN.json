@@ -3175,6 +3175,7 @@
       "accountChatgpt": "ChatGPT 订阅（个人或团队工作区）",
       "accountOpenAiKey": "OpenAI API 密钥",
       "accountOpenRouterKey": "OpenRouter API 密钥",
+      "accountXaiKey": "xAI API 密钥",
       "accountOpencodeGo": "OpenCode Go 订阅",
       "accountClaudeSubscription": "Claude Max 或 Pro（Claude Code 设置令牌）",
       "accountAnthropicKey": "Anthropic API 密钥",

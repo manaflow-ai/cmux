@@ -3175,6 +3175,7 @@
       "accountChatgpt": "ChatGPT pretplata (lični ili timski radni prostor)",
       "accountOpenAiKey": "OpenAI API ključ",
       "accountOpenRouterKey": "OpenRouter API ključ",
+      "accountXaiKey": "xAI API ključ",
       "accountOpencodeGo": "OpenCode Go pretplata",
       "accountClaudeSubscription": "Claude Max ili Pro (Claude Code setup token)",
       "accountAnthropicKey": "Anthropic API ključ",

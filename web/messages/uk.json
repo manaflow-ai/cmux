@@ -3243,6 +3243,7 @@
       "accountChatgpt": "Підписка ChatGPT (особистий або командний робочий простір)",
       "accountOpenAiKey": "API-ключ OpenAI",
       "accountOpenRouterKey": "API-ключ OpenRouter",
+      "accountXaiKey": "API-ключ xAI",
       "accountOpencodeGo": "Підписка OpenCode Go",
       "accountClaudeSubscription": "Claude Max або Pro (токен налаштування Claude Code)",
       "accountAnthropicKey": "API-ключ Anthropic",
