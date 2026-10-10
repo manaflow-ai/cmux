@@ -91,7 +91,7 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
         #expect(!create.message.contains("Permission denied"))
         #expect(!create.message.contains("banner"))
         #expect(!attach.message.contains("control stream refused"))
-        #expect(attach.message.contains("stuck"))
+        #expect(!attach.message.contains("stuck"))
     }
 
     /// New Local Workspace on an ACTIVE MIRROR creates a plain local workspace —
@@ -133,6 +133,53 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
             #expect(createdIds.count == 1)
             let created = try #require(manager.tabs.first { createdIds.contains($0.id) })
             #expect(!created.isRemoteTmuxMirror)
+        }
+    }
+
+    /// With remote routing disabled, a sidebar empty-area creation on a mirror
+    /// follows the ordinary local end-of-list placement instead of taking the
+    /// remote placement path and inserting after the selected mirror.
+    @Test func emptyAreaOnMirrorWithRoutingDisabledAppendsLocally() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let appDelegate = try #require(AppDelegate.shared)
+            let controller = appDelegate.remoteTmuxController
+            let defaults = UserDefaults.standard
+            let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey
+            let previousValue = defaults.object(forKey: key)
+            defer {
+                if let previousValue {
+                    defaults.set(previousValue, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            defaults.set(false, forKey: key)
+
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            let manager = TabManager()
+            let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
+            _ = manager.addWorkspace(placementOverride: .end)
+            manager.selectWorkspace(mirrorWorkspace)
+            let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(
+                appDelegate: appDelegate, manager: manager
+            )
+            defer {
+                window.close()
+                manager.window = nil
+                if controller.sessionMirror(host: host, sessionName: "esc") != nil {
+                    controller.detach(host: host, sessionName: "esc")
+                }
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+
+            #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            let before = Set(manager.tabs.map(\.id))
+            #expect(appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager))
+            let created = try #require(manager.tabs.first { !before.contains($0.id) })
+            #expect(!created.isRemoteTmuxMirror)
+            #expect(manager.tabs.last?.id == created.id)
         }
     }
 

@@ -144,7 +144,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         #expect(!create.message.contains("banner"))
         #expect(!removed.message.contains("control stream refused"))
         #expect(!removed.message.contains("orphan"))
-        #expect(left.message.contains("stuck"))
+        #expect(!left.message.contains("stuck"))
         #expect(removed.message != left.message)
     }
 
