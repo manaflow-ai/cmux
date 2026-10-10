@@ -489,6 +489,17 @@
     "plus.rectangle.on.rectangle",
     "plus.square"
    ]
+  },
+  {
+   "name": "remote.display",
+   "meaning": "Remote desktop / a machine's display (Remote View)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='4' width='17' height='12.5' rx='2.5'/><path d='M12 16.5V20M8.75 20h6.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='4' width='17' height='12.5' rx='2.5' fill='currentColor'/><path d='M12 16.5V20M8.75 20h6.5'/></svg>",
+   "alts": [],
+   "note": "Monitor on a stand, rx 2.5 (frame). Solid fills the screen; the stand stays a stroke.",
+   "replaces": [
+    "display"
+   ]
   }
  ]
 }
