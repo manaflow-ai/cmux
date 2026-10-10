@@ -308,19 +308,26 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
         let flight = ConversationPhotoFlightView(image: viewer.photoView.image, side: source.side, tailed: source.tailed)
         container.addSubview(flight)
         let startProgress = presenting ? 0 : viewer.presentationProgress
-        sourceView.isHidden = true
+        // Alpha, not isHidden: a row reconfigured mid-flight (a new message
+        // arriving) unhides its image views, which showed a second photo.
+        let sourceAlpha = sourceView.alpha
+        sourceView.alpha = 0
         viewer.photoView.isHidden = true
         let presenting = presenting
-        let from = presenting ? bubbleFrame : photoFrame
-        let to = presenting ? photoFrame : bubbleFrame
         let radius = ConversationTheme.bubbleCornerRadius
-        let apply: (CGFloat) -> Void = { p in
+        let apply: (CGFloat) -> Void = { [weak sourceView] p in
+            // The bubble's live frame: the transcript can scroll under the
+            // viewer (new messages), and the photo lands where the bubble is.
+            let bubble = sourceView.map { $0.convert($0.bounds, to: container) } ?? bubbleFrame
+            let from = presenting ? bubble : photoFrame
+            let to = presenting ? photoFrame : bubble
             flight.place(frame: ConversationPhotoFlight.interpolate(from, to, p), radius: radius * (presenting ? 1 - p : p))
             viewer.presentationProgress = presenting ? p : startProgress * (1 - p)
+            sourceView?.alpha = 0
         }
         apply(0)
-        let driver = ConversationPhotoFlightDriver(step: apply) {
-            sourceView.isHidden = false
+        let driver = ConversationPhotoFlightDriver(step: apply) { [weak sourceView] in
+            sourceView?.alpha = sourceAlpha
             viewer.photoView.isHidden = false
             flight.removeFromSuperview()
             context.completeTransition(!context.transitionWasCancelled)
