@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # pin-cmux-tui.sh finds a cmux-tui artifact by its SOURCE tree key, not by
 # commit, and with CMUX_TUI_TREE_DISPATCH=1 starts at most one publisher for a
-# key that nothing publishes. cmux-tui-artifacts.yml coalesces feat-cmux-next
-# pushes (one group per branch since a32b17000eda), so only the tip's tree is
-# published; a build of an older commit with the same cmux-tui tree uses the
-# tip's artifact, and a build of a commit with a changed tree dispatches one
-# workflow_dispatch run on a cmux-tui-pin-<sha12> ref (concurrency group
-# sha-<sha>, which the per-branch push group never cancels).
+# key that nothing publishes. cmux-tui-artifacts.yml publishes every
+# feat-cmux-next push (cx-73f2); a build of a commit with the same cmux-tui tree
+# uses that artifact, and a build of a commit with an unpublished tree
+# dispatches one workflow_dispatch run on a cmux-tui-pin-<sha12> ref
+# (concurrency group sha-<sha>, which no push run cancels).
 # No network: a stub curl serves the CDN and the GitHub API and logs calls.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)

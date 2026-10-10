@@ -26,21 +26,21 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
-//   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
+//   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
-//   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
-//   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
@@ -55,11 +55,11 @@ import PackageDescription
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
-//   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
+//   CmuxNextTasks -> Design, Icons (Tasks pane: list, board and inbox prototypes over a mirror + intent
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
@@ -105,8 +105,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-52ac077be908e2cd6d9eeb5dd35573e331dab4d1/CCmuxAppFFI.xcframework.zip",
-    checksum: "0c417fb6d94a249f1cca71dc279196a198a176ae0c0ed95971dce0edd4443532"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d2fc4491bc2ddeaead5bfe28a6f09483abcd9334/CCmuxAppFFI.xcframework.zip",
+    checksum: "62dce8413e1a5355411ac5768c92d9e7f4bc950ca5a3bcd85195d623db2c538c"
 )
 
 let package = Package(
@@ -264,7 +264,7 @@ let package = Package(
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -289,7 +289,7 @@ let package = Package(
         // supplies `OnboardingServices`.
         .target(
             name: "CmuxNextOnboarding",
-            dependencies: ["CmuxNextDesign", "CmuxNextBrowserImport"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport"],
             resources: [
                 .process("Resources"),
             ],
@@ -301,6 +301,7 @@ let package = Package(
             name: "CmuxNextAgentQuestion",
             dependencies: [
                 "CmuxNextDesign",
+                "CmuxNextIcons",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
             resources: [
@@ -335,7 +336,7 @@ let package = Package(
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -429,7 +430,7 @@ let package = Package(
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -475,7 +476,7 @@ let package = Package(
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -511,6 +512,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextIcons",
                 "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -653,6 +655,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
+                "CmuxNextIcons",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
                 "CmuxNextTerminalFind",
