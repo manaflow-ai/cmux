@@ -184,8 +184,10 @@ enum ConversationTheme {
     }
 
     /// Messages fills outgoing bubbles from a gradient fixed to the screen:
-    /// lighter near the top, the plain service color at the bottom. Stops
-    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB).
+    /// lighter near the top, the plain service color from the resting
+    /// composer down (`ConversationTranscriptMetrics.gradientSpan`). Stops
+    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB) and
+    /// re-fitted against Messages on iOS 27.0, light and dark, within 1-3 levels.
     struct ScreenGradient: Sendable {
         var light: [(CGFloat, CGFloat, CGFloat)]
         var dark: [(CGFloat, CGFloat, CGFloat)]
@@ -224,7 +226,7 @@ enum ConversationTheme {
     }
 
     static let iMessageGradient = ScreenGradient(
-        light: [(90, 200, 250), (72, 184, 251), (52, 168, 252), (30, 152, 254), (0, 136, 255)],
+        light: [(90, 200, 250), (73, 185, 251), (53, 169, 252), (32, 153, 254), (0, 136, 255)],
         dark: [(64, 156, 255), (52, 153, 255), (37, 150, 255), (22, 148, 255), (0, 145, 255)]
     )
 

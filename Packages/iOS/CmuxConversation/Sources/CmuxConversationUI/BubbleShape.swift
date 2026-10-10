@@ -169,8 +169,10 @@ final class BubbleBackgroundView: UIView {
     func updateScreenGradient() {
         guard let gradientLayer, let screenGradient, let window, window.bounds.height > 0 else { return }
         let frame = convert(gradientBounds, to: window)
-        let top = frame.minY / window.bounds.height
-        let bottom = frame.maxY / window.bounds.height
+        // Messages' gradient ends at the resting composer, not the window's bottom.
+        let span = ConversationTranscriptMetrics.gradientSpan(windowHeight: window.bounds.height, bottomSafeInset: window.safeAreaInsets.bottom)
+        let top = frame.minY / span
+        let bottom = frame.maxY / span
         let sample = screenGradient.samples(from: top, to: bottom, traits: traitCollection)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
