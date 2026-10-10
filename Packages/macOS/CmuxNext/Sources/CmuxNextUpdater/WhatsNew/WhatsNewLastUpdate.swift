@@ -27,43 +27,6 @@ nonisolated public struct WhatsNewLastUpdate: Codable, Equatable, Sendable {
         self.stagedAt = stagedAt
         self.changelog = changelog
     }
-
-    /// The record as a What's New document, for the page (feed origin: it
-    /// came from the appcast, so it has no try-it actions).
-    public var document: WhatsNewDocument {
-        let entries = changelog.lines.enumerated().map { index, line in
-            let (category, title) = Self.categorized(line)
-            return WhatsNewDocument.Entry(id: "update-\(toBuild)-\(index)", category: category,
-                                          title: WhatsNewText(stringLiteral: title), summary: "")
-        }
-        let day = changelog.date.map { Self.dayFormatter.string(from: $0) } ?? Self.dayFormatter.string(from: stagedAt)
-        return WhatsNewDocument(version: toVersion, channel: WhatsNewVersion(toVersion)?.prerelease?.kind == "nightly" ? .nightly : .stable,
-                                date: day, headline: WhatsNewText(stringLiteral: changelog.detail ?? toVersion),
-                                entries: entries, origin: .feed)
-    }
-
-    /// "New: X" / "Fixed: X" (English or this language's card labels).
-    static func categorized(_ line: String) -> (WhatsNewDocument.Category, String) {
-        let prefixes: [(WhatsNewDocument.Category, [String])] = [
-            (.new, ["New", UpdaterStrings.changelogNew]),
-            (.fixed, ["Fixed", UpdaterStrings.changelogFixed]),
-            (.improved, ["Changed", "Improved", UpdaterStrings.changelogChanged]),
-        ]
-        for (category, words) in prefixes {
-            for word in Set(words) where line.hasPrefix(word + ":") {
-                return (category, line.dropFirst(word.count + 1).trimmingCharacters(in: .whitespaces))
-            }
-        }
-        return (.improved, line)
-    }
-
-    static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 }
 
 /// Where the update record lives between the two processes: one small

@@ -34,3 +34,17 @@ extension UpdaterService {
                                   stagedAt: now(), changelog: changelog)
     }
 }
+
+extension UpdaterService {
+    /// "See What's New" on the "Updated to <version>" card: the changelog
+    /// page for the span this update crossed (releases newer than the old
+    /// version up to this one), and the update counts as seen. The card's
+    /// x is ``WhatsNewCenter/dismissUpdated()``.
+    @discardableResult
+    public func openWhatsNewForLastUpdate() -> Bool {
+        let span = whatsNew.lastUpdate.map { ($0.fromVersion, $0.toVersion) }
+        whatsNew.markUpdateSeen()
+        if let span, let open = openChangelogSpan { return open(span.0, span.1) }
+        return openChangelog?() ?? false
+    }
+}

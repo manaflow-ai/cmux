@@ -69,9 +69,8 @@ public final class WhatsNewCenter {
         // describes; any other record is stale and removed.
         lastUpdate = currentBuild.isEmpty ? nil : lastUpdates?.take(for: currentBuild)
         guard let current else {
-            // A version the tracker cannot order (a DEV build): only the record shows.
+            // A version the tracker cannot order (a DEV build): only the record counts.
             isUpdated = lastUpdate != nil
-            if let lastUpdate { unseen = [lastUpdate.document] }
             isLoaded = true
             markLoadedForHarness()
             let done = Task<Void, Never> {}
@@ -91,18 +90,8 @@ public final class WhatsNewCenter {
                 documents += await source.documents(after: source.readsNetwork ? unseenFloor : nil, through: current)
             }
             guard let self else { return }
-            // The recorded update's changelog stands in for a version with
-            // no document of its own (most nightly builds).
-            if let record = self.lastUpdate, !documents.contains(where: { $0.version == record.toVersion }) {
-                documents.append(record.document)
-            }
             self.known = WhatsNewTracker.newestFirst(documents)
             self.unseen = tracker.unseen(self.known)
-            if let record = self.lastUpdate, !self.unseen.contains(where: { $0.version == record.toVersion }),
-               let document = self.known.first(where: { $0.version == record.toVersion }) {
-                // The same short version (a rebuild) is not newer, but the update is unseen.
-                self.unseen.insert(document, at: 0)
-            }
             self.isLoaded = true
             self.markLoadedForHarness()
         }
@@ -123,13 +112,19 @@ public final class WhatsNewCenter {
         let tracker = tracker ?? current.map { WhatsNewTracker(current: $0, lastSeen: $0) }
         presented = unseen.isEmpty ? (tracker?.recent(known) ?? []) : unseen
         if let current { seen.markSeen(current) }
-        // Seen: the record leaves the disk so the next launch does not show
-        // it again; ``lastUpdate`` stays for this launch (only the card's x,
-        // ``dismissUpdated()``, clears it).
-        lastUpdates?.clear()
+        markUpdateSeen()
         unseen = []
-        isUpdated = false
         return presented
+    }
+
+    /// The update was seen (the changelog opened for it): the card goes and
+    /// the record leaves the disk, so the next launch does not show it
+    /// again. ``lastUpdate`` stays for this launch; only the card's x
+    /// (``dismissUpdated()``) clears it (a939fe59's terms, 2026-10-10).
+    public func markUpdateSeen() {
+        if let current { seen.markSeen(current) }
+        lastUpdates?.clear()
+        isUpdated = false
     }
 
     /// The card's x: the record goes, from memory and from disk.

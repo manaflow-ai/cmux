@@ -49,6 +49,9 @@ public final class UpdaterService {
     @ObservationIgnored let cardTimer: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`
+    /// (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
