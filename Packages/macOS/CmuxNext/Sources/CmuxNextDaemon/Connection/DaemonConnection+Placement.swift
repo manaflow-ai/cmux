@@ -48,7 +48,7 @@ extension DaemonConnection {
     func served(_ options: SpawnOptions) -> SpawnOptions {
         var options = options
         if identity?.supports(DaemonCapabilities.shared.terminalReap) != true { options.keep = nil }
-        if !supportsPlacementEnv { options.terminalID = nil }
+        options.drop(callerTerminal: !supportsPlacementEnv, clientKeys: identity?.supports(DaemonCapabilities.shared.splitClientKeys) != true)
         return options
     }
 
