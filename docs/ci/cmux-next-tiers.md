@@ -5,6 +5,12 @@ A pull request into `feat-cmux-next` runs only the checks its change can break.
 against its first parent) and picks the tiers; the `cmux-next path routing`
 job's summary lists each tier and the reason for it.
 
+Pushes to `feat-cmux-next` use a separate fast path: Linux `checks` plus a
+warm Swift canary that builds `CmuxNextApp`. The scheduled
+`.github/workflows/cmux-next-nightly-dispatch.yml` advances the latest
+canary-green head to `nightly-next` about every 30 minutes; that branch runs
+the broader Release, scheme and daemon coverage through `nightly.yml`.
+
 | Tier | Check (job) | Runs when the PR changes | Runner |
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
@@ -23,9 +29,10 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. gallery-pr diffs the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
-The Swift canary is the pull-request gate for a small package-only Swift diff.
-It builds only the affected CmuxNext production targets with `swift build
---configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
+The Swift canary is the pull-request gate for a small package-only Swift diff,
+and the fast push path builds `CmuxNextApp`. It builds production targets with
+`swift build --configuration debug --target`, reusing the linked SwiftPM
+scratch on a mini.
 It catches type-checking, dependency and module errors in those targets. It
 does not exercise optimizer-only behavior, Release compiler settings, Xcode
 scheme integration, signing or the CEF shim. The full Release compile still
@@ -47,10 +54,10 @@ Every tier runs on:
 
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the
   heavy suites run once for the batch before it merges;
-- every `feat-cmux-next` push (a superseded push skips its Mac jobs, so a burst
-  of merges is checked once at its newest commit). When a push job fails,
-  `cmux-next push attribution` comments on each PR merged since that job last
-  passed on a push. The owning lane fixes forward;
+- the scheduled `nightly-next` build from the latest `feat-cmux-next` head (about
+  every 30 minutes). The fast push run still has Linux checks and the Swift
+  canary; `cmux-next push attribution` names the pull requests in a red push
+  range so the owning lane can fix forward;
 - a change to the manifest, the target graph, the router, the workflow or the
   test runner scripts, or to a file in the CmuxNext package that no target owns.
 

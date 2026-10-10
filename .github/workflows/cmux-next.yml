@@ -18,8 +18,11 @@ name: cmux-next
 #              change reaches (Packages/macOS/CmuxNext/ci-target-graph.json)
 #   daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
 #              Rust core, FFI and control paths
-# A batch integration PR labeled full-ci, and every feat-cmux-next push, runs
-# them all; a red push run names the pull requests in its range.
+# A batch integration PR labeled full-ci, and an explicit workflow dispatch,
+# run every tier. A feat-cmux-next push runs the Linux checks and the warm
+# Swift canary only; the scheduled cmux-next nightly dispatcher promotes the
+# latest canary-green head to nightly-next about every 30 minutes, where the
+# broader Release/scheme/daemon coverage runs.
 
 on:
   pull_request:
@@ -125,6 +128,7 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/cmux-next-nightly-dispatch.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -244,6 +248,7 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/cmux-next-nightly-dispatch.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -460,8 +465,44 @@ jobs:
             : > "$changed"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
-          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-            --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          if [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/feat-cmux-next ]]; then
+            # Base pushes keep the cheap Linux checks above, then type-check the
+            # app package on the placed mini. PRs and explicit dispatches retain
+            # the normal path router and its full-ci escape hatch.
+            {
+              echo 'native=false'
+              echo 'swift_canary=true'
+              echo 'swift_canary_targets=CmuxNextApp'
+              echo 'macos=true'
+              echo 'scheme=false'
+              echo 'generated=false'
+              echo 'swift=false'
+              echo 'daemon=false'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| generated | false |'
+              echo '| native | false |'
+              echo '| swift_canary | true |'
+              echo '| scheme | false |'
+              echo '| swift | false |'
+              echo '| daemon | false |'
+              echo '| full | false |'
+              echo
+              echo 'Swift canary targets: CmuxNextApp'
+              echo
+              echo '- feat-cmux-next push: Linux checks and the warm Swift canary are the push gate; broad app coverage runs from the 30-minute nightly dispatcher.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          fi
           # Whether this pull request changes the cmux-tui it would test against.
           # One that does not is never failed for an unpublished merge tree
           # (the probe steps below, CMUX_TUI_TREE_BASE_FALLBACK).

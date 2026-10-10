@@ -1,0 +1,45 @@
+name: cmux-next nightly dispatcher
+
+# feat-cmux-next pushes keep the fast Linux checks and Swift canary. This
+# schedule advances the protected nightly-next branch to the latest canary
+# green head; the existing nightly workflow then runs the Release, scheme and
+# daemon coverage and publishes through its normal guarded path.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the latest feat-cmux-next head
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: ref } = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: 'heads/feat-cmux-next',
+            });
+            const sha = ref.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: 'nightly.yml',
+              ref: 'main',
+              inputs: {
+                promote_nightly_next_sha: sha,
+                // The schedule itself is the cadence. Do not apply the old
+                // two-hour promotion debounce to this lane.
+                promote_nightly_next_debounce: 'false',
+              },
+            });
+            core.notice(`Requested nightly-next promotion for feat-cmux-next ${sha}`);
