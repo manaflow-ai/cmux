@@ -79,6 +79,7 @@ export const COMPOSER_LABELS = {
   removeAttachment: "composer.removeAttachment",
   openAttachment: "composer.openAttachment",
   dropFiles: "composer.dropFiles",
+  sentAsFileForCodex: "composer.sentAsFileForCodex",
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
@@ -828,6 +829,7 @@ export function Composer({
               <AttachmentChip
                 key={attachment.id}
                 attachment={attachment}
+                codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
                 onRemove={(id) => {
                   setAttachments((current) => current.filter((item) => item.id !== id));
                   field.current?.focus();
@@ -989,7 +991,15 @@ export function Composer({
 
 /// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+function AttachmentChip({
+  attachment,
+  codex = false,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  codex?: boolean;
+  onRemove(id: string): void;
+}) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
@@ -1039,7 +1049,7 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return <PdfAttachmentChip attachment={attachment} remove={remove} />;
+    return <PdfAttachmentChip attachment={attachment} remove={remove} codex={codex} />;
   }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
@@ -1052,9 +1062,11 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
 function PdfAttachmentChip({
   attachment,
   remove,
+  codex,
 }: {
   attachment: ComposerAttachment & { kind: "document"; data: string };
   remove: React.ReactNode;
+  codex: boolean;
 }) {
   const t = useT();
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -1078,6 +1090,7 @@ function PdfAttachmentChip({
     }
   }, [attachment.data, pdfOpen]);
   const pageLabel = attachment.pageCount === undefined ? "PDF" : `${attachment.pageCount}p`;
+  const deliveryLabel = codex ? `${pageLabel} · ${t(COMPOSER_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
       <div
@@ -1096,7 +1109,7 @@ function PdfAttachmentChip({
         <span className="acpmux-attachment-document-meta">
           <FileDoc size={15} />
           <span className="acpmux-attachment-document-name">{attachment.name}</span>
-          <span className="acpmux-attachment-document-pages">{pageLabel}</span>
+          <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
         </span>
         {remove}
       </div>
@@ -1109,7 +1122,7 @@ function PdfAttachmentChip({
       >
         <div className="acpmux-pdf-viewer-bar">
           <span className="acpmux-image-viewer-title">{attachment.name}</span>
-          <span className="acpmux-image-viewer-count">{pageLabel}</span>
+          <span className="acpmux-image-viewer-count">{deliveryLabel}</span>
           <button
             type="button"
             className="acpmux-image-viewer-action"

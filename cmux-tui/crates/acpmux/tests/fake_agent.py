@@ -87,15 +87,15 @@ def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
-    documents = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource"]
-    if documents:
+    links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
+    if links:
         text += " " + " ".join(
-            "resource:{name}:{mime}:{data}".format(
-                name=(b.get("resource") or {}).get("uri", "").removeprefix("attachment://"),
-                mime=(b.get("resource") or {}).get("mimeType", ""),
-                data=(b.get("resource") or {}).get("blob", "")
+            "resource_link:{name}:{mime}:{uri}".format(
+                name=b.get("name", ""),
+                mime=b.get("mimeType", ""),
+                uri=b.get("uri", "")
             )
-            for b in documents
+            for b in links
         )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:

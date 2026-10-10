@@ -1,5 +1,5 @@
-//! Document prompts at the daemon boundary. A PDF must remain a binary resource
-//! for strict ACP harnesses and become an Anthropic document block for Claude Code.
+//! Document prompts at the daemon boundary. A PDF becomes a workspace resource
+//! link for strict ACP harnesses and an Anthropic document block for Claude Code.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -18,7 +18,7 @@ const PDF_DATA: &str = "JVBERi0xLjQ=";
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE]},
+            "fake": {"argv": ["python3", FAKE], "family": "codex"},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}
         },
         "defaultHarness": "fake",
@@ -75,7 +75,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn pdf_reaches_codex_as_an_embedded_resource_and_claude_as_a_document() {
+async fn pdf_reaches_codex_as_a_workspace_resource_link_and_claude_as_a_document() {
     let hub = hub();
     let prompt = json!({
         "prompt": [
@@ -90,7 +90,12 @@ async fn pdf_reaches_codex_as_an_embedded_resource_and_claude_as_a_document() {
     codex_prompt["sessionId"] = json!(codex_session);
     let (reply, echoed) = codex.call_text("session/prompt", codex_prompt).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    assert!(echoed.contains("resource:report.pdf:application/pdf:JVBERi0xLjQ="), "{echoed}");
+    let marker = "resource_link:report.pdf:application/pdf:file://";
+    let start = echoed.find(marker).expect("Codex resource link");
+    let path = echoed[start + marker.len()..].split_whitespace().next().unwrap();
+    assert!(std::path::Path::new(&path).is_file(), "{path}: {echoed}");
+    assert_eq!(std::fs::read(path).unwrap(), b"%PDF-1.4");
+    assert!(!echoed.contains(PDF_DATA), "Codex must not receive PDF base64: {echoed}");
 
     let mut claude = client(&hub);
     let claude_session = claude.new_session("fakeclaude").await;
