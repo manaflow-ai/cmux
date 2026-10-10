@@ -3,6 +3,53 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// ACP v1 does not define a `document` content block. Claude's translator can
+/// turn our internal document block into Anthropic's native document. Strict
+/// ACP adapters (including Codex) instead get a stable workspace file and a
+/// resource link, plus a short note telling the agent where to open it.
+fn acp_prompt_blocks(session: &Session, blocks: &[Value]) -> Result<Vec<Value>, RpcError> {
+    let is_claude = session.meta().family.as_deref() == Some("claude");
+    let mut out = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("document") || is_claude {
+            out.push(block.clone());
+            continue;
+        }
+        let name = block.get("name").and_then(Value::as_str).unwrap_or("document.pdf");
+        let safe_name: String = name
+            .chars()
+            .map(
+                |c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' },
+            )
+            .collect();
+        let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
+        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
+        })?;
+        let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
+        let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
+        std::fs::write(&path, bytes)
+            .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
+        let uri = format!("file://{}", path.display());
+        out.push(json!({
+            "type": "text",
+            "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
+        }));
+        out.push(json!({
+            "type": "resource_link",
+            "uri": uri,
+            "name": name,
+            "mimeType": "application/pdf"
+        }));
+    }
+    Ok(out)
+}
+
 impl Hub {
     // --------------------------------------------------------------- turns
 
@@ -207,7 +254,8 @@ impl Hub {
             // The turn may end between this check and the agent: without
             // steerOnly the message then becomes the next prompt, as before.
             let fallback = (!opts.steer_only).then(|| blocks.clone());
-            let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
+            let wire_blocks = acp_prompt_blocks(session, &blocks)?;
+            let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
             params["_meta"] = json!({"steer": true});
             let mut r =
                 match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
@@ -364,7 +412,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
         )
@@ -417,7 +465,7 @@ impl Hub {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
                                 )
                                 .await;
                         }
