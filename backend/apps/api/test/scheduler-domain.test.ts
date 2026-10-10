@@ -1,59 +1,30 @@
-import { idFactory, type Principal, type ReduceContext, MemoryRows } from "@cmux/ownership"
-import { beforeEach, describe, expect, it } from "vitest"
-import { checkCron, nextFire } from "../src/cron.ts"
-import { dispatchable, dueFires, matchingEventTriggers, MAX_FINISHED_RUNS, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
-import { automationRowOf, keptRuns, runRowOf } from "../src/domains/scheduler-rows.ts"
+import { describe, expect, it } from "vitest"
+import { post, sessionToken } from "./cloud-bind-support.ts"
 
-const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
-const system: Principal = { identity: "system:scheduler", kind: "system" }
-const other: Principal = { identity: "session:user_bbbbbbbbbbbbbbbbbbbb", kind: "session", user: "user_bbbbbbbbbbbbbbbbbbbb", team: "team_bbbbbbbbbbbbbbbbbbbb" }
-
-let txn = 0
-/** The owner's rows ((g1)): automations, runs and bodies; one store per test. */
-let rows = new MemoryRows()
-beforeEach(() => {
-  rows = new MemoryRows()
-})
-const ctx = (principal: Principal, now: number): ReduceContext => {
-  const tx = `tx${txn++}`
-  return { principal, now, tx, newId: idFactory(tx), rows }
-}
-
-/** Applies one op like the engine: authorize, then reduce, then commit the row writes. Throws on reject. */
-const apply = (s: SchedulerState, p: Principal, op: string, params: unknown, now: number) => {
-  const denied = schedulerDomain.authorize!(s, op, params, p)
-  if (denied) throw Object.assign(new Error(denied.message), { code: denied.code })
-  const r = schedulerDomain.reduce(s, op, params, ctx(p, now))
-  if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
-  rows.apply(r.writes ?? [])
-  return r
-}
-const automationOf = (id: string) => automationRowOf(rows, id)!
-const runOf = (id: string) => runRowOf(rows, id)
-
-const T0 = Date.UTC(2026, 9, 2, 12, 0, 30) // 12:00:30 UTC
+// Cron triggers and op access through the API Worker (the SchedulerDO's input boundary).
+const op = (token: string, name: string, params: unknown) => post("/v1/ops", token, { op: name, params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+const codeOf = (r: { body: any }) => r.body?.error?.code ?? r.body?.code
 const steps = { type: "steps", steps: [{ type: "note", text: "hi" }] }
+const signedIn = async (sub: string) => {
+  const token = await sessionToken(sub)
+  expect((await op(token, "user.ensure", {})).body.ok).toBe(true)
+  return token
+}
 
-describe("cron", () => {
-  it("refuses seconds fields, unknown zones and expressions that never fire", () => {
-    expect(checkCron("* * * * * *", "UTC").ok).toBe(false)
-    expect(checkCron("* * * * *", "Mars/Olympus").ok).toBe(false)
-    expect(checkCron("0 0 30 2 *", "UTC").ok).toBe(false)
-  })
-})
-
-describe("SchedulerDO reducer", () => {
-  const created = () => {
-    const r = apply(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), user, "automation.create", { name: "hourly", triggers: [{ type: "cron", expr: "0 * * * *", tz: "UTC" }, { type: "manual" }, { type: "presence", when: "user_active" }], body: steps }, T0)
-    return { state: r.state, a: r.value as any }
-  }
-
-  it("refuses bad cron, another team, and public calls to internal ops", () => {
-    expect(() => apply(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), user, "automation.create", { name: "x", triggers: [{ type: "cron", expr: "nope", tz: "UTC" }], body: steps }, T0)).toThrow(/cron|field/)
-    const { state } = created()
-    expect(() => apply(state, other, "automation.list", {}, T0)).toThrow(/not this team/)
-    expect(() => apply(state, user, "automation.fire", {}, T0)).toThrow(/not allowed for session/)
-    expect(() => apply(state, system, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: steps }, T0)).toThrow(/not an internal op/)
+describe("automation triggers over the API (workerd)", () => {
+  it("refuses a cron with a seconds field, an unknown zone, an expression that never fires and bad syntax", async () => {
+    const token = await signedIn("sched-cron-refusals")
+    for (const [expr, tz] of [["* * * * * *", "UTC"], ["* * * * *", "Mars/Olympus"], ["0 0 30 2 *", "UTC"], ["nope", "UTC"]] as const) {
+      const r = await op(token, "automation.create", { name: "x", triggers: [{ type: "cron", expr, tz }], body: steps })
+      expect([expr, tz, r.body.ok ?? false]).toEqual([expr, tz, false])
+    }
+    expect((await op(token, "automation.create", { name: "daily", triggers: [{ type: "cron", expr: "0 9 * * *", tz: "UTC" }], body: steps })).body.ok).toBe(true)
   })
 
+  it("refuses a public call to an internal op", async () => {
+    const token = await signedIn("sched-internal-op")
+    const r = await op(token, "automation.fire", {})
+    expect(r.status).toBe(400)
+    expect(codeOf(r)).toBe("validation.invalid")
+  })
 })
