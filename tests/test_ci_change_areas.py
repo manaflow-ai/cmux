@@ -5725,6 +5725,7 @@ def test_compile_admission_retry_executes_safely() -> None:
         ("stale-log", 65, ["canonical-build"]),
         ("busy-worker", 65, ["canonical-build"]),
         ("pgrep-error", 65, ["canonical-build"]),
+        ("module-log", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
         ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
@@ -5739,6 +5740,8 @@ if [ -e "$RUNNER_TEMP/attempt" ]; then exit 0; fi
 touch "$RUNNER_TEMP/attempt"
 if [ "$SCENARIO" = stale-log ]; then
   echo 'real compiler error' >> "$5"
+elif [ "$SCENARIO" = module-log ]; then
+  echo "error: unable to resolve module dependency: 'Sparkle'" >> "$5"
 else
   echo 'unable to open dependencies file' >> "$5"
 fi
