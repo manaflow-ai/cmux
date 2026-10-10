@@ -4,7 +4,7 @@ import CmuxNextRemoteView
 import Foundation
 
 /// `debug.remote_view` (development builds): the live `remote_view` tabs and
-/// their sessions, for live checks of the desktop pane (cx-wb5.75, cx-8nvn).
+/// their sessions, for live checks of the desktop pane (cx-wb5.75).
 /// - `state` (default): one row per tab: its URL, whether it asks first
 ///   (`confirm`), and its session (`RemoteViewPageSession.debugState`).
 /// - `open` {url, pane?}: opens `url` (a `cmux://remote-view` record) in a
@@ -58,7 +58,7 @@ private func remoteViewDebug(_ params: [String: JSONValue], services: AppService
                 "confirm": .bool(tab.debugConnect != nil), "session": session,
             ]))
         }
-        return ["tabs": .array(rows)]
+        return ["tabs": .array(rows), "rd_debug_problem": RemoteViewDebugRdHost.problem().map(JSONValue.string) ?? .null]
     default:
         return ["error": "unknown action"]
     }
