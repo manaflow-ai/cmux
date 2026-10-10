@@ -286,7 +286,14 @@
     return !(parent && parent.isContentEditable);
   }
 
-  function pseudoText(el, pseudo) {
+  const PSEUDO_ESCAPES = { __proto__: null, n: "\n", r: "\r", t: "\t", f: "\f", '"': '"', "'": "'", "\\": "\\" };
+  // The text of `el`'s generated content (`pseudo`): its quoted strings,
+  // with \n, \r, \t, \f, quote and backslash escapes read (others kept as
+  // written). The page sets how long the value is, so it is read one
+  // character at a time and only as far as `ctx`'s size budget can use
+  // (twice what is left: an escape takes two characters); a value cut
+  // there leaves CUT and stops the read ("size"). The caller fits it.
+  function pseudoText(el, pseudo, ctx) {
     const cs = styleOf(el, pseudo);
     if (!cs) return "";
     // `content` first: most elements have no ::before/::after text, and
@@ -294,12 +301,23 @@
     const content = cs.content;
     if (!content || content === "none" || content === "normal") return "";
     if (cs.display === "none" || cs.visibility === "hidden") return "";
+    const end = Math.min(content.length, 2 * ctx.sizeLeft + 2);
     let out = "";
-    const re = /"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)'/g;
-    let m;
-    while ((m = re.exec(content))) {
-      const raw = m[1] !== undefined ? m[1] : m[2];
-      out += raw.replace(/\\([nrtf"'\\])/g, (_, c) => ({ n: "\n", r: "\r", t: "\t", f: "\f" })[c] || c);
+    for (let i = 0; i < end; i++) {
+      const quote = content[i];
+      if (quote !== '"' && quote !== "'") continue;
+      for (i++; i < end && content[i] !== quote; i++) {
+        let c = content[i];
+        if (c === "\\" && i + 1 < end) {
+          const next = content[++i];
+          c = next in PSEUDO_ESCAPES ? PSEUDO_ESCAPES[next] : c + next;
+        }
+        out += c;
+      }
+    }
+    if (end < content.length) {
+      if (!ctx.truncated) ctx.truncated = "size";
+      out += CUT;
     }
     return out;
   }
@@ -379,20 +397,41 @@
   // caption or table structure; otherwise a table that holds or sits in
   // another table, a single row or column, or rows of differing lengths mark
   // it as layout.
+  //
+  // This runs before the walk visits the table's content, outside its node
+  // budget, so it reads lazily and at most a bounded sample: the table's
+  // first TABLE_SAMPLE children, rows and cells per row, and TABLE_SCAN of
+  // its descendant elements when it looks for a nested table. A huge table
+  // is judged by its start.
+  const TABLE_SAMPLE = 50;
+  const TABLE_SCAN = 1000;
   const layoutTables = new WeakMap();
   const TABLE_PART_TAGS = new Set(["table", "thead", "tbody", "tfoot", "tr", "td", "th"]);
+  function hasColgroup(table) {
+    let n = 0;
+    for (let c = table.firstElementChild; c && n < TABLE_SAMPLE; c = c.nextElementSibling, n++) if (tagOf(c) === "colgroup") return true;
+    return false;
+  }
+  function holdsTable(table) {
+    const walker = table.ownerDocument.createTreeWalker(table, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = 0, el = walker.nextNode(); el && n < TABLE_SCAN; el = walker.nextNode(), n++) if (tagOf(el) === "table") return true;
+    return false;
+  }
   function isLayoutTable(table) {
     let layout = layoutTables.get(table);
     if (layout !== undefined) return layout;
     layout = false;
     if (!table.getAttribute("role") && !table.hasAttribute("summary") && !(Number(table.getAttribute("border")) > 0) &&
-        !(table.caption || table.tHead || table.tFoot || table.querySelector(":scope > colgroup"))) {
-      const rows = [...table.rows];
+        !(table.caption || table.tHead || table.tFoot || hasColgroup(table))) {
+      // Indexed reads walk only as far as the index (no `length`, no spread).
+      const rows = table.rows;
+      let rowCount = 0;
       let dataCell = false;
       const lengths = new Set();
-      for (const row of rows) {
+      for (let row; rowCount < TABLE_SAMPLE && (row = rows[rowCount]); rowCount++) {
         let length = 0;
-        for (const cell of row.cells) {
+        const cells = row.cells;
+        for (let i = 0, cell; i < TABLE_SAMPLE && (cell = cells[i]); i++) {
           length += cell.colSpan || 1;
           if (tagOf(cell) === "th" || cell.hasAttribute("scope") || cell.hasAttribute("headers") || cell.getAttribute("role")) dataCell = true;
         }
@@ -400,8 +439,8 @@
       }
       if (!dataCell) {
         const columns = Math.max(0, ...lengths);
-        const nested = !!table.querySelector("table") || !!(table.parentElement && table.parentElement.closest("td, th"));
-        layout = nested || rows.length <= 1 || columns <= 1 || lengths.size > 1;
+        const nested = holdsTable(table) || !!(table.parentElement && table.parentElement.closest("td, th"));
+        layout = nested || rowCount <= 1 || columns <= 1 || lengths.size > 1;
       }
     }
     layoutTables.set(table, layout);
@@ -554,7 +593,9 @@
   // Whether the element or something inside it has a non-empty box that is
   // not clipped away (screen-reader-only text uses `clip` or `clip-path`).
   const clippedAway = (style) => !!style && ((style.clip && style.clip !== "auto") || (style.clipPath && style.clipPath !== "none"));
-  function hasVisibleBox(el) {
+  // Each node it looks at inside is charged to the snapshot's budget; past
+  // it the element counts as showing nothing (the snapshot stops there).
+  function hasVisibleBox(el, ctx) {
     const r = el.getBoundingClientRect();
     if (r.width >= 1 && r.height >= 1) return true;
     // A zero-size box that clips its overflow shows none of its content.
@@ -563,6 +604,7 @@
     const range = document.createRange();
     const inside = (node) => {
       for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (!spend(ctx, 1)) return false;
         if (n.nodeType === 3) {
           if (!n.nodeValue.trim()) continue;
           range.selectNodeContents(n);
@@ -584,15 +626,7 @@
   // "host/first-segment/…" for a link to another site (hosts that differ
   // after "www." and ignoring subdomains of the same two-label base), capped.
   const siteOf = (host) => host.replace(/^www\./, "").split(".").slice(-2).join(".");
-  function offsiteSummary(el) {
-    const href = el.href;
-    if (!href || typeof href !== "string") return null;
-    let url;
-    try {
-      url = new global.URL(href);
-    } catch {
-      return null;
-    }
+  function offsiteSummary(url) {
     if (!/^https?:$/.test(url.protocol) || !global.location.hostname) return null;
     if (siteOf(url.hostname) === siteOf(global.location.hostname)) return null;
     const segments = url.pathname.split("/").filter(Boolean);
@@ -601,21 +635,37 @@
     return out.length > 48 ? out.slice(0, 47) + "…" : out;
   }
 
-  function displayUrl(el) {
+  // A link's URL as the snapshot prints it, and its offsite summary. The
+  // caller charges `href` to the snapshot's size budget (fit), so a URL
+  // longer than the budget has left is never resolved or parsed: its
+  // attribute, then its resolved form, is handed on as written, for fit to
+  // charge and cut, with no offsite summary. A URL that fits is parsed once.
+  function displayUrl(el, ctx) {
+    const raw = el.getAttribute("href");
+    if (typeof raw === "string" && raw.length > ctx.sizeLeft) return /^\s*(javascript|data):/i.test(raw.slice(0, 64).replace(/[\t\n\r]/g, "")) ? null : { href: raw, offsite: null };
     const href = el.href;
     if (!href || typeof href !== "string" || /^javascript:/i.test(href)) return null;
+    if (href.length > ctx.sizeLeft) return /^data:/i.test(href) ? null : { href, offsite: null };
     let url;
     try {
       url = new global.URL(href);
     } catch {
-      return href;
+      return { href, offsite: null };
     }
     if (url.protocol === "data:") return null;
-    if (url.origin !== "null" && url.origin === global.location.origin) return url.pathname + url.search + url.hash;
-    return url.href.length > 300 ? url.href.slice(0, 299) + "…" : url.href;
+    if (url.origin !== "null" && url.origin === global.location.origin) return { href: url.pathname + url.search + url.hash, offsite: null };
+    return { href: url.href.length > 300 ? url.href.slice(0, 299) + "…" : url.href, offsite: offsiteSummary(url) };
   }
 
-  function valueOf(el, role, tag) {
+  // An attribute a read keeps is cut at NAME_CHARS before it is normalized.
+  const NAME_CHARS = 20000;
+  const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) + CUT : v || "");
+
+  // A value is charged to the snapshot's size budget by the caller; what
+  // it reads is bounded here: an option label or ARIA value is cut before
+  // it is normalized, and an option's text or an editable element's text
+  // is read within what the snapshot's budget has left.
+  function valueOf(el, role, tag, ctx) {
     if (tag === "input") {
       const type = (el.type || "").toLowerCase();
       if (NO_VALUE_INPUTS.has(type)) return null;
@@ -627,11 +677,12 @@
     if (tag === "select") {
       if (el.multiple || el.size > 1) return null;
       const option = el.options[el.selectedIndex];
-      return option ? normalize(option.label || option.textContent) || null : null;
+      if (!option) return null;
+      return normalize(cutAttr(option.getAttribute("label")) || readWithin(ctx, boundedTextContent, option)) || null;
     }
-    if (isContentEditableHost(el)) return normalize(el.innerText) || null;
+    if (isContentEditableHost(el)) return normalize(readWithin(ctx, boundedInnerText, el)) || null;
     if (tag === "progress" || tag === "meter") return el.hasAttribute("value") ? String(el.value) : null;
-    if (VALUE_ROLES.has(role)) return el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow") || null;
+    if (VALUE_ROLES.has(role)) return cutAttr(el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow")) || null;
     return null;
   }
 
@@ -1092,7 +1143,7 @@
   // stops where the budget does.
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
     if (stopped(ctx)) return;
-    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
+    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before", ctx)));
     const kids = [];
     const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
     if (assigned.length) {
@@ -1115,7 +1166,7 @@
         if (owned && owned !== el) kids.push(owned);
       }
     }
-    if (visible && !skipText) later(ctx, () => stopped(ctx) || out.push(fit(ctx, pseudoText(el, "::after"))));
+    if (visible && !skipText) later(ctx, () => stopped(ctx) || out.push(fit(ctx, pseudoText(el, "::after", ctx))));
     for (let i = kids.length - 1; i >= 0; i--) {
       const child = kids[i];
       later(ctx, () => visitNode(child, out, ctx, visible, ariaHidden, skipText));
@@ -1150,6 +1201,23 @@
       bottom: y || paint ? top + (el.clientHeight || r.height) : Infinity,
     };
   }
+  // Counts the interactive elements in an offscreen subtree (viewport
+  // snapshots say how many they leave out). The walk does not visit these,
+  // so the count reads lazily and at most as many elements as the walk's
+  // node budget, over the whole snapshot, and stops at its deadline; past
+  // either the count is a lower bound (`offscreenMore`).
+  function countOffscreen(el, ctx) {
+    if (ctx.offscreenMore) return;
+    const walker = el.ownerDocument.createTreeWalker(el, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = el; n; n = walker.nextNode()) {
+      if (ctx.countLeft <= 0 || (++ctx.ticks % 256 === 0 && now() > ctx.deadline)) {
+        ctx.offscreenMore = true;
+        return;
+      }
+      ctx.countLeft--;
+      if (n.matches(INTERACTIVE_SELECTOR)) ctx.offscreen++;
+    }
+  }
   const overlaps = (r, c) => r.right > c.left + 0.5 && r.left < c.right - 0.5 && r.bottom > c.top + 0.5 && r.top < c.bottom - 0.5;
 
   function visitElement(el, out, ctx, parentAriaHidden, skipText) {
@@ -1177,7 +1245,7 @@
           }
         }
         if (ctx.viewport && !overlaps(r, ctx.viewport)) {
-          ctx.offscreen += el.querySelectorAll(INTERACTIVE_SELECTOR).length + (el.matches(INTERACTIVE_SELECTOR) ? 1 : 0);
+          countOffscreen(el, ctx);
           return;
         }
       }
@@ -1225,7 +1293,7 @@
     }
     // A link or button with an empty box shows nothing unless some content
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
-    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
+    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el, ctx)) return;
     const node = { role };
     chargeSize(ctx, NODE_SIZE);
     if (name) node.name = fit(ctx, name);
@@ -1245,20 +1313,28 @@
       out.push(node);
       return;
     }
-    const value = valueOf(el, role, tag);
+    const value = valueOf(el, role, tag, ctx);
     if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
-      const url = displayUrl(el);
-      if (url) node.url = fit(ctx, url);
-      const offsite = offsiteSummary(el);
-      if (offsite) node.offsite = fit(ctx, offsite);
+      const url = displayUrl(el, ctx);
+      if (url) {
+        node.url = fit(ctx, url.href);
+        if (url.offsite) node.offsite = fit(ctx, url.offsite);
+      }
     }
-    const placeholder = el.getAttribute("placeholder");
-    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));
+    const placeholderAttribute = el.getAttribute("placeholder");
+    if (placeholderAttribute && (tag === "input" || tag === "textarea")) {
+      // Cut where the budget ends before it is normalized.
+      const placeholder = normalize(head(ctx, placeholderAttribute));
+      if (placeholder !== name) node.placeholder = fit(ctx, placeholder);
+    }
     if (tag === "select") {
+      // As `label || textContent`: the label attribute cut before it is
+      // normalized, else the option's text read within the budget.
       const optionName = (o) => {
         chargeSize(ctx, NODE_SIZE);
-        return fit(ctx, normalize(o.label || o.textContent));
+        const label = normalize(head(ctx, o.getAttribute("label") || ""));
+        return fit(ctx, label || normalize(readWithin(ctx, boundedTextContent, o)));
       };
       const option = (o) => (o.selected ? { name: optionName(o), selected: true } : { name: optionName(o) });
       // A list box shows its options; a drop-down shows them on request. A
@@ -1356,10 +1432,13 @@
       screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
       allOptions: !!opts.options,
       offscreen: 0,
+      offscreenMore: false,
+      countLeft: 0,
       // Elements above the root in the stitched tree (snapshot.js MAX_NEST).
       nest: Math.min(MAX_DEPTH, Math.max(0, Math.floor(Number(opts.nest)) || 0)),
       work: [],
     });
+    ctx.countLeft = ctx.nodes;
     // The label index charges this snapshot's budget.
     labelBudget = ctx;
     const out = [];
@@ -1370,7 +1449,7 @@
     // no `children`: a nested result deeper than about 300 levels fails
     // CDP's CBOR conversion (snapshot.js rebuilds the tree).
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
+    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   function flatten(nodes) {
