@@ -787,9 +787,11 @@ def cli_osc8_link_opens_the_subagent():
     snapshot("osc8-opened")
     json.dump({"sub": sub, "session": session, "cell": [r, c], "grid": grid, "click": clicked, "chat_state": state,
                "topology": topo, "viewport": text}, open(os.path.join(opts.out, "osc8-proof.json"), "w"), indent=1)
-    row("terminal OSC 8 link opens the subagent", "a Cmd-click on the subagent's name in the terminal shows its chat",
-        f"sub {sub} at r{r} c{c}; pane session {state.get('sessionId')} (want {session}); task in pane={'osc8-probe' in pane_text(state)}",
-        state.get("sessionId") == session and "osc8-probe" in pane_text(state))
+    shown = {w.get("workspace") for w in topo.get("windows", [])}
+    opened = [w.get("name") or "" for w in topo.get("workspaces", []) if w.get("id") in shown]
+    row("terminal OSC 8 link opens the subagent", "a Cmd-click on the subagent's name in the terminal shows its workspace and chat",
+        f"sub {sub} at r{r} c{c}; window shows {opened}; pane session {state.get('sessionId')} (want {session})",
+        state.get("sessionId") == session and any(n.lstrip("✓ ").startswith(f"{sub} ") for n in opened))
     show_home()
 
 
