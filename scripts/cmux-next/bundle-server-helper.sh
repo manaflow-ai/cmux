@@ -38,7 +38,8 @@
 #
 # The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
 # CmuxNextServerHelper (its only package dependency, CmuxNextCompat, is compiled
-# first the same way) and CmuxNextServerHelperDaemon/
+# first the same way, Mutex.swift only: Atomic.swift needs swift-atomics, which
+# the helper does not use) and CmuxNextServerHelperDaemon/
 # main.swift, one slice per arch in $ARCHS: resolving the whole CmuxNext package
 # for one small executable would fetch every remote dependency inside the phase.
 # scripts/sign-cmux-bundle-helpers.sh signs it for Developer ID with no
@@ -179,7 +180,7 @@ for arch in $archs; do
   xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
     -module-name CmuxNextCompat -emit-module -emit-module-path "$out/CmuxNextCompat.swiftmodule" \
     -emit-library -static -o "$out/libCmuxNextCompat.a" \
-    "$sources"/CmuxNextCompat/*.swift
+    "$sources"/CmuxNextCompat/Mutex.swift
   xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
     -I "$out" \
     -module-name CmuxNextServerHelper -emit-module -emit-module-path "$out/CmuxNextServerHelper.swiftmodule" \
