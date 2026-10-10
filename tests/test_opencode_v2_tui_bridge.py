@@ -118,6 +118,7 @@ const makeLive = (name, environment, replies) => {
   live.ui.router.onChange = (refresh) => { live.refresh = refresh; return () => {}; };
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
   live.permissionCalls = [];
+  live.formCalls = [];
   live.client = {
     permission: { reply: async (value) => { live.permissionCalls.push(value); replies.permission?.resolve(value); } },
     session: {
@@ -134,6 +135,8 @@ const makeLive = (name, environment, replies) => {
     },
   };
   live.data.session.form = { reply: async (value, location) => {
+    live.formCalls.push(value);
+    if (value.formID === "form-repeat") return;
     const target = value.formID === "form-route" ? replies.routeForm : value.formID === "form-plan" ? replies.plan : replies.form;
     target?.resolve({ value, location });
   } };
@@ -145,6 +148,32 @@ const liveA = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "su
 const liveB = makeLive("b", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-b", CMUX_WORKSPACE_ID: "workspace-b", CMUX_OPENCODE_HOOKS_DISABLED: "1" }, repliesB);
 const cleanupA = await mod.createCMUXTUIBridge(liveA, { environment: liveA.environment });
 const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.environment });
+
+// Repeated form lifecycle events replace an in-flight waiter. Both event
+// handlers must finish, and only the latest one may answer the form.
+const repeatedFeed = await serverMod.CMUXFeed(liveA, {
+  tui: true, ownsSession: () => true, environment: liveA.environment,
+});
+const repeatedForm = { sessionID: "child-a", id: "form-repeat", fields: [{ key: "choice", type: "string", options: [{ value: "yes", label: "yes" }] }] };
+holdNextResponse = true;
+const firstFormEvent = repeatedFeed.event({ event: { type: "form.created", data: { form: repeatedForm } } });
+await waitForObserved((event) => event._opencode_request_id === "form-repeat");
+holdNextResponse = true;
+const updatedFormEvent = repeatedFeed.event({ event: { type: "form.updated", data: { form: repeatedForm } } });
+await waitForObserved((event) => event._opencode_request_id === "form-repeat"
+  && observed.filter((value) => value._opencode_request_id === "form-repeat").length === 2);
+let replacementDeadline;
+try {
+  await Promise.race([firstFormEvent, new Promise((_, reject) => {
+    replacementDeadline = setTimeout(() => reject(new Error("replaced form waiter never completed")), 2000);
+  })]);
+} finally {
+  clearTimeout(replacementDeadline);
+}
+delayedResponses.get("form-repeat")();
+await updatedFormEvent;
+if (liveA.formCalls.filter((value) => value.formID === "form-repeat").length !== 1) throw new Error("repeated form events replied more than once");
+repeatedFeed.dispose();
 
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 await new Promise((resolve) => setImmediate(resolve));
