@@ -22,12 +22,17 @@ extension CEFTab {
     }
 
     /// The page's and DevTools' occlusion: the chrome's rects, plus holes
-    /// for the divider's grab area so the mouse reaches it over both.
+    /// for the divider's grab area so the mouse reaches it over both. Until
+    /// the tab's first real page (the New Tab page, a blank page) the whole
+    /// page is a hole: Chromium's windowed page cannot be transparent, so
+    /// the window's backdrop shows there as in a WebKit tab (Lawrence
+    /// 2026-10-10, `PageBackground`).
     func applyOcclusion() {
         let frames = devToolsController.frames(in: container.bounds)
         if host.visibleTab === self {
             let pageFrame = host.hostView.frame
             var rects = occlusionRects
+            if !pastFirstRealPage { rects.append(pageFrame) }
             if !frames.grab.isEmpty { rects.append(frames.grab) }
             if let header = sidePanel.headerFrame { rects.append(header) }
             host.hostView.occlusionRects = Self.local(rects, in: pageFrame)
