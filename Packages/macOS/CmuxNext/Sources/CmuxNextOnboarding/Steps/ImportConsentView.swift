@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The password consent screen, shown in place of the profile list after
 /// Import when passwords are checked: which profiles (each can be
@@ -20,8 +21,7 @@ final class ImportConsentView: NSView {
     init(model: ImportStepModel) {
         self.model = model
         super.init(frame: .zero)
-        let lock = NSImageView(image: NSImage(systemSymbolName: "key.fill", accessibilityDescription: nil) ?? NSImage())
-        lock.symbolConfiguration = .init(pointSize: 15, weight: .semibold)
+        let lock = NSImageView(image: NSImage.icon(.credentialConsent, size: 18))
         lock.contentTintColor = Palette.textSecondary
         let title = OnboardingLabel.make(OnboardingStrings.passwordsTitle, font: .systemFont(ofSize: 15, weight: .semibold), lines: 2)
         let heading = NSStackView(views: [lock, title])
