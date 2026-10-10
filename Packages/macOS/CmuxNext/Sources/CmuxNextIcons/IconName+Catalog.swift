@@ -165,6 +165,7 @@ extension IconName {
         .placeholder,
         .policyReject,
         .profileDot,
+        .remoteDisplay,
         .search,
         .searchFiles,
         .securityDangerous,
