@@ -400237,125 +400237,6 @@
         }
       }
     },
-    "sidebar.jumpToUnread.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الانتقال إلى غير المقروء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skoči na nepročitano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå til ulæste"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zu Ungelesenem springen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jump to unread"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ir a no leídas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aller aux non lus"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vai ai non letti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読にジャンプ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "읽지 않은 항목으로 이동"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå til uleste"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przejdź do nieprzeczytanych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ir para não lidas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перейти к непрочитанному"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ข้ามไปยังรายการยังไม่อ่าน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Okunmamışa atla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перейти до непрочитаного"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跳转到未读"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跳至未讀"
-          }
-        }
-      }
-    },
     "sidebar.mediaActivity.audio.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -646475,6 +646356,150 @@
         "th": {"stringUnit": {"state": "translated", "value": "หน่วยความจำ"}},
         "tr": {"stringUnit": {"state": "translated", "value": "bellek"}},
         "uk": {"stringUnit": {"state": "translated", "value": "пам’ять"}}
+      }
+    },
+    "sidebar.jumpToUnread.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "آخر غير مقروء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Posljednje nepročitano"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Seneste ulæste"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zuletzt ungelesen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Last unread"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Última no leída"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dernier non lu"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ultimo non letto"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最新の未読"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "최근 읽지 않음"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Siste uleste"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ostatnie nieprzeczytane"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Última não lida"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Последнее непрочитанное"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ยังไม่ได้อ่านล่าสุด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Son okunmamış"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Останнє непрочитане"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "最新未读"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "最新未讀"}}
+      }
+    },
+    "sidebar.jumpToUnread.confirmHide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "انقر على × مرة أخرى للإخفاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ponovo kliknite × da sakrijete"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Klik på × igen for at skjule"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zum Ausblenden erneut auf × klicken"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Click × again to hide"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Haz clic en × otra vez para ocultar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cliquez à nouveau sur × pour masquer"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Fai di nuovo clic su × per nascondere"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "もう一度 × をクリックすると非表示"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "숨기려면 ×를 다시 클릭하세요"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Klikk på × igjen for å skjule"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kliknij × ponownie, aby ukryć"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Clique em × de novo para ocultar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Нажмите × ещё раз, чтобы скрыть"}},
+        "th": {"stringUnit": {"state": "translated", "value": "คลิก × อีกครั้งเพื่อซ่อน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Gizlemek için × simgesine tekrar tıklayın"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Натисніть × ще раз, щоб приховати"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "再次点击 × 以隐藏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "再次按一下 × 以隱藏"}}
+      }
+    },
+    "sidebar.jumpToUnread.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "إخفاء زر الانتقال إلى غير المقروء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sakrij dugme za skok na nepročitano"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skjul knappen Gå til ulæste"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schaltfläche „Zu Ungelesenem springen“ ausblenden"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Hide Jump to Unread Button"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ocultar el botón Ir a no leídas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Masquer le bouton Aller aux non lus"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nascondi il pulsante Vai ai non letti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "未読へ移動ボタンを非表示"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "읽지 않음으로 이동 버튼 숨기기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjul knappen Gå til uleste"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ukryj przycisk Przejdź do nieprzeczytanych"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ocultar o botão Ir para não lidas"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Скрыть кнопку перехода к непрочитанному"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ซ่อนปุ่มไปยังรายการที่ยังไม่ได้อ่าน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Okunmamışa Git düğmesini gizle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сховати кнопку переходу до непрочитаного"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "隐藏“跳转到未读”按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "隱藏「跳至未讀」按鈕"}}
+      }
+    },
+    "settings.app.showJumpToUnreadButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار زر الانتقال إلى غير المقروء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži dugme za skok na nepročitano"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis knappen Gå til ulæste"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schaltfläche „Zu Ungelesenem springen“ anzeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Jump to Unread Button"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar el botón Ir a no leídas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Afficher le bouton Aller aux non lus"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra il pulsante Vai ai non letti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "未読へ移動ボタンを表示"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "읽지 않음으로 이동 버튼 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis knappen Gå til uleste"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokaż przycisk Przejdź do nieprzeczytanych"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar o botão Ir para não lidas"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать кнопку перехода к непрочитанному"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มไปยังรายการที่ยังไม่ได้อ่าน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Okunmamışa Git düğmesini göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати кнопку переходу до непрочитаного"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示“跳转到未读”按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示「跳至未讀」按鈕"}}
+      }
+    },
+    "settings.app.showJumpToUnreadButton.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار زر فوق تذييل الشريط الجانبي ينتقل إلى أحدث إشعار غير مقروء ما دامت هناك إشعارات غير مقروءة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži dugme iznad podnožja bočne trake koje vodi na najnovije nepročitano obavještenje dok ih ima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis en knap over sidepanelets bundlinje, der går til den seneste ulæste notifikation, så længe der er ulæste."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeigt über der Fußzeile der Seitenleiste eine Schaltfläche, die zur neuesten ungelesenen Benachrichtigung springt, solange es ungelesene gibt."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show a button above the sidebar footer that jumps to the latest unread notification while any are unread."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra un botón sobre el pie de la barra lateral que va a la notificación no leída más reciente mientras haya alguna sin leer."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche au-dessus du pied de la barre latérale un bouton qui mène à la dernière notification non lue tant qu’il en reste."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sopra il piè di pagina della barra laterale un pulsante che porta all’ultima notifica non letta finché ce ne sono."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "未読の通知がある間、サイドバー下部の上に最新の未読通知へ移動するボタンを表示します。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "읽지 않은 알림이 있는 동안 사이드바 하단 위에 최신 읽지 않은 알림으로 이동하는 버튼을 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis en knapp over bunnlinjen i sidepanelet som går til det nyeste uleste varselet så lenge det finnes uleste."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuje nad stopką paska bocznego przycisk przechodzący do najnowszego nieprzeczytanego powiadomienia, dopóki jakieś są."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra acima do rodapé da barra lateral um botão que vai para a notificação não lida mais recente enquanto houver alguma."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывает над нижней панелью боковой панели кнопку перехода к последнему непрочитанному уведомлению, пока такие есть."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มเหนือส่วนท้ายของแถบด้านข้างเพื่อไปยังการแจ้งเตือนล่าสุดที่ยังไม่ได้อ่าน ขณะที่ยังมีรายการที่ยังไม่ได้อ่าน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Okunmamış bildirim olduğu sürece kenar çubuğu alt bilgisinin üstünde en son okunmamış bildirime giden bir düğme gösterir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показує над нижньою панеллю бічної панелі кнопку переходу до останнього непрочитаного сповіщення, поки такі є."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "有未读通知时，在侧边栏底部上方显示一个按钮，用于跳转到最新的未读通知。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "有未讀通知時，在側邊欄底部上方顯示一個按鈕，用於跳至最新的未讀通知。"}}
+      }
+    },
+    "settings.search.alias.setting.app.show-jump-to-unread-button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide الانتقال غير مقروء آخر إشعار زر تذييل اختصار إخفاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide skok nepročitano posljednje obavještenje dugme podnožje prečica sakrij"}},
+        "da": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide gå til ulæste seneste notifikation knap bundlinje genvej skjul"}},
+        "de": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide springen ungelesen zuletzt Benachrichtigung Schaltfläche Fußzeile Kurzbefehl ausblenden"}},
+        "en": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide"}},
+        "es": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide ir no leídas última notificación botón pie atajo ocultar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide aller non lus dernier notification bouton pied raccourci masquer"}},
+        "it": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide vai non letti ultimo notifica pulsante piè di pagina scorciatoia nascondi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide 未読 移動 最新 通知 ボタン フッター ショートカット 非表示"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide 읽지 않음 이동 최근 알림 버튼 하단 단축키 숨기기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide gå til uleste siste varsel knapp bunnlinje snarvei skjul"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide przejdź nieprzeczytane ostatnie powiadomienie przycisk stopka skrót ukryj"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide ir não lidas última notificação botão rodapé atalho ocultar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide переход непрочитанное последнее уведомление кнопка нижняя панель сочетание скрыть"}},
+        "th": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide ไปยัง ยังไม่ได้อ่าน ล่าสุด การแจ้งเตือน ปุ่ม ส่วนท้าย ทางลัด ซ่อน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide git okunmamış son bildirim düğme alt bilgi kısayol gizle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide перехід непрочитане останнє сповіщення кнопка нижня панель скорочення сховати"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide 跳转 未读 最新 通知 按钮 底部 快捷键 隐藏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "sidebar.showJumpToUnreadButton jump to unread last unread latest notification button footer shortcut hide 跳至 未讀 最新 通知 按鈕 底部 快速鍵 隱藏"}}
       }
     }
   },
