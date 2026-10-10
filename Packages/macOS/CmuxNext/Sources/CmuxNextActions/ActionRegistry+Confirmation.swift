@@ -1,4 +1,4 @@
-// Destructive actions (`ActionDescriptor.isDestructive`). One gate in
+// Destructive and person-only actions (`isDestructive`, `isPersonOnly`). One gate in
 // `perform` covers every entrypoint: keyboard, menu, palette, and context
 // menus ask the App's confirmation presenter; the control socket and the
 // CLI (capturing callers) must pass `confirm: true` or get a typed refusal.
@@ -20,9 +20,9 @@ extension ActionRegistry {
         "\(id) is destructive; pass confirm:true (CLI: --confirm) to run it"
     }
 
-    /// Whether `invocation` of `id` must be confirmed before it runs.
+    /// Whether `invocation` of `id` must be confirmed first: a destructive or person-only action (cx-zk9t).
     public func needsConfirmation(_ id: ActionID, _ invocation: ActionInvocation) -> Bool {
-        descriptor(for: id)?.isDestructive == true && !invocation.isConfirmed
+        descriptor(for: id).map { $0.isDestructive || $0.isPersonOnly } == true && !invocation.isConfirmed
     }
 
     /// Runs the gate for an unconfirmed destructive invocation. Returns

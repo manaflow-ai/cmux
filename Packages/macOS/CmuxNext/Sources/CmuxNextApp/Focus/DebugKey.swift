@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -51,6 +52,13 @@ enum DebugKey {
         // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
         let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
         guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
+        // Posted keys never answer a user-only dialog (cx-zk9t). Keys for the palette are
+        // refused while one shows anywhere: the palette floats over every window.
+        let over: NSWindow? = params["target"]?.stringValue == "palette" ? nil : shell
+        if let refusal = CmuxDialogCenter.shared.inputRefusal(over: over, step: "debug.key") {
+            return .object(["error": .string(refusal.message), "refused": .object(["dialog": .number(Double(refusal.dialog)),
+                                                                                     "confirm_kind": .string(refusal.kind.rawValue)])])
+        }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
             let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane

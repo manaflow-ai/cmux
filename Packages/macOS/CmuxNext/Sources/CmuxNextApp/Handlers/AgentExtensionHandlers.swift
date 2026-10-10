@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 
 /// "Allow Agents in This Tab…" (`browser.allowAgentWithExtensions`): the
@@ -29,7 +30,7 @@ enum AgentExtensionHandlers {
     static func prompt(blockers names: [String]) -> DestructiveConfirmation.Prompt {
         let body = names.isEmpty ? AgentExtensionStrings.bodyNone
             : AgentExtensionStrings.body(ListFormatter.localizedString(byJoining: names))
-        return DestructiveConfirmation.Prompt(title: AgentExtensionStrings.title, body: body, button: AgentExtensionStrings.button)
+        return DestructiveConfirmation.Prompt(title: AgentExtensionStrings.title, body: body, button: AgentExtensionStrings.button, kind: .trust)
     }
 
     static func blockerNames(_ tab: any BrowserTab, access: AgentExtensionAccess) -> [String] {

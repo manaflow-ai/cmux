@@ -532,7 +532,7 @@ class Run:
         for term in self.terms.values():  # end the foreground sleeps (no terminal with a running job is left)
             cli("terminal", term, "keys", "ctrl+c")
         if self.app and self.app.poll() is None:
-            rpc("action.run", {"action": "quitEndSessions", "origin": "script"}, timeout=10)
+            rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
             try:
                 self.app.wait(30)
             except subprocess.TimeoutExpired:
