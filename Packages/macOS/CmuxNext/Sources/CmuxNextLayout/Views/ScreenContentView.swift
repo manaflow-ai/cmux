@@ -17,9 +17,7 @@ final class ScreenContentView: NSView {
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
-    /// Panes growing in from a split's edge: laid out at their target size
-    /// (one terminal resize) and slid in with the edge, masked to the frame
-    /// their spring shows (`PaneArrival.presentation`).
+    /// Panes growing in from a split's edge (`PaneArrival.presentation`).
     private var arriving: Set<PaneID> = []
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
@@ -115,7 +113,7 @@ final class ScreenContentView: NSView {
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // A split grows its new pane in from the edge (`PaneArrival`); other
         // structural changes (close, move, a new strip column) land in one frame.
-        let arrivals = animate && structural ? Self.arrivals(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
+        let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
         let animateFrames = animate && (!structural || !arrivals.isEmpty)
         if structural { arriving = Set(arrivals.keys) }
 
@@ -190,15 +188,6 @@ final class ScreenContentView: NSView {
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
         return animate && hasMotion
-    }
-
-    /// The arrivals of a split: exactly one new pane, nothing removed, and
-    /// an existing pane gave up its space. Empty otherwise.
-    static func arrivals(_ previous: [PaneID: CGRect], _ next: [PaneID: CGRect]) -> [PaneID: PaneArrival] {
-        let added = next.keys.filter { previous[$0] == nil }
-        guard added.count == 1, previous.keys.allSatisfy({ next[$0] != nil }), let pane = added.first, let target = next[pane],
-              let arrival = PaneArrival.of(target: target, previous: previous, next: next) else { return [:] }
-        return [pane: arrival]
     }
 
     private var firstDividerView: NSView? {

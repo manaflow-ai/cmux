@@ -43,9 +43,18 @@ struct PaneArrival: Equatable {
         return nil
     }
 
+    /// The arrivals of a split: exactly one new pane, nothing removed, and
+    /// an existing pane gave up its space. Empty otherwise.
+    static func split(_ previous: [PaneID: CGRect], _ next: [PaneID: CGRect]) -> [PaneID: PaneArrival] {
+        let added = next.keys.filter { previous[$0] == nil }
+        guard added.count == 1, previous.keys.allSatisfy({ next[$0] != nil }), let pane = added.first, let target = next[pane],
+              let arrival = of(target: target, previous: previous, next: next) else { return [:] }
+        return [pane: arrival]
+    }
+
     /// Where an arriving pane's host sits while its frame springs from the
-    /// seed: at its target size, moved with the edge that moves, so its
-    /// content slides in from that edge without being laid out again.
+    /// seed: at its target size (one terminal resize, not one per frame),
+    /// moved with the edge that moves, so its content slides in from there.
     static func presentation(shown: CGRect, target: CGRect) -> CGRect {
         target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
                         dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
