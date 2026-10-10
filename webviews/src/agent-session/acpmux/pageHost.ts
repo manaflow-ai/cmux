@@ -92,9 +92,15 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
-    case "focusLocation":
+    case "focusLocation": {
       window.dispatchEvent(new Event(FOCUS_LOCATION));
+      // The host holds keys typed since its focus request until this answer; the listeners
+      // (focus, select) ran inside dispatchEvent (cx-9fl).
+      const token = (value as { token?: unknown } | null)?.token;
+      const page = pageHostClient();
+      if (typeof token === "string" && page) void callPageHost(page, "newTab.inputReady", { token }).catch(() => undefined);
       return;
+    }
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":

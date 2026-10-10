@@ -28,6 +28,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
+    public func expectInputReady(token: String) { newTab?.inputToken = token } // the next newTab.inputReady answer
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
@@ -283,7 +284,7 @@ public final class AgentPaneModel {
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabInputReady(let token):
-            guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
+            guard newTab != nil else { return Self.unsupported("newTab.inputReady") } // a stale token still means ready
             onNewTabInputReady?(token)
             return AgentPaneReply.success()
         case .rememberNewTab(let agent):

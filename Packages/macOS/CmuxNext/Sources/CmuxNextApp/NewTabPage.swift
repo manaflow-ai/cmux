@@ -302,7 +302,7 @@ extension NewTabPage {
         if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
+            if let view = services.agentTabs.view(for: key) { focusShown(view, in: pane) }
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }

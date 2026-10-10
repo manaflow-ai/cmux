@@ -344,6 +344,14 @@ public final class AgentPaneView: NSView {
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
+    /// Focus Location Bar, answered by `newTab.inputReady` (cx-9fl): by the page host right after
+    /// the focus when the page listens, else by the page's mount, whose handshake carries `token`.
+    public func focusLocation(token: String) {
+        model.expectInputReady(token: token)
+        guard let pageEvents, pageEvents.hasSubscribers else { return focusLocation() }
+        pageEvents.publish(.focusLocation(token: token))
+    }
+
     /// The page's surface for overrides (R55): new tab page until a chat starts.
     var surfaceKind: SurfaceKind { model.newTab != nil ? .newTabPage : .agentPane }
 
