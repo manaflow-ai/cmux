@@ -261,7 +261,13 @@ fn linked_turn(tty: bool, env: &[(&str, &str)]) -> Vec<u8> {
         let (mut primary, mut secondary) = (0, 0);
         // SAFETY: openpty writes two descriptors it opened into the two out pointers.
         let opened = unsafe {
-            libc::openpty(&mut primary, &mut secondary, std::ptr::null_mut(), std::ptr::null(), std::ptr::null())
+            libc::openpty(
+                &mut primary,
+                &mut secondary,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
         };
         assert_eq!(opened, 0, "openpty");
         // SAFETY: the descriptors are fresh and owned here; each File closes its own.
@@ -305,11 +311,16 @@ fn chief_pipe_writes_subagent_links_as_terminal_hyperlinks_on_a_tty_only() {
     let osc8 = format!("\x1b]8;;{SUBAGENT_LINK}\x1b\\a1\x1b]8;;\x1b\\");
     let tty = String::from_utf8_lossy(&linked_turn(true, &[])).into_owned();
     assert!(tty.contains(&osc8), "no OSC 8 hyperlink on a tty: {tty:?}");
-    assert!(!tty.contains(&format!("({SUBAGENT_LINK})")), "the Markdown link stays on a tty: {tty:?}");
+    assert!(
+        !tty.contains(&format!("({SUBAGENT_LINK})")),
+        "the Markdown link stays on a tty: {tty:?}"
+    );
     // Only this Chief's subagent form is a hyperlink; other links print as written.
     assert!(tty.contains("[docs](https://cmux.com/docs)"), "{tty:?}");
     // A pipe, NO_COLOR and TERM=dumb get the reply as it is, with no escape bytes.
-    for (tty, env) in [(false, &[][..]), (true, &[("NO_COLOR", "1")][..]), (true, &[("TERM", "dumb")][..])] {
+    for (tty, env) in
+        [(false, &[][..]), (true, &[("NO_COLOR", "1")][..]), (true, &[("TERM", "dumb")][..])]
+    {
         let out = String::from_utf8_lossy(&linked_turn(tty, env)).into_owned();
         assert!(!out.contains("\x1b]8;"), "escape bytes with tty={tty} {env:?}: {out:?}");
         assert!(out.contains(&format!("[a1]({SUBAGENT_LINK})")), "{out:?}");
