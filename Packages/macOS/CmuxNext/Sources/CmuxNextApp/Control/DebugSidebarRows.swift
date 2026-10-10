@@ -19,6 +19,7 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
+                "chats": controller.window?.contentView.flatMap(chatsView).map(chats) ?? .null,
                 "rows": .array(rows.map { row in
                     .object([
                         "key": .string(row.key), "title": row.title.map(JSONValue.string) ?? .null,
@@ -41,6 +42,28 @@ enum DebugSidebarRows {
                 "window_frame": item.windowFrame.map(rect) ?? .null,
             ])
         }
+    }
+
+    /// All chats in the window (cx-tr0w): open or not, its header and the drawn rows, so a proof
+    /// opens it and clicks a chat through `debug.mouse`.
+    private static func chats(_ view: SidebarChatsView) -> JSONValue {
+        let chats = view.debugChats()
+        return .object([
+            "expanded": .bool(chats.expanded), "header_frame": rect(chats.headerFrame),
+            "rows": .array(chats.rows.map { row in
+                .object([
+                    "id": .string(row.id), "title": .string(row.title), "harness": .string(row.harness),
+                    "brand": row.brand.map(JSONValue.string) ?? .null, "icon_shown": .bool(row.iconShown),
+                    "window_frame": rect(row.windowFrame),
+                ])
+            }),
+        ])
+    }
+
+    private static func chatsView(in view: NSView) -> SidebarChatsView? {
+        if let chats = view as? SidebarChatsView { return chats }
+        for subview in view.subviews { if let chats = chatsView(in: subview) { return chats } }
+        return nil
     }
 
     /// The last drop resolution of a live drag: card edge, hit row, zone, target.

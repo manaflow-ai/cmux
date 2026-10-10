@@ -11,7 +11,7 @@ import Synchronization
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
-/// each terminal surface creation. `clear` drops the per-event lists (the
+/// each terminal surface creation, each Open Chat (`chat_opens`). `clear` drops the per-event lists (the
 /// launch marks stay). Each span is also an Instruments signpost interval
 /// (subsystem com.cmuxterm.app.next, category "stalls").
 @MainActor
@@ -22,6 +22,7 @@ enum DebugTimings {
     private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var surfaces: [Double] = []
+    private static var chatOpens: [JSONValue] = []
     private static let capacity = 256
 
     private static func milliseconds(_ duration: Duration) -> Double {
@@ -77,11 +78,21 @@ enum DebugTimings {
         if paletteOpens.count < capacity { paletteOpens.append(timing) }
     }
 
+    /// One Open Chat's phases (``ChatOpenTiming``).
+    static func chatOpened(key: String, outcome: String, marks: [(name: String, duration: Duration)], total: Duration) {
+        guard chatOpens.count < capacity else { return }
+        func round(_ duration: Duration) -> JSONValue { .number((milliseconds(duration) * 10).rounded() / 10) }
+        var fields: [String: JSONValue] = ["key": .string(key), "outcome": .string(outcome), "ms": round(total)]
+        for mark in marks { fields["\(mark.name)_ms"] = round(mark.duration) }
+        chatOpens.append(.object(fields))
+    }
+
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         let report = self.report
         if params["clear"]?.boolValue == true {
             paletteOpens.removeAll()
             surfaces.removeAll()
+            chatOpens.removeAll()
         }
         return report
     }
@@ -98,6 +109,7 @@ enum DebugTimings {
                  "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
             }),
             "terminal_surfaces_ms": .array(surfaces.map(round)),
+            "chat_opens": .array(chatOpens),
             "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(milliseconds($0.duration))) },
                                                      uniquingKeysWith: { first, _ in first })),
         ]

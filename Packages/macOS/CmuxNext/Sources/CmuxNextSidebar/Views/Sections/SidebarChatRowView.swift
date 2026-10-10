@@ -7,6 +7,8 @@ import CmuxNextDesign
 final class SidebarChatRowView: SidebarItemRowView {
     let meta = NSTextField(labelWithString: "")
     private(set) var design = SidebarChatsDesign.age
+    /// The chat this row shows (`debug.sidebar_rows`).
+    private(set) var row: SidebarChatsView.Row?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -21,6 +23,7 @@ final class SidebarChatRowView: SidebarItemRowView {
 
     func configure(_ row: SidebarChatsView.Row, design: SidebarChatsDesign, now: Date) {
         self.design = design
+        self.row = row
         configure(SidebarItemInfo(title: row.title, symbol: "bubble.left", icon: .agentChat, brand: row.brand), style: .builtIn)
         let text = design.meta(updatedAt: row.updatedAt, folder: row.folder, now: now)
         meta.stringValue = text.map { design == .project ? "· " + $0 : $0 } ?? ""
