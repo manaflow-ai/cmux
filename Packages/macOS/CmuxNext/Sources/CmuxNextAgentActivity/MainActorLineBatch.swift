@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// What one main-actor drain of a ``MainActorLineBatch`` delivers.
 public nonisolated struct MainActorLineDrain<Value: Sendable>: Sendable {
