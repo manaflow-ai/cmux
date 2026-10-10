@@ -120,7 +120,10 @@ final class TopHomePageView: NSView {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
-                if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                // A shown conversation the owner no longer lists (the cache's
+                // conversation of a Chief home that was made again: cx-ebm.55)
+                // gives way to the live Chief, so a send never goes to it.
+                if !showsListed, let first = defaultConversation(rows: rows, home: home) { show(first) }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
@@ -129,7 +132,7 @@ final class TopHomePageView: NSView {
             var previous = Self.chief(home)
             for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
-                if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
+                if !showsListed || shown?.rawValue == previous { show(ConversationID(chief)) }
                 previous = chief
             }
         }
@@ -168,6 +171,12 @@ final class TopHomePageView: NSView {
     static func chief(_ home: HomeService) -> String? {
         let local = HomeChiefName.select(from: home.conversations)
         return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
+    }
+
+    /// A conversation shows and the inbox lists it.
+    private var showsListed: Bool {
+        guard let shown else { return false }
+        return rows.contains { $0.id == shown }
     }
 
     /// Shows `id` in the transcript column and selects it in the list.
