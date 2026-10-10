@@ -129,8 +129,9 @@ final class LocationTrailService {
         services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
-    func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
-        guard state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
+    /// `anyTarget`: also when the keyboard is elsewhere (a page's origin).
+    func location(of state: FocusState, in controller: WindowController, anyTarget: Bool = false) -> HistoryLocation? {
+        guard anyTarget || state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
               let tabID = state.topology.pane(pane)?.selectedTab?.id,
               let (tab, paneModel) = services.locateTab(tabID) else { return nil }
         let daemon = services.daemon(for: paneModel)
@@ -150,10 +151,20 @@ final class LocationTrailService {
 
     /// The user showed top page `route` in the active window: a trail entry
     /// (TOP-SECTION-ITEMS-ARE-PAGES Q2), through the same settle rules.
-    func pageDidShow(_ route: TopPageRoute, title: String, in controller: WindowController) {
+    /// `origin` is where the window was (`WindowController.trailOrigin`): when the trail's
+    /// current entry is not it (a fresh launch, a restored page), it is
+    /// recorded first so Go Back leaves the page (`+PageOrigin`).
+    func pageDidShow(_ route: TopPageRoute, title: String, origin: HistoryLocation? = nil, in controller: WindowController) {
         guard services.windows.active === controller else { return }
         let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
+        if let origin, Self.needsOrigin(origin, before: location, current: trail.current?.location) {
+            // A jump: neither entry is coalesced away as a quick pass.
+            trail.recordJump(origin, at: now())
+            trail.recordJump(location, at: now())
+            changed()
+            return
+        }
         if trail.record(location, at: now()) { changed() }
     }
 
