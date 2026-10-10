@@ -183,7 +183,9 @@ const edit: Play = async (ctx) => {
   await ctx.waitFor(
     () => ctx.document.querySelector(".acpmux-handoff-review details:not(.acpmux-handoff-coverage)[open]") !== null,
   );
-  await ctx.type("MEMORY.md:200-204", { selector: ".acpmux-handoff-review details:not(.acpmux-handoff-coverage) textarea" });
+  await ctx.type("MEMORY.md:200-204", {
+    selector: ".acpmux-handoff-review details:not(.acpmux-handoff-coverage) textarea",
+  });
   await ctx.waitFor(
     () =>
       ctx.document
