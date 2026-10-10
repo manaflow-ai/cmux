@@ -94,3 +94,24 @@ public enum ConversationDetailsHeaderGeometry {
         return CGRect(x: center.x - zoomAlignmentSide / 2, y: center.y - zoomAlignmentSide / 2, width: zoomAlignmentSide, height: zoomAlignmentSide)
     }
 }
+
+/// The details' Info / Backgrounds selection capsule (CommunicationDetails
+/// DetailsTabBarView), measured in a 60 fps recording of real Messages.
+public enum ConversationDetailsTabGeometry {
+    /// The capsule slides between tabs on this spring (damping 0.85,
+    /// response 0.435 s), widening or narrowing to the new title.
+    public static let selectionSpring = spring(dampingRatio: 0.85, response: 0.435)
+    /// A touch lifts the capsule (it grows 8 pt a side, 5 pt top and
+    /// bottom) on a quick critically damped spring.
+    public static let liftSpring = spring(dampingRatio: 1, response: 0.15)
+    public static let liftOutset = CGSize(width: 8, height: 5)
+
+    public static func capsule(_ rest: CGRect, lift: CGFloat) -> CGRect {
+        rest.insetBy(dx: -liftOutset.width * lift, dy: -liftOutset.height * lift)
+    }
+
+    static func spring(dampingRatio: CGFloat, response: CGFloat) -> SendMenuGeometry.Spring {
+        let stiffness = pow(2 * .pi / response, 2)
+        return SendMenuGeometry.Spring(mass: 1, stiffness: stiffness, damping: 2 * dampingRatio * stiffness.squareRoot(), settlingDuration: Double(response) * 2)
+    }
+}

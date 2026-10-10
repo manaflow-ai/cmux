@@ -5,16 +5,15 @@ import UIKit
 /// Contact avatar: monogram on the Contacts periwinkle gradient, or the participant tint.
 final class ConversationAvatarView: UIView {
     private let gradient = CAGradientLayer()
-    private let label = UILabel()
+    /// The initials draw in a layer, not a UILabel, as CNAvatar's monogram
+    /// layer does: iOS 27's scroll edge pocket treats a label under the
+    /// header as content to keep clear and stops its blur above the avatar.
+    private let monogram = ConversationMonogramLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.addSublayer(gradient)
-        label.textAlignment = .center
-        label.textColor = .white
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.5
-        addSubview(label)
+        layer.addSublayer(monogram)
         clipsToBounds = true
         isAccessibilityElement = false
         // Decorative: the sender is spoken in the bubble, the header has its own button.
@@ -29,7 +28,7 @@ final class ConversationAvatarView: UIView {
 
     func configure(initials: String, colorHex: String?) {
         self.initials = initials
-        label.text = initials
+        monogram.text = initials
         usesMonogramGradient = colorHex == nil
         guard let colorHex else {
             applyMonogramGradient()
@@ -59,8 +58,46 @@ final class ConversationAvatarView: UIView {
         super.layoutSubviews()
         layer.cornerRadius = bounds.width / 2
         gradient.frame = bounds
-        label.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
-        label.font = .systemFont(ofSize: bounds.width * ConversationTheme.monogramFontScale, weight: .semibold)
+        monogram.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+        monogram.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
+        monogram.fontSize = bounds.width * ConversationTheme.monogramFontScale
+    }
+}
+
+/// White semibold initials, centered, shrunk to fit down to half size
+/// (what the avatar's UILabel did with `adjustsFontSizeToFitWidth`).
+final class ConversationMonogramLayer: CALayer {
+    var text = "" { didSet { if text != oldValue { setNeedsDisplay() } } }
+    var fontSize: CGFloat = 17 { didSet { if fontSize != oldValue { setNeedsDisplay() } } }
+
+    override init() {
+        super.init()
+        needsDisplayOnBoundsChange = true
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func action(forKey event: String) -> (any CAAction)? { NSNull() }
+
+    override func draw(in context: CGContext) {
+        guard !text.isEmpty, bounds.width > 0 else { return }
+        var size = fontSize
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        var textSize = CGSize.zero
+        while true {
+            attributes = [.font: UIFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: UIColor.white]
+            textSize = (text as NSString).size(withAttributes: attributes)
+            if textSize.width <= bounds.width || size <= fontSize / 2 { break }
+            size = max(fontSize / 2, size * bounds.width / textSize.width)
+        }
+        UIGraphicsPushContext(context)
+        (text as NSString).draw(at: CGPoint(x: (bounds.width - textSize.width) / 2, y: (bounds.height - textSize.height) / 2), withAttributes: attributes)
+        UIGraphicsPopContext()
     }
 }
 

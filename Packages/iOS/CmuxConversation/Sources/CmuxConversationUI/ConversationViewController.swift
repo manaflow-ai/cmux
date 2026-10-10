@@ -42,7 +42,7 @@ public final class ConversationViewController: UIViewController {
     let topEdgeFade = ConversationTopEdgeFade()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
-    var detailsOverlay: ConversationDetailsOverlay?
+    weak var detailsController: ConversationDetailsViewController?
     let composer = ConversationComposerView()
     let composerContainer = UIView()
     var composerHeightConstraint: NSLayoutConstraint?
@@ -519,7 +519,7 @@ public final class ConversationViewController: UIViewController {
     // MARK: Rows
 
     private func storeDidChange(_ change: ConversationStoreChange) {
-        detailsOverlay?.storeDidChange(change)
+        detailsController?.storeDidChange(change)
         switch change {
         case .connection:
             header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
@@ -981,27 +981,45 @@ public final class ConversationViewController: UIViewController {
         }
     }
 
+    /// Messages presents details full screen over the conversation, zoomed
+    /// out of the header's avatar (ChatKit: a UINavigationController with
+    /// `.overFullScreen` and `UIViewController.Transition.zoom`; source
+    /// CKAvatarButton, clear dimming, alignment rect 208 pt around the
+    /// details avatar). UIKit runs the open and close springs.
     func openInfo() {
-        guard store.info != nil, detailsOverlay == nil else { return }
+        guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
         view.endEditing(true)
-        guard let overlay = ConversationDetailsOverlay(store: store) else { return }
-        configureBackgroundRow(overlay)
-        overlay.frame = view.bounds
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.insertSubview(overlay, belowSubview: header)
-        detailsOverlay = overlay
-        header.setDetailsShown(true, animated: true)
-        overlay.present(from: header.convert(header.detailsSourceFrame, to: view))
+        guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds) else { return }
+        details.background = store.background
+        details.onEditBackground = { [weak self, weak details] kind in
+            guard let self, let details else { return }
+            self.presentBackgroundPicker(from: details, category: kind)
+        }
+        details.onClose = { [weak self] in self?.closeInfo() }
+        details.modalPresentationStyle = .overFullScreen
+        if #available(iOS 18.0, *) {
+            let options = UIViewController.Transition.ZoomOptions()
+            options.dimmingColor = .clear
+            options.alignmentRectProvider = { context in
+                let zoomed = context.zoomedViewController.view!
+                return ConversationDetailsHeaderGeometry.zoomAlignmentRect(width: zoomed.bounds.width, safeTop: zoomed.safeAreaInsets.top)
+            }
+            details.preferredTransition = .zoom(options: options) { [weak self] _ in self?.header.zoomSourceView }
+        } else {
+            details.modalTransitionStyle = .crossDissolve
+        }
+        detailsController = details
+        present(details, animated: true)
     }
 
-    /// Closes the details panel; returns false when none is open.
+    /// Closes the details; returns false when none is open.
     @discardableResult
     func closeInfo() -> Bool {
-        guard let overlay = detailsOverlay else { return false }
-        detailsOverlay = nil
-        header.setDetailsShown(false, animated: true)
-        overlay.dismiss(to: header.convert(header.detailsSourceFrame, to: view)) {}
-        UIAccessibility.post(notification: .screenChanged, argument: header)
+        guard let details = detailsController, details.presentingViewController != nil else { return false }
+        details.dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            UIAccessibility.post(notification: .screenChanged, argument: self.header)
+        }
         return true
     }
 }

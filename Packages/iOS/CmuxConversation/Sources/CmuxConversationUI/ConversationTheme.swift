@@ -234,13 +234,13 @@ enum ConversationTheme {
     /// on iOS 26.3): a periwinkle gradient, top to bottom, the same in dark
     /// mode, with white semibold initials at 0.47 of the diameter.
     /// Contacts' monogram gradient, top to bottom. Dark mode is a deeper
-    /// violet (MobileSMS 26.5 / 27.0: 87,82,104 to 47,37,73).
+    /// violet (CKAvatar on iOS 26.5 / 27.0: 87,83,104 to 48,38,73).
     static let monogramGradient = [
         UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(red: 87 / 255, green: 82 / 255, blue: 104 / 255, alpha: 1)
+            ? UIColor(red: 87 / 255, green: 83 / 255, blue: 104 / 255, alpha: 1)
             : UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1) },
         UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(red: 47 / 255, green: 37 / 255, blue: 73 / 255, alpha: 1)
+            ? UIColor(red: 48 / 255, green: 38 / 255, blue: 73 / 255, alpha: 1)
             : UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1) },
     ]
     static let monogramFontScale: CGFloat = 0.472
