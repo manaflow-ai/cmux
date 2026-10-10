@@ -73,11 +73,14 @@ All params and results use camelCase JSON. Timestamps are ms since epoch.
 
 ### host
 - `host.hello {client:{name,version,platform}, protocol:1}` -> `{hostId, hostName, os, version, protocol:1, capabilities:[string]}`
-  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`, `agent.mirror.v1`, `layout.v1`.
+  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`, `term.mirror.v1`, `agent.mirror.v1`, `layout.v1`, `browser.mac.v1`.
   `term.mirror.v1`: the terminals belong to the Mac (the host bridges the
   cmux-next app); see "terminals" for the sizing rules.
   `agent.mirror.v1`: the agent sessions belong to the Mac's cmux-next app
   (acpmux); a permission allow must be done on the Mac (see `agent.permission`).
+  `browser.mac.v1`: the host can mirror the cmux-next app's own browser tabs,
+  subject to the app's "Allow cmux on iPhone to view browser tabs" setting
+  (see `browser.macStatus`).
 - `host.ping {}` -> `{at}`
 
 ### conversations (Chief, iMessage-style)
@@ -207,6 +210,22 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
 - `browser.screenshot {tabId}` -> `{dataBase64}` (tab overview thumbnail, jpeg)
 - events: `browser.tab {tab}`, `browser.closed {tabId}`, `browser.detached {streamId, tabId, reason:"displaced"}`
   (another client attached the same tab; this client's stream ended)
+
+With `browser.mac.v1` (host bridged to the cmux-next app):
+- `browser.macStatus {}` -> `MacStatus`; event `browser.macStatus` (MacStatus) on change.
+  `MacStatus {state:"on"|"off"|"unsupported"|"unavailable", reason?, restartRequired?, hostName}`.
+  `on`: browser.* serves the Mac's own browser tabs. `off`: the setting is off; show
+  "Turn on 'Allow cmux on iPhone to view browser tabs' in cmux Settings on <hostName>"
+  (plus "then restart cmux" when `restartRequired`). `unsupported`: the Mac's cmux-next
+  build has no such setting. `unavailable`: on, but the endpoint failed validation
+  (`reason`). In every state but `on`, browser.* serves the host's own Chrome.
+- When `on`, the tabs are the Mac user's: `browser.create`, `browser.close` and
+  `browser.activate` fail with `unsupported`; attaching never switches, resizes or
+  changes the user agent of the Mac's tab (frames have the Mac's viewport; the phone
+  scales). A tab the Mac is not showing (a pane's background tab) sends no frames.
+- Switching state drops the current tabs (`browser.closed`) and lists the new ones.
+- `layout.v1` browser tabs matched to a Mac tab are `streamable:true` with
+  `refId` = that `tabId`.
 
 ## 5. Backend HTTP API (Cloudflare Worker, base `https://<worker>/v1`)
 

@@ -11,6 +11,7 @@ import type { Logger } from "../util.ts";
 import { DaemonConn } from "../bridge/daemonConn.ts";
 import { terminalId } from "../bridge/daemonTerminals.ts";
 import { paneRects } from "./split.ts";
+import { matchTargets } from "../bridge/macBrowser.ts";
 
 export interface LayoutSource extends EventEmitter<{ event: [topic: string, payload: unknown] }> {
   get(): Promise<Layout>;
@@ -69,7 +70,7 @@ function parseNum(prefix: string, id: string): number {
   return Number(m[1]);
 }
 
-export function layoutTab(t: DTab, focused: boolean): LayoutTab {
+export function layoutTab(t: DTab, focused: boolean, macTargetId?: string): LayoutTab {
   const title = (t.name || t.title || "").trim();
   const base = { id: tabIdOf(t.surface), focused };
   switch (t.kind) {
@@ -78,6 +79,9 @@ export function layoutTab(t: DTab, focused: boolean): LayoutTab {
     case "browser":
       // cmux-next browser panes are drawn by the app (CEF/WebKit) and cannot
       // be streamed through the daemon: the phone shows a placeholder.
+      // With the Mac's "view browser tabs" setting on, a pane matched to a
+      // CEF target streams through browser.* (refId = that tabId).
+      if (macTargetId) return { ...base, kind: "browser", title: title || t.url || "Browser", refId: macTargetId, streamable: true, ...(t.url ? { url: t.url } : {}) };
       return { ...base, kind: "browser", title: title || t.url || "Browser", streamable: false, ...(t.url ? { url: t.url } : {}) };
     case "conversation": {
       const a = t.conversation?.agent_session;
@@ -93,7 +97,7 @@ export function layoutTab(t: DTab, focused: boolean): LayoutTab {
 }
 
 /** Maps list-workspaces to the phone Layout (active screen of each workspace). */
-export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }): Layout {
+export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }, macTargets?: Map<number, string>): Layout {
   const workspaces: LayoutWorkspace[] = [];
   for (const ws of tree.workspaces ?? []) {
     const screen = ws.screens?.find((s) => s.active) ?? ws.screens?.[0];
@@ -102,7 +106,7 @@ export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }): Layout {
     for (const pane of screen?.panes ?? []) {
       const tabs = pane.tabs ?? [];
       const activeIdx = typeof pane.active_tab === "number" && pane.active_tab < tabs.length ? pane.active_tab : 0;
-      const mapped = tabs.map((t, i) => layoutTab(t, i === activeIdx));
+      const mapped = tabs.map((t, i) => layoutTab(t, i === activeIdx, macTargets?.get(t.surface)));
       panes.push({
         id: paneIdOf(pane.id),
         rect: rects.get(pane.id) ?? { x: 0, y: 0, w: 1, h: 1 },
@@ -133,12 +137,29 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
   private timer: NodeJS.Timeout | null = null;
   private readonly log: Logger;
 
+  private readonly macTargets?: () => { id: string; url: string; title: string }[] | null;
+
   constructor(
     private readonly socketPath: () => string | null,
-    opts: { log?: Logger } = {},
+    opts: { log?: Logger; macTargets?: () => { id: string; url: string; title: string }[] | null } = {},
   ) {
     super();
     this.log = opts.log ?? (() => {});
+    this.macTargets = opts.macTargets;
+  }
+
+  /** Recomputes the layout soon (e.g. the Mac's browser targets changed). */
+  invalidate(): void {
+    if (this.conn) this.schedule();
+  }
+
+  private browserMatches(): Map<number, string> | undefined {
+    const targets = this.macTargets?.();
+    if (!targets) return undefined;
+    const tabs: { key: number; url?: string | null; title?: string | null }[] = [];
+    for (const ws of this.tree.workspaces ?? [])
+      for (const sc of ws.screens ?? []) for (const p of sc.panes ?? []) for (const t of p.tabs ?? []) if (t.kind === "browser") tabs.push({ key: t.surface, url: t.url, title: t.name || t.title });
+    return matchTargets(tabs, targets);
   }
 
   private async open(): Promise<DaemonConn> {
@@ -181,7 +202,7 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
     const c = this.conn;
     if (!c) throw new RpcError("unavailable", "not connected to the cmux-next app");
     this.tree = await c.request("list-workspaces");
-    const layout = mapDaemonLayout(this.tree);
+    const layout = mapDaemonLayout(this.tree, this.browserMatches());
     const key = JSON.stringify(layout);
     if (emit && key !== this.last) this.emit("event", "layout.changed", { layout });
     this.last = key;

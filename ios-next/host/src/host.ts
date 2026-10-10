@@ -12,7 +12,8 @@ import { TerminalProvider, type TerminalOptions } from "./providers/terminal.ts"
 import { VERSION, type Logger } from "./util.ts";
 import type { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import type { DaemonTerminals } from "./bridge/daemonTerminals.ts";
-import { registerLayout, StandaloneLayout, type LayoutSource } from "./layout/index.ts";
+import { DaemonLayout, registerLayout, StandaloneLayout, type LayoutSource } from "./layout/index.ts";
+import type { MacBrowser } from "./bridge/macBrowser.ts";
 
 export interface HostCoreOptions {
   hostId?: string;
@@ -28,7 +29,7 @@ export interface HostCoreOptions {
    * are served from its daemon and acpmux instead of the host's own PTYs and
    * agents (Chief keeps using the host's agents for its own session).
    */
-  bridge?: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource };
+  bridge?: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource; mac?: MacBrowser };
 }
 
 export class HostCore {
@@ -38,7 +39,7 @@ export class HostCore {
   readonly chief: ChiefProvider;
   readonly browser: BrowserProvider;
   readonly files: FilesProvider;
-  readonly bridge: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource };
+  readonly bridge: { terminals?: DaemonTerminals; agents?: AcpmuxAgents; layout?: LayoutSource; mac?: MacBrowser };
   readonly layout: LayoutSource;
   hostId: string;
   readonly hostName: string;
@@ -81,6 +82,20 @@ export class HostCore {
       this.layout = standalone;
     }
     registerLayout(this.server, this.layout);
+    const layout = this.layout;
+    if (layout instanceof DaemonLayout) this.browser.on("event", () => layout.invalidate());
+    const mac = this.bridge.mac;
+    if (mac) {
+      // The Mac's "view browser tabs" setting decides which browser browser.*
+      // serves: the Mac's own tabs (mirrored) when on, the host's Chrome otherwise.
+      this.server.register("browser.macStatus", () => mac.current);
+      mac.on("status", (status) => {
+        this.server.broadcast("browser.macStatus", status);
+        this.browser.reconnect();
+        if (status.state === "on") void this.browser.connect().catch((err) => log(`Mac browser connect failed: ${(err as Error).message}`));
+        if (layout instanceof DaemonLayout) layout.invalidate();
+      });
+    }
     this.chief.register(this.server);
     this.browser.register(this.server);
     this.files.register(this.server);
@@ -93,6 +108,8 @@ export class HostCore {
     if (this.bridge.terminals) capabilities.push("term.mirror.v1");
     // Agent sessions belong to the Mac (acpmux): permission allows happen there.
     if (this.bridge.agents) capabilities.push("agent.mirror.v1");
+    // Mac browser tabs and the browser.macStatus banner (bridge mode).
+    if (this.bridge.mac) capabilities.push("browser.mac.v1");
     return {
       hostId: this.hostId,
       hostName: this.hostName,
@@ -112,6 +129,7 @@ export class HostCore {
     this.bridge.terminals?.shutdown();
     this.bridge.agents?.shutdown();
     this.layout.shutdown();
+    this.bridge.mac?.stop();
     this.chief.flush();
     this.browser.close();
     this.files.close();

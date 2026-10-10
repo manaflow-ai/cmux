@@ -102,8 +102,17 @@ export interface BrowserProviderOptions {
   headless?: boolean;
   download?: boolean;
   log?: Logger;
-  /** Resolver override (tests). */
+  /** Resolver override (tests; the bridge's Mac/host Chrome switch). */
   resolveEndpoint?: () => Promise<string | null>;
+  /**
+   * True when `endpoint` is the cmux-next app's own browser (the Mac user's
+   * tabs): the host mirrors them and never changes what the Mac shows (no
+   * activation or bring-to-front, no viewport or user agent override, no
+   * create/close).
+   */
+  mirror?: (endpoint: string) => boolean;
+  /** An endpoint to use instead of normal discovery while it returns one (the Mac's CEF). */
+  preferEndpoint?: () => string | null;
 }
 
 export interface BrowserProviderEvents {
@@ -129,6 +138,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private readonly hiddenClosed = new Set<string>();
 
   private endpointSeen = false;
+  /** The connected browser is the Mac user's (see BrowserProviderOptions.mirror). */
+  private mirroring = false;
 
   constructor(private readonly opts: BrowserProviderOptions = {}) {
     super();
@@ -144,6 +155,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   /** Whether a browser is (or can be made) available for browser.v1. */
   get capable(): boolean {
     if (this.cdp && !this.cdp.isClosed) return true;
+    if (this.opts.preferEndpoint?.()) return true;
     if (this.opts.cdp || process.env.CMUX_NEXT_CDP || this.endpointSeen) return true;
     if (this.opts.resolveEndpoint) return false;
     return this.opts.launch !== false && findChromeBinaries().length > 0;
@@ -168,12 +180,13 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     const resolve =
       this.opts.resolveEndpoint ??
       (() => resolveCdpEndpoint({ cdp: this.opts.cdp, launch: this.opts.launch, headless: this.opts.headless, download: this.opts.download, log: this.log }));
-    const endpoint = (this.endpoint && (await fetchVersion(this.endpoint)) ? this.endpoint : null) ?? (await resolve());
+    const endpoint = this.opts.preferEndpoint?.() ?? (this.endpoint && (await fetchVersion(this.endpoint)) ? this.endpoint : null) ?? (await resolve());
     if (!endpoint) throw new RpcError("unavailable", "no Chromium browser with remote debugging is available on this Mac");
     const version = await fetchVersion(endpoint);
     if (!version) throw new RpcError("unavailable", `CDP endpoint ${endpoint} is not responding`);
     this.endpoint = endpoint;
     this.endpointSeen = true;
+    this.mirroring = this.opts.mirror?.(endpoint) ?? false;
     const ua = (version as { "User-Agent"?: unknown })["User-Agent"];
     this.defaultUserAgent = typeof ua === "string" ? ua : null;
     const cdp = await CdpConnection.connect(version.webSocketDebuggerUrl);
@@ -197,6 +210,25 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     }
     this.tabs.clear();
     this.bySession.clear();
+  }
+
+  get isMirroring(): boolean {
+    return this.mirroring;
+  }
+
+  /** Current tabs (connected only; never launches a browser). */
+  currentTabs(): Tab[] {
+    return this.connected ? [...this.tabs.values()].map((t) => ({ ...t.tab })) : [];
+  }
+
+  /** Drops the connection so the next call resolves the endpoint again. */
+  reconnect(): void {
+    this.endpoint = null;
+    this.cdp?.close();
+  }
+
+  private refuseInMirror(): void {
+    if (this.mirroring) throw new RpcError("unsupported", "Open, close and switch tabs on the Mac");
   }
 
   close(): void {
@@ -399,6 +431,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async create(url?: string): Promise<Tab> {
     const cdp = await this.connect();
+    this.refuseInMirror();
     const { targetId } = await cdp.send<{ targetId: string }>("Target.createTarget", { url: url ? normalizeUrl(url) : "about:blank" });
     const deadline = Date.now() + 3_000;
     while (!this.tabs.has(targetId) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
@@ -416,6 +449,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async activate(tabId: string): Promise<void> {
     const cdp = await this.connect();
+    this.refuseInMirror();
     this.get(tabId);
     await cdp.send("Target.activateTarget", { targetId: tabId });
     this.lastActivated = tabId;
@@ -425,6 +459,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async closeTab(tabId: string): Promise<void> {
     const cdp = await this.connect();
+    this.refuseInMirror();
     // Listen for Target.targetDestroyed before asking, so a fast destroy is
     // not missed; drop the listener on failure or timeout.
     let resolveDestroyed: (gone: boolean) => void = () => {};
@@ -510,6 +545,13 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         },
       });
       t.cast = cast;
+      if (this.mirroring) {
+        // The Mac user's tab: stream it as the Mac shows it.
+        await this.installVisibilityReporter(cdp, sid, cast);
+        if (cast.meta) await this.installScrollReporter(cdp, sid, cast);
+        await this.startCast(cdp, sid, cast);
+        return { streamId: cast.streamId, tab: { ...t.tab } };
+      }
       await cdp.send("Target.activateTarget", { targetId: tabId }).catch(() => {});
       await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
       this.lastActivated = tabId;
@@ -637,6 +679,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     if (cast?.visibilityScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.visibilityScriptId }, sid).catch(() => {});
     await cdp.send("Runtime.removeBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
     t.hidden = undefined;
+    if (this.mirroring) return; // nothing was overridden on the Mac's tab
     // New navigations on the Mac use its desktop user agent again. The loaded
     // document keeps the mode it was loaded with (docMode is not reset), so
     // the next attach does not reload it needlessly.
@@ -707,6 +750,18 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   private async applyViewportChange(cdp: CdpConnection, t: TabState, sid: string, width: number, height: number, scale: number): Promise<void> {
     const cast = t.cast;
+    if (this.mirroring) {
+      // The Mac owns the viewport; only the frame size limit follows the phone.
+      if (!cast) return;
+      cast.width = width;
+      cast.height = height;
+      cast.scale = scale;
+      await cdp.send("Page.stopScreencast", {}, sid).catch(() => {});
+      cast.unacked = [];
+      cast.pendingCdpAck = null;
+      await this.startCast(cdp, sid, cast);
+      return;
+    }
     if (!cast) {
       await this.applyViewport(cdp, sid, { width, height, scale, mobile: t.uaOverride !== "desktop" });
       return;
@@ -783,6 +838,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private async ensureVisible(cdp: CdpConnection, t: TabState, sid: string, session?: ClientSession): Promise<void> {
     const cast = t.cast;
     if (!cast || t.hidden !== true) return;
+    if (this.mirroring) return; // never change which tab the Mac user sees
     if (!this.ownsBrowser && cast.session !== session) return;
     this.log(`browser: tab ${t.tab.id} was in the background; bringing it to the front for input`);
     await cdp.send("Target.activateTarget", { targetId: t.tab.id }).catch(() => {});

@@ -100,6 +100,27 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
   The pane and tab must exist in the current tree (`not_found` otherwise),
   and only numeric ids are accepted.
 
+- **Mac browser tabs (`browser.mac.v1`).** Only when the user turns on
+  the cmux-next setting "Allow cmux on iPhone to view browser tabs" (off by
+  default). The app then writes `~/Library/Application Support/cmux-next/devtools.json`
+  with the CEF DevTools port and its pid. The host adopts the endpoint only
+  when all of these hold:
+  - the file is owned by this user and not readable by group or others
+    (0600);
+  - the pid is a running app bundle that ships the cmux-tui daemon
+    (cmux-next);
+  - the endpoint answers `/json/version` on `127.0.0.1`. The host builds
+    the URL as `http://127.0.0.1:<port>`; no host name from the file is
+    used.
+
+  The host re-checks the file on change and every 5 s, and drops the
+  connection when it turns off. It sends no `--remote-allow-origins`-style
+  Origin and connects only to loopback. Through it, the phone can see and
+  drive (input, navigate, reload) the Mac user's tabs, which is what the
+  setting grants. It never creates, closes or activates a Mac tab, never
+  brings one to the front, and never overrides its viewport or user agent,
+  so what the Mac shows is unchanged.
+
 ### Can it mutate or destroy objects it does not own?
 
 The daemon and acpmux run as this macOS user and hold only this user's
@@ -143,6 +164,11 @@ The phone renders at the Mac's grid.
 - **acpmux policy:** denies peers, import/export, policy/rules/defaults and
   shutdown. Also denies `session/new` with MCP servers or extra `_meta`
   fields, `resource` prompt blocks, and non-empty client capabilities.
+- **Mac browser** (`test/macBrowser.test.ts`): setting states (absent,
+  off, group/other-readable file, dead pid, silent port, invalid JSON, on).
+  Also: no activate, bring-to-front, viewport, user-agent or reload calls on
+  attach; create, close and activate refused; tabs dropped when the setting
+  turns off.
 - **Layout** (`test/layout.test.ts`, `test/bridge.test.ts`): split-tree
   rects, tab mapping, focus commands allowed only with numeric ids, and layout
   mutations (`split`, `close-pane`, `move-tab`, `set-split-ratio`, `delta`

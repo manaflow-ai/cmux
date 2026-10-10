@@ -12,6 +12,7 @@ import { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { discoverTargets } from "./bridge/discover.ts";
 import { DaemonLayout } from "./layout/index.ts";
+import { MacBrowser } from "./bridge/macBrowser.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
 import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
@@ -162,6 +163,9 @@ interface RunOptions {
   acpmuxSocket?: string;
 }
 
+/** The Mac's CEF targets while browser.* mirrors the cmux-next app (set by run). */
+let macTargets: () => { id: string; url: string; title: string }[] | null = () => null;
+
 /** Bridges to the running cmux-next app, or null for standalone mode. */
 async function setupBridge(opts: RunOptions, log: (m: string) => void) {
   const mode = opts.bridge ?? "auto";
@@ -186,7 +190,10 @@ async function setupBridge(opts: RunOptions, log: (m: string) => void) {
   return {
     terminals: targets.daemonSocket ? new DaemonTerminals(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
     agents: targets.acpmuxSocket ? new AcpmuxAgents(() => targets.acpmuxSocket, { log: makeLogger("bridge") }) : undefined,
-    layout: targets.daemonSocket ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
+    layout: targets.daemonSocket
+      ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge"), macTargets: () => macTargets() })
+      : undefined,
+    mac: targets.daemonSocket ? new MacBrowser({ hostName: hostname().replace(/\.local$/, ""), log: makeLogger("bridge") }) : undefined,
   };
 }
 
@@ -201,13 +208,24 @@ async function run(opts: RunOptions): Promise<void> {
   }
   enableRtcLoggingFromEnv(makeLogger("rtc"));
   const bridge = await setupBridge(opts, log);
-  const core = new HostCore({
+  const mac = bridge?.mac;
+  if (mac) await mac.start();
+  const core: HostCore = new HostCore({
     hostId: cfg.hostId,
     hostName: cfg.hostName,
     log,
     bridge: bridge ?? undefined,
-    browser: { cdp: opts.cdp, headless: opts.headless, launch: opts.launch, download: opts.download, log: makeLogger("browser") },
+    browser: {
+      cdp: opts.cdp,
+      headless: opts.headless,
+      launch: opts.launch,
+      download: opts.download,
+      log: makeLogger("browser"),
+      ...(mac ? { preferEndpoint: () => mac.endpoint, mirror: (e: string) => e === mac.endpoint } : {}),
+    },
   });
+  macTargets = () => (core.browser.isMirroring ? core.browser.currentTabs().map((t) => ({ id: t.id, url: t.url, title: t.title })) : null);
+  if (mac?.current.state === "on") void core.browser.connect().catch(() => {});
   const api = new ApiClient(apiBase, cfg.hostToken);
   const agent: HostAgent = new HostAgent({
     api,
