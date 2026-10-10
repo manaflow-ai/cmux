@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Terminal colors captured with a replay or changed live. `nil` means "use

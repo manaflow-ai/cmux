@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// The identity behind a Codex (ChatGPT) account handle: the ChatGPT
 /// workspace id and the user id. Local detection reads them from the

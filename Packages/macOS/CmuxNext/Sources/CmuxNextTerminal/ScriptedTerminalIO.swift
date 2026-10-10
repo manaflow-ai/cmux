@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// In-memory ``TerminalIO`` for demos, previews, and tests. Events are pushed
 /// with ``send(_:)``; input and resizes Ghostty produces are recorded.
