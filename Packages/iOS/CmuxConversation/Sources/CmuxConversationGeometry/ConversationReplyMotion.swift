@@ -111,22 +111,26 @@ public enum ConversationReplyMotion {
     }
 
     /// A thread row's easing for the whole trip, in or out. Messages fixes it
-    /// from where the row sits in the thread (its slot, in window space) and
+    /// once, from where the row is when the trip starts (window space), and
     /// paces it from the middle of the whole view, so a row covers the same
-    /// share of what's left every frame: on an iPhone 17 Pro Max a 62 pt
-    /// bubble whose slot is centred at y 530 covers 12.5 % per frame going
-    /// in at every point of a 129 pt trip, and 16.9 % coming back.
-    public static func threadEasing(slotCenterY: CGFloat, itemHeight: CGFloat, viewHeight: CGFloat, animatingOut: Bool) -> CGFloat {
-        easing(centerY: slotCenterY, itemHeight: itemHeight, referenceY: viewHeight / 2, viewHeight: viewHeight, animatingOut: animatingOut)
+    /// share of what's left every frame. On an iPhone 17 Pro Max a 62 pt
+    /// bubble starting centred at y 401 covers 12.5 % per frame at every
+    /// point of its 129 pt trip into the thread, and 16.9 % per frame on
+    /// the way back from y 527.
+    public static func threadEasing(startCenterY: CGFloat, itemHeight: CGFloat, viewHeight: CGFloat, animatingOut: Bool) -> CGFloat {
+        easing(centerY: startCenterY, itemHeight: itemHeight, referenceY: viewHeight / 2, viewHeight: viewHeight, animatingOut: animatingOut)
     }
 
     /// The share of the remaining distance a bubble covers in a frame of
-    /// `frameDuration` seconds (exact for 60 Hz, compounded for other rates).
+    /// `frameDuration` seconds: `1 - easing` per 60th of a second,
+    /// compounded, so the trip reads the same at any frame rate. (ChatKit's
+    /// arithmetic, `r (1 - r^n) / (1 - r)`, agrees at 60 Hz; a ProMotion
+    /// recording of Messages, and its 1.15-frame first step, only fit the
+    /// compounded form.)
     public static func step(easing: CGFloat, frameDuration: TimeInterval) -> CGFloat {
-        let r = 1 - easing
         let n = CGFloat(max(frameDuration, 0) * 60)
-        guard r < 1 else { return 1 }
-        return min(1, r * (1 - pow(r, n)) / (1 - r))
+        guard easing > 0 else { return 1 }
+        return min(1, 1 - pow(min(easing, 1), n))
     }
 
     /// When a bubble is this close to its slot it snaps there: 0.25 px going

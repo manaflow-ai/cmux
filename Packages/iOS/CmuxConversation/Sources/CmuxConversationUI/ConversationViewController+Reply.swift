@@ -86,48 +86,43 @@ final class ReplyThreadOverlay: UIView {
 }
 
 /// One thread row's trip, in its superview's space: `baseY` is where its
-/// frame sits (the transform carries it from there), `y` where it shows.
-/// The anchor (a swiped bubble) also unwinds `initialOffsetX`. `easing` is
-/// fixed for the trip (set by `ReplyThreadMotion`).
+/// frame sits (the transform carries it from there), `trip.y` where it
+/// shows. The anchor (a swiped bubble) also unwinds its release offset.
+/// A row about to travel: where its frame sits, where it starts and ends
+/// (its superview's space) and the swipe offset it unwinds.
+private typealias ReplyThreadRow = (view: UIView, baseY: CGFloat, startY: CGFloat, targetY: CGFloat, initialOffsetX: CGFloat)
+
 private struct ReplyThreadItem {
     let view: UIView
     let baseY: CGFloat
-    let startY: CGFloat
-    let targetY: CGFloat
-    var y: CGFloat
-    var offsetX: CGFloat
-    let initialOffsetX: CGFloat
-    var easing: CGFloat = 0
-    var resting: Bool { y == targetY && offsetX == 0 }
+    var trip: ReplyTrip
+    var resting: Bool { trip.isResting }
 }
 
-/// Drives the thread's rows frame by frame (ChatKit's layout dynamics):
-/// each covers a fixed share of its remaining distance per 60 Hz frame,
-/// more the farther its thread slot is from the middle of the view, and
-/// snaps within 0.25 px going in (2 px coming back). A display link
-/// because UIKit has no animation of this shape; it stops as soon as
-/// everything rests.
+/// Drives the thread's rows frame by frame (Messages' layout dynamics, see
+/// `ReplyTrip`). A display link because UIKit has no animation of this
+/// shape; it stops as soon as everything rests.
 @MainActor
 private final class ReplyThreadMotion: NSObject {
     private(set) var items: [ReplyThreadItem]
     let animatingOut: Bool
-    let scale: CGFloat
     var onRest: (() -> Void)?
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval?
 
-    /// `viewHeight` is the conversation view's; each row's easing is set
-    /// here, once, from where its slot (`baseY`) sits in the window.
-    init(items: [ReplyThreadItem], animatingOut: Bool, viewHeight: CGFloat, scale: CGFloat) {
-        self.items = items.map { item in
-            var item = item
-            let height = item.view.bounds.height
-            let slot = item.view.superview.map { $0.convert(CGPoint(x: 0, y: item.baseY + height / 2), to: nil).y } ?? item.baseY + height / 2
-            item.easing = ConversationReplyMotion.threadEasing(slotCenterY: slot, itemHeight: height, viewHeight: viewHeight, animatingOut: animatingOut)
-            return item
+    /// Each row goes from `startY` to `targetY` (its superview's space),
+    /// the swiped one from `initialOffsetX`. Its easing is fixed here, once,
+    /// from where it starts on screen; `viewHeight` is the conversation view's.
+    init(rows: [ReplyThreadRow], animatingOut: Bool, viewHeight: CGFloat, scale: CGFloat) {
+        let snap = ConversationReplyMotion.snapDistance(scale: scale, animatingOut: animatingOut)
+        items = rows.map { row in
+            let height = row.view.bounds.height
+            let start = row.view.superview.map { $0.convert(CGPoint(x: 0, y: row.startY + height / 2), to: nil).y } ?? row.startY + height / 2
+            let easing = ConversationReplyMotion.threadEasing(startCenterY: start, itemHeight: height, viewHeight: viewHeight, animatingOut: animatingOut)
+            return ReplyThreadItem(view: row.view, baseY: row.baseY,
+                                   trip: ReplyTrip(startY: row.startY, targetY: row.targetY, initialOffsetX: row.initialOffsetX, easing: easing, snapDistance: snap))
         }
         self.animatingOut = animatingOut
-        self.scale = scale
         super.init()
         apply()
     }
@@ -153,48 +148,20 @@ private final class ReplyThreadMotion: NSObject {
     /// thread out for the risen keyboard at once rather than riding it up.
     func containerMoved(by delta: CGFloat) {
         guard delta != 0 else { return }
-        for index in items.indices {
-            let item = items[index]
-            items[index] = ReplyThreadItem(view: item.view, baseY: item.baseY, startY: item.startY - delta, targetY: item.targetY,
-                                           y: item.y - delta, offsetX: item.offsetX, initialOffsetX: item.initialOffsetX, easing: item.easing)
-        }
+        for index in items.indices { items[index].trip.containerMoved(by: delta) }
         apply()
     }
 
     @objc private func tick(_ link: CADisplayLink) {
         let elapsed = lastTimestamp.map { link.timestamp - $0 } ?? 0
         lastTimestamp = link.timestamp
-        step(frameDuration: elapsed > 0 ? elapsed : link.targetTimestamp - link.timestamp)
+        let frame = elapsed > 0 ? elapsed : link.targetTimestamp - link.timestamp
+        for index in items.indices { items[index].trip.step(frameDuration: frame) }
+        apply()
         if items.allSatisfy(\.resting) {
             stop()
             onRest?()
         }
-    }
-
-    private func step(frameDuration: TimeInterval) {
-        let snap = ConversationReplyMotion.snapDistance(scale: scale, animatingOut: animatingOut)
-        for index in items.indices {
-            var item = items[index]
-            // The swipe offset follows the trip as it stood before this
-            // frame's step: Messages' sideways swing trails its vertical
-            // travel by exactly one frame, and lands the frame after it.
-            if item.initialOffsetX > 0 {
-                let travel = max(abs(item.targetY - item.startY), 1)
-                if item.y == item.targetY {
-                    item.offsetX = 0
-                } else if travel < 2 {
-                    item.offsetX = max(0, item.offsetX - 6 * CGFloat(frameDuration * 60))
-                } else {
-                    let progress = abs(item.y - item.startY) / travel
-                    item.offsetX = max(0, item.initialOffsetX * ConversationReplyMotion.offsetCurve(progress: progress))
-                }
-            }
-            let k = ConversationReplyMotion.step(easing: item.easing, frameDuration: frameDuration)
-            item.y += (item.targetY - item.y) * k
-            if abs(item.targetY - item.y) < snap { item.y = item.targetY }
-            items[index] = item
-        }
-        apply()
     }
 
     /// Never inside someone else's animation (the keyboard's layout pass).
@@ -204,14 +171,14 @@ private final class ReplyThreadMotion: NSObject {
 
     private func applyNow() {
         for item in items {
-            let dy = item.y - item.baseY
+            let dy = item.trip.y - item.baseY
             if let cell = item.view as? MessageCell {
                 cell.transform = CGAffineTransform(translationX: 0, y: dy)
-                cell.replyDrag = item.offsetX
+                cell.replyDrag = item.trip.offsetX
                 // Outgoing blue is anchored to the screen, so it shifts as the bubble travels.
                 cell.updateScreenGradients()
             } else {
-                item.view.transform = CGAffineTransform(translationX: item.offsetX, y: dy)
+                item.view.transform = CGAffineTransform(translationX: item.trip.offsetX, y: dy)
             }
         }
     }
@@ -257,7 +224,7 @@ extension ConversationViewController {
            let bubble = copy.cellLayout?.contentFrame {
             starts[ObjectIdentifier(copy)] = overlay.content.convert(anchorStart, from: nil).minY - bubble.minY
         }
-        let items = threadItems(in: overlay, starts: starts, anchorID: anchorID, anchorOffset: reduceMotion ? 0 : dragOffset)
+        let rows = threadRows(in: overlay, starts: starts, anchorID: anchorID, anchorOffset: reduceMotion ? 0 : dragOffset)
         // The originals hide while their copies stand in for them.
         overlay.hiddenMessageIDs = Set(overlay.content.subviews.compactMap { ($0 as? MessageCell)?.model?.message.id })
         overlay.dimsBacking = true
@@ -265,7 +232,7 @@ extension ConversationViewController {
         let chrome = threadOnlyChrome(of: anchorID, in: overlay)
         chrome.forEach { $0.alpha = 0 }
         if reduceMotion { overlay.content.alpha = 0 }
-        let motion = ReplyThreadMotion(items: items, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
+        let motion = ReplyThreadMotion(rows: rows, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
         overlay.motion = motion
         motion.start()
         composer.textView.becomeFirstResponder()
@@ -330,7 +297,7 @@ extension ConversationViewController {
     }
 
     /// Rows without a transcript twin travel with the anchor.
-    private func threadItems(in overlay: ReplyThreadOverlay, starts: [ObjectIdentifier: CGFloat], anchorID: String, anchorOffset: CGFloat) -> [ReplyThreadItem] {
+    private func threadRows(in overlay: ReplyThreadOverlay, starts: [ObjectIdentifier: CGFloat], anchorID: String, anchorOffset: CGFloat) -> [ReplyThreadRow] {
         let views = overlay.content.subviews.filter { $0 is MessageCell || $0 is TimestampCell }
         let anchor = views.first { ($0 as? MessageCell)?.model?.message.id == anchorID }
         let anchorShift = anchor.flatMap { view in starts[ObjectIdentifier(view)].map { $0 - view.frame.minY } } ?? 0
@@ -338,7 +305,7 @@ extension ConversationViewController {
             let target = view.frame.minY
             let start = starts[ObjectIdentifier(view)] ?? target + anchorShift
             let offset = view === anchor ? anchorOffset : 0
-            return ReplyThreadItem(view: view, baseY: target, startY: start, targetY: target, y: start, offsetX: offset, initialOffsetX: offset)
+            return (view: view, baseY: target, startY: start, targetY: target, initialOffsetX: offset)
         }
     }
 
@@ -419,8 +386,10 @@ extension ConversationViewController {
         for case let cell as MessageCell in overlay.content.subviews { cell.updateScreenGradients() }
     }
 
-    /// Gap between the thread's last row and the composer field.
-    static let threadBottomGap: CGFloat = 12
+    /// Gap between the thread's last row and the composer field: Messages
+    /// on an iPhone 17 Pro Max lands the last bubble's body 16.7 pt above
+    /// the field's top edge (4 pt higher than the transcript keeps it).
+    static let threadBottomGap: CGFloat = 6
 
     /// Transcript rows behind the blur: thread messages hide (their copies
     /// stand in), outgoing text dims to 0.7 and photos to 0.4 while the
@@ -484,14 +453,14 @@ extension ConversationViewController {
             let targets = transcriptOrigins(for: overlay)
             let current = overlay.motion?.items ?? []
             overlay.motion?.stop()
-            let items = current.compactMap { item -> ReplyThreadItem? in
+            let rows = current.compactMap { item -> ReplyThreadRow? in
                 guard let target = targets[ObjectIdentifier(item.view)] else {
                     fading.append(item.view)
                     return nil
                 }
-                return ReplyThreadItem(view: item.view, baseY: item.baseY, startY: item.y, targetY: target, y: item.y, offsetX: 0, initialOffsetX: 0)
+                return (view: item.view, baseY: item.baseY, startY: item.trip.y, targetY: target, initialOffsetX: 0)
             }
-            let motion = ReplyThreadMotion(items: items, animatingOut: true, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
+            let motion = ReplyThreadMotion(rows: rows, animatingOut: true, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
             motion.onRest = {
                 motionDone = true
                 finish()
