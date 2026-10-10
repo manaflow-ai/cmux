@@ -553,7 +553,19 @@ export function ContextRing({
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
   const radius = 6.5;
   const circumference = 2 * Math.PI * radius;
-  useEffect(() => registerPicker(t("context.title"), () => setOpen(true)), [t]);
+  useEffect(() => {
+    // Keep the automation path truthful too: before the first usage report the ring is
+    // intentionally inert, so opening it by label must not reveal an empty 0% popover.
+    const unregister = registerPicker(t("context.title"), () => {
+      if (known) setOpen(true);
+    });
+    return unregister;
+  }, [known, t]);
+  useEffect(() => {
+    // Usage can disappear when a session resets. Do not leave an already-open details
+    // surface showing a stale zeroed reading.
+    if (!known) setOpen(false);
+  }, [known]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
