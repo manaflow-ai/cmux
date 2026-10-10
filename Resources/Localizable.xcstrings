@@ -647253,13 +647253,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux jump-to-last-prompt\n\nコーディングエージェントに最後にプロンプトを送ったサーフェスへフォーカスし、必要に応じてワークスペースとウィンドウを切り替えます。--json を付けると、該当がない場合は opened が false になります。\n\nFlags:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか"
+            "value": "使い方: cmux jump-to-last-prompt\n\nコーディングエージェントに最後にプロンプトを送ったサーフェスへフォーカスし、必要に応じてワークスペースとウィンドウを切り替えます。--json を付けると、該当がない場合は opened が false になります。\n\nフラグ:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux jump-to-last-prompt\n\n코딩 에이전트에 마지막으로 프롬프트를 보낸 서피스에 포커스를 두고, 필요하면 워크스페이스와 창을 전환합니다. --json을 사용하면 없을 때 opened가 false입니다.\n\n플래그:\n  --json                JSON 출력\n  --id-format <mode>    refs, uuids 또는 both"
+            "value": "사용법: cmux jump-to-last-prompt\n\n코딩 에이전트에 마지막으로 프롬프트를 보낸 서피스에 포커스를 두고, 필요하면 워크스페이스와 윈도우를 전환합니다. --json을 사용하면 없을 때 opened가 false입니다.\n\n플래그:\n  --json                JSON 출력\n  --id-format <mode>    refs, uuids 또는 both"
           }
         },
         "zh-Hans": {
