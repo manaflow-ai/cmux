@@ -22606,7 +22606,7 @@ struct CMUXCLI {
             return String(localized: "cli.help.jumpToLastPrompt", defaultValue: """
             Usage: cmux jump-to-last-prompt
 
-            Focus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. Reports opened: false when there is none.
+            Focus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. With --json, opened is false when there is none.
 
             Flags:
               --json                Print JSON
