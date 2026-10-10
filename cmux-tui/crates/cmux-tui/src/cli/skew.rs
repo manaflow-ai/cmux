@@ -103,26 +103,22 @@ pub(super) enum Refusal {
 
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::LoopGuard => f.write_str("this CLI was already started by a re-exec"),
-            Self::SameBuild => f.write_str("the daemon is this build"),
-            Self::OtherUser { uid } => write!(f, "the daemon runs as uid {uid}"),
-            Self::NotTheDaemon => f.write_str("the socket peer is not the daemon process"),
-            Self::NotAbsolute => f.write_str("the daemon's CLI path is not absolute"),
-            Self::NotRegularFile => f.write_str("the daemon's CLI is not a regular file"),
-            Self::NotInCmuxBundle => {
-                f.write_str("the daemon's CLI is not inside a cmux app's Contents/Resources/bin")
-            }
-            Self::OtherInstallFamily => {
-                f.write_str("the daemon's CLI belongs to another cmux install family")
-            }
-            Self::Writable(path) => write!(f, "{} is writable by group or other", path.display()),
-            Self::OtherOwner(path) => write!(f, "{} belongs to another user", path.display()),
-            Self::TeamId(why) => {
-                write!(f, "the daemon's CLI is not signed by this build's team: {why}")
-            }
-            Self::Unreadable(why) => write!(f, "the daemon's CLI cannot be checked: {why}"),
-        }
+        let m = &crate::localization::catalog().skew;
+        let text = match self {
+            Self::LoopGuard => m.loop_guard.to_owned(),
+            Self::SameBuild => m.same_build.to_owned(),
+            Self::OtherUser { uid } => m.other_user.replace("{uid}", &uid.to_string()),
+            Self::NotTheDaemon => m.not_the_daemon.to_owned(),
+            Self::NotAbsolute => m.not_absolute.to_owned(),
+            Self::NotRegularFile => m.not_regular_file.to_owned(),
+            Self::NotInCmuxBundle => m.not_in_cmux_bundle.to_owned(),
+            Self::OtherInstallFamily => m.other_install_family.to_owned(),
+            Self::Writable(path) => m.writable.replace("{path}", &path.display().to_string()),
+            Self::OtherOwner(path) => m.other_owner.replace("{path}", &path.display().to_string()),
+            Self::TeamId(why) => m.team_id.replace("{why}", why),
+            Self::Unreadable(why) => m.unreadable.replace("{why}", why),
+        };
+        f.write_str(&text)
     }
 }
 
@@ -214,11 +210,12 @@ fn install_family(bundle: &Path) -> bool {
 
 /// The stderr line for one re-exec.
 pub(super) fn reexec_line(daemon: &DaemonBuild, own_build: &str) -> String {
-    format!(
-        "cmux: this CLI (build {own_build}) does not match the daemon (build {}); running the daemon's CLI {}",
-        daemon.build_id,
-        daemon.cli_path.display()
-    )
+    crate::localization::catalog()
+        .skew
+        .reexec
+        .replace("{own}", own_build)
+        .replace("{daemon}", &daemon.build_id)
+        .replace("{cli}", &daemon.cli_path.display().to_string())
 }
 
 /// The daemon `global` routes to, its build, and how it was reached; `None`
@@ -304,11 +301,14 @@ fn reexec_with(
         Ok(path) => path,
         Err(Refusal::SameBuild | Refusal::LoopGuard) => return Err(None),
         Err(refusal) => {
-            return Err(Some(format!(
-                "cmux: the daemon runs build {} and its CLI cannot be used ({refusal}); fix: {}",
-                daemon.build_id,
-                fix_command(&super::fix_command::this_cli(), &socket)
-            )));
+            return Err(Some(
+                crate::localization::catalog()
+                    .skew
+                    .refused
+                    .replace("{daemon}", &daemon.build_id)
+                    .replace("{why}", &refusal.to_string())
+                    .replace("{fix}", &fix_command(&super::fix_command::this_cli(), &socket)),
+            ));
         }
     };
     eprintln!("{}", reexec_line(&daemon, own.build_id));
@@ -317,5 +317,11 @@ fn reexec_with(
         .args(std::env::args_os().skip(1))
         .env(GUARD_ENV, &daemon.build_id)
         .exec();
-    Err(Some(format!("cmux: could not run {}: {error}", path.display())))
+    Err(Some(
+        crate::localization::catalog()
+            .skew
+            .could_not_run
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &error.to_string()),
+    ))
 }
