@@ -787,6 +787,137 @@
         }
       }
     },
+    "agentPane.otherInstall.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf dem Agentendienst einer anderen cmux-Installation. Gib seine Anfragen in jener App frei."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en el servicio de agentes de otra instalación de cmux. Aprueba sus solicitudes en esa app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce chat s’exécute sur le service d’agents d’une autre installation de cmux. Approuvez ses demandes dans cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è eseguita dal servizio agenti di un’altra installazione di cmux. Approva le sue richieste in quell’app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは別の cmux インストールのエージェントサービスで動いています。リクエストはそのアプリで承認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 cmux 설치의 에이전트 서비스에서 실행됩니다. 요청은 그 앱에서 승인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat roda no serviço de agentes de outra instalação do cmux. Aprove as solicitações nesse app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на службе агентов другой установки cmux. Подтверждайте его запросы в том приложении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This chat runs on another cmux install's agent service. Approve its requests in that app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天运行在另一个 cmux 安装的代理服务上。请在那个应用中批准它的请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天執行於另一個 cmux 安裝的代理服務上。請在那個 App 中核准它的請求。"
+          }
+        }
+      }
+    },
     "agentPane.crashed.message": {
       "extractionState": "manual",
       "localizations": {

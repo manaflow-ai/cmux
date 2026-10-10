@@ -92,6 +92,9 @@ import CmuxNextCompat
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
     private(set) var socketPath: String?
+    /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
+    /// are refused here: the pane says so).
+    public var onOtherInstall: (@MainActor (Bool) -> Void)?
     /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
     /// Archive). Replaced in tests.
     public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
@@ -158,11 +161,16 @@ import CmuxNextCompat
             throw .connectFailed
         }
         guard self.socket === socket else { throw .staleConnection }
-        // cx-fcaq: the accepted end of this connection is the acpmux this app runs too.
-        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
-           !(await AcpmuxServerPeer.verifyAccepted(port: port, executable: executable)) {
-            close(connection: id)
-            throw .connectFailed
+        // cx-fcaq: the accepted end of this connection is the acpmux this app runs too (or another
+        // cmux install's, under AcpmuxServerPeer's rules; its allows stay with that app).
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port {
+            guard let match = await AcpmuxServerPeer.verifyAccepted(port: port, executable: executable) else {
+                close(connection: id)
+                throw .connectFailed
+            }
+            onOtherInstall?(match == .foreign)
+        } else {
+            onOtherInstall?(false)
         }
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil

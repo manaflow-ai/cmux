@@ -46,6 +46,8 @@ public final class AgentPaneView: NSView {
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
+    /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
+    var otherInstallNotice: NSTextField?
     /// Owns the inspector export panel and its in-flight state.
     let logExport = AgentPaneLogExport()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -303,6 +305,7 @@ public final class AgentPaneView: NSView {
         gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
+        model.transport.onOtherInstall = nil
         transportPacer?.stop()
         removeContextMenu()
         if let page {
@@ -360,6 +363,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
         deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],

@@ -116,17 +116,27 @@ nonisolated enum AcpmuxServerPeer {
     /// After the pane connected (cx-fcaq): the process that holds the accepted end of each of
     /// this process's connections to `port` (local port `port`, remote port = ours) is the
     /// acpmux this app runs, so the scan before connecting and the connect are not separated.
-    @concurrent static func verifyAccepted(port: Int, executable: URL) async -> Bool {
+    /// Nil: refused. Otherwise whether the accepted end is this app's own acpmux or another
+    /// cmux install's (the pane then says its allows stay with that app).
+    @concurrent static func verifyAccepted(port: Int, executable: URL) async -> Match? {
         let all = tcpSockets()
         let me = getpid()
         let ours = all.filter { $0.pid == me && $0.established && $0.remotePort == port }.map(\.localPort)
         var owners: [pid_t] = []
         for local in ours {
             let peers = all.filter { $0.pid != me && $0.established && $0.localPort == port && $0.remotePort == local }
-            if peers.isEmpty { return judge([], executable: executable, what: "accepted end on port \(port)") }
+            if peers.isEmpty { owners = []; break }
             owners += peers.map(\.pid)
         }
-        return judge(ours.isEmpty ? [] : owners, executable: executable, what: "accepted end on port \(port)")
+        if ours.isEmpty { owners = [] }
+        guard judge(owners, executable: executable, what: "accepted end on port \(port)") else { return nil }
+        let wanted = executable.resolvingSymlinksInPath().path
+        let foreign = owners.contains { pid in
+            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
+            return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path != wanted
+        }
+        return foreign ? .foreign : .own
     }
 
     /// Every owner passes the executable (and, Team-signed, the signature) rule, or is another
