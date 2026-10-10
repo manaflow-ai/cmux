@@ -88,7 +88,10 @@ fn an_unknown_anchor_appends() {
 fn group_runs(mux: &Mux, pane: PaneId) -> Vec<Vec<SurfaceId>> {
     let presentation = mux.presentation_snapshot();
     mux.with_state(|state| {
-        crate::mux::pane_tab_groups(state, &presentation, pane).into_iter().map(|run| run.members).collect()
+        crate::mux::pane_tab_groups(state, &presentation, pane)
+            .into_iter()
+            .map(|run| run.members)
+            .collect()
     })
 }
 
