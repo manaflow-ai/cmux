@@ -3,13 +3,26 @@ import AppKit
 // cx-bp40 (Lawrence 2026-10-07: "dragging grouped workspaces around ... the
 // workspaces inside disappear"): a group drag hides the group's header and
 // member rows in the list, so the lifted card carries all of them. The card
-// is the whole block, and it lands on the whole block.
+// is the whole block, and it lands on the whole block. A workspace drag does
+// the same with the workspace's tab rows (cx-ikxz).
 @MainActor enum SidebarListLift {
     /// The rows a drag of `key` lifts, top to bottom: a group's header with
-    /// its shown members and their tab rows; else the one row.
+    /// its shown members and their tab rows; a workspace with its tab rows,
+    /// which the list hides with it, so the card is the block that leaves
+    /// the list and lands back in it (cx-ikxz); else the one row.
     static func rows(_ list: SidebarListView, for key: SidebarRowKey, hidden: Set<SidebarRowKey>) -> [SidebarRow] {
-        guard case .group = key else { return list.displayed.row(for: key).map { [$0] } ?? [] }
-        return list.displayed.rows.filter { hidden.contains($0.key) }
+        switch key {
+        case .group:
+            return list.displayed.rows.filter { hidden.contains($0.key) }
+        case let .workspace(id):
+            return list.displayed.rows.filter { row in
+                guard row.key != key else { return true }
+                guard case let .tab(owner, _) = row.key else { return false }
+                return owner == id && hidden.contains(row.key)
+            }
+        default:
+            return list.displayed.row(for: key).map { [$0] } ?? []
+        }
     }
 
     /// The frame that holds `rows` (list coordinates).
@@ -18,8 +31,9 @@ import AppKit
         return list.frame(for: first).union(list.frame(for: last))
     }
 
-    /// The lifted card's content: one live row view, or for several rows a
-    /// block that draws each at its offset from the first.
+    /// The lifted card's content: one live row view, or for several rows (a
+    /// group, a workspace with tab rows) a block that draws each at its
+    /// offset from the first.
     static func content(_ list: SidebarListView, _ rows: [SidebarRow], in block: NSRect) -> NSView? {
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
@@ -53,7 +67,8 @@ import AppKit
     }
 }
 
-/// The lifted content of a group drag: the header and its member rows.
+/// The lifted content of a block drag: a group's header and member rows, or
+/// a workspace and its tab rows.
 final class SidebarLiftBlockView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

@@ -118,10 +118,18 @@ def main():
     time.sleep(0.5)  # test harness: selection settles
     record("new-tab-row", lambda: action("newSurface"))
     workspace_rows = rows("workspace")
+    if len(workspace_rows) >= 5:
+        # A loose workspace (with its tab row) dropped between two others: a reorder.
+        x, y = center(workspace_rows[1])
+        to_y = (workspace_rows[4].get("window_frame") or {}).get("y", 0) - 2
+        record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
+        time.sleep(0.5)  # test harness: the drop settles
+    workspace_rows = rows("workspace")
     if len(workspace_rows) >= 3:
+        # Dropped on another workspace's middle: the two make a group, whose name editor opens.
         x, y = center(workspace_rows[0])
         _, to_y = center(workspace_rows[2])
-        record("drag-reorder", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y + 4, "steps": 30}))
+        record("drag-onto", lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y + 4, "steps": 30}))
     print("\nRESULT PASS (recorded)")
 
 
