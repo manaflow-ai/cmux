@@ -201,9 +201,9 @@ final class SidebarListView: NSView {
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there (cx-ai79).
         let now = CACurrentMediaTime()
-        openingRows = openingRows.filter { animate && now - $0.value < Motion.duration(MotionSpring.move) }
-        let reopened = Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key))
-        if animate { for row in layout.rows where old.row(for: row.key) == nil || reopened.contains(row.key) { openingRows[row.key] = now } }
+        openingRows = openingRows.filter { now - $0.value < Motion.spring(.move).settlingTime() }
+        let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
+        for row in layout.rows where !old.rows.isEmpty && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now }
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
