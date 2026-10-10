@@ -6,9 +6,6 @@ import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 
 type HeaderToolsProps = {
-  changes?: { additions: number; deletions: number };
-  changesOpen: boolean;
-  onChanges: () => void;
   onTerminal: () => void;
   onBrowser: () => void;
   tabTools?: boolean;
@@ -89,8 +86,6 @@ const keyboardSubmenu: Play = async (ctx) => {
 };
 
 const base: HeaderToolsProps = {
-  changesOpen: false,
-  onChanges: () => undefined,
   onTerminal: () => undefined,
   onBrowser: () => undefined,
   summary,
@@ -107,8 +102,15 @@ export default componentEntry<HeaderToolsProps>({
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: ["agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools"],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
-  styles: () => import("./header.css"),
+  // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
+  // the shared popup surface, then the header's rules. With header.css alone every popup was
+  // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
+  styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   checks: {
+    popupLayer: {
+      value: true,
+      reason: "The chat menu and its Continue in submenu must each be the top, unclipped, opaque layer.",
+    },
     anchorMovePx: {
       value: 0,
       reason: "Opening the chat menu uses a portal and must not move the header tool row.",
@@ -120,12 +122,8 @@ export default componentEntry<HeaderToolsProps>({
   },
   variants: {
     idle: {
-      note: "The complete tab header: Changes, Terminal, Browser, summary, and chat actions.",
+      note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
-    },
-    "changed-files": {
-      note: "Changes carries the last turn's counts and its pressed state while the split tools stay fixed.",
-      props: { ...base, changes: { additions: 42, deletions: 9 }, changesOpen: true },
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",
@@ -143,7 +141,7 @@ export default componentEntry<HeaderToolsProps>({
       play: keyboardSubmenu,
     },
     "quick-chat": {
-      note: "Quick Chat has no tab to split, so only Changes, summary, and chat actions remain.",
+      note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",
       props: { ...base, tabTools: false },
     },
   },

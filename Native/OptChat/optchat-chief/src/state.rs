@@ -83,6 +83,11 @@ pub struct HostState {
     /// next connect reads them from the owner again and describes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undescribed: Vec<crate::brain::images::ImageRef>,
+    /// Turns a host stop cut after their human messages were logged: each
+    /// runs again as one resume turn (E23, the reference client's `resume`),
+    /// cleared when its note is logged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resumes: Vec<Resume>,
     /// The view up to and including the last turn's marked block, by size
     /// and hash (`optchat_core::mark_piece`): saved with that turn's
     /// messages, so the first turn after a restart still marks within the
@@ -304,6 +309,33 @@ pub struct Item {
     /// The human message's id (a side floor's crash dedupe).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// A paired device sent the message (or the resume note of such a turn).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote: bool,
+    /// The resume note of a cut turn: a cut resume turn resumes again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resume: bool,
+    /// The resume note's cut messages (their full text), for a resume turn
+    /// that is cut again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut: Vec<String>,
+}
+
+/// A cut turn to run again (`HostState::resumes`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resume {
+    /// The side conversation (None: the main one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    /// The cut turn had a paired device's message: the resume turn asks for
+    /// every local effect, as that turn did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote: bool,
+    /// The full text of the cut turn's human messages, in log order: the
+    /// resume turn's new messages carry them after the note (they are in
+    /// the log already and are not logged again).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -615,44 +647,6 @@ impl StateFile {
             std::fs::File::open(dir)?.sync_all()?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_conversation::Part;
-
-    #[test]
-    fn state_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = StateFile::new(&dir.path().join("host.json"));
-        assert_eq!(file.load(), HostState::default());
-        let mut state = HostState {
-            conversation: Some("conv_a".into()),
-            logged_seq: 4,
-            ..Default::default()
-        };
-        state.outbox.push(OutboxEntry {
-            conversation: "conv_a".into(),
-            idempotency_key: "turn:optchat:3".into(),
-            op: Op::MessageSend {
-                client_msg_id: "turn:optchat:3".into(),
-                parts: vec![Part::Text {
-                    text: "hi".into(),
-                    runs: None,
-                }],
-                reply_to: None,
-            },
-            rate_retried: false,
-            not_before: None,
-            attempted: false,
-            rate_attempts: 0,
-        });
-        file.save(&state).unwrap();
-        assert_eq!(file.load(), state);
-        std::fs::write(dir.path().join("host.json"), b"{torn").unwrap();
-        assert_eq!(file.load(), HostState::default());
     }
 }
 

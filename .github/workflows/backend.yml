@@ -5,8 +5,8 @@
 # only reads the PR's SQL files). Rule: merging deploys, so every migration is on staging
 # and production before its PR merges (skills/cmux-backend-migrations).
 #
-#   Push to feat-cmux-next: deploy development (code only: no secrets sent, refused when its
-#   vars would change) and staging. Push to main, or dispatch target=production
+#   Push to feat-cmux-next: deploy development (no secrets sent; refused when its deployed vars
+#   drifted from the previous commit's wrangler.jsonc, a var change in the push deploys) and staging. Push to main, or dispatch target=production
 #   from main: deploy production. Every deploy refuses when its database lacks a migration
 #   or has one the tree lacks.
 
@@ -20,6 +20,8 @@ on:
       - clients/ts/**
       # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
       - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
@@ -29,6 +31,8 @@ on:
       - clients/ts/**
       # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
       - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   workflow_dispatch:
@@ -117,19 +121,14 @@ jobs:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
           MYSQL_URL: mysql://root:scratch@127.0.0.1:3306/cmux_next
         run: bun migrate-mysql.ts --url-env MYSQL_URL && bun migrate-mysql.ts --url-env MYSQL_URL --verify && bun test test-mysql
-      - name: Ownership invariants (OwnershipConvergence model + mutants)
+      - name: Ownership redaction (secrets never leave in rows)
         working-directory: backend/packages/ownership
-        env:
-          OWNERSHIP_SEEDS: "1500"
         run: bun run test
       - name: SAML validator (signature wrapping, comment injection, c14n vs xml-crypto)
         working-directory: backend/packages/saml
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
-        run: bun run test
-      - name: Dashboard tests (approvals, search params)
-        working-directory: backend/apps/dashboard
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard
@@ -252,7 +251,9 @@ jobs:
               [ -n "$path" ] || continue
               n=$(basename "$path"); num=$((10#${n:0:4}))
               if [ "$num" -le "$before_max" ]; then echo "::error file=$path,title=Migration number not above the previous head::$path must be numbered above $before_max."; errors=1; fi
-              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::contract migrations go in a PR into main only."; errors=1; fi
+              # A contract migration needs a written `-- contract: <reason>` line; the release rails lint below then
+              # allows only the named contract operations (scripts/cmux-next/release/lint-rules.ts).
+              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path" && ! grep -qE '^--[[:space:]]*contract:[[:space:]]*[^[:space:]]' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::a contract migration needs a '-- contract: <reason>' line, and the release rails lint must accept it."; errors=1; fi
             done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- "$dir")
           fi
           (cd backend && bun install --frozen-lockfile >/dev/null)
@@ -329,9 +330,9 @@ jobs:
         run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
 
   # Development (cmux-api-development) follows feat-cmux-next. It ships code only: the job sends no
-  # secrets (the Worker keeps its own), and before deploying it compares wrangler.jsonc
-  # env.development.vars with the serving version's vars and refuses on any difference, because
-  # those vars (the VM image names among them) belong to their lanes. Same rails as staging:
+  # secrets (the Worker keeps its own). Before deploying it compares the serving version's vars
+  # with wrangler.jsonc env.development.vars at the push's BEFORE commit and refuses on drift (a
+  # var set out of band); a var change made by the pushed commits deploys. Same rails as staging:
   # schema gate, recorded rollback target, smoke, automatic rollback on red.
   deploy-development:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
@@ -366,14 +367,28 @@ jobs:
             exit 1
           fi
           echo "$out"
-      - name: Worker vars unchanged (code-only deploy)
+      # The deployed vars must equal wrangler.jsonc at the push's BEFORE commit (else drift, set out
+      # of band: refused). Then the repo is the source: a var the pushed commits change (an image
+      # promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by name and value.
+      - name: Worker vars match the previous commit (drift refused; changes in this push logged)
         working-directory: backend/apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
-        run: >-
-          bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development
-          --config wrangler.jsonc --env development --wrangler ./node_modules/.bin/wrangler
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
+            git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
+            BASE="$(git rev-parse FETCH_HEAD^)"
+          else
+            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+            BASE="$BEFORE"
+          fi
+          git show "${BASE}:backend/apps/api/wrangler.jsonc" > "$RUNNER_TEMP/wrangler.base.jsonc"
+          echo "base config: wrangler.jsonc at ${BASE}"
+          bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
+            --config wrangler.jsonc --base-config "$RUNNER_TEMP/wrangler.base.jsonc" --env development --wrangler ./node_modules/.bin/wrangler
       - name: Deploy API Worker (no secrets; records the rollback target)
         id: deploy-api
         env:

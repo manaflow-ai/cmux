@@ -9,48 +9,46 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+pub mod agent_message_prompt;
+pub mod agent_view;
 mod apps;
-pub mod backoff;
+/// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
+pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
+mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
-mod debug_spans;
+use cmux_tui_util::debug_spans;
 pub mod diagnostics;
 mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+/// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
-mod image_paste;
-#[cfg(unix)]
-mod image_paste_file;
-#[cfg(unix)]
-mod image_paste_ownership;
-#[cfg(unix)]
-mod image_paste_recovery;
-#[cfg(unix)]
-mod image_paste_storage;
+use cmux_tui_image_paste::image_paste;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
-mod machine_name;
+use cmux_tui_util::machine_name;
 mod model;
 mod mux;
-mod pairing;
+/// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
+use cmux_tui_remote_access::pairing;
 mod program_status;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
-mod remote_relay_state;
+use cmux_tui_remote_access::remote_relay_state;
 mod request_origin;
 pub mod resource;
 mod resource_api;
@@ -64,12 +62,12 @@ mod scripts;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
-mod short_id;
+use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
-mod stream_interrupt;
+use cmux_tui_util::stream_interrupt;
 mod surface;
 #[cfg(unix)]
 mod terminal_backend;
@@ -79,26 +77,25 @@ mod terminal_loss_cause;
 #[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
-pub mod terminal_respawn_text;
-#[cfg(windows)]
-mod windows_processes;
+pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
 
 #[cfg(unix)]
-mod host_exe;
+use cmux_tui_platform::host_exe;
 pub mod layout;
-pub mod platform;
+/// OS primitives; the cmux-tui-platform crate, re-exported at the old paths.
+pub use cmux_tui_platform::platform;
 #[cfg(unix)]
-mod process_identity;
-pub mod process_resources;
+use cmux_tui_platform::process_identity;
+pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
-pub mod unix_process_scope;
-pub mod user_settings;
+pub use cmux_tui_platform::unix_process_scope;
+pub use cmux_tui_util::user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,

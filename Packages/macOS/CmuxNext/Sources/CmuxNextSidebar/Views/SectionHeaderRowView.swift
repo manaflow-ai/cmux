@@ -70,7 +70,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case (_, .connected), (_, .updateAvailable): statusTone = .success
             case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
             case (_, .offline): statusTone = .quiet
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusTone = .danger
+            case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
             var label = machine.name
             switch machine.status {
@@ -83,6 +83,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .installing: label += ", " + Strings.statusInstalling
             case .authFailed: label += ", " + Strings.statusAuthFailed
             case .unreachable: label += ", " + Strings.statusUnreachable
+            case .failed: label += ", " + Strings.statusFailed
             }
             badgeText = switch machine.status {
             case .updateAvailable: Strings.statusUpdateAvailable
@@ -91,6 +92,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .installing: Strings.statusInstalling
             case .authFailed: Strings.statusAuthFailed
             case .unreachable: Strings.statusUnreachable
+            case .failed: Strings.statusFailed
             default: nil
             }
             toolTip = machine.detail

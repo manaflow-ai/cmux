@@ -19,3 +19,15 @@
     transform: scale(0.97);
   }
 }
+
+/* Every popup is an opaque surface on the dropdown layer by default (webviews/src/ui/README.md, "Layers
+   and transparency"). Zero-specificity defaults: a feature's own surface class still wins. A host maps
+   --ui-popup-bg/--ui-popup-fg to its theme (the agent pane: acpmux/styles.css), so a popup that names
+   no surface (a nested submenu, a new menu) is never see-through. */
+:where(.ui-positioner) {
+  z-index: var(--layer-dropdown);
+}
+:where(.ui-popup) {
+  background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
+  color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
+}

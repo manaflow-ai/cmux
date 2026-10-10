@@ -80,7 +80,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
     public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
-    public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
+    public func scanClassicSessions() async throws -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
@@ -128,6 +128,17 @@ public final class MockOnboardingServices: OnboardingServices {
 
     public var hasAccountsStep: Bool { accountsView != nil }
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
+    /// Whether the first run offers the Ctrl-1…9 choice.
+    public var offersTabKeys = false
+    /// What `currentTabKeys` answers (nil: bound by hand).
+    public var tabKeys: TabKeysChoice? = .tabs
+    /// Each `applyTabKeys` call, in order.
+    public private(set) var appliedTabKeys: [TabKeysChoice] = []
+    public func currentTabKeys() async -> TabKeysChoice? { tabKeys }
+    public func applyTabKeys(_ choice: TabKeysChoice) {
+        appliedTabKeys.append(choice)
+        tabKeys = choice
+    }
     public func makeAccountsStepView() -> NSView? { accountsView }
 
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
@@ -152,6 +163,7 @@ public final class MockOnboardingServices: OnboardingServices {
         services.themeChoices = themes
         services.accountsView = accountsView
         services.firstTaskView = ThemedView()
+        services.offersTabKeys = true
         let day: TimeInterval = 86_400
         let now = Date()
         services.agentProjects = [

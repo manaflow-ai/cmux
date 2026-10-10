@@ -101,6 +101,22 @@ class ChecksJobStructure(unittest.TestCase):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_ratchet_ceilings_are_set_only_on_their_own_steps(self):
+        # Job-wide, the warning ceilings reach the script tests in this job, which
+        # expect every hit to fail (#18894's first run: check-scrollbars.test.sh and
+        # the god-file scope tests went green on a warning).
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
+        ceilings = {"GODFILES_WARN_SLACK", "L10N_STYLE_WARN_MAX", "SCROLLBARS_WARN_MAX"}
+        self.assertFalse(ceilings & set(job.get("env") or {}), "set the ceilings on their steps")
+        owners = {"godfiles-swift": "GODFILES_WARN_SLACK", "godfiles-rust": "GODFILES_WARN_SLACK",
+                  "l10n": "L10N_STYLE_WARN_MAX", "scrollbars": "SCROLLBARS_WARN_MAX"}
+        for step in job["steps"]:
+            env = set(step.get("env") or {}) & ceilings
+            if step.get("id") in owners:
+                self.assertEqual(env, {owners[step["id"]]}, step.get("name"))
+            else:
+                self.assertFalse(env, step.get("name"))
+
     def test_package_conventions_lint_is_its_own_step(self):
         # test-ios.yml runs this lint only for pull requests, merge groups and
         # dispatches; direct pushes to feat-cmux-next skipped it, and a
@@ -686,7 +702,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "request-nightly-next", "swift-test"])
+                                           "request-nightly-next", "swift-canary", "swift-test"])
 
 
 

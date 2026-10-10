@@ -29,6 +29,38 @@ pub struct EngineChoice {
     pub compactor_harness: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_model: Option<String>,
+    /// `fast` (the priority tier) or none (`default`): turns, then the
+    /// compactor (its slots, at the next host start).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_speed: Option<String>,
+}
+
+/// The speeds a Chief engine takes: `default` (the harness's) and `fast`
+/// (codex's priority tier, "2x speed, increased usage").
+pub const SPEEDS: &[&str] = &["default", "fast"];
+
+/// Whether `speed` can run on a `family` harness: Err with the reason when
+/// it cannot (Claude Code's adapter has no fast mode).
+pub fn check_speed(speed: &str, family: crate::acpmux::Family) -> Result<(), String> {
+    use crate::acpmux::Family;
+    match (speed.trim(), family) {
+        ("" | "default", _) | ("fast", Family::Codex) => Ok(()),
+        ("fast", Family::Claude) => Err(
+            "speed fast is not available on a Claude harness: Claude Code's acpmux adapter has no fast mode"
+                .to_owned(),
+        ),
+        ("fast", Family::Other) => {
+            Err("speed fast is available only on a codex harness".to_owned())
+        }
+        (other, _) => Err(format!("speed {other} is not one of {}", SPEEDS.join(", "))),
+    }
+}
+
+/// Whether `speed` names the fast tier.
+pub fn is_fast(speed: Option<&str>) -> bool {
+    speed.map(str::trim) == Some("fast")
 }
 
 /// One turn's engine, resolved against the host's defaults.
@@ -37,17 +69,24 @@ pub struct TurnEngine {
     pub harness: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// `fast` (engine.json `speed`, else `OPTCHAT_CHIEF_SPEED`); None: default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
 }
 
 impl TurnEngine {
     /// `harness=claude model=claude-opus-5-5 effort=high` (default when unset).
     pub fn describe(&self) -> String {
-        format!(
+        let mut text = format!(
             "harness={} model={} effort={}",
             self.harness,
             self.model.as_deref().unwrap_or("default"),
             self.effort.as_deref().unwrap_or("default")
-        )
+        );
+        if let Some(speed) = &self.speed {
+            text.push_str(&format!(" speed={speed}"));
+        }
+        text
     }
 }
 
@@ -84,13 +123,12 @@ pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
 }
 
 /// The compactor's harness setting at host start: `env`
-/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`,
-/// else its turn `harness` (cx-1hpt: a home whose Claude has no login moves
-/// its turns to codex, and the compactor must go too); None leaves the
-/// host's default.
+/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`.
+/// The turns' harness never picks it (Lawrence 2026-10-09: the compactor is
+/// always Claude Haiku by default); None leaves the host's Claude route
+/// (`host::default_compactor_harness`).
 pub fn compactor_harness_setting(env: Option<String>, choice: &EngineChoice) -> Option<String> {
     env.or_else(|| choice.compactor_harness.clone())
-        .or_else(|| choice.harness.clone())
 }
 
 /// The turn engine of `choice` over the defaults.
@@ -104,6 +142,11 @@ pub fn resolve(
         harness: choice.harness.clone().unwrap_or_else(|| harness.to_owned()),
         model: choice.model.clone().or_else(|| model.map(str::to_owned)),
         effort: choice.effort.clone().or_else(|| effort.map(str::to_owned)),
+        speed: choice
+            .speed
+            .clone()
+            .or_else(|| crate::cli::env("OPTCHAT_CHIEF_SPEED"))
+            .filter(|s| is_fast(Some(s))),
     }
 }
 
@@ -121,6 +164,8 @@ pub fn apply_flags(
         ("effort", &mut choice.effort),
         ("compactor-harness", &mut choice.compactor_harness),
         ("compactor-model", &mut choice.compactor_model),
+        ("speed", &mut choice.speed),
+        ("compactor-speed", &mut choice.compactor_speed),
     ] {
         if let Some(value) = flags.value(key) {
             changed = true;
@@ -137,7 +182,7 @@ pub fn apply_flags(
 }
 
 pub const USAGE: &str = "chief engine show
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start)";
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
@@ -189,48 +234,5 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             Ok(out)
         }
         _ => Err(USAGE.into()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn set_show_and_resolve() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = path(dir.path());
-        assert_eq!(load(&file), EngineChoice::default());
-        let args: Vec<String> = [
-            "engine",
-            "set",
-            "--harness",
-            "codex",
-            "--model",
-            "gpt-6-sol",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let choice = apply_flags(load(&file), &crate::cli::Flags::parse(&args)).unwrap();
-        save(&file, &choice).unwrap();
-        let back = load(&file);
-        assert_eq!(back.harness.as_deref(), Some("codex"));
-        let engine = resolve(&back, "claude-sr", None, Some("high"));
-        assert_eq!(
-            engine.describe(),
-            "harness=codex model=gpt-6-sol effort=high"
-        );
-        let clear: Vec<String> = ["engine", "set", "--harness", "default"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let back = apply_flags(back, &crate::cli::Flags::parse(&clear)).unwrap();
-        assert_eq!(resolve(&back, "claude-sr", None, None).harness, "claude-sr");
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
     }
 }

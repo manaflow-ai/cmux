@@ -89,6 +89,7 @@ first typed prompt. `history.jsonl` and `sessions/<pid>.json` are not chats.
 | Archive | ace14e8d (rust-v0.32.0) | flat `archived_sessions/` | `codex.rs` |
 | Names | 1ef5455e (rust-v0.93.0) | `session_index.jsonl` | `the_session_index_names_threads_when_the_db_has_no_name_column` |
 | State DB | 3878c3dc (rust-v0.93.0), `state_N.sqlite` 583e5d4f, frozen `state_5` 95ca2763 | `threads` table, columns probed (`*_ms` from migration 0025) | `the_newest_state_db_gives_threads_with_names_titles_and_filters` |
+| `has_user_event` unused | Codex 0.159/0.160 (seen 0.159.3 on cmux-lawrence-2: 112 threads, all 0) | a thread is listed when `has_user_event = 1` or any of `first_user_message`, `title`, `preview`, `name` is set; `thread_source = 'subagent'` is skipped | `codex_0_160_threads_with_has_user_event_0_are_listed_when_they_have_a_prompt` |
 | zstd rollouts | a8a60712 (rust-v0.137.0) | listed without a count (no zstd reader) | `without_a_db_rollout_files_are_read_and_zst_has_no_count` |
 
 ### OpenCode (anomalyco/opencode, formerly sst/opencode)

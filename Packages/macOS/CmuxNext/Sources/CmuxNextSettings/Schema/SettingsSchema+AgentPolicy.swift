@@ -36,6 +36,8 @@ extension SettingsSchema {
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+.union(["agentPane.zoom"]) // display-only agent surface zoom
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -115,8 +117,8 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.allChatsRows",
-        "sidebar.cards.tips", "sidebar.showProjects",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -174,6 +176,7 @@ extension SettingsSchema {
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
+        "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,

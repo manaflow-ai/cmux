@@ -53,6 +53,9 @@ pub(crate) fn wait_for_pid_file(path: &Path) -> libc::pid_t {
 #[path = "standby_host.rs"]
 mod standby_host;
 
+#[path = "split_client_keys.rs"]
+mod split_client_keys;
+
 pub(crate) fn wait_for_no_host_records(root: &Path) {
     if let Some((records, exits)) = host_records_left_after_close(root) {
         panic!(

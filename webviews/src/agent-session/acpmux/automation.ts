@@ -22,6 +22,9 @@ export type AutomationHost = {
   diff(): { open: boolean; paths: string[] };
 };
 
+const TRANSCRIPT_ROWS = 30;
+const TRANSCRIPT_CHARS = 500;
+
 /// What a script needs to decide its next step, as plain JSON.
 export function automationState(host: AutomationHost) {
   const snapshot = host.snapshot();
@@ -33,6 +36,14 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
+    missingSession: snapshot.missingSession ?? null,
+    /// The chat as the pane shows it: the last TRANSCRIPT_ROWS user and assistant rows, each cut
+    /// at TRANSCRIPT_CHARS, so a live proof checks the real text, not only a row count.
+    transcript: snapshot.rows
+      .filter((row) => (row.kind === "user" || row.kind === "assistant") && typeof row.text === "string")
+      .slice(-TRANSCRIPT_ROWS)
+      .map((row) => ({ kind: row.kind, text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS) })),
     lastAssistant: assistant ? { text: assistant.text ?? "", streaming: assistant.streaming === true } : null,
     sessions: snapshot.sessions.map((session) => ({
       sessionId: session.sessionId,
@@ -81,9 +92,24 @@ export async function sendPrompt(host: AutomationHost, text: string, acceptWindo
   return { sent: true, turnEnded: "ended" in outcome, sessionId: host.snapshot().sessionId ?? null };
 }
 
-export async function newChat(host: AutomationHost, harness?: string, cwd?: string) {
-  await host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) });
-  return { sessionId: host.snapshot().sessionId ?? null };
+/// A new chat as the agent row starts it. A start that waits (the folder's trust question) is
+/// reported as pending after the accept window instead of holding the socket call.
+export async function newChat(
+  host: AutomationHost,
+  harness?: string,
+  cwd?: string,
+  acceptWindowMs = SEND_ACCEPT_WINDOW_MS,
+) {
+  const started = host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) }).then(
+    () => ({ started: true as const }),
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+  );
+  const outcome = await Promise.race([
+    started,
+    new Promise<{ pending: true }>((resolve) => setTimeout(() => resolve({ pending: true }), acceptWindowMs)),
+  ]);
+  if ("error" in outcome) return { error: outcome.error };
+  return { sessionId: host.snapshot().sessionId ?? null, ...("pending" in outcome ? { pending: true } : {}) };
 }
 
 export function selectSession(host: AutomationHost, sessionId: string) {

@@ -69,23 +69,14 @@ public final class SidebarModel {
     public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, announcements.
-    public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
-    /// The window shows a full-page destination: the footer band shows Back
-    /// (`onBack`) in its place.
-    public var showsBack = false
-    /// Back in the footer: return to where the window was.
-    @ObservationIgnored public var onBack: (() -> Void)?
-    /// The "Did you know" card (BOTTOM-LEFT-CARDS K1), shown only while
-    /// ``updateCard`` and ``updatedCard`` are nil.
-    public var tipCard: SidebarTipCard?
+    /// The shared notice card (the update status or the "Did you know"
+    /// tip), shown only while ``updateCard`` and ``updatedCard`` are nil.
+    public var noticeCard: SidebarNoticeCard?
     /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
     public var updatedCard: SidebarUpdatedCard?
-    /// A card's click, button or dismiss.
-    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
@@ -94,6 +85,8 @@ public final class SidebarModel {
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
+    /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
+    public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -148,6 +141,10 @@ public final class SidebarModel {
 
     public var isFiltering: Bool { filterMatches != nil }
 
+    /// Drag and keyboard reorder are off while the drawn order is not the
+    /// model's: filtering, or grouping by folder.
+    public var locksReorder: Bool { isFiltering || groupsByFolder }
+
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
@@ -193,7 +190,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .tryTip, .dismissTip,
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .noticeAction, .dismissNotice,
              .openWhatsNew, .shareCmux, .dismissUpdated:
             break
         case let .layout(op):
@@ -295,7 +292,7 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !isFiltering else { return false }
+        guard !locksReorder else { return false }
         let ids = orderedSelection
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
@@ -307,6 +304,7 @@ public final class SidebarModel {
         showWorkspaceTabs = preferences.showWorkspaceTabs
         workspaceRow = preferences.workspaceRow
         hidesWorkspaces = !preferences.showProjects
+        groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
     }
 
@@ -325,6 +323,7 @@ public final class SidebarModel {
         o.flattensMachines = !groupsByComputer
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        o.groupsByFolder = groupsByFolder
         return o
     }
 

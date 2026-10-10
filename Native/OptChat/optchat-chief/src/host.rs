@@ -67,6 +67,45 @@ pub fn harness_choice(
     (turn, compactor)
 }
 
+/// The compactor's harness when none is set (Lawrence 2026-10-09: "just
+/// always use haiku for default compactor"): the turns' own when it is a
+/// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
+/// route acpmux has (the configured CodeRouter route, else the user's own
+/// login).
+pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
+    if family == Family::Claude {
+        turn.to_owned()
+    } else {
+        claude.to_owned()
+    }
+}
+
+/// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
+/// harnesses the Chief can use, so its model probes never start another
+/// harness's agent (a Claude-only Chief never starts codex-acp). The set
+/// turn, compactor and subagent harnesses and engine.json's, and always the
+/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`): the default turn
+/// harness, and the compactor of a turn harness that is not Claude.
+pub fn probe_harnesses(
+    chief: Option<&str>,
+    compactor: Option<&str>,
+    sub: Option<&str>,
+    engine: &crate::engine::EngineChoice,
+) -> String {
+    let names: std::collections::BTreeSet<&str> = [
+        chief,
+        compactor,
+        sub,
+        engine.harness.as_deref(),
+        engine.compactor_harness.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS])
+    .collect();
+    names.into_iter().collect::<Vec<_>>().join(",")
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
@@ -86,6 +125,35 @@ pub fn default_harness(answer: &serde_json::Value) -> &'static str {
         CODEROUTER_HARNESS
     } else {
         DEFAULT_HARNESS
+    }
+}
+
+/// Which codex the codex sessions run, in host.log and the trace (event
+/// `codex`: path and `--version`). Without the Chief's own copy, one line
+/// says that the PATH codex runs and may not read the view back.
+fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String)) {
+    let (path, own) = match crate::codex_home::chief_codex(paths) {
+        Some(p) => (p, true),
+        None => {
+            log(format!(
+                "codex: the Chief's own codex is not installed at {}; codex sessions run the PATH codex, which may ignore the Chief's prompt cache key",
+                paths.codex_bin.display()
+            ));
+            (PathBuf::from("codex"), false)
+        }
+    };
+    let version = std::process::Command::new(&path)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    trace.emit(
+        "codex",
+        serde_json::json!({"path": path.display().to_string(), "own": own, "version": version}),
+    );
+    if own {
+        log(format!("codex: {} ({version})", path.display()));
     }
 }
 
@@ -110,11 +178,20 @@ pub fn turn_preset(
     } else {
         BTreeMap::new()
     };
+    if family == Family::Claude {
+        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    }
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if let Some(codex) = crate::codex_home::chief_codex(paths) {
+            env.insert(
+                crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                codex.display().to_string(),
+            );
+        }
         if isolate {
             // The Chief's own codex home: no native subagents (its subagents
             // are `chief spawn` sessions), no user MCP servers, hooks or skills.
@@ -200,6 +277,9 @@ pub fn subagent_preset(
         BTreeMap::new()
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+    if family == Family::Claude {
+        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
     if family == Family::Codex {
@@ -272,7 +352,7 @@ pub fn session_env(
     // Every `cmux` call reaches this app's daemon (see cmux_env).
     let socket = crate::cmux_env::app_daemon_socket(daemon_socket, inherited);
     let bundled = crate::cmux_env::bundled_bin(exe);
-    crate::cmux_env::pin(&mut session_env, &socket, bundled.as_deref());
+    crate::cmux_env::pin(&mut session_env, &socket, daemon_socket, bundled.as_deref());
     session_env
 }
 
@@ -343,6 +423,8 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
 
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
+    // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
+    watch_stop_signals();
     let Some(daemon_socket) = flags
         .value("daemon-socket")
         .map(str::to_owned)
@@ -384,7 +466,17 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     };
     // A status left by a host that crashed mid-wait says nothing true now.
     crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
-    match start(&paths, &home, &daemon_socket, source) {
+    let started = start(&paths, &home, &daemon_socket, source);
+    if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
+        // A stop signal: whatever `start` returned (its acpmux connection
+        // may close under it), stop what this host started and exit 0.
+        if let Err(e) = &started {
+            log(format!("while stopping: {e}"));
+        }
+        stop_started_acpmux();
+        return 0;
+    }
+    match started {
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
             1
@@ -408,9 +500,6 @@ fn start(
     let acpmux_socket = crate::acpmux_daemon::socket_path();
     let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
     let pinned = crate::cmux_env::pinned_subset(&session_env);
-    // The acpmux daemon this host starts runs the children: pinned too.
-    crate::acpmux_daemon::set_child_env(pinned.clone());
-    let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
@@ -420,6 +509,20 @@ fn start(
         &engine_choice_file,
     );
     let sub_set = env("OPTCHAT_SUBAGENT_HARNESS");
+    // The acpmux daemon this host starts runs the children: pinned too. Its
+    // model probes start only the harnesses this Chief can use.
+    let mut daemon_env = pinned.clone();
+    daemon_env.insert(
+        "ACPMUX_PROBE_HARNESSES".to_owned(),
+        probe_harnesses(
+            chief_set.as_deref(),
+            compactor_set.as_deref(),
+            sub_set.as_deref(),
+            &engine_choice_file,
+        ),
+    );
+    crate::acpmux_daemon::set_child_env(daemon_env);
+    let instructions = crate::prompt::user_instructions(&paths.instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -507,12 +610,16 @@ fn start(
         // else the user's own Claude login (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
-            if compactor_set.is_none() {
-                compactor_harness = harness.clone();
-            }
             if sub_set.is_none() {
                 sub_harness = harness.clone();
             }
+        }
+        // The compactor runs on a Claude route unless set otherwise, whatever
+        // the turns run on (engine.json may swap them to codex per turn).
+        if compactor_set.is_none() {
+            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
+            compactor_harness =
+                default_compactor_harness(&harness, turn_family, default_harness(&answer));
         }
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
@@ -588,6 +695,7 @@ fn start(
     // the memory opens and starts building nodes. Its events wait in the
     // channel until the brain runs.
     let (tx, rx) = channel();
+    let _ = STOP_TX.set(tx.clone());
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in. On
@@ -620,6 +728,9 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some() || compactor_family == Family::Codex {
+        trace_codex(paths, &trace, &log);
+    }
     if codex_preset.is_some()
         && isolate
         && let Err(e) =
@@ -630,12 +741,30 @@ fn start(
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
+    // The compactor's speed (OPTCHAT_COMPACTOR_SPEED, else engine.json's
+    // compactor_speed), fixed at host start like its harness.
+    let compactor_speed =
+        env("OPTCHAT_COMPACTOR_SPEED").or_else(|| engine_choice_file.compactor_speed.clone());
+    let compactor_fast = match compactor_speed.as_deref() {
+        Some(speed) => match crate::engine::check_speed(speed, compactor_family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                log(format!("compactor: {reason}; it runs at the default speed"));
+                false
+            }
+        },
+        None => false,
+    };
     let mut required = Vec::new();
     if route == CompactRoute::Acpmux {
         crate::compactor::prepare_config(&paths.compactor_config)
             .map_err(|e| format!("creating {}: {e}", paths.compactor_config.display()))?;
         if compactor_family == Family::Codex {
-            crate::compactor::prepare_codex_homes(paths, &crate::compactor::user_codex_home())?;
+            crate::compactor::prepare_codex_homes_at(
+                paths,
+                &crate::compactor::user_codex_home(),
+                compactor_fast,
+            )?;
         }
         required.extend(compactor_presets(
             paths,
@@ -744,13 +873,17 @@ fn start(
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.
-            let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
+            let slots = Slots::with_spares(
+                crate::compactor::compactor_sessions(),
+                crate::compactor::compactor_spares(),
+            );
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let shared_ttl = shared_ttl.clone();
             let build = |model: Option<&str>| {
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
                     effort: compactor_effort.clone().or(spec.effort.clone()),
+                    fast: compactor_fast,
                     ..spec
                 };
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())
@@ -896,7 +1029,13 @@ fn start(
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        Some(Arc::new(app))
+        // E17: the app while it runs, else the Chief's owner daemon.
+        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
+            app,
+            daemon_socket.into(),
+            home,
+            Some(sub_harness.clone()),
+        )))
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {
@@ -921,6 +1060,7 @@ fn start(
                 harness: sub_harness.clone(),
                 policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
                 model: env("OPTCHAT_SUBAGENT_MODEL"),
+                effort: None,
                 preset: Some(sub_preset_name.clone()),
                 cwd: paths.subagent.clone(),
                 prefix: format!("optchat-sub-{}", crate::paths::home_id(home)),
@@ -1057,6 +1197,12 @@ fn start(
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
+        turn_idle_limit: {
+            let minutes = env("OPTCHAT_CHIEF_TURN_IDLE_MIN")
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(crate::turn::DEFAULT_TURN_IDLE.as_secs() / 60);
+            (minutes > 0).then(|| Duration::from_secs(minutes * 60))
+        },
         engine,
         turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
@@ -1103,7 +1249,15 @@ fn start(
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
-    spawn_probe(model, fallback, system, route, tx.clone());
+    let probe_delay = Arc::new(ProbeDelay::default());
+    spawn_probe(
+        probe_delay.clone(),
+        model,
+        fallback,
+        system,
+        route,
+        tx.clone(),
+    );
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
@@ -1145,9 +1299,108 @@ fn start(
             );
         }
     }
+    BRAIN_RUNNING.store(true, std::sync::atomic::Ordering::SeqCst);
     let fatal = brain.run(rx);
+    probe_delay.stop();
     chat.shutdown();
     Ok(fatal)
+}
+
+const STOP_SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
+
+/// The write end of the stop pipe, for the signal handler.
+static STOP_PIPE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+extern "C" fn on_stop_signal(signal: libc::c_int) {
+    let fd = STOP_PIPE.load(std::sync::atomic::Ordering::Relaxed);
+    if fd >= 0 {
+        let byte = signal as u8;
+        // SAFETY: write(2) is async-signal-safe; the buffer is one live byte.
+        unsafe { libc::write(fd, (&raw const byte).cast(), 1) };
+    }
+}
+
+/// Catches the stop signals with a handler that writes to a pipe (a
+/// handler, not a blocked mask: children inherit a mask, but exec resets a
+/// handler, so the acpmux daemon and the harnesses still stop on SIGTERM).
+/// Returns the pipe's read end.
+fn catch_stop_signals() -> Option<std::fs::File> {
+    use std::os::fd::FromRawFd;
+    let mut fds = [0 as libc::c_int; 2];
+    // SAFETY: `fds` is a valid out-array of two descriptors.
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    for fd in fds {
+        // SAFETY: a descriptor this call just made; FD_CLOEXEC keeps it out of children.
+        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    STOP_PIPE.store(fds[1], std::sync::atomic::Ordering::Relaxed);
+    for signal in STOP_SIGNALS {
+        // SAFETY: a zeroed sigaction with a valid handler and an empty mask.
+        unsafe {
+            let mut action = std::mem::zeroed::<libc::sigaction>();
+            action.sa_sigaction = on_stop_signal as *const () as libc::sighandler_t;
+            libc::sigemptyset(&mut action.sa_mask);
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigaction(signal, &action, std::ptr::null_mut());
+        }
+    }
+    // SAFETY: the read end is ours alone from here on.
+    Some(unsafe { std::fs::File::from_raw_fd(fds[0]) })
+}
+
+/// The brain's input, for the stop watcher.
+static STOP_TX: std::sync::OnceLock<std::sync::mpsc::Sender<Input>> = std::sync::OnceLock::new();
+
+/// A stop signal arrived.
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops the acpmux daemon this host started, once: its agent hosts and
+/// their sessions (and their MCP children) end with it; a daemon this host
+/// did not start is left alone. A second caller waits for the first.
+fn stop_started_acpmux() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::acpmux_daemon::shutdown_started(&|line| log(line));
+    });
+}
+
+/// Set just before the brain's loop starts.
+static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One thread waits for a stop signal and hands it to the brain, which
+/// stops; the host then stops the acpmux daemon it started and exits 0.
+fn watch_stop_signals() {
+    use std::io::Read;
+    let Some(mut pipe) = catch_stop_signals() else {
+        log("stop signals: no pipe; SIGTERM ends the host at once");
+        return;
+    };
+    let spawned = std::thread::Builder::new()
+        .name("stop-signals".into())
+        .spawn(move || {
+            let mut byte = [0u8; 1];
+            while pipe.read_exact(&mut byte).is_ok() {
+                let signal = libc::c_int::from(byte[0]);
+                STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
+                let running = BRAIN_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
+                let sent = running
+                    && STOP_TX
+                        .get()
+                        .is_some_and(|tx| tx.send(Input::Shutdown { signal }).is_ok());
+                // Before the brain runs nothing is in flight: stop here.
+                // Once it runs, it stops and `start` stops acpmux after it.
+                if !sent {
+                    log(format!("signal {signal}: stopping before the brain runs"));
+                    stop_started_acpmux();
+                    std::process::exit(0);
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log(format!("stop signals: no watcher thread ({e})"));
+    }
 }
 
 /// Builds one tiny node through the compactor's route, with its main and
@@ -1157,6 +1410,7 @@ fn start(
 /// Chief conversation one notice, instead of every turn waiting on settle
 /// with nothing said.
 fn spawn_probe(
+    delay: Arc<ProbeDelay>,
     model: Arc<dyn CompactModel>,
     fallback: Option<Arc<dyn CompactModel>>,
     system: String,
@@ -1167,7 +1421,14 @@ fn spawn_probe(
         .name("optchat-compact-probe".into())
         .spawn(move || {
             let started = std::time::Instant::now();
-            match probe_models(&*model, fallback.as_deref(), &system) {
+            // A transient failure (the network, an exhausted route) is
+            // retried after a backoff through the host's delay, quietly; a
+            // real fault is posted once; the host's end stops the probe.
+            let probe = || probe_models(&*model, fallback.as_deref(), &system);
+            let Some(result) = probe_until_ready(&probe, &*delay, &|line: &str| log(line)) else {
+                return;
+            };
+            match result {
                 Ok(line) => {
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
@@ -1200,11 +1461,103 @@ fn spawn_probe(
     }
 }
 
+/// A wait the host can cut short: the start-up probe's retry delay. No
+/// sleep in runtime code: `ProbeDelay` waits on a condition variable that
+/// `stop` wakes (the host's end).
+pub trait Delay: Send + Sync {
+    /// Waits `d`; false when stopped (now or during the wait).
+    fn wait(&self, d: std::time::Duration) -> bool;
+}
+
+/// The host's `Delay`, stopped when the host ends.
+#[derive(Default)]
+pub struct ProbeDelay {
+    stopped: std::sync::Mutex<bool>,
+    woken: std::sync::Condvar,
+}
+
+impl ProbeDelay {
+    pub fn stop(&self) {
+        *self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.woken.notify_all();
+    }
+}
+
+impl Delay for ProbeDelay {
+    fn wait(&self, d: std::time::Duration) -> bool {
+        let stopped = self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (stopped, _) = self
+            .woken
+            .wait_timeout_while(stopped, d, |s| !*s)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        !*stopped
+    }
+}
+
+/// The start-up probe: `probe` again after each transient failure, with
+/// `delay` between tries; None when the delay was stopped.
+pub fn probe_until_ready(
+    probe: &dyn Fn() -> Result<String, String>,
+    delay: &dyn Delay,
+    log: &dyn Fn(&str),
+) -> Option<Result<String, String>> {
+    let mut attempt = 0;
+    loop {
+        match probe() {
+            Err(e) => match probe_retry_wait(&e, attempt) {
+                Some(wait) => {
+                    log(&format!(
+                        "compactor probe: {e}; trying again in {} s",
+                        wait.as_secs()
+                    ));
+                    if !delay.wait(wait) {
+                        return None;
+                    }
+                    attempt += 1;
+                }
+                None => return Some(Err(e)),
+            },
+            ok => return Some(ok),
+        }
+    }
+}
+
+/// How long the start-up probe waits before it tries again after `error`
+/// (its `attempt`-th failure, from 0); None: no retry (a real fault).
+pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
+    use std::time::Duration;
+    const MAX: Duration = Duration::from_secs(120);
+    if let Some(wait) = optchat_host::capacity_wait(error) {
+        return Some(wait.min(MAX));
+    }
+    let lower = error.to_ascii_lowercase();
+    let transient = [
+        "network error",
+        "check your internet connection",
+        "connection was lost",
+        "connection refused",
+        "connection reset",
+        "timed out",
+        "did not answer within",
+        "overloaded",
+    ]
+    .iter()
+    .any(|t| lower.contains(t));
+    transient.then(|| Duration::from_secs(1u64 << attempt.min(16)).min(MAX))
+}
+
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
-    // An exhausted route is a wait, not a fault: nothing to post.
-    if optchat_host::capacity_wait(error).is_some() {
+    // An exhausted route or a transient error is a wait, not a fault:
+    // nothing to post (the probe tries again).
+    if probe_retry_wait(error, 0).is_some() {
         return None;
     }
     let remedy = match route {

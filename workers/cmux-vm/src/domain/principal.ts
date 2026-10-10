@@ -8,7 +8,9 @@ import type { Scope } from "./scopes.ts";
 
 export type Actor =
   | { readonly kind: "session"; readonly userId: UserId }
-  | { readonly kind: "api_key"; readonly keyId: ApiKeyId };
+  | { readonly kind: "api_key"; readonly keyId: ApiKeyId }
+  /** A cmux service key acting for the team its request named (cx-b4h.13). */
+  | { readonly kind: "service"; readonly serviceId: string };
 
 export interface Principal {
   readonly tenantId: TenantId;
@@ -24,13 +26,30 @@ export interface Principal {
    * records the device as the actor and `actor` as its owner.
    */
   readonly actingDevice?: string;
+  /**
+   * Set for a service key (cx-b4h.13): the caller reaches only resources that
+   * carry every one of these labels, and every VM it creates must carry them.
+   */
+  readonly requiredLabels?: Readonly<Record<string, string>>;
 }
+
+/** Whether `labels` carries every label the principal is limited to. */
+export const carriesRequiredLabels = (principal: Principal, labels: Readonly<Record<string, string>>): boolean =>
+  principal.requiredLabels === undefined || Object.entries(principal.requiredLabels).every(([key, value]) => labels[key] === value);
 
 export class CurrentPrincipal extends Context.Tag("cmux-vm/CurrentPrincipal")<CurrentPrincipal, Principal>() {}
 
 /** The audit/ownership `created_by` value for an actor. */
-export const actorRef = (actor: Actor): string =>
-  actor.kind === "session" ? `user:${actor.userId}` : `key:${actor.keyId}`;
+export const actorRef = (actor: Actor): string => {
+  switch (actor.kind) {
+    case "session":
+      return `user:${actor.userId}`;
+    case "api_key":
+      return `key:${actor.keyId}`;
+    case "service":
+      return `service:${actor.serviceId}`;
+  }
+};
 
 /** The audit actor of a request and the owner it acted for: a device-signed request is the device, for its owner. */
 export const auditActorOf = (principal: Principal): { readonly actor: string; readonly ownerActor: string | null } =>

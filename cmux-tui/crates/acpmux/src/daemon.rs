@@ -17,6 +17,9 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--person-key-fd`: this launch's person key from the app that
+    /// spawned the daemon (`hub/person.rs`); read and closed at once.
+    pub person_key_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
@@ -41,6 +44,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
+    // Before anything is spawned: the key never reaches a child.
+    let person_key = opts.person_key_fd.and_then(read_person_key);
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -168,6 +173,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    if let Some(key) = person_key {
+        // A Team-signed daemon takes the key only from the signed app's
+        // `_acpmux/person_enroll`: a same-uid process could restart it with
+        // a key of its own.
+        if cmux_link::app_caller::signed_app_build() {
+            tracing::warn!(
+                "--person-key-fd ignored: a signed daemon enrolls the app by its signature"
+            );
+        } else if let Err(e) = hub.person.install_spawn_key(&key) {
+            tracing::warn!("--person-key-fd: {e}");
+        }
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
@@ -216,6 +233,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
+    // harnesses (the Chief lists the ones it uses); unset, every harness.
+    hub.set_probe_only(Hub::probe_only_from_env(
+        std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
+    ));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
@@ -281,8 +303,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
+    // The stop signals are registered before the ready line: a launcher may
+    // stop the daemon as soon as it reads the line, and a signal that came
+    // before registration would end the daemon by the default action
+    // (no shutdown path: the token, pid file and socket would stay).
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+    };
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
+    }
+    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon
+    // right after the ready line, so integration tests can stop it in that
+    // window. Bounded; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
@@ -304,14 +346,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let shutdown = async {
-        let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = ctrl_c => {},
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
+                _ = next_signal(term.as_mut()) => {},
+                _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
         }
@@ -341,6 +381,43 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The next delivery of a registered signal; never, if registration failed.
+#[cfg(unix)]
+async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Read the person key (one line, at most 128 bytes) from an inherited
+/// descriptor and close it. The key is never logged.
+fn read_person_key(fd: i32) -> Option<String> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    if fd <= 2 {
+        tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
+        return None;
+    }
+    // SAFETY: the launcher passed this descriptor for us to read and close;
+    // `File` owns and closes it here.
+    let f = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut buf = Vec::with_capacity(80);
+    if let Err(e) = f.take(128).read_to_end(&mut buf) {
+        tracing::warn!("--person-key-fd {fd}: {e}");
+        return None;
+    }
+    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    if crate::hub::person::valid_key(&key) {
+        Some(key)
+    } else {
+        tracing::warn!("--person-key-fd {fd}: not a person key");
+        None
+    }
 }
 
 /// Write the readiness line to an inherited descriptor and close it.

@@ -46,6 +46,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
+    public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
+    public var agentPaneComposer = AgentPaneComposerSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -54,7 +56,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
-    /// `sidebar.*` section settings; defaults when unset or invalid.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
@@ -88,10 +89,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
-    /// `appearance.backdropArt`; nil disables the bundled painting.
-    public var backdropArt: BackdropArt?
-    /// `appearance.background`; nil leaves the desktop untouched.
-    public var backdropSelection: BackdropSelection?
+    /// The bundled art of ``backdropSelection``; nil for none or another source.
+    public var backdropArt: BackdropArt? = BackdropSelectionSetting.defaultArt
+    /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
+    /// nil for `none`.
+    public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -169,9 +171,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
-    /// Keys under `shortcuts` that are settings, not action IDs.
-    static let reservedShortcutKeys: Set<String> = ["bindings", "tiers", "when", "showModifierHoldHints"]
-
     /// Parses a document. `validDensities` and `validMetrics` come from the
     /// design module so this stays free of main-actor types.
     public static func parse(
@@ -238,14 +237,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.agentPaneEditedFiles = AgentPaneEditedFilesSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
+        snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
@@ -272,7 +272,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
-        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
+        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }

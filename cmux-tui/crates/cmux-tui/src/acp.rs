@@ -9,6 +9,17 @@ use acpmux::cli::entry::{self, Invocation};
 
 /// `cmux acp <args>`.
 pub(crate) fn run(args: Vec<OsString>) -> i32 {
+    run_as(args, "cmux acp")
+}
+
+/// `cmux <head> <args>` for `head` = `acp`, `chats` or `harness`.
+pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
+    run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
+}
+
+/// `<display_name> <args>`: `cmux acp …`, or `cmux` for the `cmux chats …` and
+/// `cmux harness …` aliases, so usage and errors name the command the user typed.
+pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
     if let [chats, open, rest @ ..] = args.as_slice()
         && chats == "chats"
         && open == "open"
@@ -41,14 +52,17 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
         std::env::current_exe().ok().as_deref(),
     );
     let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
-    finish(entry::main(
-        args,
-        Invocation {
-            display_name: "cmux acp".into(),
-            daemon_prefix: vec!["acp".into()],
-            home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
-        },
-    ))
+    finish(
+        entry::main(
+            args,
+            Invocation {
+                display_name: display_name.into(),
+                daemon_prefix: vec!["acp".into()],
+                home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
+            },
+        ),
+        display_name,
+    )
 }
 
 /// `cmux acp open NAME [--pane ID]`: show an agent session in a new tab of
@@ -85,6 +99,20 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .into_iter()
         .map(str::to_owned)
         .collect())
+}
+
+/// Point the linked acpmux at the home `cmux acp` uses, for code that talks
+/// to the acpmux daemon without going through `cmux acp` (agent messages).
+pub(crate) fn configure_home() {
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
+    if let Some(home) = home.and_then(|home| tagged_home(tag.as_deref(), &home)) {
+        acpmux::config::set_home_override(home);
+    }
 }
 
 /// The acpmux unix socket the session daemon attaches agent tabs through
@@ -240,14 +268,14 @@ pub(crate) fn run_standalone(args: Vec<OsString>) -> i32 {
         .and_then(|exe| exe.file_name().map(|name| name != "acpmux"))
         .unwrap_or(false);
     let daemon_prefix: Vec<OsString> = if renamed { vec!["acp".into()] } else { Vec::new() };
-    finish(entry::main(args, Invocation { daemon_prefix, ..Invocation::default() }))
+    finish(entry::main(args, Invocation { daemon_prefix, ..Invocation::default() }), "cmux acp")
 }
 
-fn finish(result: anyhow::Result<()>) -> i32 {
+fn finish(result: anyhow::Result<()>, display_name: &str) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux acp: {error:#}");
+            eprintln!("{display_name}: {error:#}");
             1
         }
     }

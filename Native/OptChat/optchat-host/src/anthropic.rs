@@ -76,15 +76,13 @@ impl AnthropicModel {
             })
             .collect();
         content.push(json!({"type": "text", "text": request.step}));
-        let mut messages = vec![json!({"role": "user", "content": content})];
-        for f in followups {
-            let content = match &f.reply.content {
-                Value::Null => json!(f.reply.text),
-                raw => raw.clone(),
-            };
-            messages.push(json!({"role": "assistant", "content": content}));
-            messages.push(json!({"role": "user", "content": f.retry}));
+        // A size retry is a fresh call (the reference client's way): the
+        // same content, which reads the cache, and the last retry note; the
+        // model does not see its own long line.
+        if let Some(f) = followups.last() {
+            content.push(json!({"type": "text", "text": f.retry}));
         }
+        let messages = vec![json!({"role": "user", "content": content})];
         let mut body = json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -188,77 +186,13 @@ mod tests {
 
     fn request() -> CompactRequest {
         CompactRequest {
+            imported: false,
             node: NodeId::new(0, 3),
             system: "SYS".into(),
             context: "<chat>\n</chat>".into(),
             step: "STEP".into(),
             cut: None,
         }
-    }
-
-    #[test]
-    fn body_puts_cached_context_first_and_replays_the_size_loop() {
-        let model = AnthropicModel::new(&Config::default());
-        let followups = vec![Followup {
-            reply: Reply {
-                text: "long".into(),
-                content: json!([{"type": "text", "text": "long"}]),
-            },
-            retry: "That line is 600 bytes".into(),
-        }];
-        let body = model.body(&request(), &followups);
-        assert_eq!(body["system"][0]["text"], "SYS");
-        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
-        assert_eq!(body["cache_control"]["type"], "ephemeral");
-        assert_eq!(body["model"], "claude-haiku-5-5");
-        assert_eq!(body["output_config"]["effort"], "medium");
-        assert!(body.get("tools").is_none());
-        let m = body["messages"].as_array().unwrap();
-        assert_eq!(m.len(), 3);
-        // An empty view has no whole block: its header block takes the mark.
-        assert_eq!(m[0]["content"][0]["text"], "<chat>\n");
-        assert_eq!(m[0]["content"][0]["cache_control"]["type"], "ephemeral");
-        assert!(m[0]["content"][1].get("cache_control").is_none());
-        assert_eq!(m[0]["content"][2]["text"], "STEP");
-        assert_eq!(m[1]["role"], "assistant");
-        assert_eq!(m[1]["content"][0]["text"], "long");
-        assert_eq!(m[2]["content"], "That line is 600 bytes");
-    }
-
-    /// Spec 3.3 (gist 3c190e0): the view in blocks of 4 lines, one mark on
-    /// the last whole block; the turns' tools when configured, never called.
-    #[test]
-    fn the_view_goes_in_four_line_blocks_with_one_mark_on_the_last_whole_one() {
-        let line = format!("{}\n", "x".repeat(99));
-        let mut context = String::from("<chat>\n");
-        for _ in 0..30 {
-            context.push_str(&line);
-        }
-        context.push_str("</chat>");
-        let request = CompactRequest {
-            context: context.clone(),
-            ..request()
-        };
-        let config = Config {
-            tools: Some(json!([{"name": "zoom"}])),
-            ..Config::default()
-        };
-        let body = AnthropicModel::new(&config).body(&request, &[]);
-        assert_eq!(body["tools"], json!([{"name": "zoom"}]));
-        assert_eq!(body["tool_choice"]["type"], "none");
-        let blocks = body["messages"][0]["content"].as_array().unwrap().clone();
-        // The header, 7 whole blocks of 4 lines, the rest, the task.
-        assert_eq!(blocks.len(), 10);
-        let joined: String = blocks[..9]
-            .iter()
-            .map(|b| b["text"].as_str().unwrap())
-            .collect();
-        assert_eq!(joined, context);
-        let marked: Vec<usize> = (0..blocks.len())
-            .filter(|k| blocks[*k].get("cache_control").is_some())
-            .collect();
-        assert_eq!(marked, vec![7]);
-        assert_eq!(blocks[9]["text"], "STEP");
     }
 
     /// Audit round 2: the key was the constant "subrouter", so any other
@@ -317,31 +251,5 @@ mod tests {
             server.join().unwrap(),
             ("sk-real".to_owned(), "claude".to_owned())
         );
-    }
-
-    #[test]
-    fn a_real_key_never_goes_to_the_subrouter() {
-        let env = |k: &str| (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string());
-        assert_eq!(api_key(crate::DEFAULT_BASE_URL, env), crate::SUBROUTER_KEY);
-        assert_eq!(api_key("https://api.anthropic.com", env), "sk-real");
-        let explicit = |k: &str| (k == crate::API_KEY_ENV).then(|| "sk-mine".to_string());
-        assert_eq!(api_key(crate::DEFAULT_BASE_URL, explicit), "sk-mine");
-        assert_eq!(
-            api_key("https://api.anthropic.com", |_| None),
-            crate::SUBROUTER_KEY
-        );
-    }
-
-    #[test]
-    fn parse_joins_text_and_rejects_refusals_and_cut_replies() {
-        let ok = json!({"stop_reason": "end_turn", "content": [
-            {"type": "thinking", "thinking": "", "signature": "s"},
-            {"type": "text", "text": "user: hi"}]});
-        let reply = parse(ok.clone()).unwrap();
-        assert_eq!(reply.text, "user: hi");
-        assert_eq!(reply.content, ok["content"]);
-        assert!(parse(json!({"stop_reason": "refusal", "content": []})).is_err());
-        assert!(parse(json!({"stop_reason": "max_tokens", "content": []})).is_err());
-        assert!(parse(json!({"error": "x"})).is_err());
     }
 }

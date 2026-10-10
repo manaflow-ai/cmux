@@ -21,6 +21,10 @@ export interface PaletteRankEntry {
   entersScope?: boolean;
   /** The section the row joins while the user types (the root merges all rows into one list). */
   typingSectionIndex?: number | null;
+  /** The catalog's first-use suggestion order (`ActionDescriptor.paletteSuggestionRank`), if any. */
+  suggestedRank?: number | null;
+  /** The section a suggested row shows in on the empty query (Suggested). */
+  suggestedSectionIndex?: number | null;
   /** The registry action id; found only by a query that is the id or starts it (4+ letters). */
   actionID?: string | null;
   /** A row of a secondary kind (a setting): one tier lower than a command with the same match. */
@@ -34,10 +38,25 @@ export interface PaletteFrecencyEntry {
   lastUsed: number;
 }
 
+/** A learned pick: the row the user ran for a normalized query start (palette-usage-v1). */
+export interface PaletteLearnedPick {
+  prefix: string;
+  key: string;
+  /** Decayed pick count as of `lastUsed`; halves every `pickHalfLife`. */
+  score: number;
+  lastUsed: number;
+  /** The latest row picked for `prefix`. */
+  last: boolean;
+}
+
 export interface PaletteFrecency {
   entries?: Record<string, PaletteFrecencyEntry>;
   halfLife?: number;
   capacity?: number;
+  picks?: PaletteLearnedPick[];
+  pickHalfLife?: number;
+  /** Usage keys of rows the user hid: gone from the palette except for a whole-title query. */
+  hidden?: string[];
 }
 
 export interface PaletteRankedRow {
@@ -396,11 +415,6 @@ export const matchTier = {
 /** Points per tier: above the largest quality, usage and bias sum, so the class always decides first. */
 const tierScale = 1_000;
 const maximumQuality = 880;
-/** Lifts a row with a shortcut over its unbound siblings ("Split Right" over "Split Up"); far less than a tier. */
-const shortcutBonus = 40;
-/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
- * ranks with a command that has the query as a whole word, below one that starts with it. */
-const demotion = 2;
 /** The typo pass runs only when the strict pass found fewer rows than this at the substring tier or better. */
 const typoPassThreshold = 3;
 
@@ -574,7 +588,12 @@ function textTier(
   return tier < 0 ? null : tiered(tier);
 }
 
-/** The row's tier: its text, or its action id when that is better; a demoted row one tier lower. */
+/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
+ * ties a command one match class weaker ("Color" ties "Set Workspace Color…"), and the
+ * command wins the tie. */
+const demotion = 3;
+
+/** The row's tier: its text, or its action id when that is better; a demoted row 3 units lower. */
 function entryTier(
   entry: PaletteRankEntry,
   id: readonly string[] | null,
@@ -672,6 +691,43 @@ function frecencyScore(store: PaletteFrecency | undefined, key: string | null | 
   return entry.score * 2 ** (-elapsed / halfLife);
 }
 
+/** Learned picks lift a row to the top (plans/cmux-next/palette-ranking.md 5.2, the Raycast model):
+ * a row picked at least this often (decayed) for the query's longest known start, */
+const liftPicks = 2;
+/** or the latest pick for that start while at least this much of it is left (about a week). */
+const liftLatestPick = 0.5;
+/** Learned picks are kept for query starts of at most this many characters (the daemon's bound). */
+const pickPrefixChars = 8;
+const defaultPickHalfLife = 7 * 24 * 60 * 60;
+
+/** The query as learned picks key it: lowercased, white space collapsed (the daemon's rule). */
+function normalizedQuery(raw: string): string {
+  return raw.trim().split(/\s+/u).filter(Boolean).join(" ").toLowerCase();
+}
+
+/**
+ * The rows that may lift for `raw`, strongest first: the picks of the longest start of the
+ * normalized query that has picks, each qualified by `liftPicks` or `liftLatestPick`. The
+ * caller lifts the first one that still matches the query.
+ */
+function liftCandidates(store: PaletteFrecency | undefined, raw: string, now: number): string[] {
+  const picks = store?.picks;
+  if (!picks?.length) return [];
+  const chars = Array.from(normalizedQuery(raw));
+  const halfLife = store?.pickHalfLife ?? defaultPickHalfLife;
+  for (let length = Math.min(chars.length, pickPrefixChars); length >= 1; length--) {
+    const prefix = chars.slice(0, length).join("").trimEnd();
+    const rows = picks.filter((pick) => pick.prefix === prefix);
+    if (!rows.length) continue;
+    return rows
+      .map((pick) => ({ pick, score: pick.score * 2 ** (-Math.max(0, now - pick.lastUsed) / halfLife) }))
+      .filter(({ pick, score }) => score >= liftPicks || (pick.last && score >= liftLatestPick))
+      .sort((a, b) => b.score - a.score || (a.pick.key < b.pick.key ? -1 : a.pick.key > b.pick.key ? 1 : 0))
+      .map(({ pick }) => pick.key);
+  }
+  return [];
+}
+
 function frecencyBoost(store: PaletteFrecency | undefined, key: string | null | undefined, now: number): number {
   const score = frecencyScore(store, key, now);
   if (score <= 0.01) return 0;
@@ -696,8 +752,13 @@ function sectionOrder(sections: number[], orders: readonly number[]): void {
   });
 }
 
+/** Suggested rows the empty query shows at most. */
+const suggestionLimit = 5;
+
 export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">): PaletteRankedSection[] {
   const entries = request.entries;
+  const hidden = new Set(request.frecency?.hidden ?? []);
+  const isHidden = (entry: PaletteRankEntry) => entry.frecencyKey != null && hidden.has(entry.frecencyKey);
   const orders = request.sectionOrders ?? [];
   const store = request.frecency;
   const now = request.now ?? 0;
@@ -707,9 +768,12 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
   if (request.showsRecent && recentLimit > 0 && store?.entries && Object.keys(store.entries).length > 0) {
     const positionByKey = new Map<string, number>();
     entries.forEach((entry, index) => {
+      // Any row kind the user ran may be Recent (a workspace, tab or setting shows its section
+      // only while typing); a row that matches only behind a query prefix never is.
       if (
         (entry.isEnabled ?? true) &&
-        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        entry.queryPrefix == null &&
+        !isHidden(entry) &&
         entry.frecencyKey &&
         !positionByKey.has(entry.frecencyKey)
       )
@@ -725,10 +789,32 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
       sections.push({ sectionIndex: null, rows });
     }
   }
+  // Suggested: the catalog's first-use commands in its order, after Recent and never
+  // repeating a Recent row (palette-ranking.md 5.2: favorites, recents, suggestions).
+  const suggested = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry, index }) =>
+        entry.suggestedRank != null &&
+        entry.suggestedSectionIndex != null &&
+        (entry.isEnabled ?? true) &&
+        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        !recent.has(index) &&
+        !isHidden(entry),
+    )
+    .sort((a, b) => (a.entry.suggestedRank ?? 0) - (b.entry.suggestedRank ?? 0) || a.index - b.index)
+    .slice(0, suggestionLimit);
+  if (request.showsRecent && suggested.length) {
+    sections.push({
+      sectionIndex: suggested[0].entry.suggestedSectionIndex ?? null,
+      rows: suggested.map(({ index }) => ({ index, score: 0, highlights: [] })),
+    });
+    suggested.forEach(({ index }) => recent.add(index));
+  }
   const order: number[] = [];
   const rowsBySection = new Map<number, PaletteRankedRow[]>();
   entries.forEach((entry, index) => {
-    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index)) return;
+    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index) || isHidden(entry)) return;
     const section = entry.sectionIndex ?? 0;
     if (!rowsBySection.has(section)) order.push(section);
     rowsBySection.set(section, [...(rowsBySection.get(section) ?? []), { index, score: 0, highlights: [] }]);
@@ -746,7 +832,19 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   const now = request.now ?? 0;
   const gated = entries.some((entry) => entry.queryPrefix != null || entry.hidesWhenTyping === true);
   const prepared = fieldsForEntries(entries, request.version);
-  const scored: Array<{ index: number; score: number; highlights: number[] }> = [];
+  const hidden = new Set(store?.hidden ?? []);
+  const scored: Array<{
+    index: number;
+    score: number;
+    tier: number;
+    enabled: boolean;
+    demoted: boolean;
+    /** A demoted row whose whole title is the query. */
+    exactName: boolean;
+    shortcut: boolean;
+    lifted: boolean;
+    highlights: number[];
+  }> = [];
   const rank = (allowsTypo: boolean) => {
     let strong = 0;
     entries.forEach((entry, index) => {
@@ -754,11 +852,22 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
       if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
       const match = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
       if (!match) return;
+      // A hidden row shows only for a query that is its whole title (so it can be shown again).
+      if (entry.frecencyKey && hidden.has(entry.frecencyKey) && !titleIsQuery(entry.title, query.raw)) return;
       if (match.tier >= matchTier.substring) strong++;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
-      if (entry.hasShortcut) score += shortcutBonus;
       if (entry.isEnabled === false) score -= disabledPenalty;
-      scored.push({ index, score, highlights: match.highlights });
+      scored.push({
+        index,
+        score,
+        tier: match.tier,
+        enabled: entry.isEnabled !== false,
+        demoted: entry.demoted === true,
+        exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
+        shortcut: entry.hasShortcut === true,
+        lifted: false,
+        highlights: match.highlights,
+      });
     });
     return strong;
   };
@@ -768,6 +877,26 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     // Strict tiers do not change with typos allowed, so the second pass replaces the first.
     scored.length = 0;
     rank(true);
+  }
+  // A setting whose whole title is the query, and the only one, is an exact name ("theme" for
+  // Theme): it keeps the whole-title tier (a command with the same title still wins the tie).
+  // Several settings with that title ("Color" x10) stay demoted below the commands.
+  // The strongest learned pick for this query that still matches it goes first, over any
+  // match class: muscle memory beats text quality (the Raycast model).
+  const candidates = liftCandidates(store, query.raw, now);
+  if (candidates.length) {
+    const byKey = new Map<string, (typeof scored)[number]>();
+    for (const item of scored) {
+      const key = entries[item.index].frecencyKey;
+      if (key && item.enabled && !byKey.has(key)) byKey.set(key, item);
+    }
+    const lifted = candidates.map((key) => byKey.get(key)).find((item) => item !== undefined);
+    if (lifted) lifted.lifted = true;
+  }
+  const exactNames = scored.filter((item) => item.exactName);
+  if (exactNames.length === 1) {
+    exactNames[0].tier += demotion;
+    exactNames[0].score += demotion * tierScale;
   }
   if (request.ranksPrefixFirst) {
     const prefix = query.raw.trim().toLocaleLowerCase();
@@ -785,7 +914,19 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     });
   } else {
     // Equal scores keep the provider order (the catalog lists the common command of a family first).
-    scored.sort((left, right) => right.score - left.score || left.index - right.index);
+    // Enabled rows first, then the match tier. Inside a tier a command comes before a demoted row
+    // (a setting) whatever their quality, then the score; equal scores prefer a row with a
+    // shortcut (Split Right over Split Up), then the provider order.
+    scored.sort(
+      (left, right) =>
+        Number(right.enabled) - Number(left.enabled) ||
+        Number(right.lifted) - Number(left.lifted) ||
+        right.tier - left.tier ||
+        Number(left.demoted) - Number(right.demoted) ||
+        right.score - left.score ||
+        Number(right.shortcut) - Number(left.shortcut) ||
+        left.index - right.index,
+    );
   }
   const rowLimit = request.rowLimit ?? 400;
   const highlightLimit = request.highlightLimit ?? 60;

@@ -89,7 +89,7 @@ struct BranchTerminalLifetimeTests {
             let spares = TerminalHosts.of(daemon: h.identity.pid).subtracting(TerminalHosts.terminals(daemon: h.identity.pid, state: state))
             #expect(spares.count <= 1, "at most one spare host (R81): \(spares)")
             try await h.connection.closeTab(created.surface)
-            let leaked = await TerminalHosts.awaitExit(host, timeout: .seconds(15))
+            let leaked = await TerminalHosts.awaitExit(host)
             #expect(leaked.isEmpty, "the closed tab's terminal outlived the reap grace: \(leaked)")
             #expect(TerminalHosts.alive(before) == before, "the open tab's terminal must stay")
         }

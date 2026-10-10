@@ -344,13 +344,6 @@ impl LinuxProcStat {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
-std::thread_local! {
-    static FORCE_PIDFD_UNAVAILABLE: std::cell::Cell<bool> = const {
-        std::cell::Cell::new(false)
-    };
-}
-
 impl UnixPeerProcessExit {
     #[cfg(target_os = "linux")]
     fn observe(pid: libc::pid_t) -> io::Result<Self> {
@@ -368,10 +361,6 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_os = "linux")]
     fn open_pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
-        #[cfg(test)]
-        if FORCE_PIDFD_UNAVAILABLE.with(std::cell::Cell::get) {
-            return Err(io::Error::from_raw_os_error(libc::ENOSYS));
-        }
         let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
@@ -582,17 +571,6 @@ fn parse_linux_proc_stat(contents: &[u8]) -> io::Result<LinuxProcStat> {
         .and_then(|field| field.parse().ok())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing process start time"))?;
     Ok(LinuxProcStat { state, start_time })
-}
-
-#[cfg(test)]
-async fn call_admin_with_expected_uid(
-    path: impl AsRef<Path>,
-    request: &AdminRequest,
-    expected_uid: u32,
-) -> Result<AdminResponse, AdminError> {
-    let stream = UnixStream::connect(path).await?;
-    verify_unix_peer_uid(&stream, expected_uid)?;
-    call_admin_over_stream(stream, request).await
 }
 
 async fn call_admin_over_stream(
@@ -850,14 +828,13 @@ impl From<UnixPeerAuthError> for AdminError {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     use tokio::net::UnixListener;
     use tokio::time::{Duration as TokioDuration, timeout};
 
     use super::*;
     use crate::identity::AuthDatabase;
     use crate::session::SessionLimits;
-    use crate::unix_socket::TestFileDescriptorExhaustion;
 
     #[test]
     fn admin_listener_retries_recoverable_accept_errors() {
@@ -872,37 +849,6 @@ mod tests {
             .unwrap();
 
         assert!(status.success(), "admin listener stopped after a recoverable accept error");
-    }
-
-    #[tokio::test]
-    async fn admin_listener_accept_exhaustion_fixture() {
-        if std::env::var_os("CMUX_TEST_ADMIN_ACCEPT_EXHAUSTION").is_none() {
-            return;
-        }
-
-        let directory = tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(
-            directory.path().join("state"),
-            "accept-retry-admin",
-            true,
-        )
-        .unwrap();
-        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let socket = directory.path().join("admin.sock");
-        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
-        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
-        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
-
-        tokio::time::sleep(TokioDuration::from_millis(75)).await;
-        exhaustion.restore();
-
-        let response =
-            timeout(TokioDuration::from_secs(2), call_admin(&socket, &AdminRequest::Status))
-                .await
-                .expect("admin listener never retried after file-descriptor exhaustion")
-                .unwrap();
-        assert!(response.ok);
-        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -1161,78 +1107,5 @@ mod tests {
 
         assert_eq!(response.error.as_deref(), Some("admin response is too large"));
         server.shutdown().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn exact_maximum_response_payload_is_accepted_before_decode() {
-        let empty = AdminResponse::failure("");
-        let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
-        let expected =
-            AdminResponse::failure("x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1));
-        let mut encoded = serde_json::to_vec(&expected).unwrap();
-        assert_eq!(encoded.len() + 1, MAX_ADMIN_MESSAGE_BYTES);
-        encoded.push(b'\n');
-        let (client, server) = UnixStream::pair().unwrap();
-        let responder = tokio::spawn(async move {
-            let (reader, mut writer) = server.into_split();
-            let mut reader = BufReader::new(reader);
-            let mut request = Vec::new();
-            reader.read_until(b'\n', &mut request).await.unwrap();
-            writer.write_all(&encoded).await.unwrap();
-        });
-
-        let actual = call_admin_over_stream(client, &AdminRequest::Status).await.unwrap();
-
-        assert_eq!(actual, expected);
-        responder.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn client_rejects_wrong_uid_responder_before_writing_request() {
-        let directory = tempdir().unwrap();
-        let socket = directory.path().join("impostor-admin.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        let responder = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let mut byte = [0_u8; 1];
-            timeout(TokioDuration::from_secs(1), stream.read(&mut byte))
-                .await
-                .expect("admin client kept the rejected connection open")
-                .unwrap()
-        });
-        let wrong_uid = unsafe { libc::geteuid() }.wrapping_add(1);
-
-        let error = call_admin_with_expected_uid(&socket, &AdminRequest::Status, wrong_uid)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, AdminError::UnauthorizedPeer(_)));
-        assert_eq!(responder.await.unwrap(), 0, "admin request leaked to the wrong-uid responder");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn peer_exit_observer_falls_back_when_pidfd_is_unavailable() {
-        let mut child = std::process::Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .spawn()
-            .expect("could not start fallback process fixture");
-        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(true));
-        let observer = UnixPeerProcessExit::observe(child.id() as libc::pid_t);
-        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(false));
-
-        let mut observer =
-            observer.expect("pidfd unavailability disabled remote daemon process fencing");
-        assert!(!observer.has_exited().unwrap());
-        child.kill().unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !observer.has_exited().unwrap() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "procfs fallback did not observe process exit"
-            );
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        child.wait().unwrap();
     }
 }

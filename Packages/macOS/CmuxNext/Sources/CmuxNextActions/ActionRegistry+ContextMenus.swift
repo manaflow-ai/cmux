@@ -42,6 +42,7 @@ extension ActionRegistry {
         switch context {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
+        case .agentChat: .agentPaneFocused
         default: []
         }
     }

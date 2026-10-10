@@ -47,8 +47,8 @@
     },
     {
       "path": "AgentSessionSource.java",
-      "sha256": "44b120230e12830916a2c9cde78b0adf3c4d19223f21e37f6f8bfcb64d54984e",
-      "size": 4188
+      "sha256": "2da59b2dc3f90b8301fbfd97da007969f2cb541d9aea6d187c156f2193ba3ceb",
+      "size": 4275
     },
     {
       "path": "AgentSource.java",
@@ -542,8 +542,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "e7820e5b7ff35c713ae7dca0ea978ab61d15d127e9f0a58b1d0798069efc474f",
-      "size": 63461
+      "sha256": "433b352e334e2a85836b6c78c640883b95f297129bbe4d10112d8bafbea854ae",
+      "size": 65194
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -961,6 +961,31 @@
       "size": 2648
     },
     {
+      "path": "FeedLocalHandoffAbortRequest.java",
+      "sha256": "1f67d1a72db95aa3c265f147b4a5e570a5e133d279947a916f11fa887fbc01c8",
+      "size": 2074
+    },
+    {
+      "path": "FeedLocalHandoffBeginRequest.java",
+      "sha256": "d9478cc5ec9344d78d70107391cfb987209394ab474b86cd064e220bad06f39f",
+      "size": 2074
+    },
+    {
+      "path": "FeedLocalHandoffDoneRequest.java",
+      "sha256": "c3c11ef70793ae3d13fc2f42311d48f8a2246eb3ae330affd0934dfb59c7d704",
+      "size": 2701
+    },
+    {
+      "path": "FeedLocalListRequest.java",
+      "sha256": "640fb5a361e80eace090f977c69bc1875437c26eb0513d8dd3f8893e9d943feb",
+      "size": 3285
+    },
+    {
+      "path": "FeedLocalReadRequest.java",
+      "sha256": "05515d1471829bfc968dc648ffa7dfff0b34c55bd68552e2faf5a7222b043318",
+      "size": 2110
+    },
+    {
       "path": "FocusDirectionRequest.java",
       "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
       "size": 2577
@@ -1022,8 +1047,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "5b71d6604d4066716dd05bbcefc3136904b07fe0f5880ec2f3774e2b0bce10c1",
-      "size": 55745
+      "sha256": "da90090d7f9eac70a8453df6670ee9b872d9d8282716042b90c3066f8e8b2cd1",
+      "size": 56931
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1457,13 +1482,13 @@
     },
     {
       "path": "NewPaneRequest.java",
-      "sha256": "d825033157b108b08e9c90c64e1cfe0da692d215201d01ac6b223be72beffbab",
-      "size": 6483
+      "sha256": "9c57af58d2963513c2c10b4570e58fc5758b86212dda89d9ff3cffae565a52bd",
+      "size": 7721
     },
     {
       "path": "NewPaneRightRequest.java",
-      "sha256": "ff74784d863cf9bd9eb000601170a8f4a46bbc45274193fb3c46cb3a8db3e224",
-      "size": 8339
+      "sha256": "7726ff954ce2d7be9359329b9820c1165581c8dc74ff0eaf7275212f2d231988",
+      "size": 9587
     },
     {
       "path": "NewRowRequest.java",
@@ -1591,6 +1616,11 @@
       "size": 1898
     },
     {
+      "path": "PaneSurfaceResult.java",
+      "sha256": "c17128e24d3192d3e4d974835e83be6682c5b4128ddfb1a12ec8aaa920aafdac",
+      "size": 5474
+    },
+    {
       "path": "PasteImageRequest.java",
       "sha256": "b2cd5720ea9a2eea4d6037e236527196cfdd1a15e940acac9f4fc4f31af5a09f",
       "size": 7500
@@ -1632,7 +1662,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9f5bba861cef47970c2fe30f11208ddbfec8c14b62d1e3a10f0ba6d9d169b659",
+      "sha256": "3a9b5e60c079f878fa7ea85f34e1c0bdc68abc79c59de10e3dc82b67f33bb841",
       "size": 5901
     },
     {
@@ -2027,8 +2057,13 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "64fe1b53c7e0858df64b3df378253be657cf7e5f697b41f87d6217be665bb82f",
-      "size": 6135
+      "sha256": "c1b4ffa25828ddda98fe78c9762d535f531aa1b522fdff107dc7b2726d5f2e50",
+      "size": 6831
+    },
+    {
+      "path": "ServerStatsWritePath.java",
+      "sha256": "225920bc974d94ad3fca11362a2f856de71664e8adad92b57527470729c4fab9",
+      "size": 6111
     },
     {
       "path": "ServerStatsWriterPhase.java",
@@ -2272,8 +2307,8 @@
     },
     {
       "path": "SplitRequest.java",
-      "sha256": "086ce29c5df063e241d1cc0baaf93ce2b9b3384683e343759814585c078ad81c",
-      "size": 8208
+      "sha256": "3b8bd71e38940d3fca52747d4821573168d8d0f9ef452152c850baaa947f060c",
+      "size": 9442
     },
     {
       "path": "SplitRespawn.java",
@@ -2812,7 +2847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d",
+  "ir_sha256": "e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

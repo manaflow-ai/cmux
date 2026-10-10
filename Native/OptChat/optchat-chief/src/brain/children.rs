@@ -42,8 +42,8 @@ impl Brain {
                 }
                 self.adopt_orphans();
                 self.reconcile_children();
-                self.prewarm_next_turn();
                 self.maybe_start_turn();
+                self.prewarm_next_turn();
             }
             AgentEvent::Down => self.agents_up = false,
             AgentEvent::Ended => {
@@ -309,6 +309,7 @@ impl Brain {
                     source,
                     images: Vec::new(),
                     conversation: None,
+                    logged: false,
                 }
             }
             None => self.queue(text, source),

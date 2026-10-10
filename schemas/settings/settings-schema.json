@@ -16,7 +16,8 @@
             "rows" : [
               "window.titlebar",
               "window.titlebarButtons",
-              "app.globalHotKey"
+              "app.globalHotKey",
+              "app.startAgentGlobalHotKey"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -298,8 +299,8 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
-              "sidebar.allChatsRows",
               "sidebar.showProjects",
+              "sidebar.groupBy",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -450,6 +451,8 @@
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
+              "agentPane.showContextUsage",
+              "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -479,6 +482,7 @@
         },
         "trail" : [
           "harnesses",
+          "agentHarnesses",
           "computerUse"
         ]
       },
@@ -1226,6 +1230,58 @@
       "title" : {
         "key" : "settings.app.globalHotKey",
         "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.startAgentGlobalHotKey.help",
+        "text" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.startAgentGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "start agent",
+        "agent",
+        "quick",
+        "chat",
+        "launcher",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "startAgentGlobalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.startAgentGlobalHotKey",
+        "text" : "Start Agent from Any App"
       },
       "validation" : "portable"
     },
@@ -2011,6 +2067,7 @@
     },
     {
       "accepts" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -2018,6 +2075,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.stripScrollbarSystem",
+            "text" : "Follow System"
+          },
+          "value" : "system"
+        },
         {
           "title" : {
             "key" : "settings.choice.stripScrollbarAuto",
@@ -2043,7 +2107,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "system",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -9563,61 +9627,6 @@
     },
     {
       "accepts" : [
-        1,
-        50,
-        25.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 8,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.allChatsRows.help",
-        "text" : "How many chats the All chats section shows before it scrolls."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.allChatsRows",
-      "keywords" : [
-        "sidebar",
-        "chats",
-        "all chats",
-        "rows",
-        "count"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "allChatsRows"
-      ],
-      "range" : {
-        "max" : 50,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "count"
-      },
-      "refuses" : [
-        -48,
-        99,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.allChatsRows",
-        "text" : "All Chats Rows"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -9658,6 +9667,67 @@
       "title" : {
         "key" : "settings.sidebar.showProjects",
         "text" : "Show Projects"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "folder"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupByNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByFolder",
+            "text" : "Folder"
+          },
+          "value" : "folder"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupBy",
+      "keywords" : [
+        "sidebar",
+        "projects",
+        "group",
+        "folder",
+        "directory",
+        "cwd"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupBy"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.groupBy",
+        "text" : "Group Projects By"
       },
       "validation" : "portable"
     },
@@ -16483,6 +16553,55 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.showContextUsage.help",
+        "text" : "The ring beside the model that fills as the chat uses its context window."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.showContextUsage",
+      "keywords" : [
+        "context",
+        "usage",
+        "tokens",
+        "window",
+        "ring",
+        "composer",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "showContextUsage"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.showContextUsage",
+        "text" : "Show Context Usage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
         "cmux-browser"
       ],
       "default" : true,
@@ -17249,9 +17368,64 @@
         "text" : "Workspace Icons"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.5,
+        2,
+        1.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.zoom.help",
+        "text" : "The display size for agent chat. Cmd-0 resets it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.zoom",
+      "keywords" : [
+        "agent",
+        "chat",
+        "zoom",
+        "display",
+        "size"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "zoom"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.5,
+        "placeholder" : 1,
+        "step" : 0.1,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        3,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.zoom",
+        "text" : "Agent Chat Zoom"
+      },
+      "validation" : "portable"
     }
   ],
-  "schema_hash" : "2874a612e33588d56c05061af3e85b4a404143b0ef2d2f34fcd7df4ea8c3a994",
+  "schema_hash" : "a4ab8db8dd10e662698bdfcdbc9464159ea3a807d09dec16df67ff9a07f46e96",
   "sections" : [
     {
       "id" : "general",

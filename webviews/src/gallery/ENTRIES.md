@@ -135,6 +135,9 @@ Each action is one step, and the stage measures it:
 - anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
   resize (0 px).
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- action-to-settled latency: wall time from dispatching the gesture until the page settles; the
+  matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
+  interaction has a user-facing responsiveness budget.
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
   reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
   headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
@@ -146,6 +149,15 @@ checks override the entry defaults, and `validateEntries` refuses a check withou
 
 ```ts
 checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
+```
+
+For an interaction with a responsiveness budget, combine the frame checks with a measured settle
+budget. The report still records every sample and the matrix shows its p50 / p95 / max values:
+
+```ts
+checks: {
+  settleMaxMs: { value: 250, reason: "Image viewer actions should settle within a quarter second." },
+},
 ```
 
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
@@ -178,7 +190,7 @@ something an entry now covers. After you add an entry:
 ```sh
 cd webviews
 CMUX_GALLERY_UPDATE_ALLOWLIST=1 bun test test/gallery-coverage.test.ts   # shrink the allowlist
-bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/gallery-theme.test.ts test/pane-english.test.ts
+bun test test/gallery-coverage.test.ts test/gallery-env.test.ts test/pane-english.test.ts
 bun run typecheck
 ```
 
@@ -226,7 +238,7 @@ Lawrence can see them side by side and pick one. Three pieces, all next to the c
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
 defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
    `description`. `defaultArm` is the arm that ships. Add the definition to
-   `src/experiments/registry.ts` (one import, one list item); `test/experiments.test.ts` checks it.
+   `src/experiments/registry.ts` (one import, one list item).
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
    host override `globalThis.cmuxExperiments` (the gallery's stage frame sets it from `arm=`), else
    the debug key `localStorage["cmux.experiments"]` (`{"<id>":"<arm>"}`, for dogfood in the app),

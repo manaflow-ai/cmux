@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d. */
+/* cmux-tui mux protocol 12, IR e2aa9bda6ce2b99b533ab691a7df02cfab75c8fff586a74f4e6166bafa13d388. */
 
 
 import type * as T from "./types.js";
@@ -855,6 +855,44 @@ export interface ExportLayoutRequest extends CmuxRequestBase {
   "screen"?: (T.Id) | null;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface FeedLocalHandoffAbortRequest extends CmuxRequestBase {
+  cmd: "feed-local-handoff-abort";
+  "item": string;
+}
+export type FeedLocalHandoffAbortResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface FeedLocalHandoffBeginRequest extends CmuxRequestBase {
+  cmd: "feed-local-handoff-begin";
+  "item": string;
+}
+export type FeedLocalHandoffBeginResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface FeedLocalHandoffDoneRequest extends CmuxRequestBase {
+  cmd: "feed-local-handoff-done";
+  "home": string;
+  "item": string;
+}
+export type FeedLocalHandoffDoneResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FeedLocalListRequest extends CmuxRequestBase {
+  cmd: "feed-local-list";
+  "state"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "unread"?: boolean;
+}
+export type FeedLocalListResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FeedLocalReadRequest extends CmuxRequestBase {
+  cmd: "feed-local-read";
+  "items": Array<string>;
+}
+export type FeedLocalReadResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
   cmd: "focus-direction";
@@ -1334,11 +1372,13 @@ export interface NewPaneRequest extends CmuxRequestBase {
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
 }
-export type NewPaneResult = T.SurfaceResult;
+export type NewPaneResult = T.PaneSurfaceResult;
 
 /** Protocol v9; authority: control. */
 export interface NewPaneRightRequest extends CmuxRequestBase {
@@ -1349,13 +1389,15 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
   "width"?: (number) | null;
 }
-export type NewPaneRightResult = T.SurfaceResult;
+export type NewPaneRightResult = T.PaneSurfaceResult;
 
 /** Protocol v12; authority: control. */
 export interface NewRowRequest extends CmuxRequestBase {
@@ -2048,12 +2090,14 @@ export interface SplitRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
 }
-export type SplitResult = T.SurfaceResult;
+export type SplitResult = T.PaneSurfaceResult;
 
 /** Protocol v5; authority: frontend. */
 export interface SubscribeRequest extends CmuxRequestBase {
@@ -2406,6 +2450,11 @@ export type CmuxRequest =
   | DetachAttachedViewRequest
   | DetachClientRequest
   | ExportLayoutRequest
+  | FeedLocalHandoffAbortRequest
+  | FeedLocalHandoffBeginRequest
+  | FeedLocalHandoffDoneRequest
+  | FeedLocalListRequest
+  | FeedLocalReadRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -3203,6 +3252,46 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "feed-local-handoff-abort": {
+    request: FeedLocalHandoffAbortRequest;
+    result: FeedLocalHandoffAbortResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "feed-local-handoff-begin": {
+    request: FeedLocalHandoffBeginRequest;
+    result: FeedLocalHandoffBeginResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "feed-local-handoff-done": {
+    request: FeedLocalHandoffDoneRequest;
+    result: FeedLocalHandoffDoneResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "feed-local-list": {
+    request: FeedLocalListRequest;
+    result: FeedLocalListResult;
+    authority: "control";
+    since: 12;
+    capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "feed-local-read": {
+    request: FeedLocalReadRequest;
+    result: FeedLocalReadResult;
+    authority: "control";
+    since: 12;
+    capability: "feed-local-owner-v1";
     stream: null;
   };
   "focus-direction": {
