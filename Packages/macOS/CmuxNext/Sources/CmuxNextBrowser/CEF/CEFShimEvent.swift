@@ -48,6 +48,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A sign-in tab navigated to its session's callback; the shim cancelled
     /// the navigation (`cmux_shim_set_auth_callback`).
     case authCallback(browser: Int32, url: String)
+    /// The shim cancelled a main-frame navigation to a local file cmux shows
+    /// elsewhere (`LocalFileHandoff`).
+    case localFileHandoff(browser: Int32, url: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -114,6 +117,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 34...36:
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
+        case 38: self = .localFileHandoff(browser: browser, url: s1)
         default: self = .unknown(kind: kind)
         }
     }

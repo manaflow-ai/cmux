@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto"
+import { isMachineInstallKind } from "../machine-installs.ts"
 import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
+import { ROLES } from "./team-roles.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
@@ -12,7 +14,7 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 /** Most teams one user's index holds (the user head is one SQLite row). */
 export const MAX_TEAM_INDEX = 1_000
-const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
+const TEAM_ROLES: ReadonlySet<string> = new Set(ROLES)
 const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
@@ -24,7 +26,7 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
   /** One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). */
-  readonly migrations?: { readonly ios_cloud_link?: true }
+  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true }
   /**
    * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
@@ -41,6 +43,11 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly last_email_change?: { readonly email: string; readonly at: number }
   /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
   readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
+  /**
+   * Teams this user was removed from (team -> removal time; cx-44j.51): the server never stamps their
+   * SSO on a later install (a VM bound after the removal) until the person signs in through it again.
+   */
+  readonly sso_left?: Readonly<Record<string, number>>
 }
 
 /** At most this many previous addresses are kept (the earliest win: the owner's address is never evicted). */
@@ -55,6 +62,8 @@ const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(
 /** Stable public ids derived from the Stack identity, so routing needs no lookup. */
 export const userIdFor = (stackProjectId: string, stackUserId: string) => `user_${hex20(`stack:${stackProjectId}:${stackUserId}`)}`
 export const personalTeamIdFor = (userId: string) => `team_${hex20(`personal:${userId}`)}`
+/** A Stack (shared) team's cmux id (cx-3bi.43): the Stack webhook and x-cmux-team use it. */
+export const stackTeamIdFor = (stackProjectId: string, stackTeamId: string) => `team_${hex20(`stack-team:${stackProjectId}:${stackTeamId}`)}`
 
 /** RFC 7638 thumbprint of an EC P-256 JWK. */
 export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: string }) =>
@@ -64,7 +73,7 @@ const ALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute", "send-ext
 /** An install's default grant: its own user's interactive rights, minus account management (destructive). */
 const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as const
 /** Install kinds only the server creates (CLOUD-LINK-FOLLOWUPS 4). */
-const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
+const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "team-vm", "daemon"])
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
 
@@ -89,6 +98,29 @@ export const iosGrantsToMigrate = (state: UserState): Array<string> =>
     .map((g) => g.id)
 
 /**
+ * cx-wb5.64: grants of active mac installs that still carry execute. Before the mac grant cap
+ * (e9d25623248e) a mac install got the old default (read, mutate-own, mutate-shared, execute); since
+ * then install.register refuses execute for kind mac and no op widens a grant, so any such grant is
+ * from before the cap. No created_at cutoff: production gets the cap at its own deploy. Runs once per
+ * user (the done flag). A later feature that grants execute to a mac install on purpose must set
+ * migrations.mac_execute_narrow first, or a user without the flag loses it at the next bind.
+ */
+export const macGrantsToNarrow = (state: UserState): Array<string> =>
+  state.migrations?.mac_execute_narrow
+    ? []
+    : Object.values(state.installs)
+    .filter((i) => i.kind === "mac" && i.revoked_at === null)
+    .map((i) => state.grants[i.grant])
+    .filter((g): g is NonNullable<typeof g> => !!g && g.revoked_at === null && g.op_classes.includes("execute"))
+    .map((g) => g.id)
+
+/** The one-time grant migrations this user still needs, as [internal op, idempotency key prefix] (run on UserDO bind). */
+export const grantMigrationsDue = (state: UserState): Array<readonly [string, string]> => [
+  ...(iosGrantsToMigrate(state).length ? [["install.ios_cloud_link_migrate", "ios-cloud-link"] as const] : []),
+  ...(macGrantsToNarrow(state).length ? [["install.mac_execute_narrow", "mac-execute-narrow"] as const] : [])
+]
+
+/**
  * Inbox calls come from this user only, through an active install whose grant covers the op
  * (the catalog check other owners apply).
  */
@@ -108,10 +140,23 @@ export const installActive = (state: UserState, p: Principal) => {
 }
 
 /** installActive, and not a VM install: a VM install (kind vm) never reads or changes its creator's account (review P1). */
-export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || state.installs[p.install]?.kind !== "vm")
+export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || !isMachineInstallKind(state.installs[p.install]?.kind))
 
 /** True for an unarchived chief of this user. */
 export { chiefActive }
+
+/** A new SSO sign-in through `team` ends its sso_left entry (cx-44j.51). */
+const withoutSsoLeft = (state: UserState, team: string): UserState => {
+  if (state.sso_left?.[team] === undefined) return state
+  const { [team]: _gone, ...rest } = state.sso_left
+  return { ...state, sso_left: rest }
+}
+
+/** sso_left plus `team`, at most MAX_TEAM_INDEX entries (the oldest removal goes first). */
+const withSsoLeft = (state: UserState, team: string, at: number): UserState => {
+  const kept = Object.entries({ ...(state.sso_left ?? {}), [team]: at }).sort(([, a], [, b]) => b - a).slice(0, MAX_TEAM_INDEX)
+  return { ...state, sso_left: Object.fromEntries(kept) }
+}
 
 /**
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
@@ -121,8 +166,9 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
   const g = state.grants[cur.grant]
-  // Install tokens carry the personal team; a bound server's team may also have signed for it.
-  const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : [])])] : []
+  // Every team whose CA may have signed for it (cx-44j.50): the personal team, the bound team, the team whose SSO
+  // authorized it, and every team the user belongs to (any member may get a team certificate from any install).
+  const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : []), ...(cur.sso_team ? [cur.sso_team] : []), ...Object.keys(state.team_index ?? {})])] : []
   const pending = teams.length > 0 && state.user ? { ...state.ssh_revoke_pending, [cur.id]: { user: state.user.id, teams, at: now } } : state.ssh_revoke_pending
   return {
     ok: true,
@@ -149,11 +195,28 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
 }
 
 /**
- * Default grant per install kind: the iPhone app gets read, mutate-own (L14-1) and the narrow
- * cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5); execute and riskier classes need their own grant.
+ * Default grant per install kind, and the most a register may ask for (it may narrow, never widen):
+ * - ios: read, mutate-own (L14-1) and the narrow cloud-link class (link_token, and a force-command
+ *   restricted team_vm.ssh_cert agent certificate: cx-wb5.66; CLOUD-LINK-FOLLOWUPS 5);
+ * - mac (the cmux Mac app, cx-wb5.64): the phone grant plus mutate-shared (start, pause, rename team
+ *   machines through the credential relay); never execute. An install with neither execute nor
+ *   cloud-link gets no SSH certificate (team-ssh-ca.ts). The kind is self-declared by the session holder
+ *   (a cli or web register keeps execute), so this caps a stolen install token, not the session;
+ *   installs registered before this cap (the feat-cmux-next-ios Mac link host, 8fa5131c7964) lose
+ *   execute once through install.mac_execute_narrow;
+ * - vm: vm-self only; every other kind (cli, ...): all install classes.
+ * money and destructive are never install classes (G8 approvals, cx-wb5.65).
  */
 export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link" | "vm-self"> =>
-  kind === "ios" ? ["read", "mutate-own", "cloud-link"] : kind === "vm" ? ["vm-self"] : INSTALL_CLASSES
+  kind === "ios"
+    ? ["read", "mutate-own", "cloud-link"]
+    : kind === "mac"
+      ? ["read", "mutate-own", "mutate-shared", "cloud-link"]
+      : kind === "vm"
+        ? ["vm-self"]
+        : kind === "team-vm"
+          ? ["read", "mutate-own"]
+        : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
 export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
@@ -183,7 +246,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           email: p.email ?? null,
           email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
-          personal_team: p.team
+          // Derived from the user, never the request's team (x-cmux-team names a shared team; cx-3bi.43 review P1-1).
+          personal_team: personalTeamIdFor(p.user)
         }
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
@@ -234,12 +298,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (op === "install.register_server" && (!reserved || p.kind !== "system")) return reject("validation.invalid", "install.register_server takes only a server kind from the server")
         // A VM install speaks for exactly one machine; no other install names one.
         if ((v.kind === "vm") !== (v.bound_machine !== undefined) || (v.kind === "vm" && v.bound_team === undefined)) return reject("validation.invalid", "a vm install names its bound team and machine; no other install does")
+        if (v.kind === "team-vm" && v.bound_team === undefined) return reject("validation.invalid", "a team-vm install names its bound team")
         const thumbprint = jwkThumbprint(v.public_jwk)
         if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
         }
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
+        const left = p.sso_team ? state.sso_left?.[p.sso_team] : undefined
+        const stampSso = Boolean(p.sso_team) && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && (left === undefined || (v.sso_seen_at ?? -1) > left)))
         const device = v.device ?? ctx.newId("dev")
         // A caller may narrow the default grant (a paired server asks for read and mutate-own), never widen it.
         const allowed = defaultClasses(v.kind)
@@ -261,7 +328,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
-          ...((p.kind === "session" || (op === "install.register_server" && p.kind === "system")) && p.sso_team ? { sso_team: p.sso_team } : {}),
+          // A session's SSO is fresh (the Worker resolves it without cache for install.register); a server-made install
+          // carries a stored one, stamped only if it was seen after the user left that team (sso_seen_at; cx-44j.51).
+          ...(stampSso ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,
@@ -273,7 +342,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         }
         return {
           ok: true,
-          state: { ...state, installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
+          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(state, p.sso_team) : state), installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
           value: i,
           outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
         }
@@ -286,6 +355,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         for (const id of ids) grants[id] = { ...grants[id]!, op_classes: [...grants[id]!.op_classes, "cloud-link"] }
         // Done once per user: later iPhone installs keep the grant their client asked for.
         return { ok: true, state: { ...state, grants, migrations: { ...state.migrations, ios_cloud_link: true } }, value: { migrated: ids.length } }
+      }
+      case "install.mac_execute_narrow": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        if (state.migrations?.mac_execute_narrow) return { ok: true, state, value: { narrowed: 0 }, changed: false }
+        const ids = macGrantsToNarrow(state)
+        const grants = { ...state.grants }
+        // Narrowing only: execute goes, every other class stays, nothing is added.
+        for (const id of ids) grants[id] = { ...grants[id]!, op_classes: grants[id]!.op_classes.filter((c) => c !== "execute") }
+        return { ok: true, state: { ...state, grants, migrations: { ...state.migrations, mac_execute_narrow: true } }, value: { narrowed: ids.length } }
       }
       case "install.rename": {
         const d = decodeParams<typeof InstallRename.params.Type>(InstallRename, params)
@@ -322,16 +400,27 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         let next = state
         const outbox: Array<OutboxItem> = []
         const revoked: Array<string> = []
+        const ssoDropped: Array<string> = []
+        // No authority derived from the team survives the removal: an install bound to the team is revoked; any
+        // other install the team's SSO authorized keeps working for the person but loses that SSO (never a sign-out).
         for (const cur of Object.values(state.installs)) {
-          if (cur.bound_team !== team || cur.revoked_at !== null || cur.created_at > before) continue
-          const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
-          if (!r.ok) return r
-          next = r.state
-          outbox.push(...(r.outbox ?? []))
-          revoked.push(cur.id)
+          if (cur.revoked_at !== null || cur.created_at > before) continue
+          if (cur.bound_team === team) {
+            const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
+            if (!r.ok) return r
+            next = r.state
+            outbox.push(...(r.outbox ?? []))
+            revoked.push(cur.id)
+          } else if (cur.sso_team === team) {
+            const { sso_team: _dropped, ...kept } = next.installs[cur.id]!
+            next = { ...next, installs: { ...next.installs, [cur.id]: kept } }
+            outbox.push({ kind: "install.upsert", entity: cur.id, payload: { ...kept, public_jwk: undefined, user: state.user?.id } })
+            ssoDropped.push(cur.id)
+          }
         }
-        if (revoked.length === 0) return { ok: true, state, value: { revoked }, changed: false }
-        return { ok: true, state: next, value: { revoked }, outbox }
+        const recorded = (state.sso_left?.[team] ?? -1) >= before
+        if (revoked.length === 0 && ssoDropped.length === 0 && recorded) return { ok: true, state, value: { revoked, sso_dropped: ssoDropped }, changed: false }
+        return { ok: true, state: recorded ? next : withSsoLeft(next, team, before), value: { revoked, sso_dropped: ssoDropped }, outbox }
       }
       case "user.team_index": {
         // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
@@ -343,7 +432,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           const { [v.team]: _gone, ...rest } = state.team_index ?? {}
           return { ok: true, state: { ...state, team_index: rest }, value: null }
         }
-        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be owner, admin or member; kind personal or stack")
+        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be a team role (owner, admin, member, billing, guest); kind personal or stack")
         const role = v.role as string
         const kind = v.kind as string
         if (cur && cur.role === role && cur.kind === kind) return { ok: true, state, value: cur, changed: false }
@@ -352,12 +441,16 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         return { ok: true, state: { ...state, team_index: { ...(state.team_index ?? {}), [v.team]: { role, kind } } }, value: { role, kind } }
       }
       case "install.ssh_revoke_done": {
-        // UserDO's own alarm, after every team in the notice confirmed the KRL entries.
+        // UserDO's own alarm, after the listed teams of the notice confirmed the KRL entries.
         if (p.kind !== "system" || p.identity !== "system:user") return reject("auth.forbidden", "internal op of this UserDO")
-        const install = (params as { install: string }).install
-        if (!state.ssh_revoke_pending?.[install]) return { ok: true, state, value: { install }, changed: false }
-        const { [install]: _done, ...rest } = state.ssh_revoke_pending
-        return { ok: true, state: { ...state, ssh_revoke_pending: rest }, value: { install } }
+        const { install, teams } = params as { install: string; teams?: ReadonlyArray<string> }
+        const cur = state.ssh_revoke_pending?.[install]
+        if (!cur) return { ok: true, state, value: { install }, changed: false }
+        // The teams that confirmed leave the notice (cx-44j.51); without a list (older callers) every team did.
+        const left = teams ? cur.teams.filter((t) => !teams.includes(t)) : []
+        if (left.length === cur.teams.length) return { ok: true, state, value: { install, left }, changed: false }
+        const { [install]: _done, ...rest } = state.ssh_revoke_pending!
+        return { ok: true, state: { ...state, ssh_revoke_pending: left.length === 0 ? rest : { ...rest, [install]: { ...cur, teams: left } } }, value: { install, left } }
       }
       case "install.revoke": {
         const d = decodeParams<typeof InstallRevoke.params.Type>(InstallRevoke, params)

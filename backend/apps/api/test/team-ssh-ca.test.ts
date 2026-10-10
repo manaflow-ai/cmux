@@ -129,7 +129,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(c.certType).toBe(1)
     expect(c.principals).toEqual(["lawrence-agents"])
     expect(c.keyId).toMatch(new RegExp(`^${t.owner}/session/session/[0-9a-f]{12}$`))
-    expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
+    expect(c.critical).toEqual({ "force-command": "/opt/cmux/current/bin/cmux team restricted-shell" })
     expect(c.extensions).toEqual({ "cmux-teams@cmux.dev": t.team })
     // A full shell needs a fresh presence proof (decision SSH-1), even from a signed-in session. A session asks for a
     // full shell unless it names the agent class, so it gets an explicit error (the CLI then asks for presence), never a silent agent certificate.
@@ -158,16 +158,16 @@ describe("team SSH CA (TeamDO, workerd)", () => {
   it("installs get only the restricted agent class; a full shell needs a person's session; agents, servers and outsiders are refused", async () => {
     const t = await setup("stack-ssh-0000000002")
     const key = await sshLine("p256")
-    const agent = await t.op(t.install(t.owner, ["read", "mutate-own"]), "team_vm.ssh_cert", { public_key: key })
+    const agent = await t.op(t.install(t.owner, ["read", "mutate-own", "cloud-link"]), "team_vm.ssh_cert", { public_key: key })
     expect(agent.value).toMatchObject({ class: "agent", principals: ["lawrence-agents"] })
     const c = await readCert(agent.value.certificate, agent.value.ca_public_key)
     expect(c.verified).toBe(true)
-    expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
+    expect(c.critical).toEqual({ "force-command": "/opt/cmux/current/bin/cmux team restricted-shell" })
     expect(c.extensions).toEqual({ "cmux-teams@cmux.dev": t.team })
     expect(c.keyId.startsWith(`${t.owner}/grant_00000000000000000081/inst_00000000000000000081/`)).toBe(true)
-    expect((await t.op(t.install(t.owner, ["read", "mutate-own"]), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
+    expect((await t.op(t.install(t.owner, ["read", "mutate-own", "cloud-link"]), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "vm"), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
-    expect((await t.op(t.install(t.owner, ["read"]), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
+    expect((await t.op(t.install(t.owner, ["read", "cloud-link"]), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
     expect((await t.op({ ...t.ownerP, agent: "agent_x" }, "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
     // Install tokens never mint a full shell, not even a Mac or CLI install with execute: only a person's session does.
     for (const kind of ["cli", "mac"]) expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], kind), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
@@ -189,7 +189,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
       engine.state = { ...engine.currentState, server_revocations: { inst_00000000000000000098: { install: "inst_00000000000000000098", owner_user: t.owner, by: t.owner, at: 1 } } }
     })
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "mac", "inst_00000000000000000098"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
-    // execute alone does not give the agent class (it needs mutate-own).
+    // execute or cloud-link alone does not give the agent class (it needs mutate-own).
     expect((await t.op(t.install(t.owner, ["read", "execute"]), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
   })
 
@@ -271,7 +271,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(limited.error).toMatchObject({ code: "team_vm.ssh_rate_limited", retryable: true })
     expect((await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).ok).toBe(true)
     // Per person across installs: a second install gets 30 more, a third gets none.
-    for (let i = 0; i < 30; i++) expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000082"), "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
-    expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000083"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_rate_limited")
+    for (let i = 0; i < 30; i++) expect((await t.op(t.install(t.member, ["read", "mutate-own", "mutate-shared", "cloud-link"], "mac", "inst_00000000000000000082"), "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
+    expect((await t.op(t.install(t.member, ["read", "mutate-own", "mutate-shared", "cloud-link"], "mac", "inst_00000000000000000083"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_rate_limited")
   })
 })

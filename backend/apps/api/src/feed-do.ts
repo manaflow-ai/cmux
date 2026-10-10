@@ -1,7 +1,7 @@
 import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { approvalOf } from "./domains/feed-approvals.ts"
+import { approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
@@ -87,14 +87,16 @@ export class FeedDO extends OwnerDO<FeedState> {
   }
 
   /**
-   * G8: a team's ConnectionDO posts an approve request for an op that waits for this user's
-   * decision. Server code only (DO RPC); the principal is `system:connections:<team>` with this
-   * feed's user, the item's poster kind is integration, and the person's answer goes back to that
-   * ConnectionDO through the outbox (feed-approvals.ts). Idempotent by `key`.
+   * G8: a team's ConnectionDO (or CloudDO, `source` cloud) posts an approve request for an op that
+   * waits for this user's decision. Server code only (DO RPC); the principal is
+   * `system:<source>:<team>` with this feed's user, the item's poster kind is integration, and the
+   * person's answer goes back to that owner through the outbox (feed-approvals.ts). Idempotent by `key`.
    */
-  async integrationApproval(entity: string, team: string, prompt: unknown, expiresInMs: number, key: string): Promise<{ ok: true; item: string } | { ok: false; message: string }> {
-    const principal: Principal = { identity: `system:connections:${team}`, kind: "system", user: entity }
-    const params = { type: "request", kind: "approve", title: "Approve an action by an agent", prompt, priority: "high", expires_in_ms: expiresInMs, poster: { kind: "integration", label: "Integrations" } }
+  async integrationApproval(entity: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<{ ok: true; item: string } | { ok: false; message: string }> {
+    if (source !== "connections" && source !== "cloud") return { ok: false, message: "unknown approval source" }
+    const principal: Principal = { identity: `system:${source}:${team}`, kind: "system", user: entity }
+    const cloud = source === "cloud"
+    const params = { type: "request", kind: "approve", title: cloud ? "Approve a Cloud change from your device" : "Approve an action by an agent", prompt, priority: "high", expires_in_ms: expiresInMs, poster: { kind: "integration", label: cloud ? "Cloud" : "Integrations" } }
     const res = await this.submit(entity, principal, { t: "op", op: "feed.post", params, idempotency_key: key, origin: "script" })
     const result = res.frames.find((f) => f.t === "result")
     if (result && result.t === "result") return { ok: true, item: (result.value as { item: { id: string } }).item.id }
@@ -115,10 +117,15 @@ export class FeedDO extends OwnerDO<FeedState> {
    * integration.approval.get there after TeamDO confirms membership. Never binds a feed it does not serve.
    */
   async integrationApprovalTeam(entity: string, request: string): Promise<string | null> {
+    return (await this.approvalPosterOf(entity, request))?.team ?? null
+  }
+
+  /** The team and posting owner (ConnectionDO or CloudDO) of this user's approve request for `request`, or null. */
+  async approvalPosterOf(entity: string, request: string): Promise<{ team: string; source: ApprovalSource } | null> {
     if (!this.isBound(entity)) return null
     for (const item of Object.values(this.bind(entity).currentState.items)) {
       const a = approvalOf(item)
-      if (a?.request === request) return a.team
+      if (a?.request === request) return { team: a.team, source: a.source }
     }
     return null
   }

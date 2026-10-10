@@ -4,12 +4,16 @@
 Repository-level secrets reach any workflow on any branch a writer can push.
 The signing material (Developer ID and iOS distribution certificates,
 provisioning profiles, App Store Connect keys, Sparkle EdDSA keys, the
-release App key and the content-signing key) therefore lives only in GitHub
+release App credentials, the FFI release App credentials and the
+content-signing key) therefore lives only in GitHub
 environments whose deployment policy admits the refs that really release:
 
 - `release`: branch main and tags v*
 - `release-next`: branch nightly-next
 - `content-signing`: the content-signing key only
+- `ffi-release`: branch feat-cmux-next, the FFI release App credentials
+  (CMUX_FFI_RELEASE_APP_*) only, read by app-ffi-release.yml's publish and
+  repin jobs. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
 
 A job without such an environment would read nothing once the repository-level
 copies are deleted, so this guard fails before that breaks a release. It also
@@ -31,13 +35,17 @@ WORKFLOWS = ROOT / ".github/workflows"
 
 RELEASE_ENVIRONMENTS = {"release", "release-next"}
 CONTENT_SIGNING_ENVIRONMENTS = {"content-signing"}
+FFI_RELEASE_ENVIRONMENTS = {"ffi-release"}
+# The only job that may read the FFI release App credentials.
+FFI_RELEASE_READERS = {("app-ffi-release.yml", "publish"), ("app-ffi-release.yml", "repin")}
 
 SIGNING_SECRET = re.compile(
     r"^(APPLE_[A-Z0-9_]+"
     r"|ASC_API_[A-Z0-9_]+"
     r"|IOS_[A-Z0-9_]+"
     r"|(NIGHTLY_)?SPARKLE_(NEXT_)?PRIVATE_KEY"
-    r"|CMUX_RELEASE_APP_KEY"
+    r"|CMUX_RELEASE_APP_[A-Z0-9_]+"
+    r"|CMUX_FFI_RELEASE_APP_[A-Z0-9_]+"
     r"|CONTENT_SIGNING_[A-Z0-9_]+)$"
 )
 SECRET_REFERENCE = re.compile(r"secrets\.([A-Za-z0-9_]+)|secrets\[\s*['\"]([A-Za-z0-9_]+)['\"]\s*\]")
@@ -53,6 +61,8 @@ SET_ENVIRONMENT = re.compile(r"setOutput\(\s*['\"]environment['\"]\s*,\s*([^;\n]
 def allowed_for(secret: str) -> set[str]:
     if secret.startswith("CONTENT_SIGNING_"):
         return CONTENT_SIGNING_ENVIRONMENTS
+    if secret.startswith("CMUX_FFI_RELEASE_APP_"):
+        return FFI_RELEASE_ENVIRONMENTS
     return RELEASE_ENVIRONMENTS
 
 
@@ -94,6 +104,7 @@ def environment_values(document: dict, job: dict) -> set[str] | None:
 def main() -> int:
     failures: list[str] = []
     signing_jobs = 0
+    ffi_readers: set[tuple[str, str]] = set()
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
@@ -115,6 +126,8 @@ def main() -> int:
                 secrets = {"<dynamic secrets[...] lookup>"}
             signing_jobs += 1
             where = f"{path.name} {job_name}"
+            if any(secret.startswith("CMUX_FFI_RELEASE_APP_") for secret in secrets):
+                ffi_readers.add((path.name, job_name))
             if "uses" in job:
                 failures.append(
                     f"{where}: passes signing secrets {sorted(secrets)} into a reusable workflow; "
@@ -138,6 +151,11 @@ def main() -> int:
                         f"{where}: reads {secret} in environment {sorted(entered)}; "
                         f"it lives only in {sorted(allowed)}"
                     )
+    if ffi_readers != FFI_RELEASE_READERS:
+        failures.append(
+            f"the FFI release App credentials are read by {sorted(ffi_readers)}; "
+            f"only {sorted(FFI_RELEASE_READERS)} may read them"
+        )
     if signing_jobs < 5:
         failures.append(f"found only {signing_jobs} signing jobs; this guard is reading the wrong tree")
     if failures:

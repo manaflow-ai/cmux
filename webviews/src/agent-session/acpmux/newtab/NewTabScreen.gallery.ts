@@ -34,10 +34,19 @@ export default agentPaneEntry({
   title: "New Tab page",
   area: "New Tab",
   height: 560,
+  checks: {
+    layoutShiftMax: {
+      value: 0.4,
+      reason:
+        "Typing an address or an open tab's name shows the rows between the field and the chat cards, which move down.",
+    },
+  },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
+    "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
+    "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
   ],
   variants: {
     empty: {
@@ -78,8 +87,47 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
     },
+    "typed-prompt": {
+      note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+      },
+    },
+    "typed-tab-match": {
+      note: "Text that matches open tabs and a visited page: those rows and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" },
+            { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
+          ],
+          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "https://cmux.dev/release", title: "cmux release notes" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("release", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+        // Two tabs, the page and the search: four presses end on the last row.
+        for (let step = 0; step < 4; step++) await ctx.press("ArrowDown");
+      },
+    },
+    "typed-address": {
+      note: "An address: open it first, then a web search.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+      },
+    },
     "omnibar-row-kinds": {
-      note: "Open tab, workspace, history, search, agent and shell intent rows.",
+      note: "Opened from text: the field holds it, selected, with no rows until it is edited.",
       ready: newTab({
         location: "release notes",
         omnibar: {
@@ -91,6 +139,26 @@ export default agentPaneEntry({
         },
       }),
       snapshot: noChat(manySessions(3)),
+    },
+    "template-composer": {
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      ready: newTab({ template: "composer" }),
+      snapshot: noChat(manySessions(4)),
+    },
+    "template-threads": {
+      note: "Threads template: the field and the recent chats as a list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-console": {
+      note: "Console template: a monospace field with a > prompt, chats as lines.",
+      ready: newTab({ template: "console" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-classic": {
+      note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
+      ready: newTab({ template: "classic" }),
+      snapshot: noChat(manySessions(4)),
     },
   },
 });

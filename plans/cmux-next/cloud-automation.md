@@ -125,14 +125,18 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 AuthorizedKeysFile none
 TrustedUserCAKeys /etc/cmux/ssh/user-ca.pub
-AuthorizedPrincipalsFile /etc/cmux/ssh/principals/%u
+AuthorizedPrincipalsFile none
+AuthorizedPrincipalsCommand /opt/cmux/current/bin/cmux host team-ssh principals %u
+AuthorizedPrincipalsCommandUser nobody
 RevokedKeys /etc/cmux/ssh/revoked.krl
+UsePAM yes
 AllowUsers cmux
 ```
 
 - At bake: `user-ca.pub` and the principals file are empty, so nobody can log in. The smoke checks this.
 - At bind: `cmux host` writes the CA public key, the principals for the work user and the KRL from the instance binding (control plane). The team VM uses `AuthorizedPrincipalsCommand` from the reconciler instead (team-vm.md); the image supports both by a drop-in that bind selects.
 - Updates: a KRL or CA change arrives as an event on the link; `cmux host` rewrites the file atomically. sshd reads `RevokedKeys` per connection, so no reload is needed.
+- Trust writer (2026-10-08, cx-twnn, team-vm-plan S5/S14): `cmux host team-ssh apply` takes a `team_vm.ssh_ca` value on stdin and is the only writer of the KRL, the CA file and `/etc/cmux/ssh/trust.json` (KRL first, then CA keys, then state, each by atomic rename). `krl_version` and the CA generation never go backwards (an older snapshot is refused and changes nothing). `principals %u` prints `/etc/cmux/ssh/principals/<user>` only while the last accepted apply is at most 120 s old, so a machine that misses updates refuses new logins. A PAM line (`session required pam_exec.so quiet /opt/cmux/current/bin/cmux host team-ssh session-open`, last session line of `/etc/pam.d/sshd`) records each certificate session (sshd pid, its start time, the certificates from `SSH_AUTH_INFO_0`, the logind session id) in `/run/cmux-host/ssh-sessions`; after each apply the reaper ends only recorded sessions whose pid still has the recorded start time and an sshd name and whose certificate the KRL revokes (`ssh-keygen -Q`): `loginctl terminate-session` when the sshd pid leads that logind session, then SIGTERM through a pidfd. The smoke proves login, revoked-session end, revoked refusal and stale refusal through this path. A team VM fetches the snapshot itself with `cmux host team-ssh sync` every 30 s after the team VM bind (vm-image.md 6b, cx-7mq7) gave it an install; a push nudge from TeamVmDO is a follow-up. After a pause, logins may be refused until the first sync after resume (fail closed).
 - Socket activation: Ubuntu 24.04 uses `ssh.socket`; its generator turns `ListenAddress` into the socket's listen list. UNVERIFIED on the Freestyle base; the rebake checks `ss -ltn` shows only loopback port 22.
 - Host keys: per clone after bind (already done by the bind path; smoke `ssh-host-key-differs`).
 - Gap: the CA for a personal (non-team) Cloud machine. cloud-client-contract.md 1.7 says "team SSH CA". A user without a team needs a CA too: proposal: every account has a personal team (if that is already the model) or `UserDO` issues with the same op shape. Decision D-A4, owner backend lead. spec-coverage.md:852 lists "SSH CA in TeamDO ... sshd trust" as NO OWNER; this lane takes the sshd half.

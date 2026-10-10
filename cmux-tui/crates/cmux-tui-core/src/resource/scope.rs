@@ -28,6 +28,7 @@ pub(super) fn canonical_resource_scope(kind: &str) -> &'static str {
         "room" => "room",
         "screen_group" => "screen_group",
         "closed" => "closed",
+        "conversation" => "conversation",
         other => panic!("unknown catalog resource scope {other:?}"),
     }
 }

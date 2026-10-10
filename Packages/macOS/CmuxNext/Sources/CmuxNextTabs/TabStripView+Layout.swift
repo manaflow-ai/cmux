@@ -172,7 +172,7 @@ extension TabStripView {
         let animates = window != nil && (wasFaded || isFaded)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                 guard let self, !(self.fadedEdges.leading || self.fadedEdges.trailing) else { return }
                 if self.tabsClip.layer?.mask != nil { self.tabsClip.layer?.mask = nil }
             }

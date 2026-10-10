@@ -43,6 +43,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Page pixels for hover previews and occlusion placeholders.
     func snapshot() async throws -> CGImage
 
+    /// Page pixels for a tab thumbnail (hover card, drag image), taken each
+    /// time a page leaves the screen. May trade fidelity for a cheaper
+    /// capture than `snapshot()`; the default is `snapshot()`.
+    func thumbnail() async throws -> CGImage
+
     /// Evaluates a script and returns its completion value.
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
 
@@ -76,6 +81,8 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 }
 
 extension BrowserTab {
+    public func thumbnail() async throws -> CGImage { try await snapshot() }
+
     /// Engines without Chromium password autofill have nothing to withhold.
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }

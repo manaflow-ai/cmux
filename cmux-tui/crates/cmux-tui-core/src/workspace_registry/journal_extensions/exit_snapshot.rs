@@ -14,7 +14,8 @@ impl WorkspaceRegistry {
         generation: &str,
         blob: &JournalContentBlob,
     ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let covered_through = tx
             .query_row(
                 "SELECT next_offset FROM journal_terminal_streams

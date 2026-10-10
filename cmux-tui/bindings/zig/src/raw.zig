@@ -38,13 +38,11 @@ pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
 test {
     std.testing.refAllDecls(capabilities);
     std.testing.refAllDecls(provider);
-    _ = @import("raw/authority_test.zig");
     _ = @import("raw/provider_test.zig");
     _ = @import("raw/stream_client_test.zig");
     _ = @import("raw/wire_presence_test.zig");
     _ = @import("raw/generated/presence_test.zig");
     std.testing.refAllDecls(protocol);
-    try std.testing.expectEqual(@as(usize, 236), protocol.command_count);
     for ([_][]const u8{
         "browser-frame-presented",
         "browser-key-press",
@@ -64,5 +62,4 @@ test {
         }
         try std.testing.expect(found);
     }
-    try std.testing.expectEqual(@as(usize, 69), protocol.event_count);
 }

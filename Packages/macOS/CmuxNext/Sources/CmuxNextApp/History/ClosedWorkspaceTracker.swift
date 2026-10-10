@@ -26,7 +26,7 @@ final class ClosedWorkspaceTracker {
         let machines = services.machines
         observation = Task { [weak self, weak services] in
             for await snapshot in Observations({
-                Self.snapshot(of: machines.daemons) { services?.windows?.isIncognito(workspace: $0) ?? false }
+                Self.snapshot(of: machines.daemons) { services?.windows.isIncognito(workspace: $0) ?? false }
             }) {
                 self?.apply(snapshot)
             }

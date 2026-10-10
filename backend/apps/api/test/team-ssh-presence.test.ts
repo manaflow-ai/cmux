@@ -166,7 +166,7 @@ describe("a crash during a certificate request replays the same certificate", { 
   it("an install's request that crashed before its reply was stored gets the same serial and certificate at once", async () => {
     const t = await setup("stack-ssh-0000000013")
     const key = await sshLine("ed25519")
-    const p = t.install(t.owner, ["read", "mutate-own"])
+    const p = t.install(t.owner, ["read", "mutate-own", "cloud-link"])
     const idem = crypto.randomUUID()
     const lost = await crashOnce(t, p, { public_key: key }, idem)
     expect(lost.serial).toBeGreaterThan(0)
@@ -183,7 +183,7 @@ describe("a crash during a certificate request replays the same certificate", { 
   it("a crashed request that became a team server's, or whose member left, never resumes its certificate", async () => {
     const t = await setup("stack-ssh-0000000015")
     const key = await sshLine("ed25519")
-    const p = t.install(t.owner, ["read", "mutate-own"], "mac", "inst_00000000000000000097")
+    const p = t.install(t.owner, ["read", "mutate-own", "cloud-link"], "mac", "inst_00000000000000000097")
     const idem = crypto.randomUUID()
     const lost = await crashOnce(t, p, { public_key: key }, idem)
     await inDO(t.stub, async (instance) => {
@@ -195,7 +195,7 @@ describe("a crash during a certificate request replays the same certificate", { 
     // The prepared certificate is forgotten with its issued-log row: it never left the object.
     expect(await issued(t, p.identity)).not.toContain(lost.serial)
     // A member who left between the crash and the retry gets nothing either.
-    const m = t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000096")
+    const m = t.install(t.member, ["read", "mutate-own", "cloud-link"], "mac", "inst_00000000000000000096")
     const idem2 = crypto.randomUUID()
     const lost2 = await crashOnce(t, m, { public_key: key }, idem2)
     // The member leaves: members are rows ((f)); the row goes.
@@ -211,7 +211,7 @@ describe("a crash during a certificate request replays the same certificate", { 
     const t = await setup("stack-ssh-0000000016")
     const keyA = await sshLine("ed25519")
     const keyB = await sshLine("ed25519")
-    const p = t.install(t.owner, ["read", "mutate-own"])
+    const p = t.install(t.owner, ["read", "mutate-own", "cloud-link"])
     const idem = crypto.randomUUID()
     const lost = await crashOnce(t, p, { public_key: keyA }, idem)
     // The request record is gone (expired) but the prepared row is still there: key B under the same key.
