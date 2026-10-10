@@ -6,7 +6,8 @@
 //! with its same-user checks: a client refuses a socket file another user
 //! owns, the daemon refuses a peer of another user or a sandboxed one). That
 //! API blocks, so each connection is bridged into tokio: two threads copy
-//! between the socket and an in-memory duplex stream.
+//! between the socket and two in-memory pipes, one per direction, so each
+//! half closes on its own as a unix stream's owned halves do.
 
 use std::io;
 use std::path::Path;
@@ -18,12 +19,19 @@ pub type ReadHalf = tokio::net::unix::OwnedReadHalf;
 #[cfg(unix)]
 pub type WriteHalf = tokio::net::unix::OwnedWriteHalf;
 
+/// A bridged connection: what this process reads, and what it writes.
 #[cfg(windows)]
-pub type Stream = tokio::io::DuplexStream;
+pub struct Stream {
+    read: ReadHalf,
+    write: WriteHalf,
+}
+/// The inbound pipe; dropping it ends the bridge's socket reads.
 #[cfg(windows)]
-pub type ReadHalf = tokio::io::ReadHalf<Stream>;
+pub type ReadHalf = tokio::io::DuplexStream;
+/// The outbound pipe; dropping it half-closes the socket (end of file for
+/// the peer), as dropping a unix stream's owned write half does.
 #[cfg(windows)]
-pub type WriteHalf = tokio::io::WriteHalf<Stream>;
+pub type WriteHalf = tokio::io::DuplexStream;
 
 /// Connects to the daemon socket at `path`.
 #[cfg(unix)]
@@ -51,26 +59,27 @@ pub fn split(stream: Stream) -> (ReadHalf, WriteHalf) {
 /// The read and write halves of a connected stream.
 #[cfg(windows)]
 pub fn split(stream: Stream) -> (ReadHalf, WriteHalf) {
-    tokio::io::split(stream)
+    (stream.read, stream.write)
 }
 
 /// Bytes the bridge copies at a time, and the duplex buffer per direction.
 #[cfg(windows)]
 const BRIDGE_BUFFER: usize = 64 * 1024;
 
-/// Bridges a connected blocking socket into tokio. The returned stream ends
-/// (reads end of file) when the peer closes; dropping it closes the socket.
+/// Bridges a connected blocking socket into tokio: the read half reads end
+/// of file when the peer stops sending; dropping the write half ends this
+/// side's sending (a write shutdown, so the peer reads end of file).
 #[cfg(windows)]
 pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
     use std::io::{Read, Write};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let (ours, theirs) = tokio::io::duplex(BRIDGE_BUFFER);
-    let (mut from_us, mut to_us) = tokio::io::split(theirs);
+    let (read, mut inbound) = tokio::io::duplex(BRIDGE_BUFFER);
+    let (write, mut outbound) = tokio::io::duplex(BRIDGE_BUFFER);
     let mut reader = socket.try_clone()?;
     let mut writer = socket;
     let runtime = tokio::runtime::Handle::current();
-    let inbound = runtime.clone();
+    let reads = runtime.clone();
     std::thread::Builder::new().name("acpmux-socket-read".into()).spawn(move || {
         let mut buf = vec![0u8; BRIDGE_BUFFER];
         loop {
@@ -78,17 +87,18 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
                 Ok(0) | Err(_) => break,
                 Ok(n) => n,
             };
-            if inbound.block_on(to_us.write_all(&buf[..n])).is_err() {
+            // Fails once this process dropped its read half.
+            if reads.block_on(inbound.write_all(&buf[..n])).is_err() {
                 break;
             }
         }
-        // The peer is done sending: our side reads end of file.
-        let _ = inbound.block_on(to_us.shutdown());
+        // Dropping `inbound`: the read half reads end of file.
     })?;
     std::thread::Builder::new().name("acpmux-socket-write".into()).spawn(move || {
         let mut buf = vec![0u8; BRIDGE_BUFFER];
         loop {
-            let n = match runtime.block_on(from_us.read(&mut buf)) {
+            // End of file once this process dropped its write half.
+            let n = match runtime.block_on(outbound.read(&mut buf)) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => n,
             };
@@ -96,9 +106,7 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
                 break;
             }
         }
-        // Our side closed (or the peer stopped reading): close both ways, so
-        // the read thread's blocking read ends too.
-        let _ = writer.shutdown(std::net::Shutdown::Both);
+        let _ = writer.shutdown(std::net::Shutdown::Write);
     })?;
-    Ok(ours)
+    Ok(Stream { read, write })
 }
