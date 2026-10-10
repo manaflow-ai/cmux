@@ -128,6 +128,11 @@ final class PageScriptPipeline {
             if head == queue.count {
                 queue.removeAll(keepingCapacity: true)
                 head = 0
+            } else if head >= 64, head * 2 >= queue.count {
+                // A producer that keeps pace never empties the queue: drop
+                // the sent prefix so sent envelopes do not stay in memory.
+                queue.removeFirst(head)
+                head = 0
             }
         }
         if generation == self.generation { drain = nil }
