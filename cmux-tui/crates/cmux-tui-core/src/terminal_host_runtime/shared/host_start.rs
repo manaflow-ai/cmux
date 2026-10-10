@@ -18,6 +18,8 @@ use ghostty_vt::Terminal;
 use super::super::sys::{
     self, AcceptWaker, HostChild, HostStream, wait_for_pty_readable_or_forced_drain,
 };
+#[cfg(unix)]
+use super::super::unix::session_cleanup;
 use super::super::*;
 use super::clipboard_read::{ClipboardReads, SystemClock};
 use super::codec::HostLaunch;
@@ -25,8 +27,6 @@ use super::exited_drain;
 use super::host_parser::{self, ParserSignals, run_guarded_host_parser, run_host_parser};
 use super::host_shared::HostShared;
 use super::host_state::*;
-#[cfg(unix)]
-use super::super::unix::session_cleanup;
 
 /// Start the host runtime on `master` and `child`. `seed` is VT replay of
 /// an adopted session's screen, applied to the parser before any PTY byte;
@@ -206,13 +206,13 @@ pub(crate) fn start_host_runtime(
                 let escalation_complete =
                     child_host.group_escalation_complete.load(Ordering::Acquire);
                 #[cfg(unix)]
-                let escalation_failed =
-                    child_host.group_escalation_failed.load(Ordering::Acquire);
+                let escalation_failed = child_host.group_escalation_failed.load(Ordering::Acquire);
                 #[cfg(not(unix))]
                 let escalation_failed = false;
                 let termination_started = child_host.termination_started.load(Ordering::Acquire);
                 let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                if escalation_complete || escalation_failed || (!termination_started && pty_drained) {
+                if escalation_complete || escalation_failed || (!termination_started && pty_drained)
+                {
                     let mut exit = child.wait_and_disarm();
                     #[cfg(unix)]
                     if escalation_failed {
