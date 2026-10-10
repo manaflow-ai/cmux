@@ -70,4 +70,36 @@ import Testing
         #expect(composerBottom(keyboardTop: 866, guideTop: restingGuideTop) == 850)
         #expect(composerBottom(keyboardTop: 860, guideTop: restingGuideTop) == 848)
     }
+    /// Messages sets the guide's dismiss padding to its entry view's height,
+    /// so dragging the transcript moves the keyboard once the finger reaches
+    /// the field's top edge (iOS 26.5: keyboard top = finger + 56-58 pt with
+    /// a one-line 40.33 pt field).
+    @Test func dismissPaddingReachesTheFieldsTopEdge() {
+        let fieldHeight: CGFloat = 40.33
+        let padding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: fieldHeight)
+        #expect(abs(padding - 56.33) < 0.001)
+        let fieldBottom = composerBottom(keyboardTop: dockedTop, guideTop: dockedTop) - 4
+        #expect(abs((fieldBottom - fieldHeight) - (dockedTop - padding)) < 0.001)
+    }
+
+    /// With dismiss padding the keyboard's top edge rides that far below the
+    /// finger, below the safe area too.
+    @Test func paddedDragPutsTheKeyboardBelowTheFinger() {
+        let padding: CGFloat = 56
+        // Above the safe area the guide reports the keyboard.
+        #expect(ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: 756, restingGuideTop: restingGuideTop, screenBottom: screenBottom, dragLocation: 700, dismissPadding: padding
+        ) == 756)
+        // Below it, the finger plus the padding does.
+        #expect(ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: restingGuideTop, restingGuideTop: restingGuideTop, screenBottom: screenBottom, dragLocation: 800, dismissPadding: padding
+        ) == 856)
+        #expect(ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: restingGuideTop, restingGuideTop: restingGuideTop, screenBottom: screenBottom, dragLocation: 840, dismissPadding: padding
+        ) == screenBottom)
+        // Released with the keyboard still above the safe area: hold.
+        #expect(ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: restingGuideTop, restingGuideTop: restingGuideTop, screenBottom: screenBottom, dragLocation: 760, dismissPadding: padding
+        ) == nil)
+    }
 }
