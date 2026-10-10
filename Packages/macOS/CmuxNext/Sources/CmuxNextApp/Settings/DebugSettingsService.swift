@@ -94,7 +94,9 @@ final class DebugSettingsService: InternalPageProvider {
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
-            let controller = DebugSettingsWindowController(model: model)
+            let page = webPage(model: model, inWindow: true)
+            let controller = DebugSettingsWindowController(model: model, content: page,
+                                                           onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
                 self?.controller = nil
                 self?.dropModelWhenUnused()
@@ -128,7 +130,25 @@ final class DebugSettingsService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
+        if let page = webPage(model: model, inWindow: false) {
+            DebugSettingsModel.followTheme(window?.themeScope ?? .app)
+            return page
+        }
         return model.makePaneView(scope: window?.themeScope ?? .app)
+    }
+
+    /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
+    /// default), else nil (the SwiftUI view). In its own window the page leaves room for the
+    /// traffic lights (`data-debug-settings-host="window"`).
+    private func webPage(model: DebugSettingsModel, inWindow: Bool) -> PageWebView? {
+        guard PageTunables.debugSettings.value == .web else { return nil }
+        let provider = DebugSettingsPageProvider(model: model)
+        let native = AppPageNativeProvider(services: services, page: .debugSettings)
+        let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .debugSettings, routes: routes,
+                                     documentAttributes: inWindow ? ["debug-settings-host": "window"] : [:]) else { return nil }
+        native.anchor = { [weak page] in page }
+        return page
     }
 
     func tabClosed(_ key: String) {
