@@ -46,6 +46,17 @@ extension CEFTab {
         }
     }
 
+    /// The holes the page window has now, in `contentView` coordinates:
+    /// the chrome's rects, the divider's grab area, the side panel header,
+    /// and the web contents before the first real page. A window snapshot
+    /// cuts the same holes, so it shows the page as the screen does
+    /// (`debug.window_snapshot`).
+    public var pageWindowHoles: [CGRect] {
+        guard host.visibleTab === self, host.hostView.superview === container else { return occlusionRects }
+        let frame = host.hostView.frame
+        return host.hostView.occlusionRects.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
+    }
+
     /// `rects` (content view coordinates) in a subview at `frame`.
     private static func local(_ rects: [CGRect], in frame: CGRect) -> [CGRect] {
         rects.compactMap { rect in
