@@ -204,13 +204,13 @@ struct InProcessMachineCreateLauncherTests {
         }
     }
 
-    @Test("Only an authoritative empty or unknown graph permits creating a workspace", arguments: [false, true])
-    func successfulEmptyGraphCreatesOnce(graphUnknown: Bool) async throws {
+    @Test("Only an authoritative empty graph permits creating a workspace")
+    func successfulEmptyGraphCreatesOnce() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             fixture.provider.usesReceipt = true
-            fixture.provider.info.remoteWorkspaces = graphUnknown ? nil : []
+            fixture.provider.info.remoteWorkspaces = []
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
             let pending = fixture.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
                 autoWelcomeIfNeeded: false)
@@ -222,6 +222,92 @@ struct InProcessMachineCreateLauncherTests {
             #expect(fixture.provider.createdWorkspaces.count == 1)
             #expect(fixture.provider.terminalCreates == 0)
             #expect(fixture.provider.adoptedPanels.count == 1)
+        }
+    }
+
+    @Test("A missing graph never creates a replacement workspace", arguments: [false, true])
+    func missingGraphDoesNotCreateWorkspace(bound: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let pending = fixture.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
+                autoWelcomeIfNeeded: false)
+            if bound {
+                pending.cloudVMBinding = WorkspaceCloudVMBinding(
+                    vmID: fixture.provider.machine.rawValue, isBase: false, remoteWorkspaceID: "existing"
+                )
+            }
+            await #expect(throws: (any Error).self) {
+                try await InProcessMachineCreateLauncher.open(
+                    try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
+                    host: CloudWorkspaceCreationHost(manager: fixture.manager, reservedWorkspaceID: pending.id),
+                    refreshGraph: { _ in true }, validateScope: {}
+                )
+            }
+            #expect(fixture.provider.createdWorkspaces.isEmpty)
+            #expect(fixture.provider.adoptedPanels.isEmpty)
+            #expect(pending.cloudPendingCreations.count == 1)
+        }
+    }
+
+    @Test("An explicit retry adopts only its reserved pane after a window move", arguments: [false, true])
+    func retryRetainsReservedIdentityAfterMove(move: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            let destination = TabManager(autoWelcomeIfNeeded: false)
+            defer { destination.tabs.forEach { $0.teardownAllPanels() } }
+            let source = fixture.manager
+            fixture.catalog.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
+                workspace: { source.workspacesById[$0] ?? destination.workspacesById[$0] },
+                tabManager: { id in source.workspacesById[id] != nil ? source : destination },
+                workspaces: { source.tabs + destination.tabs }
+            )))
+            let pending = source.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            let other = source.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            let originalHost = CloudWorkspaceCreationHost(manager: source, reservedWorkspaceID: pending.id)
+            for workspace in [pending, other] {
+                await #expect(throws: (any Error).self) {
+                    try await InProcessMachineCreateLauncher.open(
+                        try invocation(workspaceID: workspace.id), provider: fixture.provider, catalog: fixture.catalog,
+                        host: CloudWorkspaceCreationHost(manager: source, reservedWorkspaceID: workspace.id),
+                        refreshGraph: { _ in false }, validateScope: {}
+                    )
+                }
+            }
+            let reservation = try #require(pending.cloudPendingCreations.values.first)
+            let otherReservation = try #require(other.cloudPendingCreations.values.first)
+            reservation.inputRelay.send(.bytes(Data("echo retained\n".utf8)))
+            if move {
+                let detached = try #require(source.detachWorkspace(tabId: pending.id))
+                destination.attachWorkspace(detached, select: false)
+                await #expect(throws: (any Error).self) {
+                    try await InProcessMachineCreateLauncher.open(
+                        try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
+                        host: originalHost,
+                        refreshGraph: { _ in Issue.record("The old host must not follow a window move"); return false },
+                        validateScope: {}
+                    )
+                }
+            }
+            let owner = move ? destination : source
+            let selected = owner.selectedTabId
+            let starter = SurfaceRemoteWorkspace(id: "starter", name: "Existing", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [starter]
+            try fixture.provider.publish(revision: 10)
+            try await InProcessMachineCreateLauncher.open(
+                try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
+                host: CloudWorkspaceCreationHost(manager: owner, reservedWorkspaceID: pending.id),
+                refreshGraph: { _ in true }, validateScope: {}
+            )
+            #expect(fixture.provider.adoptedPanels == [reservation.panelID])
+            #expect(reservation.inputRelay.pendingCount == 1)
+            #expect(pending.cloudPendingCreations.isEmpty)
+            #expect(other.cloudPendingCreations[otherReservation.panelID] === otherReservation)
+            #expect(pending.cloudVMBinding?.remoteWorkspaceID == starter.id)
+            #expect(owner.selectedTabId == selected)
+            #expect(fixture.provider.createdWorkspaces.map(\.id) == [starter.id])
         }
     }
 
