@@ -7,6 +7,8 @@
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
+#   - page strings: every React page's generated/strings.json from its xcstrings
+#     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -16,19 +18,20 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" fmt=1
+generated="" package_dump="" strings=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
+    --strings) strings=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen
@@ -62,6 +65,24 @@ if [[ -n "$package_dump" ]]; then
     before="$(cksum < "$repo/$graph" 2>/dev/null || true)"
     python3 -I "$repo/scripts/cmux-next/ci-target-graph.py" --dump "$package_dump" >/dev/null
     [[ "$before" == "$(cksum < "$repo/$graph")" ]] || echo "fixed: regenerated $graph"
+  fi
+fi
+
+# 1c. Page strings. The generator writes every stale page; a frozen one is put
+# back as it was and reported.
+if (( strings )) && [[ -f "$repo/webviews/scripts/pages/gen-strings.mjs" ]]; then
+  if ! (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs --check >/dev/null 2>&1); then
+    (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs >/dev/null)
+    changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- webviews)"
+    while IFS= read -r rel; do
+      [[ "$rel" == */generated/strings.json ]] || continue
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; node webviews/scripts/pages/gen-strings.mjs)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
   fi
 fi
 
