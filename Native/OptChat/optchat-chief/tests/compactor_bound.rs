@@ -83,7 +83,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     };
     let chat = Arc::new(
         OptChat::open_with(
-            &dir.path().join("chat"),
+            dir.path().join("chat"),
             config,
             held.clone(),
             Arc::new(SystemClock),
@@ -122,11 +122,20 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
         waited < SETTLE_BOUND + Duration::from_secs(5),
         "and not longer: {waited:?}"
     );
-    assert!(held.calls.load(Ordering::SeqCst) > 0, "the nodes were building");
+    assert!(
+        held.calls.load(Ordering::SeqCst) > 0,
+        "the nodes were building"
+    );
     let first = prompt_text(&h, 0);
-    assert!(first.contains(PLACEHOLDER), "turn 1 reads the placeholder: {first}");
+    assert!(
+        first.contains(PLACEHOLDER),
+        "turn 1 reads the placeholder: {first}"
+    );
     let status = chat.status();
-    assert!(status.failures.is_empty() && status.stuck.is_empty(), "{status:?}");
+    assert!(
+        status.failures.is_empty() && status.stuck.is_empty(),
+        "{status:?}"
+    );
     assert!(
         lines
             .lock()
@@ -143,12 +152,18 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     assert!(chat.wait_idle(None, Some(WAIT)));
     h.say("user_local", "and the unit?");
     let waited = until_prompt(&mut h, 2);
-    assert!(waited < Duration::from_secs(5), "turn 2 did not wait: {waited:?}");
+    assert!(
+        waited < Duration::from_secs(5),
+        "turn 2 did not wait: {waited:?}"
+    );
     let second = prompt_text(&h, 1);
     assert!(
         !second.contains(PLACEHOLDER),
         "turn 2 reads no placeholder: {second}"
     );
-    assert!(second.contains("summary of"), "turn 2 reads the summaries: {second}");
+    assert!(
+        second.contains("summary of"),
+        "turn 2 reads the summaries: {second}"
+    );
     h.settle();
 }
