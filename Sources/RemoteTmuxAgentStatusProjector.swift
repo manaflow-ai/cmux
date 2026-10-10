@@ -31,13 +31,27 @@ final class RemoteTmuxAgentStatusProjector {
         }
         lifecycleKeysByPanel = nextKeys
 
+        // Apply entries after clearing old lifecycle slots: clearAgentLifecycle also
+        // removes the panel's previous entry, and idle has no lifecycle to retain.
+        for (panel, statuses) in byPanel {
+            for (key, activity) in RemoteAgentSidebarStatus.workspaceSlots(statuses) {
+                let entry = SSHTuiAgentStatusProjector.statusEntry(key: key, activity: activity)
+                if let current = workspace.agentStatusEntry(key: key, panelId: panel),
+                   current.value == entry.value, current.icon == entry.icon,
+                   current.color == entry.color, current.priority == entry.priority {
+                    continue
+                }
+                workspace.setStatusEntry(entry, key: key, panelId: panel)
+            }
+        }
+
         let slots = RemoteAgentSidebarStatus.workspaceSlots(byPanel.values.flatMap { $0 })
         for key in statusKeys where slots[key] == nil { workspace.removeStatusEntry(forKey: key) }
         for (key, activity) in slots {
             let entry = SSHTuiAgentStatusProjector.statusEntry(key: key, activity: activity)
-            if let current = workspace.statusEntries[key], current.value == entry.value,
-               current.icon == entry.icon, current.color == entry.color, current.priority == entry.priority { continue }
-            workspace.statusEntries[key] = entry
+            if workspace.statusEntries[key] == nil {
+                workspace.setStatusEntry(entry, key: key, panelId: nil)
+            }
         }
         statusKeys = Set(slots.keys)
     }
