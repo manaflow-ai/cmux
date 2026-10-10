@@ -628,13 +628,25 @@ enum WireDecoding {
                 isKept: raw["kept"] as? Bool ?? false
             )
         }
+        var file: ConversationFileInfo?
+        if kind == .file {
+            let size = (raw["size"] as? NSNumber)?.int64Value ?? 0
+            let name = native(raw["name"]) ?? url?.lastPathComponent ?? id
+            if let uti = native(raw["uti"]), !uti.isEmpty {
+                file = ConversationFileInfo(name: name, uti: uti, byteCount: size)
+            } else {
+                file = ConversationFileInfo(name: name, mimeType: native(raw["mimeType"]), byteCount: size)
+            }
+        }
+        let sized = kind == .image
         return ConversationAttachment(
             id: id,
             kind: kind,
-            width: raw["width"] as? Int ?? (kind == .audio ? 0 : 1024),
-            height: raw["height"] as? Int ?? (kind == .audio ? 0 : 768),
+            width: raw["width"] as? Int ?? (sized ? 1024 : 0),
+            height: raw["height"] as? Int ?? (sized ? 768 : 0),
             url: url,
-            audio: audio
+            audio: audio,
+            file: file
         )
     }
 
@@ -689,6 +701,31 @@ extension ConversationSimBackend: ConversationAudioBackend {
 
     public func markAudioPlayed(messageID: String) async {
         _ = try? await core.request("audioPlayed", params: JSONBox(["messageId": messageID]), timeout: .seconds(5))
+    }
+}
+
+extension ConversationSimBackend: ConversationFileBackend {
+    /// `POST /upload?kind=file&name=<percent-encoded name>` with the bytes
+    /// and the file's MIME type.
+    public func uploadFileAttachment(_ data: Data, info: ConversationFileInfo) async throws -> ConversationAttachment {
+        let base = await core.httpBase
+        var components = URLComponents(url: base.appendingPathComponent("upload"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "kind", value: "file"),
+            URLQueryItem(name: "name", value: info.name),
+            URLQueryItem(name: "uti", value: info.uti),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue(info.mimeType, forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        let (body, response) = try await URLSession.shared.upload(for: request, from: data)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let attachment = WireDecoding.attachment(json["attachment"] as? [String: Any] ?? [:], base: base) else {
+            throw ConversationBackendError(code: -1, message: "upload failed")
+        }
+        return attachment
     }
 }
 

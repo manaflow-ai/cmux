@@ -134,6 +134,8 @@ public struct ConversationAttachment: Sendable, Hashable, Identifiable {
     public enum Kind: String, Sendable, Hashable {
         case image
         case audio
+        /// Any other file (a document, archive, text...). See `ConversationFileInfo`.
+        case file
     }
 
     public let id: String
@@ -146,8 +148,10 @@ public struct ConversationAttachment: Sendable, Hashable, Identifiable {
     public var localData: Data?
     /// Audio only: the recording's metadata. See `ConversationAudioInfo`.
     public var audio: ConversationAudioInfo?
+    /// File only: the document's name, type and size. See `ConversationFileInfo`.
+    public var file: ConversationFileInfo?
 
-    public init(id: String, kind: Kind, width: Int, height: Int, url: URL?, localData: Data? = nil, audio: ConversationAudioInfo? = nil) {
+    public init(id: String, kind: Kind, width: Int, height: Int, url: URL?, localData: Data? = nil, audio: ConversationAudioInfo? = nil, file: ConversationFileInfo? = nil) {
         self.id = id
         self.kind = kind
         self.width = width
@@ -155,6 +159,7 @@ public struct ConversationAttachment: Sendable, Hashable, Identifiable {
         self.url = url
         self.localData = localData
         self.audio = audio
+        self.file = file
     }
 
     public var aspectRatio: Double {

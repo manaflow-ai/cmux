@@ -207,7 +207,7 @@ extension ConversationStore {
         messages[index].delivery = .sending
         notify(.live(insertedRowIDs: [], sentByMe: true))
         let images = messages[index].attachments.compactMap { attachment -> (data: Data, width: Int, height: Int, mimeType: String)? in
-            guard let data = attachment.localData else { return nil }
+            guard attachment.kind == .image, let data = attachment.localData else { return nil }
             return (data, attachment.width, attachment.height, "image/jpeg")
         }
         transmitScheduled(clientID: clientID, images: images)

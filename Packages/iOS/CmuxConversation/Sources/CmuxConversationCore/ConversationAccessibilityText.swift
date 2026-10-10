@@ -31,6 +31,9 @@ public enum ConversationAccessibilityText {
         } else if images > 1 {
             parts.append(String(format: String(localized: "conversation.ax.photos", defaultValue: "%d photos", bundle: .module), images))
         }
+        for file in message.fileAttachments.compactMap(\.file) {
+            parts.append(String(format: String(localized: "conversation.ax.file", defaultValue: "Attachment, %@, %@", bundle: .module), file.name, file.formattedSize))
+        }
         let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { parts.append(text) }
         for mark in message.reactions {
