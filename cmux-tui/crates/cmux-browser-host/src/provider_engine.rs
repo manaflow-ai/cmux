@@ -216,7 +216,7 @@ impl ProviderEngine {
                     }
                 }
                 // An incognito tab needs a store that keeps nothing: a source
-                // without one (the app has none yet) refuses the call, never
+                // without one (the app: decision D1, issue 13742) refuses the call, never
                 // opening it in the person's persistent profile (private
                 // data P1). A source with one gets the flag either way.
                 match params.get("incognito") {
@@ -228,7 +228,7 @@ impl ProviderEngine {
                             return Err(DriverError::new(
                                 crate::protocol::ErrorCode::Unsupported,
                                 format!(
-                                    "tabs.open: incognito tabs are not supported on {} tabs yet; nothing was opened",
+                                    "tabs.open: the cmux app opens no incognito tab for agents on {} (incognito is a whole window there); nothing was opened. Use --engine headless for incognito tabs",
                                     self.engine
                                 ),
                             ));
