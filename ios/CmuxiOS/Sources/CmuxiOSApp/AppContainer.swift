@@ -21,6 +21,11 @@ final class AppContainer {
     /// Account changes apply in order (sign-in, sign-out, switch).
     private var accountChanges: Task<Void, Never>?
     let feedResponder: FeedNotificationResponder
+    /// Feed answers and other owner ops as this install.
+    let ops: any CloudOpsSending
+    /// Signs an approve answer with this phone's presence key (cx-aocz); nil
+    /// without an API origin.
+    let approveSigner: (any FeedApproveSigning)?
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
     private var homeAccount: String?
@@ -46,10 +51,20 @@ final class AppContainer {
         }
         identity = madeIdentity
         let ops: any CloudOpsSending
+        let reader: CloudReadClient?
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
+            reader = CloudReadClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
         } else {
             ops = DisabledCloudOps()
+            reader = nil
+        }
+        self.ops = ops
+        if let madeIdentity, let reader {
+            approveSigner = FeedApproveSigner(installIdentity: madeIdentity, reader: reader,
+                                              bundleID: Bundle.main.bundleIdentifier ?? "")
+        } else {
+            approveSigner = nil
         }
         #if DEBUG
         let environment: CloudOp.APNsEnvironment = .development
@@ -57,7 +72,7 @@ final class AppContainer {
         let environment: CloudOp.APNsEnvironment = .production
         #endif
         push = PushRegistration(ops: ops, topic: Bundle.main.bundleIdentifier ?? "", environment: environment)
-        feedResponder = FeedNotificationResponder(ops: ops)
+        feedResponder = FeedNotificationResponder(ops: ops, reader: reader)
         notificationDelegate = NotificationDelegate(responder: feedResponder)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):

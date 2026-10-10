@@ -78,6 +78,21 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
     }
 
+    /// An `initialize` request with this launch's person key in `_meta.acpmux`, for the app's
+    /// own acpmux connections outside a pane (the agent permission feed bridge, cx-aocz). The
+    /// key stays in this process: the request goes only to the local acpmux socket.
+    public static func withPersonKey(_ object: [String: Any]) -> [String: Any] {
+        var object = object
+        var params = object["params"] as? [String: Any] ?? [:]
+        var meta = params["_meta"] as? [String: Any] ?? [:]
+        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+        acpmux["personKey"] = AcpmuxPersonKey.current
+        meta["acpmux"] = acpmux
+        params["_meta"] = meta
+        object["params"] = params
+        return object
+    }
+
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).
