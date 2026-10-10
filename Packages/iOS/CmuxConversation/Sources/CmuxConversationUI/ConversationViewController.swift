@@ -498,6 +498,7 @@ public final class ConversationViewController: UIViewController {
             initialSpinner.isHidden = true
         }
         let newRows = ConversationRowBuilder.rows(store: store)
+        if change == .prepended, measureAhead(newRows) { return }
         apply(newRows, change: change)
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
@@ -512,6 +513,46 @@ public final class ConversationViewController: UIViewController {
         maybeLoadOlder()
         focusComposerIfEmpty()
     }
+
+    /// A landed page's rows are measured off the main thread before they
+    /// are applied, so the frame that shows them only places them. Returns
+    /// whether the rows wait for that (the measured rows rebuild again).
+    private func measureAhead(_ newRows: [ConversationRow]) -> Bool {
+        let width = collectionView.bounds.width
+        let margin = layoutMargin
+        guard hasPositionedInitially, width > 0 else { return false }
+        var fresh: [MessageRowModel] = []
+        for row in newRows {
+            if case let .message(model) = row, rowIndex[model.rowID] == nil { fresh.append(model) }
+        }
+        let pending = layoutCache.unmeasured(fresh, width: width, margin: margin)
+        guard pending.count >= Self.measureAheadMinimum else { return false }
+        measureGeneration += 1
+        let generation = measureGeneration
+        let traits = collectionView.traitCollection
+        let work = MeasureWork(models: pending)
+        Task { [weak self] in
+            let measured = await Task.detached(priority: .userInitiated) {
+                var result: [MessageLayoutCache.Measured] = []
+                result.reserveCapacity(work.models.count)
+                traits.performAsCurrent {
+                    for model in work.models {
+                        result.append(MessageLayoutCache.measure(model, width: width, margin: margin))
+                    }
+                }
+                return MeasuredBatch(items: result)
+            }.value
+            guard let self else { return }
+            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            guard generation == self.measureGeneration else { return }
+            self.rebuild(change: .prepended)
+        }
+        return true
+    }
+
+    /// Fewer new rows than this measure in place (a page is 50).
+    static let measureAheadMinimum = 8
+    private var measureGeneration = 0
 
     private var hasConfiguredHeader = false
     private var configuredHeaderTitle: String?
@@ -1246,6 +1287,15 @@ extension ConversationViewController {
             ConversationTextEffectLayer.prepare(text: resolved.value, textSize: size, scale: max(1, scale), cacheToken: ConversationEffectLabel.resolvedCacheToken)
         }
     }
+}
+
+/// Rows handed to a measuring task (immutable value models).
+private struct MeasureWork: @unchecked Sendable {
+    let models: [MessageRowModel]
+}
+
+private struct MeasuredBatch: @unchecked Sendable {
+    let items: [MessageLayoutCache.Measured]
 }
 
 /// An immutable attributed string handed to a prefetch task.
