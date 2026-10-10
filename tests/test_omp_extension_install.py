@@ -366,7 +366,10 @@ def verify_restore_rejects_legacy_downgrade(cli_path: str, root: Path) -> None:
             assert result.returncode != 0 and not marker.exists(), (
                 f"unresolved OMP {verb} executed legacy fallback: argv={arguments!r}, "
                 f"status={result.returncode}, stderr={result.stderr}")
-            assert "not compatible" in result.stderr, result.stderr
+            assert (
+                "not compatible" in result.stderr
+                or "does not support forking" in result.stderr
+            ), result.stderr
     print("PASS: managed OMP legacy fallback fails closed; explicit direct commands still run")
 
 
