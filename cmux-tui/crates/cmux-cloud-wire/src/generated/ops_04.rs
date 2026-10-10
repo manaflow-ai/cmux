@@ -5,6 +5,46 @@
 use super::*;
 
 wire_op! {
+    /// The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.
+    FeedKindsOp {
+        name: "feed.kinds",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:FeedDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: FeedKindsParams,
+        result: FeedKindsResult,
+        error: FeedKindsError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsResultKindsItem {
+    pub kind: String,
+    pub priority: FeedPriority,
+    pub needs_mac: bool,
+    pub docs: String,
+    pub prompt_schema: Value,
+    pub answer_schema: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsResult {
+    pub kinds: Vec<FeedKindsResultKindsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.kinds declares.
+    FeedKindsError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted.
     FeedListOp {
         name: "feed.list",
@@ -856,42 +896,4 @@ wire_errors! {
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
-    HomeSearchOp {
-        name: "home.search",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:planetscale",
-        risk: "read",
-        principals: [Session, Install],
-        params: HomeSearchParams,
-        result: HomeSearchResult,
-        error: HomeSearchError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchParams {
-    pub q: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub author: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<Timestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSearchResultHitsItemRangesItem {
-    pub start: i64,
-    pub length: i64,
 }
