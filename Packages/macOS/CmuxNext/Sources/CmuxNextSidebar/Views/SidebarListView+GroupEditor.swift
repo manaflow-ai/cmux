@@ -12,6 +12,9 @@ struct SidebarGroupEditing {
 
     /// The id of the editor's trailing row that shows the group's full menu.
     static let moreActionsItem = "sidebar.group.moreActions"
+    /// Not a row: the editor is about to give way to another picker (the
+    /// color panel) that still edits this group, so a new empty group stays.
+    static let keepGroupItem = "sidebar.group.keep"
 
     /// The editor's rows when the App gives none: the shared group actions.
     static func standardItems() -> [[SidebarGroupEditorItem]] {

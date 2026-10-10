@@ -27,7 +27,7 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The group's name editor closed (commit or cancel). The App removes a
     /// group made with no member that is still empty (cx-rcby). No local change.
     case groupEditorEnded(GroupID)
-    case setGroupColor(GroupID, GroupColor)
+    case setGroupColor(GroupID, GroupTint)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
