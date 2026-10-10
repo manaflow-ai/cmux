@@ -132,7 +132,7 @@ extension SidebarListView {
                 return
             }
         }
-        if flags.isEmpty, SidebarGroupKeys(list: self).handle(event) { return }
+        if SidebarGroupKeys(list: self).handle(event, flags: flags) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:
             let up = event.specialKey == .upArrow

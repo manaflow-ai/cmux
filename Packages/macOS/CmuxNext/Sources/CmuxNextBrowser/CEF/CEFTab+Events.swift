@@ -90,13 +90,28 @@ extension CEFTab {
         }
     }
 
-    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load.
+    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
+    /// a replacing navigation, a download, a rerouted URL) and draws no page.
+    /// Every other main-frame failure commits Chromium's own page right
+    /// after OnLoadError: the net error page ("This site can't be reached"),
+    /// the certificate, HSTS or Safe Browsing interstitial, or the blocked
+    /// page. That page is the one the user sees, as in Chrome.
+    /// Exception: ERR_INVALID_AUTH_CREDENTIALS commits an empty page (seen
+    /// live, cx-zjcq), so cmux's view stays for it rather than a blank tab.
     static func loadError(code: Int, text: String, url: String) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return BrowserLoadError(domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url))
+        return BrowserLoadError(
+            domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url),
+            engineShowsPage: !chromiumDrawsEmptyPage.contains(code)
+        )
     }
+
+    /// Net errors whose Chromium error page is empty.
+    static let chromiumDrawsEmptyPage: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
