@@ -13247,6 +13247,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "browser downloads",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Downloads…",
+      "title_key" : "action.browser.downloads.show",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser choose-profile",
       "context_menu" : "guiOnly",
       "context_menus" : [

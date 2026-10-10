@@ -1,8 +1,8 @@
-// The browser toolbar's menu buttons (design mode, profile, theme, DevTools,
-// More; plans/cmux-next R80). Design mode, theme and DevTools run
-// `toggleBrowserDesignMode`, `browserTheme` and `toggleBrowserDeveloperTools`
-// (one action id per behavior); these two open the profile and More menus at
-// their buttons. Titles live in BrowserToolbarActions.xcstrings.
+// The browser toolbar's menu buttons (Downloads, design mode, profile, theme,
+// DevTools, More; plans/cmux-next R80, cx-6qwm). Design mode, theme and
+// DevTools run `toggleBrowserDesignMode`, `browserTheme` and
+// `toggleBrowserDeveloperTools` (one action id per behavior); these three open
+// the downloads, profile and More menus at their buttons. Titles live in BrowserToolbarActions.xcstrings.
 
 nonisolated enum BrowserToolbarActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -13,6 +13,13 @@ nonisolated enum BrowserToolbarActionCatalog: ActionCatalogGroup {
         // its own action with its own CLI verb and right-click placement.
         let plan = ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
         return [
+            ActionDescriptor(
+                id: "browser.downloads.show",
+                title: text("action.browser.downloads.show", "Show Downloads…"),
+                keywords: ["browser", "downloads", "files", "progress", "toolbar"], category: .browser,
+                symbol: "arrow.down.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser downloads", surfacePlan: plan
+            ),
             ActionDescriptor(
                 id: "browser.profile.choose",
                 title: text("action.browser.profile.choose", "Choose Browser Profile…"),

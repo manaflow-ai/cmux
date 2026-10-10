@@ -9,6 +9,7 @@
     "bookmarks-v1",
     "browser-host-provider-v1",
     "browser-profiles-v1",
+    "browser-runtime-v1",
     "chief-inspect-v1",
     "close-reason-v1",
     "cloud-conversations-v1",
