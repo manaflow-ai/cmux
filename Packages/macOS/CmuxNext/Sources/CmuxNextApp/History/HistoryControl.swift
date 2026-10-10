@@ -2,6 +2,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextHistory
 import Foundation
+import Observation
 
 /// `history.list {kind?, text?, limit?, range?}` for `cmux history list`
 /// and `cmux history search` (plans/cmux-next/history.md 5.3). The main
@@ -28,22 +29,48 @@ enum HistoryControl {
         #if DEBUG
         return [
             .mainActor("debug.history_cookie_backups") { [weak services] call in
-                guard let services, let key = services.windows.active?.focusedPane?.selectedTab?.id,
-                      let page = services.cache.existingBrowser(key)?.tab as? HistoryPageTab else {
-                    throw ControlError.invalidParams("the active window's selected tab is not the History page")
-                }
-                let model = page.model
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
                 let action = call.params["action"]?.stringValue ?? "show"
                 guard ["show", "hide", "delete_all"].contains(action) else {
                     throw ControlError.invalidParams("action must be show, hide or delete_all")
                 }
-                return .followUp { await debugCookieBackups(model, action: action) }
+                // Selects the window's History tab (or opens one), as Show History does.
+                services.historyPage.open()
+                return .followUp {
+                    guard let model = await historyPageModel(services) else {
+                        throw ControlError.invalidParams("the active window shows no History page")
+                    }
+                    return await debugCookieBackups(model, action: action)
+                }
             },
         ]
         #else
         return []
         #endif
     }
+
+    #if DEBUG
+    /// The page model of the active window's History tab, once its page is
+    /// installed (at most 5 s).
+    @MainActor
+    static func historyPageModel(_ services: AppServices) async -> HistoryPageModel? {
+        let find = { () -> HistoryPageModel? in
+            _ = services.cache.pageInstalls.revision
+            for pane in services.windows.active?.content?.panes.values.map({ $0 }) ?? [] {
+                for tab in pane.pane.tabs where HistoryPageAddress.matches(tab.url.flatMap(URL.init(string:))) {
+                    if let page = services.cache.existingBrowser(tab.id)?.tab as? HistoryPageTab { return page.model }
+                }
+            }
+            return nil
+        }
+        if let model = find() { return model }
+        _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
+            for await found in Observations({ find() != nil }) where found { return true }
+            return false
+        }
+        return find()
+    }
+    #endif
 
     #if DEBUG
     @MainActor
