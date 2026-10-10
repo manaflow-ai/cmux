@@ -172,3 +172,57 @@ after an edit in a moved function, before and after the move.
 - 2026-10-09 lane 2 step 1 (code 36c60c86bbba): cmux-tui-core image_paste, image_paste_file, image_paste_ownership, image_paste_recovery, image_paste_storage (+ their 2 #[path] test files, unchanged) -> crates/cmux-tui-image-paste (1,368 lines); crash baseline transferred (core unwrap 1626 -> 1604, image-paste 22); workspace test list 8946 -> 8946; Testbox gate about 15 min (fmt, workspace clippy -D warnings, workspace tests, windows-gnu check --tests). Build (32 vCPU, warm, edit in matches_mime): `cargo build -p cmux-tui-core` 15.7 s -> 6.2 s; `cargo test -p cmux-tui-image-paste --no-run` 2 s. Related: 374126a4dc89 (CI guard) moved the macOS and Windows platform selectors to -p cmux-tui-platform; they had matched 0 tests since step 2.
 - 2026-10-09 lane 2 steps 2+3 (code d26faab74680): cmux-tui-core backoff, stream_interrupt, debug_spans, short_id, machine_name, terminal_respawn_text, user_settings -> crates/cmux-tui-util (1,027 lines); pairing, remote_relay_state -> crates/cmux-tui-remote-access (526 lines); only items core uses became pub; test seams behind feature test-support; PairingBroker::new keeps no Default impl (allow with reason); crash baseline transferred (core unwrap 1604 -> 1587, expect 286 -> 284; util 12/1, remote-access 5/1); workspace test list 8946 -> 8946, 8890 passed 0 failed; Testbox gate about 14 min. Build (edit in a moved fn): `cargo build -p cmux-tui-core` about 15.5 s in core -> 6.2 s (util) / 6.6 s (remote-access).
 - 2026-10-10 lane 2 landing fdc55cb2fb50 (steps 1-3 above in one LOCK slot, token a39d6c882208): re-gated on merged head aa3c7f17d6cc through gate-run.sh (receipt /tmp/gates/aa3c7f17d6ccec720fdf208f5507b5563a2c15bb.json): fmt, workspace clippy -D warnings, nextest --profile ci 8970 passed, count 8970 = base 25a3fde51b93 8970, windows-gnu check --tests, crash ratchet, godfile; gate about 11 min. A first gate run on c48f387b23c2 had 2 load-timing failures in cmux-tui terminal_host_recovery (pipelined_new_tabs_start_hosts_in_parallel_in_request_order, host_crash_is_named_with_its_panic_message); both pass alone 3 of 3 and passed in the full re-run. Image paste tests keep their #[path] files (NO UNIT TESTS rule).
+
+## Lane 3: the cmux-tui bin crate (hq-11 iteration speed, 2026-10-10)
+
+The cmux-tui bin crate is about 180k lines in one compilation unit. Build after
+a one-line body edit in it (rbx, warm, `cargo build -p cmux-tui`) is about
+10.5-12 s; `cargo check -p cmux-tui` about 3 s. `-Z time-passes` for the bin
+after a leaf edit: total 9.8 s, of which crate-local ThinLTO 5.3 s
+(`LLVM_thinlto`), link 1.4 s, codegen/LLVM passes about 1.5 s, and the whole
+front end (expand, resolve, typeck, borrowck) about 1.5 s. `[profile.dev]
+opt-level = 1` with the default codegen units turns on rustc's local ThinLTO,
+which reruns over the bin's codegen units on every edit.
+
+Module graph (feat-cmux-next 01110cc31cb6, edges = `crate::<module>`):
+- 19 modules form one cycle of 72.9k lines (cli, session, config,
+  localization, client_log, link, plugin_manager, acp, ...). Every back edge
+  into `cli` except `acp -> cli::run` is the constant `cli::BIN`
+  (client_log's stderr_log! macro, config, localization, plugin_manager,
+  owner_start).
+- agent_hook_install (3,937 lines with tests) has no crate-local dependency:
+  movable as it is.
+- machine_provider_runtime (6,508 lines) reaches 97k lines through
+  session, config, machine, machine_provider_client and machine_runtime;
+  machine_runtime reaches remote_cli (connect_managed_ssh, ManagedSshOptions),
+  which belongs to lane hq-a3. Two seams make its cone 43.9k lines
+  (machine_provider_runtime, machine_runtime, machine,
+  machine_provider_client, provider_notice_identity, session, config,
+  localization, client_log, keys, local_actor, layout_undo,
+  agent_plugin_config, test_exec): (1) `BIN` moves to a leaf (app_identity
+  or cmux-tui-util), (2) machine_runtime gets the managed-SSH connect as an
+  injected function or trait, implemented in remote_cli. That is a
+  "cmux-tui-client" crate of about 44k lines: a design step with seams, not
+  move-only, and it touches config.rs and session/ (other lanes).
+
+Measured (rbx lane hq11-tui-split, warm, 3 runs each, median; edit = one
+`black_box` line in a function body):
+
+| edit in | `cargo build -p cmux-tui` before / after the hooks move | `cargo check -p cmux-tui` before / after |
+| --- | --- | --- |
+| machine_provider_runtime.rs (placeholder_session) | 10.5 s / 10.8 s | 3.0 s / 3.5 s |
+| agent_hook_install (helper_command) | 12.4 s / 12.7 s | 3.1 s / 3.4 s |
+| host_colors.rs (leaf, ProbeIo::open) | 11.0 s / 10.1 s | 3.2 s / 3.0 s |
+
+The move does not change the bin build (ThinLTO and link of the bin
+dominate); it makes the hook installer's own loop fast: `cargo check -p
+cmux-tui-hooks` 0.2 s, `cargo test -p cmux-tui-hooks --no-run` 1.6 s.
+Same edits after the move with `CARGO_PROFILE_DEV_LTO=off` (lane
+hq11-tui-split-lto, warm, median of 3): machine_provider_runtime 6.2 s,
+cmux-tui-hooks 5.3 s, host_colors 5.5 s (lto on: 10.8 / 12.7 / 10.1 s).
+
+Decision: the next real gain is the dev profile, not more bin-crate moves:
+`lto = "off"` in `[profile.dev]` (needs the LOCK slot and the chief's go,
+because it changes mux-dev debug-build code generation). After that, the
+cmux-tui-client crate above (two seams) is the step that shrinks the bin's
+front end and codegen units.
