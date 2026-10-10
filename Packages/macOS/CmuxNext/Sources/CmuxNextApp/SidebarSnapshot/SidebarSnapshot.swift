@@ -100,10 +100,11 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     private static func node(_ node: SidebarNode) -> Node? {
         switch node {
         case let .workspace(ws):
-            guard ws.rowState != .placeholder else { return nil }
+            // A connecting SSH machine's row is live link state, never saved (cx-gaq9).
+            guard ws.rowState != .placeholder, !SSHConnectingRows.isRow(ws.id) else { return nil }
             return Node(workspace: workspace(ws), group: nil)
         case let .group(group):
-            let rows = group.workspaces.filter { $0.rowState != .placeholder }.map(workspace)
+            let rows = group.workspaces.filter { $0.rowState != .placeholder && !SSHConnectingRows.isRow($0.id) }.map(workspace)
             return Node(workspace: nil, group: Group(id: group.id.rawValue, name: group.name, color: group.color.rawValue,
                                                      isCollapsed: group.isCollapsed, isPinned: group.isPinned, workspaces: rows))
         }

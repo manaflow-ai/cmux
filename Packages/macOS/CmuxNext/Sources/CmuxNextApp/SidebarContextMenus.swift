@@ -13,8 +13,12 @@ enum SidebarContextMenus {
             return PaneController.tabMenu(tab.rawValue, tab: services.locateTab(tab.rawValue)?.0,
                                           workspaceKind: services.workspace(id: workspace.rawValue)?.kind, registry: registry)
         case .workspaces(let ids):
+            // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
+            if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {
+                return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine))
+            }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
-            guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder || CloudCreationRows.isRow($0, services) }) else { return nil }
+            guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder || CloudCreationRows.isRow($0, services) || SSHConnectingRows.isRow($0) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
             let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])

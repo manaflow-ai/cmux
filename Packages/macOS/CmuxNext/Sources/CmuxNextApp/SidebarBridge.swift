@@ -227,6 +227,7 @@ final class SidebarBridge {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
+        sections = SSHConnectingRows.adding(machines, to: sections)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
