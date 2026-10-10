@@ -52,6 +52,12 @@ pub unsafe fn take_from_process_env() {
     }
 }
 
+/// The [`ENV`] value this process took at startup, for an owner daemon it
+/// spawns (`server ensure`): only that daemon gets it, never a shell.
+pub fn taken() -> Option<PathBuf> {
+    TAKEN.get().cloned().flatten()
+}
+
 /// [`DIRS_ENV`] as this process started with it (taken at startup), or the
 /// live environment in a process that never took it.
 pub fn apps_dirs() -> Option<std::ffi::OsString> {
