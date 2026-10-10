@@ -81,8 +81,8 @@ struct SidebarGroupEditing {
         open(group.id)
     }
 
-    /// The group's full menu (every group action), under its chip.
-    private func showMenu(_ id: GroupID) {
+    /// The group's full menu under its chip: its more button, a right-click, the editor's last row.
+    func showMenu(_ id: GroupID) {
         guard let menu = list.contextMenuProvider?(.group(id)), let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
         _ = menu.popUp(positioning: nil, at: NSPoint(x: view.labelFrame.minX, y: view.labelFrame.maxY + Metrics.space1), in: view)
     }

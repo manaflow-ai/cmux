@@ -123,7 +123,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // becomes a chat (then the chat's title and icon).
             let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
             let untitled = tab.agentSession != nil
-                ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
+                ? isNewTabPage ? AgentHistoryPage.title(tab.id, services) ?? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
             // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the

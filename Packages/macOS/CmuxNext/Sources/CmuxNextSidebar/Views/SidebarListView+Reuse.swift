@@ -17,6 +17,7 @@ extension SidebarListView {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.onClose = { [weak self] in self?.model.send(.close([id])) }
+            view.onMore = contextMenuProvider == nil ? nil : { [weak self] in self.map { SidebarRowMenu(list: $0).show(for: id) } }
             view.onSelect = { [weak self] in self?.model.click(id) }
             view.onToggleTabs = { [weak self] in self?.model.toggleWorkspaceTabs(id); self?.reload(animated: true) }
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
@@ -24,7 +25,8 @@ extension SidebarListView {
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
             }
         case let (.group(id), view as GroupHeaderRowView):
-            view.onMore = { [weak self] in self?.groupEditing.open(id) }
+            view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // the full menu (cx-a9h6); the chip edits
+            view.onEdit = { [weak self] in self?.groupEditing.open(id) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id

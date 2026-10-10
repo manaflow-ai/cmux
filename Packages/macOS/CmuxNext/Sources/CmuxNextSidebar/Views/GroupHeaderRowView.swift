@@ -6,11 +6,12 @@ import QuartzCore
 /// Group header (cx-25az, Leo 2026-10-10: no full pastel fill; was the
 /// Chrome bar of cx-rcby): the group's color is a dot on its line, which
 /// runs from the dot to the last member (Edge style); the name is in the
-/// sidebar's text color and lines up with the members' titles. A more button
-/// on hover and the collapse chevron at the right edge; hover and drop fills
+/// sidebar's text color and lines up with the members' titles. A + and a more
+/// button on hover and the collapse chevron at the right edge; hover and drop fills
 /// like a row's, right of the line. Type and glyphs scale with the row height
 /// (the sidebar density setting). No member count: a collapsed group shows
 /// its members' activity and unread total. The name opens the group editor;
+/// the more button and a right-click show the group's full menu (cx-a9h6);
 /// the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
@@ -24,7 +25,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
-    /// The more button (the pack's three-dot action.more): the group editor. Shows on hover and while the editor is open.
+    /// The more button (the pack's three-dot action.more): the group's full menu, as a right-click (cx-a9h6). Shows on hover and while the editor is open.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -46,6 +47,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group editor is open for this group: the chip stays in its hover look.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
     var onMore: (() -> Void)?
+    /// Opens the group editor (name and color); VoiceOver's Edit action.
+    var onEdit: (() -> Void)?
     var onAdd: (() -> Void)?
 
     override var interactiveSubviews: [NSView] { [addButton, moreButton] }
@@ -61,8 +64,8 @@ final class GroupHeaderRowView: SidebarRowView {
         moreButton.onPress = { [weak self] in self?.onMore?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
         setAccessibilityCustomActions([NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { [weak self] in
-            self?.onMore?()
-            return self?.onMore != nil
+            self?.onEdit?()
+            return self?.onEdit != nil
         }])
     }
 
@@ -73,6 +76,7 @@ final class GroupHeaderRowView: SidebarRowView {
         isEditing = false
         collapsed = false
         onMore = nil
+        onEdit = nil
         onAdd = nil
     }
 
@@ -135,9 +139,6 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = hidden
     }
 
-    /// Whether the more button shows: on hover, and while the editor is open.
-    private var showsMore: Bool { isHovered || isEditing }
-
     override func updateLayer() {
         performWithTheme {
             // The name in the sidebar's own text colors; the group's color is the dot and its line.
@@ -183,19 +184,16 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronFrame = CGRect(x: b.width - pad * 0.75 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
-        // The more button fades in left of the chevron on hover; its slot is kept.
+        // The more button keeps a stable slot left of the chevron.
         moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
         moreButton.isHidden = false
-        moreButton.alphaValue = showsMore ? 1 : 0
-        // Shown to VoiceOver only when it shows; the header's custom action edits the group always.
-        moreButton.setAccessibilityElement(showsMore)
+        moreButton.alphaValue = 1
+        moreButton.setAccessibilityElement(true)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         addButton.frame.origin.x = max(pad, addButton.frame.minX)
         let offersAdd = onAdd != nil && !isEmpty
-        // Hidden, not only transparent, while it does not show: a click
-        // there before any hover collapses the group as before.
-        addButton.isHidden = !offersAdd || !showsMore
-        addButton.setAccessibilityElement(showsMore && offersAdd)
+        addButton.isHidden = !offersAdd
+        addButton.setAccessibilityElement(offersAdd)
         // The badge and activity keep their place whether or not the buttons show.
         var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
         if badge.state.isUnread {
