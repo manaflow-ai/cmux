@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """S3 behavior proof on a tagged DEBUG cmux-next app (run on the GUI host, never the laptop).
 
-Usage: split-optimistic-proof.py TAG RUNS   (the app must run: /tmp/cmux-debug-TAG.sock)
+Usage: split-optimistic-proof.py TAG RUNS [optimistic|old]   (the app must run: /tmp/cmux-debug-TAG.sock)
 Drives Cmd+D through the app's real key path (debug.key) in a fresh local workspace and
 measures key -> new pane in the control snapshot. Right after each Cmd+D it types
 `echo s3typed<N>` + Return into the new pane (before its shell can be ready) and later reads
 the new terminal's screen over the daemon socket (read-screen) to check the keys arrived once,
-in order. Prints one JSON line per run and a summary.
+in order. Prints one JSON line per run and a summary. Each run also records the path Cmd+D
+took: the first snapshot of the new pane shows a provisional surface (>= 2^62, the optimistic
+path) or a daemon surface (the old path). With a third argument the script exits 1 when any
+run took another path or lost keys.
 """
 import json, os, socket, subprocess, sys, time
 
 TAG, RUNS = sys.argv[1], int(sys.argv[2])
+EXPECT = sys.argv[3] if len(sys.argv) > 3 else None
+PROVISIONAL_BASE = 1 << 62
+
+
+def first_surface(pane):
+    tabs = pane.get("tabs") or []
+    value = str(tabs[0].get("surface", "")) if tabs else ""
+    return int(value) if value.isdigit() else None
 CTL = f"/tmp/cmux-debug-{TAG}.sock"
 
 
@@ -80,10 +91,15 @@ for run in range(RUNS):
     key("d", window, ["command"])
     t_key = time.perf_counter()
     new = None
+    path = None
     while time.perf_counter() - t0 < 3:
-        now = set(panes(workspace(ws)))
+        seen = panes(workspace(ws))
+        now = set(seen)
         if now - before:
-            new = (now - before).pop(); break
+            new = (now - before).pop()
+            surface0 = first_surface(seen[new])
+            path = "optimistic" if surface0 is None or surface0 > PROVISIONAL_BASE else "old"
+            break
         time.sleep(0.001)
     t_pane = time.perf_counter()
     marker = f"s3typed{run}"
@@ -99,7 +115,7 @@ for run in range(RUNS):
     lines = [line.strip() for line in text.splitlines()]
     row = {"run": run, "key_ms": round((t_key - t0) * 1000, 1), "key_to_pane_ms": round((t_pane - t0) * 1000, 1) if new else None,
            # The marker's output line appears once: the keys ran once, in order.
-           "new_pane": new, "typed_once": lines.count(marker) == 1,
+           "new_pane": new, "path": path, "typed_once": lines.count(marker) == 1,
            "output_line": marker in lines, "screen_tail": lines[-4:] if lines else []}
     rows.append(row)
     print(json.dumps(row), flush=True)
@@ -109,4 +125,10 @@ for run in range(RUNS):
 v = sorted(r["key_to_pane_ms"] for r in rows if r["key_to_pane_ms"] is not None)
 if v:
     print(json.dumps({"summary": "key_to_pane_ms", "n": len(v), "p50": v[len(v) // 2], "max": v[-1],
-                      "typed_ok": sum(r["typed_once"] for r in rows)}))
+                      "typed_ok": sum(r["typed_once"] for r in rows),
+                      "paths": {p: sum(r["path"] == p for r in rows) for p in ("optimistic", "old")}}))
+if EXPECT:
+    wrong_path = [r["run"] for r in rows if r["path"] != EXPECT]
+    lost_keys = [r["run"] for r in rows if not r["typed_once"]]
+    print(json.dumps({"expect": EXPECT, "wrong_path_runs": wrong_path, "lost_key_runs": lost_keys}))
+    sys.exit(1 if wrong_path or lost_keys else 0)
