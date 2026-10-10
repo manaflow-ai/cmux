@@ -49,7 +49,12 @@ import AppKit
                 return false
             }
             let next = index + (event.specialKey == .upArrow ? -1 : 1)
-            if stops.indices.contains(next) { focus(stops[next]) }
+            // Past the first or last stop, focus moves on to the items around the list (cx-qno.10).
+            if stops.indices.contains(next) {
+                focus(stops[next])
+            } else if SidebarArrowWalk.leave(list, up: next < 0) {
+                setFocus(nil)
+            }
             return true
         case .leftArrow?:
             if let group = list.focusedGroup {

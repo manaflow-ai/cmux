@@ -311,4 +311,10 @@ final class SidebarRegionView: NSView {
 
     /// The item view for `id` (tests, hover cards).
     func itemView(_ id: LayoutItemID) -> SidebarItemRowView? { itemViews[id] }
+
+    /// Up and Down from a focused item walk the whole sidebar (`SidebarArrowWalk`).
+    override func keyDown(with event: NSEvent) {
+        if let item = window?.firstResponder as? SidebarItemRowView, SidebarArrowWalk.step(from: item, event) { return }
+        super.keyDown(with: event)
+    }
 }
