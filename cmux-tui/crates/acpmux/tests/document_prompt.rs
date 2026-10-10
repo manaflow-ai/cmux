@@ -75,7 +75,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn pdf_reaches_codex_and_claude_as_a_document() {
+async fn pdf_reaches_codex_as_an_embedded_resource_and_claude_as_a_document() {
     let hub = hub();
     let prompt = json!({
         "prompt": [
