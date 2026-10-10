@@ -228,6 +228,28 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .unknown)
     }
 
+    @Test func paneMoveWithOlderTimestampKeepsTheNewerOriginProjection() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .errorReported, surfaceId: surface, occurredAtMs: 100),
+            event(2, .sessionStarted, surfaceId: movedSurface, occurredAtMs: 50),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .unknown)
+    }
+
+    @Test func movedSessionCanReturnToItsRetiredOriginSurface() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .turnStarted, surfaceId: surface),
+            event(2, .sessionStarted, surfaceId: movedSurface),
+            event(3, .sessionStarted, surfaceId: surface),
+            event(4, .turnStarted, surfaceId: surface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == nil)
+    }
+
     @Test func subagentEventsNeverDriveSurfaceLifecycle() {
         let state = fold([event(1, .turnStarted, isSubagent: true)])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == nil)

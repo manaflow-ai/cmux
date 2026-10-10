@@ -56,6 +56,18 @@ public struct AgentLifecycleReducer: Sendable {
            event.sequence <= retiredAt {
             return false
         }
+        if event.draft.kind == .sessionStarted,
+           state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
+            // A newer owner already retired this session at this surface. A
+            // late start cannot reopen the old projection or its StopFailure.
+            // A live projection on another surface is the deliberate move-back
+            // case, so it may establish ownership here again.
+            let hasLiveProjectionElsewhere = state.sessionLocations(
+                agentKey: agentKey,
+                sessionKey: sessionKey
+            ).contains { $0.surfaceId != surfaceId && !$0.state.ended }
+            if !hasLiveProjectionElsewhere { return false }
+        }
         if event.draft.kind != .sessionStarted,
            state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
             return false
@@ -113,7 +125,8 @@ public struct AgentLifecycleReducer: Sendable {
         for location in state.sessionLocations(agentKey: agentKey, sessionKey: sessionKey)
             where location.surfaceId != surfaceId
                 && !location.state.ended
-                && event.sequence > location.state.lastSequence {
+                && event.sequence > location.state.lastSequence
+                && event.draft.occurredAtMs >= location.state.lastOccurredAtMs {
             state.retire(
                 surfaceId: location.surfaceId,
                 agentKey: agentKey,

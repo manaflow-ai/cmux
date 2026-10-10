@@ -88,6 +88,13 @@ public struct AgentNotificationReconciler: Sendable {
            event.sequence <= existing.sequence {
             return .init(.stale)
         }
+        if draft.kind == .sessionStarted,
+           sessions[sessionKey]?.superseded == true {
+            // Session boundaries are one-way. A late start from a retired
+            // identity must not make it current again or invalidate the
+            // receipts of the replacement owner.
+            return .init(.stale)
+        }
         var boundaryInvalidations: [String] = []
         if draft.kind == .sessionStarted {
             // A new session boundary supersedes every older session that was
@@ -117,7 +124,7 @@ public struct AgentNotificationReconciler: Sendable {
             // Correlations are pane-scoped even though the semantic session
             // identity survives a move. Retire receipts on the old pane while
             // their originating surface is still known.
-            for identity in session.delivered.keys.sorted()
+            for identity in Array(session.delivered.keys)
                 where session.deliveredSurfaceIDs[identity] == previousSurfaceID {
                 if let correlation = session.delivered.removeValue(forKey: identity) {
                     boundaryInvalidations.append(correlation)
@@ -429,7 +436,7 @@ public struct AgentNotificationReconciler: Sendable {
             if session.turn == "initial", let incomingTurn { session.turn = incomingTurn }
             let pending = draft.pendingWork || !session.children.isEmpty
             if !draft.pendingWork {
-                for identity in session.delivered.keys.sorted() where identity != session.completionIdentity {
+                for identity in Array(session.delivered.keys) where identity != session.completionIdentity {
                     if let key = session.delivered.removeValue(forKey: identity) { invalidated.append(key) }
                 }
                 session.attentionIdentities.removeAll()

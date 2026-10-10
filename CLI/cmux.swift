@@ -1583,7 +1583,6 @@ final class ClaudeHookSessionStore {
             for supersededSessionId in supersededSessionIDs {
                 if var superseded = state.sessions[supersededSessionId] {
                     let supersededWorkspaceId = superseded.workspaceId
-                    let ownsTargetSurface = superseded.surfaceId == normalizedSurfaceId
                     superseded.agentLifecycle = .idle
                     superseded.lastSubtitle = nil
                     superseded.lastBody = nil
@@ -1592,13 +1591,15 @@ final class ClaudeHookSessionStore {
                     superseded.hadPendingBackgroundWorkAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
-                    if ownsTargetSurface,
-                       state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
+                    if state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
                         state.activeSessionsByWorkspace.removeValue(forKey: supersededWorkspaceId)
                     }
                 }
-                state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
-                    $0.value.sessionId != supersededSessionId
+                // Only the target surface changed ownership. A stale duplicate
+                // mapping on a sibling pane must not be evicted as a side effect
+                // of this boundary; surface ownership is the source of truth.
+                if state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId == supersededSessionId {
+                    state.activeSessionsBySurface.removeValue(forKey: normalizedSurfaceId)
                 }
             }
             var record = makeSessionRecord(
