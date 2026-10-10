@@ -61,6 +61,9 @@ final class BrowserModel {
 
     // Viewport inputs (points).
     @ObservationIgnored private var viewSize: CGSize = .zero
+    /// Whether attaching `tabId` should show it on the Mac first (a hidden
+    /// Mac tab with the opt-in setting on); set by the tabs model.
+    @ObservationIgnored var bringForward: (String) -> Bool = { _ in false }
     @ObservationIgnored private var topInset: CGFloat = 0
     @ObservationIgnored private var bottomObscured: CGFloat = 0
     @ObservationIgnored private var screenScale: CGFloat = 3
@@ -208,7 +211,8 @@ final class BrowserModel {
         do {
             let result = try await client.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height,
                                                                         scale: vp.scale, mobile: vp.mobile, frameMeta: true,
-                                                                        reloadForMode: explicitModeChange ? true : nil))
+                                                                        reloadForMode: explicitModeChange ? true : nil,
+                                                                        bringForward: bringForward(tabId) ? true : nil))
             explicitModeChange = false
             guard token == attachToken else {
                 try? await client.detachTab(streamId: result.streamId)

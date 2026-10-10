@@ -157,12 +157,20 @@ struct BrowserScreen: View {
     /// Live agent session content for an agent tab (from the tabs root).
     var agentContent: (String) -> AnyView = { _ in AnyView(Color.clear) }
 
+    @Environment(\.cnHostedInTabBar) private var hostedInTabBar
+
+    /// Bottom inset of a page's chrome. In the tab shell the safe area ends
+    /// at the tab bar's status accessory; the floating toolbar keeps a gap
+    /// above it (the accessory, tab bar and toolbar read as three separate
+    /// glass rows, as Safari's toolbar over its own bottom edge).
+    private var pageBottom: CGFloat { hostedInTabBar ? safeBottom + 10 : safeBottom }
+
     /// The overview is the Mac's panes (layout.v1) instead of a tab grid.
     private var canvasMode: Bool { tabs.includesTerminals && tabs.layout != nil }
 
     private var canvasGeometry: PaneCanvasLayout {
         guard let layout = tabs.layout else { return PaneCanvasLayout() }
-        return PaneCanvasLayout(layout: layout, width: size.width, top: safeTop + 56, bottom: overviewLayout.barRect.height + safeBottom + 40)
+        return PaneCanvasLayout(layout: layout, width: size.width, top: safeTop + 56, bottom: size.height - overviewLayout.barRect.minY + 24)
     }
 
     private var showsStartPage: Bool { creatingTab || tabs.showsStartPage(tabs.activeKey) }
@@ -204,7 +212,7 @@ struct BrowserScreen: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.items.firstIndex { $0.id == id } } ?? (tabs.activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.items.count, index + 1))
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: max(tabs.items.count, index + 1))
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -238,7 +246,8 @@ struct BrowserScreen: View {
     }
 
     var body: some View {
-        let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        let layout = ToolbarLayout.make(size: size, safeBottom: pageBottom, keyboard: keyboard, bar: chrome.bar,
+                                        pillBottom: hostedInTabBar ? pageBottom : nil,
                                         editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69,
                                         noBack: tabs.activeTerminalKey != nil)
         ZStack(alignment: .topLeading) {
@@ -253,7 +262,8 @@ struct BrowserScreen: View {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
             if tabs.loaded, canvasMode {
-                PaneCanvas(tabs: tabs, geometry: canvasGeometry, size: size, safeTop: safeTop, shown: overviewShown,
+                PaneCanvas(tabs: tabs, geometry: canvasGeometry, size: size, safeTop: safeTop, barRect: overviewLayout.barRect,
+                           shown: overviewShown,
                            detailsOpacity: overviewDetails,
                            hiddenPaneId: picker.map(\.paneId) ?? (zoomState.phase == .overview ? nil : zoomPaneId),
                            interactive: zoomState.gridInteractive && picker == nil,
@@ -302,14 +312,14 @@ struct BrowserScreen: View {
                 let content = zoomContent()
                 Group {
                     if let item = zoomTabId.flatMap(tabs.item), case .macOnly(let t) = item {
-                        localPageScaled(MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: safeBottom), g.rect)
+                        localPageScaled(MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom), g.rect)
                     } else if let item = zoomTabId.flatMap(tabs.item), case .agent(let id, _, _) = item {
                         // The live session laid out at full page size, scaled to the rect.
-                        localPageScaled(agentContent(id).padding(.bottom, safeBottom + 64).background(Color.cn(\.elevated)), g.rect)
+                        localPageScaled(agentContent(id).padding(.bottom, pageBottom + 64).background(Color.cn(\.elevated)), g.rect)
                     } else if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
                         // The live terminal laid out at full page size, scaled to the rect.
                         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
-                        terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - safeBottom - 64))
+                        terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - pageBottom - 64))
                             .padding(.top, safeTop)
                             .frame(width: size.width, height: size.height, alignment: .top)
                             .background(Color.cn(\.terminalBackground))
@@ -337,7 +347,8 @@ struct BrowserScreen: View {
             }
 
             BrowserToolbar(chrome: chrome, tab: model.activeTab, local: activeLocalTitle,
-                           showsStartPage: showsStartPage, size: size, safeBottom: safeBottom,
+                           showsStartPage: showsStartPage, size: size, safeBottom: pageBottom,
+                           pillBottom: hostedInTabBar ? pageBottom : nil,
                            keyboard: keyboard,
                            onBack: model.goBack, onForward: model.goForward, onReload: model.reloadOrStop,
                            onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
@@ -399,6 +410,7 @@ struct BrowserScreen: View {
         }
         #endif
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
+
         // A browser row in the drawer opens that tab (by id).
         .onChange(of: shellRoute?.nonce, initial: true) { _, _ in
             guard let route = shellRoute, let raw = route.id else { return }
@@ -458,14 +470,14 @@ struct BrowserScreen: View {
     @ViewBuilder private var pageLayer: some View {
         if case .macOnly(let t)? = tabs.activeItem, !chrome.swiping {
             if zoomState.phase == .page {
-                MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: safeBottom)
+                MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom)
             } else {
                 style.colors.startBackground
             }
         } else if case .agent(let id, _, _)? = tabs.activeItem, !chrome.swiping {
             if zoomState.phase == .page {
                 agentContent(id)
-                    .padding(.bottom, safeBottom + 64)
+                    .padding(.bottom, pageBottom + 64)
                     .frame(width: size.width, height: size.height)
                     .background(Color.cn(\.elevated))
             } else {
@@ -479,7 +491,7 @@ struct BrowserScreen: View {
             if zoomState.phase == .page {
                 terminalContent(terminal.id, nil)
                     .padding(.top, safeTop)
-                    .padding(.bottom, safeBottom + 64)
+                    .padding(.bottom, pageBottom + 64)
                     .frame(width: size.width, height: size.height)
                     .background(Color.cn(\.terminalBackground))
             } else {
@@ -503,6 +515,10 @@ struct BrowserScreen: View {
                         zoomPinchActive: zoomPinchActive)
                 .opacity(chrome.swiping || showsStartPage ? 0 : 1)
                 .allowsHitTesting(!chrome.swiping && !showsStartPage && !displaced)
+            if let key = tabs.activeKey, tabs.hiddenOnMac(key) != nil, !showsStartPage, !chrome.swiping, !displaced {
+                HiddenOnMacOverlay(hostName: hostName, safeTop: safeTop, onShow: { tabs.showOnMac(key) })
+                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
+            }
             if displaced && !showsStartPage && !chrome.swiping {
                 DisplacedOverlay(safeTop: safeTop, onViewHere: model.reattachDisplaced)
                     .transition(.opacity.animation(.easeOut(duration: 0.2)))
@@ -698,7 +714,7 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: tabs.items.count + (newTabPending ? 1 : 0))
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: tabs.items.count + (newTabPending ? 1 : 0))
     }
 
     /// What the zooming rect shows: the same image the card shows (or the
@@ -726,7 +742,7 @@ struct BrowserScreen: View {
         }
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count)
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: count)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()

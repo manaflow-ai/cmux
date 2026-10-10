@@ -10,8 +10,11 @@ struct ToolbarLayout {
     var capsule: CGRect
     var right: CGRect
 
-    static func make(size: CGSize, safeBottom: CGFloat, keyboard: CGFloat, bar: BrowserChromeState.Bar, editing: Bool,
-                     splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
+    /// `pillBottom`: the collapsed pill's distance from the bottom edge when
+    /// something else owns the screen's bottom (the tab shell's tab bar);
+    /// nil for Safari's spot in the home indicator area.
+    static func make(size: CGSize, safeBottom: CGFloat, keyboard: CGFloat, bar: BrowserChromeState.Bar, pillBottom: CGFloat? = nil,
+                     editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
         let m = BrowserStyle.shared.metrics
         let w = size.width
         let bottom = size.height - max(safeBottom, 20)
@@ -34,7 +37,7 @@ struct ToolbarLayout {
         let capsule = CGRect(x: capsuleX, y: barY, width: tabs.minX - m.gap - capsuleX, height: m.control)
         if bar == .collapsed {
             let pillW = labelWidth * m.collapsedScale + 2 * m.pillPadding
-            let pill = CGRect(x: (w - pillW) / 2, y: size.height - m.pillBottom - m.pillHeight, width: pillW, height: m.pillHeight)
+            let pill = CGRect(x: (w - pillW) / 2, y: size.height - (pillBottom ?? m.pillBottom) - m.pillHeight, width: pillW, height: m.pillHeight)
             // Side circles travel inward with the pill edges while fading.
             let b = CGRect(x: pill.minX - m.gap - back.width, y: pill.midY - m.control / 2, width: back.width, height: m.control)
             let t = CGRect(x: pill.maxX + m.gap, y: pill.midY - m.control / 2, width: m.control, height: m.control)
@@ -56,6 +59,8 @@ struct BrowserToolbar: View {
     var showsStartPage: Bool
     var size: CGSize
     var safeBottom: CGFloat
+    /// The collapsed pill's distance from the bottom edge (nil: Safari's).
+    var pillBottom: CGFloat? = nil
     var keyboard: CGFloat
     var onBack: () -> Void
     var onForward: () -> Void
@@ -79,7 +84,7 @@ struct BrowserToolbar: View {
     private var splitBack: Bool { tab?.canGoForward == true }
 
     var body: some View {
-        let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar, pillBottom: pillBottom,
                                         editing: chrome.editing, splitBack: splitBack, labelWidth: labelWidth,
                                         noBack: local != nil)
         let sideOpacity: Double = chrome.sidesVisible && !chrome.editing ? 1 : 0

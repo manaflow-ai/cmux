@@ -97,6 +97,31 @@ final class TabsModel {
     init(connection: HostConnection, includesTerminals: Bool) {
         browser = BrowserModel(connection: connection)
         self.includesTerminals = includesTerminals
+        browser.bringForward = { [weak self] id in
+            guard let self, UserDefaults.standard.bool(forKey: Self.bringForwardKey) else { return false }
+            return self.hiddenOnMac(id) != nil
+        }
+    }
+
+    /// Settings › Browser "Bring tabs forward on Mac automatically"
+    /// (`AppPreferences.browserBringForwardKey`; off by default).
+    static let bringForwardKey = "cmuxNext.browser.bringForward"
+
+    /// The Mac browser tab behind `key` when the Mac is not showing it (its
+    /// pane shows another tab, or its workspace is in the background): it
+    /// sends no frames until shown.
+    func hiddenOnMac(_ key: String) -> (paneId: String, tab: LayoutTab)? {
+        guard TabItem.isBrowserKey(key) else { return nil }
+        for pane in layout?.workspaces.flatMap(\.panes) ?? [] {
+            if let t = pane.tabs.first(where: { $0.kind == .browser && $0.refId == key && $0.visibleOnMac == false }) { return (pane.id, t) }
+        }
+        return nil
+    }
+
+    /// "Show on Mac": selects the tab in its Mac pane so it renders.
+    func showOnMac(_ key: String) {
+        guard let hidden = hiddenOnMac(key) else { return }
+        focus(paneId: hidden.paneId, tab: hidden.tab)
     }
 
     // MARK: Items
@@ -188,7 +213,12 @@ final class TabsModel {
             for w in l.workspaces.indices {
                 for p in l.workspaces[w].panes.indices where l.workspaces[w].panes[p].id == paneId {
                     l.workspaces[w].panes[p].focusedTabId = tab.id
-                    for t in l.workspaces[w].panes[p].tabs.indices { l.workspaces[w].panes[p].tabs[t].focused = l.workspaces[w].panes[p].tabs[t].id == tab.id }
+                    for t in l.workspaces[w].panes[p].tabs.indices {
+                        let picked = l.workspaces[w].panes[p].tabs[t].id == tab.id
+                        l.workspaces[w].panes[p].tabs[t].focused = picked
+                        // The Mac shows the picked tab now (its pane and workspace come forward).
+                        if picked, l.workspaces[w].panes[p].tabs[t].visibleOnMac != nil { l.workspaces[w].panes[p].tabs[t].visibleOnMac = true }
+                    }
                 }
             }
             layout = l
@@ -255,6 +285,9 @@ final class TabsModel {
             browser.detachAll()
         } else {
             activeTerminalKey = nil
+            // "Bring tabs forward on Mac automatically": a tab the Mac is
+            // not drawing is shown there first (no "Show on Mac" tap).
+            if UserDefaults.standard.bool(forKey: Self.bringForwardKey), hiddenOnMac(key) != nil { showOnMac(key) }
             browser.select(key)
         }
     }
@@ -323,7 +356,10 @@ final class TabsModel {
 
     /// A drawer row asked for `key` (browser tab id, or a terminal key).
     func open(key: String) {
-        if !TabItem.isBrowserKey(key) { select(key) } else { activeTerminalKey = nil; browser.open(tabId: key) }
+        if !TabItem.isBrowserKey(key) { select(key); return }
+        activeTerminalKey = nil
+        if UserDefaults.standard.bool(forKey: Self.bringForwardKey), hiddenOnMac(key) != nil { showOnMac(key) }
+        browser.open(tabId: key)
     }
 
     // MARK: Cards

@@ -12,6 +12,8 @@ struct PaneCanvas: View {
     var geometry: PaneCanvasLayout
     var size: CGSize
     var safeTop: CGFloat
+    /// The bottom controls' row (the tab grid's).
+    var barRect: CGRect
     var shown: Double
     var detailsOpacity: Double
     /// Pane hidden while a zoom or the tab picker stands in for it.
@@ -52,7 +54,7 @@ struct PaneCanvas: View {
                                     .opacity(pane.id == hiddenPaneId ? 0 : 1)
                                     .contentShape(.rect(cornerRadius: 14))
                                     .onTapGesture { onTap(pane.id) }
-                                    .simultaneousGesture(holdGesture(pane.id))
+                                    .gesture(PaneHoldGesture { onHold(pane.id, $0) })
                                     .position(x: r.midX, y: r.midY)
                             }
                         }
@@ -85,27 +87,8 @@ struct PaneCanvas: View {
         tabs.layout?.workspaces.first { $0.id == workspaceId }?.panes ?? []
     }
 
-    /// Press and hold (0.35 s), then slide sideways without lifting.
-    private func holdGesture(_ paneId: String) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.35, maximumDistance: 12)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(browserScreenSpace)))
-            .onChanged { value in
-                switch value {
-                case .first(true): break
-                case .second(true, nil): onHold(paneId, .began)
-                case .second(true, let drag?): onHold(paneId, .moved(drag.translation.width))
-                default: break
-                }
-            }
-            .onEnded { value in
-                if case .second(true, let drag) = value {
-                    onHold(paneId, .ended(drag?.translation.width ?? 0))
-                }
-            }
-    }
-
     private var controls: some View {
-        let bar = OverviewLayout(size: size, safeTop: safeTop, safeBottom: 34, count: 0).barRect
+        let bar = barRect
         let y = safeTop + 4 + style.metrics.overviewTopControl / 2
         return ZStack(alignment: .topLeading) {
             if let leadingItem {
@@ -148,6 +131,42 @@ struct PaneCanvas: View {
             .accessibilityLabel("Done")
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+}
+
+/// Press and hold (0.35 s, within 12 pt), then slide without lifting: a
+/// UIKit long press, so moving before it fires leaves the touch to the
+/// canvas's scroll view (a SwiftUI long-press-then-drag sequence held it).
+struct PaneHoldGesture: UIGestureRecognizerRepresentable {
+    var onPhase: (PaneHoldPhase) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let g = UILongPressGestureRecognizer()
+        g.minimumPressDuration = 0.35
+        g.allowableMovement = 12
+        g.cancelsTouchesInView = true
+        return g
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func handleUIGestureRecognizerAction(_ g: UILongPressGestureRecognizer, context: Context) {
+        let x = context.converter.location(in: .named(browserScreenSpace)).x
+        switch g.state {
+        case .began:
+            context.coordinator.startX = x
+            onPhase(.began)
+        case .changed:
+            onPhase(.moved(x - context.coordinator.startX))
+        case .ended, .cancelled, .failed:
+            onPhase(.ended(x - context.coordinator.startX))
+        default:
+            break
+        }
+    }
+
+    final class Coordinator {
+        var startX: CGFloat = 0
     }
 }
 
@@ -228,6 +247,15 @@ struct TabItemThumbnail: View {
         case .browser(let t):
             ScaledPage(image: tabs.cardImage(t.id), topColor: Color(uiColor: tabs.browser.frames[t.id]?.topColor ?? .white),
                        startPage: tabs.showsStartPage(t.id), tabs: tabs.browser.tabs, pageSize: pageSize, safeTop: safeTop, strip: 0)
+                .overlay {
+                    // The Mac draws only the tab its pane shows: offer to switch it.
+                    if tabs.hiddenOnMac(t.id) != nil {
+                        ZStack {
+                            Color.black.opacity(0.25)
+                            ShowOnMacPill { tabs.showOnMac(t.id) }
+                        }
+                    }
+                }
                 .onAppear { tabs.requestThumbnail(t.id) }
         case .terminal(let t):
             ScaledPage(image: tabs.cardImage(item.id), topColor: .black, startPage: false, tabs: [], pageSize: pageSize,

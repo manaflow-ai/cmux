@@ -15,7 +15,7 @@ struct MacBrowserAccessCopy: Equatable {
     /// The status line under the card: the host is watched live.
     var waiting: String?
 
-    init(status: BrowserMacStatus?, isBrowser: Bool, hostName: String) {
+    init(status: BrowserMacStatus?, isBrowser: Bool, hostName: String, reason: String? = nil) {
         let host = status?.hostName.flatMap { $0.isEmpty ? nil : $0 } ?? (hostName.isEmpty ? "your Mac" : hostName)
         switch (isBrowser, status?.state) {
         case (true, .off?):
@@ -42,7 +42,7 @@ struct MacBrowserAccessCopy: Equatable {
         default:
             symbol = isBrowser ? "safari" : "macwindow"
             headline = "Open on your Mac"
-            detail = "This tab can't be shown on iPhone. It's open in cmux on \(host)."
+            detail = reason.flatMap { $0.isEmpty ? nil : ($0.hasSuffix(".") ? $0 : "\($0).") } ?? "This tab can't be shown on iPhone. It's open in cmux on \(host)."
             path = nil
             footnote = nil
             waiting = nil
@@ -180,7 +180,7 @@ struct MacOnlyPage: View {
                     }
                 }
                 .padding(.horizontal, 24)
-                MacBrowserAccessBanner(copy: MacBrowserAccessCopy(status: status, isBrowser: tab.kind == .browser, hostName: hostName))
+                MacBrowserAccessBanner(copy: MacBrowserAccessCopy(status: status, isBrowser: tab.kind == .browser, hostName: hostName, reason: tab.reason))
                     .padding(.horizontal, 16)
             }
             .frame(maxWidth: .infinity)
@@ -228,6 +228,80 @@ struct MacOnlyCard: View {
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(style.colors.startBackground)
+    }
+}
+/// A Mac browser tab the Mac is not showing renders nothing: the opened
+/// tab dims its last frame under this card, whose button switches the
+/// Mac's pane to the tab. The page goes live as soon as frames arrive.
+struct HiddenOnMacOverlay: View {
+    var hostName: String
+    var safeTop: CGFloat
+    var onShow: () -> Void
+    private let style = BrowserStyle.shared
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .contentShape(.rect)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 14) {
+                Image(systemName: "macbook")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(style.colors.accent)
+                    .frame(width: 52, height: 52)
+                    .glassEffect(.regular.tint(style.colors.accent.opacity(0.12)), in: .circle)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Not showing on your Mac")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(style.colors.label)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("\(hostName.isEmpty ? "Your Mac" : hostName) only draws the tab its pane shows. Show this tab there to see it live; the pane on the Mac switches to it.")
+                        .font(.subheadline)
+                        .foregroundStyle(style.colors.secondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button(action: onShow) {
+                    Label("Show on Mac", systemImage: "macbook.and.iphone")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.glassProminent)
+                .accessibilityHint("Switches the Mac's pane to this tab")
+                Text("You can bring tabs forward automatically in Settings › Browser.")
+                    .font(.footnote)
+                    .foregroundStyle(style.colors.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(20)
+            .frame(maxWidth: 420, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+            .padding(.horizontal, 16)
+            .accessibilityElement(children: .contain)
+        }
+    }
+}
+
+/// The card's version: a compact glass "Show on Mac" button.
+struct ShowOnMacPill: View {
+    var onShow: () -> Void
+    private let style = BrowserStyle.shared
+
+    var body: some View {
+        Button(action: onShow) {
+            Label("Show on Mac", systemImage: "macbook")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(style.colors.label)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .accessibilityHint("Switches the Mac's pane to this tab so it renders")
     }
 }
 #endif
