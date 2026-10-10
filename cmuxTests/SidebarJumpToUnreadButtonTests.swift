@@ -21,22 +21,22 @@ struct SidebarJumpToUnreadButtonTests {
     }
 
     @Test
-    func buttonIsEnabledOnlyWhileSomethingIsUnread() {
+    func buttonIsEnabledAndCountedOnlyWhileSomethingIsUnread() {
         let shortcut = KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
 
         let unread = SidebarJumpToUnreadButtonPresentation.resolve(
-            hasUnreadNotifications: true,
+            unreadCount: 3,
             shortcut: shortcut
         )
         let allRead = SidebarJumpToUnreadButtonPresentation.resolve(
-            hasUnreadNotifications: false,
+            unreadCount: 0,
             shortcut: shortcut
         )
 
         #expect(unread.isEnabled)
         #expect(!allRead.isEnabled)
-        #expect(unread.systemName == "bell.badge")
-        #expect(allRead.systemName == "bell")
+        #expect(unread.countText == "3")
+        #expect(allRead.countText == nil)
         #expect(unread.title == title)
         #expect(allRead.title == title)
     }
@@ -46,7 +46,7 @@ struct SidebarJumpToUnreadButtonTests {
         let rebound = StoredShortcut(key: "j", command: false, shift: false, option: true, control: true)
 
         let presentation = SidebarJumpToUnreadButtonPresentation.resolve(
-            hasUnreadNotifications: true,
+            unreadCount: 1,
             shortcut: rebound
         )
 
@@ -58,10 +58,20 @@ struct SidebarJumpToUnreadButtonTests {
     @Test
     func tooltipDropsTheShortcutWhenItIsUnbound() {
         let presentation = SidebarJumpToUnreadButtonPresentation.resolve(
-            hasUnreadNotifications: true,
+            unreadCount: 1,
             shortcut: .unbound
         )
 
         #expect(presentation.helpText == title)
+    }
+
+    @Test
+    func largeCountsAreCapped() {
+        let presentation = SidebarJumpToUnreadButtonPresentation.resolve(
+            unreadCount: 250,
+            shortcut: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+
+        #expect(presentation.countText == "99+")
     }
 }
