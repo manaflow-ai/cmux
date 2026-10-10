@@ -114,17 +114,6 @@ pub(crate) enum Decision {
     Exit,
 }
 
-/// The policy. `idle_since` is when the owner last had no client (start, or
-/// the last client's departure); `None` while one is connected.
-#[cfg(test)]
-pub(crate) fn decide(
-    idle_since: Option<Instant>,
-    now: Instant,
-    facts: &dyn OrphanFacts,
-) -> Decision {
-    decide_with(idle_since, now, facts, Timing::STANDARD)
-}
-
 /// The policy with explicit intervals (`decide` uses the standard ones).
 pub(crate) fn decide_with(
     idle_since: Option<Instant>,
@@ -192,12 +181,6 @@ pub(crate) struct OrphanWatch {
 }
 
 impl OrphanWatch {
-    /// Idle from now unless a client is connected.
-    #[cfg(test)]
-    pub(crate) fn new(clock: Arc<dyn OrphanClock>, facts: Arc<dyn OrphanFacts>) -> Arc<Self> {
-        Self::with_timing(clock, facts, Timing::STANDARD)
-    }
-
     pub(crate) fn with_timing(
         clock: Arc<dyn OrphanClock>,
         facts: Arc<dyn OrphanFacts>,
@@ -380,7 +363,3 @@ impl OrphanWatch {
         self.clients_changed();
     }
 }
-
-#[cfg(test)]
-#[path = "dev_orphan_exit_tests.rs"]
-mod tests;

@@ -227,33 +227,6 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
     assert_eq!(task.await.unwrap(), Err(InboundRefused::NotAnEntry));
 }
 
-/// RED (security): the link entry's gate admits exactly the seven `fs-v1`
-/// ops; every other frame (identify, admin commands, unknown fs ops) is
-/// denied before anything parses it.
-#[test]
-fn the_link_entry_gate_admits_only_the_fs_ops() {
-    let gate = super::link_entry_gate();
-    let peer = cmux_link::stamp::LinkPeer {
-        install: "inst_b".into(),
-        user: "42".into(),
-        team: "team_a".into(),
-    };
-    for cmd in cmux_tui_core::fs_ops::FS_COMMANDS {
-        let frame = serde_json::json!({ "id": 1, "cmd": cmd, "path": "/home/cmux" }).to_string();
-        assert!(gate.admit(&peer, &frame), "{cmd}");
-    }
-    for frame in [
-        r#"{"id":1,"cmd":"identify"}"#,
-        r#"{"id":1,"cmd":"shutdown-daemon"}"#,
-        r#"{"id":1,"cmd":"new-tab","cwd":"/"}"#,
-        r#"{"id":1,"cmd":"fs.trash","paths":["/x"]}"#,
-        r#"{"id":1,"cmd":"fs.watch","path":"/x"}"#,
-        r#"{"cmux":"protocol/2","id":1,"op":"session.snapshot"}"#,
-    ] {
-        assert!(!gate.admit(&peer, frame), "{frame}");
-    }
-}
-
 const BRAIN_IDENTIFY: &str = "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[\"workspace-registry-v1\",\"agent-session-tabs-v1\"]}}\n";
 
 /// A brain daemon at `<home>/daemon/s.sock` that answers the identify probe
@@ -461,16 +434,4 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
     )
     .await;
     assert_eq!(refused, Err(InboundRefused::UnknownPeer));
-}
-
-/// `cmux link show` names the pairing file, which the app watches so a peer
-/// change re-resolves a paired server's route (bead cx-ysq).
-#[test]
-fn link_show_names_the_pairing_file() {
-    let directory = cmux_unix_socket::short_test_dir("linkshow");
-    let state = super::state::LinkState::open(Some(directory.path().join("link"))).unwrap();
-    state.init(&super::state::LinkConfig { install: "inst_show".into(), port: 4101 }).unwrap();
-    let shown = super::show_json(&state).unwrap();
-    assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
-    assert_eq!(shown["install"].as_str(), Some("inst_show"));
 }

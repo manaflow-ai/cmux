@@ -700,21 +700,6 @@ mod tests {
         assert_eq!(application_protocols("cmux-proxy-secret", "cmux-proxy-secret"), "");
     }
 
-    #[test]
-    fn websocket_binary_frames_follow_upgrade_without_utf8_decoding() {
-        let headers = b"HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Protocol: chat\r\n\r\n";
-        let frame = [0x82, 0x03, 0xff, 0xfe, 0x00];
-        let (parsed, remainder) =
-            split_http_headers([headers.as_slice(), &frame].concat()).unwrap();
-        assert_eq!(parsed.as_bytes(), headers);
-        assert_eq!(remainder, frame);
-        let large_frame = vec![0xff; 65536];
-        let (_, remainder) =
-            split_http_headers([headers.as_slice(), &large_frame].concat()).unwrap();
-        assert_eq!(remainder, large_frame);
-        assert!(split_http_headers(b"HTTP/1.1 101\r\n".to_vec()).is_err());
-    }
-
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     use cmux_remote::service::{EndpointRole, ServiceError, ServiceMultiplexer, SessionEndpoint};

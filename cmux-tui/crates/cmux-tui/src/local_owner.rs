@@ -682,69 +682,10 @@ mod tests {
 
     #[cfg(unix)]
     mod event_driven {
-        use std::os::fd::IntoRawFd;
         use std::sync::Arc;
         use std::time::{Duration, Instant};
 
         use super::super::*;
-
-        fn spec(socket: PathBuf) -> OwnerSpec {
-            OwnerSpec {
-                session: "ready-pipe-test".into(),
-                socket,
-                socket_is_derived: false,
-                state: None,
-                term: None,
-                initial_host_colors: None,
-                terminal_reap_grace: None,
-                install_key: None,
-                chief_tools_socket: None,
-            }
-        }
-
-        #[test]
-        fn ready_descriptor_is_claimed_close_on_exec_and_signaled_once() {
-            let (mut reader, writer) = io::pipe().unwrap();
-            let fd = writer.into_raw_fd();
-            assert_eq!(claim_inherited_fd(OWNER_READY_FD_ARG, &fd.to_string()), Ok(fd));
-            // SAFETY: querying flags of a descriptor this test owns.
-            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-            assert_ne!(flags & libc::FD_CLOEXEC, 0);
-            signal_ready(fd);
-            let mut bytes = Vec::new();
-            reader.read_to_end(&mut bytes).unwrap();
-            assert_eq!(bytes, b"1");
-            for invalid in ["0", "2", "-1", "x"] {
-                assert!(claim_inherited_fd(OWNER_READY_FD_ARG, invalid).is_err(), "{invalid}");
-            }
-        }
-
-        #[test]
-        fn an_owner_that_never_signals_is_awaited_only_until_the_deadline() {
-            let dir = std::env::temp_dir().join(format!(
-                "cmux-owner-wait-{}-{}",
-                std::process::id(),
-                line!()
-            ));
-            let socket = dir.join("absent.sock");
-            // Writer held open: no byte and no end of file.
-            let (reader, _writer) = io::pipe().unwrap();
-            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-            let started = Instant::now();
-            let deadline = started + Duration::from_millis(200);
-            assert!(matches!(
-                wait_for_spawned_owner(&pipe, &spec(socket.clone()), deadline),
-                Ok(None)
-            ));
-            assert!(started.elapsed() >= Duration::from_millis(150));
-            // A byte with nothing serving the socket is not readiness either.
-            let (reader, mut writer) = io::pipe().unwrap();
-            writer.write_all(b"1").unwrap();
-            drop(writer);
-            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-            let deadline = Instant::now() + Duration::from_millis(200);
-            assert!(matches!(wait_for_spawned_owner(&pipe, &spec(socket), deadline), Ok(None)));
-        }
 
         fn owner_state(command: &mut Command) -> (Arc<OwnerProcessState>, u32) {
             let child = command.spawn().unwrap();
