@@ -1301,17 +1301,15 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
         let gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
-        // A tapback badge that clears the bubble above sideways rises beside
-        // it instead of pushing this bubble down (Messages, iOS 27.0: "Ha ha"
-        // under a narrower bubble keeps the plain 10 pt gap).
-        if !model.reactionKinds.isEmpty, let anchor = layoutCache.layout(for: model, width: width, margin: layoutMargin).reactionAnchor {
+        // A tapback badge that clears the bubble above sideways rises beside it.
+        let layout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        if !model.reactionKinds.isEmpty, let anchor = layout.reactionAnchor {
             let corner = CGRect(x: anchor.x - (model.isOutgoing ? 0 : 1), y: anchor.y, width: 1, height: 1)
             let platter = ConversationTapbackGeometry.platterFrame(forBody: corner, onTrailingCorner: !model.isOutgoing)
             let badge = ReactionBadgeView.frame(count: model.reactionKinds.count, platter: platter, pointsLeft: model.isOutgoing)
-            let above = previousLayout.contentFrame
-            if badge.maxX <= above.minX || badge.minX >= above.maxX {
-                return gap - overhang - ConversationTheme.reactionRowGrowth
-            }
+            let topsRow = layout.quoteFrame == nil && layout.senderNameFrame == nil
+            let rise = ConversationTapbackGeometry.rise(badge: badge, rowAbove: previousLayout.contentFrame, badgeTopsRow: topsRow)
+            if rise > 0 { return gap - overhang - rise }
         }
         return max(0, gap - overhang)
     }

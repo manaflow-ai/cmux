@@ -30,6 +30,15 @@ public enum ConversationTapbackGeometry {
     /// badge clears the previous bubble sideways.
     public static let rowGrowth: CGFloat = 27.78
 
+    /// How far a reacted row rises into the gap above it. A badge that
+    /// clears the row above sideways rises beside it instead of pushing the
+    /// bubble down (Messages, iOS 27.0: "Ha ha" under a narrower bubble
+    /// keeps the plain 10 pt gap). `badgeTopsRow` is false when something sits
+    /// above the badge in the row (a reply quote, a sender name).
+    public static func rise(badge: CGRect, rowAbove: CGRect, badgeTopsRow: Bool) -> CGFloat {
+        badge.maxX <= rowAbove.minX || badge.minX >= rowAbove.maxX ? rowGrowth : 0
+    }
+
     /// The platter's frame for a bubble body `body`. Sent bubbles (`leading`
     /// false) carry it on their top-left corner with the dots trailing left;
     /// received ones on the top-right, mirrored.
