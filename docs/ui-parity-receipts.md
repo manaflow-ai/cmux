@@ -21,6 +21,7 @@ called out explicitly. Missing or stale current-head captures remain pending.
 | [#19058](https://github.com/manaflow-ai/cmux/pull/19058) | `9d208eaa7ca8eba7c4fcd08819bfb2e1c6e5e336` | `agent-pane.folder-choice`: `offered`, `keyboard`, `error` | 360 / 560 / 760 px | [Artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38058201464#artifacts); current head |
 | [#19061](https://github.com/manaflow-ai/cmux/pull/19061) | `ef891faf92b5c644d2acd4238581495f95742359` | Gallery report code stacked on #19048; no component entry | N/A; report-only fixture | Pending; no current-head artifact recorded |
 | [#19072](https://github.com/manaflow-ai/cmux/pull/19072) | `b1cac282d993e445176d5ba4ba52ce5b0dc5c37f` | Gallery browse shell stale-variant recovery (`BrowseView` / `browseModel`); no component entry | N/A; shell-browse behavior | Pending; no hosted capture ID recorded |
+| [#19078](https://github.com/manaflow-ai/cmux/pull/19078) | `37e5c15b021ab1edd15aa58793e774e0ac18db23` | `agent-pane.context-ring`: `unknown-usage`, `known-usage` | 360 / 520 / 720 px | [Published gallery artifact](https://github.com/manaflow-ai/cmux/actions/runs/38072393427#artifacts); ContextRing plays pass, WebKit reports warnings only; broader composer matrix reports 10 pre-existing play failures |
 
 The component entries use the following interaction receipts and checks:
 
@@ -80,6 +81,8 @@ The component entries use the following interaction receipts and checks:
   The entry checks zero anchor movement, zero layout shift, a 33 ms long-frame limit, and a 250 ms
   settle budget. The PR reports its folder contract test, gallery coverage/environment/pane-English,
   typecheck, lint, gallery build, and diff check as passing.
+
+- **#19078, Context usage ring:** the unknown-usage play invokes the stable automation opener and verifies that no empty 0% popover appears; the known-usage play invokes the same opener and verifies the anchored details surface. Chromium passes at both states and widths. WebKit emits frame-time warnings only. The published matrix also reports unrelated existing composer failures for attachment layout shifts, queued/reasoning waits, model-menu shifts, mode-switch shift, and a missing thread-minimap tick; those remain explicit follow-up work rather than being attributed to ContextRing.
 
 The report-only PRs have synthetic, local comparison evidence rather than a viewport matrix:
 
