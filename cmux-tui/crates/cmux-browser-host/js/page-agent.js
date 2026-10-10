@@ -2003,23 +2003,29 @@
       return value;
     }
     let out = "";
-    const walk = (node) => {
-      for (let n = node.firstChild; n; n = n.nextSibling) {
-        if (!spend(b, 1)) throw tooLarge();
-        if (n.nodeType === 3) add(n.nodeValue);
-        else if (n.nodeType === 1) {
-          if (exclude && n.matches(exclude)) {
-            add(" ");
-            continue;
-          }
-          const block = BLOCK_TAGS.has(tagOf(n));
-          if (block) add(" ");
-          walk(n);
-          if (block) add(" ");
-        }
+    // Iterative (a composer can nest deeper than the stack). An image's alt
+    // text is its text (Gmail draws an emoji as <img alt="😀">).
+    walkTree(el, (n) => {
+      if (n === el) return true;
+      if (!spend(b, 1)) throw tooLarge();
+      if (n.nodeType === 3) {
+        add(n.nodeValue);
+        return false;
       }
-    };
-    walk(el);
+      if (n.nodeType !== 1) return false;
+      if (exclude && n.matches(exclude)) {
+        add(" ");
+        return false;
+      }
+      if (tagOf(n) === "img") {
+        add(n.getAttribute("alt") || "");
+        return false;
+      }
+      if (BLOCK_TAGS.has(tagOf(n))) add(" ");
+      return true;
+    }, (n) => {
+      if (n !== el && n.nodeType === 1 && BLOCK_TAGS.has(tagOf(n)) && !(exclude && n.matches(exclude))) add(" ");
+    });
     return out;
   }
 

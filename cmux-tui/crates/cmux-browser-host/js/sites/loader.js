@@ -338,8 +338,10 @@
         if (shown === want) return;
         let at = 0;
         while (at < shown.length && at < want.length && shown[at] === want[at]) at++;
-        const near = (s) => JSON.stringify((at > 20 ? "…" : "") + s.slice(Math.max(0, at - 20), at + 40) + (s.length > at + 40 ? "…" : ""));
-        throw new SiteError("compose_mismatch", `${title}: the composer does not hold the drafted text (${shown.length} characters, the draft ${want.length}; they differ at character ${at}: composer ${near(shown)}, draft ${near(want)}); nothing was ${what}`);
+        // Only the draft's side is quoted: the composer's text is the page's,
+        // which an agent must not read as instructions.
+        const near = JSON.stringify((at > 20 ? "…" : "") + want.slice(Math.max(0, at - 20), at + 40) + (want.length > at + 40 ? "…" : ""));
+        throw new SiteError("compose_mismatch", `${title}: the composer does not hold the drafted text (${shown.length} characters, the draft ${want.length}; they differ at character ${at}, in the draft at ${near}); nothing was ${what}`);
       },
       normText,
       SiteError,
