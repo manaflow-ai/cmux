@@ -1,5 +1,5 @@
 // Document session state machine for one editor view (shared by the editor
-// apps; identical copies in first-party-apps/{monaco,codemirror}/src/shared).
+// apps; identical copies in first-party-apps/codemirror/src/shared).
 //
 // The owner (document host) holds the buffer, revision and dirty flag. The
 // view applies typing at once and keeps the owner in step with one edit in

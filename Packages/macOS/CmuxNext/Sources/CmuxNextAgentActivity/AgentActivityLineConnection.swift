@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// A line-delimited JSON connection to a Unix socket (the CUA host's
 /// framing). All state lives on one private serial queue; callbacks run there
