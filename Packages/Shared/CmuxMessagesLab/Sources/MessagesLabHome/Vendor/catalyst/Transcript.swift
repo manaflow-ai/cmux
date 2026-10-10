@@ -686,7 +686,7 @@ final class RowCell: UICollectionViewCell {
             bitmap.frame = bitmapFrame
             bitmap.contents = img
             unstretch(bitmapFrame.size)
-        } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow)
+        } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
@@ -705,6 +705,7 @@ final class RowCell: UICollectionViewCell {
             // budget (a fling faster than the prefetch, about 70,000 pt/s in
             // the bench): the row waits for its off-main bitmap.
             let want = spec
+            var queued = false
             if deferred {
                 RowCell.deferredRenders += 1
                 Reclaimer.release(bitmap.contents)
@@ -720,6 +721,13 @@ final class RowCell: UICollectionViewCell {
                 // and tail keep their shape and only the middle stretches.
                 RowCell.keptBitmaps += 1
                 if !repaint { stretch(to: bitmapFrame) }
+                // Inside a width change's layout pass the new bitmap is drawn with the other visible
+                // rows of the pass, in parallel, and installed in the same commit (flushReflow): the
+                // visible rows show the new line breaks at once, the stretched bitmap is not seen.
+                if !repaint, RowCell.reflow != nil, Images.ready(spec) {
+                    RowCell.reflow?.append((self, spec, bitmapFrame))
+                    queued = true
+                }
             } else {
                 RowCell.overBudget += 1
                 Reclaimer.release(bitmap.contents)
@@ -730,6 +738,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.show(bitmap, spec)
             }
             dropWant()
+            if !queued {
             RowBitmaps.shared.want(want)
             pendingWant = want
             RowBitmaps.shared.request(want) { [weak self] img in
@@ -742,6 +751,7 @@ final class RowCell: UICollectionViewCell {
                 self.bitmap.contents = img
                 self.unstretch(bitmapFrame.size)
                 CATransaction.commit()
+            }
             }
         }
         receiptOld.contents = nil
@@ -776,9 +786,47 @@ final class RowCell: UICollectionViewCell {
     private var drawnSize = CGSize.zero
     /// Rows that kept their previous bitmap, stretched, until a new one arrived (bench evidence).
     static var keptBitmaps = 0
+    /// A width change's layout pass (MessagesWindowView.layoutSubviews): the visible rows whose
+    /// bitmap changes, drawn together by `flushReflow` (nil outside the pass).
+    static var reflow: [(RowCell, RowSpec, CGRect)]?
+    /// Rows drawn by reflow passes, and the longest pass's wall time (bench evidence).
+    static var reflowRows = 0, reflowMaxMs = 0.0
+    static func beginReflow() { reflow = [] }
+    /// Draws the pass's rows on all cores at once (RowBitmaps.render is thread safe) and installs
+    /// them in this commit. The pass waits for them: about one row's drawing time per core.
+    static func flushReflow() {
+        guard let q = reflow else { return }
+        reflow = nil
+        guard !q.isEmpty else { return }
+        let t0 = CACurrentMediaTime()
+        let specs = q.map(\.1)
+        var images = [CGImage?](repeating: nil, count: specs.count)
+        images.withUnsafeMutableBufferPointer { out in
+            DispatchQueue.concurrentPerform(iterations: specs.count) { i in
+                // cmux: checked reads and writes (crash ratchet)
+                if let slot = out.checkedIndex(i), let spec = specs[checked: i] { out[slot] = RowBitmaps.render(spec) }
+            }
+        }
+        RowBitmaps.shared.insert(zip(specs, images).compactMap { s, img in img.map { (s, $0) } })
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (k, (cell, spec, frame)) in q.enumerated() where cell.spec == spec {
+            guard let img = images[k] else { continue }
+            Reclaimer.release(cell.bitmap.contents)
+            MediaPlaceholder.clear(cell.bitmap)
+            cell.bitmap.frame = frame
+            cell.bitmap.contents = img
+            cell.unstretch(frame.size)
+        }
+        CATransaction.commit()
+        reflowRows += q.count
+        reflowMaxMs = max(reflowMaxMs, (CACurrentMediaTime() - t0) * 1000)
+    }
     /// A bitmap drawn for its frame: shown 1:1 (custom rows set their own 9-slice after this).
+    /// The cell shows its previous bitmap stretched to a new frame (its own is not drawn yet).
+    private(set) var stretched = false
     private func unstretch(_ size: CGSize) {
         drawnSize = size
+        stretched = false
         bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
     /// The previous bitmap at a new frame: the corners (60 pt wide, 30 pt tall at most, the bubble's
@@ -786,6 +834,7 @@ final class RowCell: UICollectionViewCell {
     private func stretch(to f: CGRect) {
         let d = drawnSize
         bitmap.frame = f
+        stretched = d != f.size
         guard d.width > 1, d.height > 1 else { return }
         let ix = min(60, d.width * 0.45) / d.width, iy = min(30, d.height * 0.45) / d.height
         bitmap.contentsCenter = CGRect(x: ix, y: iy, width: 1 - 2 * ix, height: 1 - 2 * iy)

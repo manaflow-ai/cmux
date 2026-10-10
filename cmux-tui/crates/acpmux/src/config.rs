@@ -823,6 +823,7 @@ pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
 };
+pub mod chief_builtins;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

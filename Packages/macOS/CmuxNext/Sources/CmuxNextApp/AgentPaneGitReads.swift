@@ -33,10 +33,15 @@ final class AgentPaneGitLink {
         }
         do {
             let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
-            return try JSONEncoder().encode(result)
+            return try await Self.encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
         }
+    }
+
+    /// A whole diff, status or search result can be megabytes of JSON: encoded off the main actor.
+    @concurrent private nonisolated static func encode(_ result: JSONValue) async throws -> Data {
+        try JSONEncoder().encode(result)
     }
 
     /// Opens the connection on the first read; afterwards it reconnects by
