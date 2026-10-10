@@ -36,6 +36,12 @@ actor MockEngine {
     var streamOwners: [UInt32: UUID] = [:]
     var terminalStreams: [UInt32: String] = [:]
     var uploads: [UInt32: String] = [:]
+    /// DEBUG `CMUX_NEXT_MOCK_TERMINAL_MIRROR=<cols>x<rows>`: behave like the Mac
+    /// bridge (`term.mirror.v1`): every terminal has this grid, resize is ignored.
+    nonisolated let mirrorGrid: (cols: Int, rows: Int)? = {
+        let parts = (ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_TERMINAL_MIRROR"] ?? "").split(separator: "x").compactMap { Int($0) }
+        return parts.count == 2 ? (parts[0], parts[1]) : nil
+    }()
 
     var idCounter = 0
 
@@ -149,7 +155,7 @@ actor MockEngine {
         case .hello:
             _ = try decode(params, HelloParams.self)
             return try encode(HostInfo(hostId: options.hostId, hostName: options.hostName, os: "macOS 26.1 (demo)",
-                                       version: "0.1.0-demo", capabilities: HostCapability.allCases.map(\.rawValue)))
+                                       version: "0.1.0-demo", capabilities: HostCapability.allCases.filter { $0 != .terminalMirror || mirrorGrid != nil }.map(\.rawValue)))
         case .ping:
             return try encode(PingResult(at: now()))
 
@@ -230,6 +236,11 @@ actor MockEngine {
             return Self.empty
         case .termResize:
             let p = try decode(params, TerminalResizeParams.self)
+            if let mirror = mirrorGrid {
+                // Mirrored like the Mac bridge: the grid never follows the phone.
+                try mutateTerminal(p.terminalId) { $0.info.cols = mirror.cols; $0.info.rows = mirror.rows }
+                return Self.empty
+            }
             try mutateTerminal(p.terminalId) { $0.info.cols = p.cols; $0.info.rows = p.rows }
             return Self.empty
         case .termClose:

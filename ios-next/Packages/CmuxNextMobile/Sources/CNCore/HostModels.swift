@@ -45,6 +45,8 @@ public enum HostCapability: String, Sendable, CaseIterable {
     case browser = "browser.v1"
     case conversations = "conv.v1"
     case files = "fs.v1"
+    /// Terminals belong to the Mac: it owns the grid (PROTOCOL §4 terminals).
+    case terminalMirror = "term.mirror.v1"
 }
 
 public struct PingResult: Codable, Sendable, Hashable {

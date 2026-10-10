@@ -13,7 +13,7 @@ extension MockEngine {
     func createTerminal(_ p: TerminalCreateParams) -> Terminal {
         var shell = MockShell()
         if let cwd = p.cwd { shell.directory = cwd }
-        let info = Terminal(id: makeId("t"), title: "zsh", cwd: shell.directory, cols: p.cols, rows: p.rows, running: true, createdAt: now())
+        let info = Terminal(id: makeId("t"), title: "zsh", cwd: shell.directory, cols: mirrorGrid?.cols ?? p.cols, rows: mirrorGrid?.rows ?? p.rows, running: true, createdAt: now())
         var t = MockTerminal(info: info, mode: .shell, shell: shell)
         t.scrollback = Data(("Last login: \(MockShell.clock()) on ttys004\r\n" + shell.prompt).utf8)
         terminals[info.id] = t
@@ -27,8 +27,8 @@ extension MockEngine {
         let streamId = allocateStream(for: session)
         terminalStreams[streamId] = t.info.id
         t.streams.insert(streamId)
-        t.info.cols = p.cols
-        t.info.rows = p.rows
+        t.info.cols = mirrorGrid?.cols ?? p.cols
+        t.info.rows = mirrorGrid?.rows ?? p.rows
         terminals[t.info.id] = t
         // Replay: scrollback first (frames may arrive before the response;
         // HostClient buffers them), then live output.
