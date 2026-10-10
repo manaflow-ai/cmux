@@ -23,6 +23,7 @@ extension IconName {
     nonisolated public static let actionRestart = IconName("action.restart")
     nonisolated public static let actionResume = IconName("action.resume")
     nonisolated public static let actionReview = IconName("action.review")
+    nonisolated public static let actionShare = IconName("action.share")
     nonisolated public static let actionShow = IconName("action.show")
     nonisolated public static let actionSnooze = IconName("action.snooze")
     nonisolated public static let actionStop = IconName("action.stop")
@@ -118,6 +119,7 @@ extension IconName {
     nonisolated public static let grant = IconName("grant")
     nonisolated public static let groupCollapsedDot = IconName("group.collapsed.dot")
     nonisolated public static let groupNew = IconName("group.new")
+    nonisolated public static let groupUngroup = IconName("group.ungroup")
     nonisolated public static let history = IconName("history")
     nonisolated public static let historyRecent = IconName("history.recent")
     nonisolated public static let home = IconName("home")
@@ -270,6 +272,7 @@ extension IconName {
     nonisolated public static let unreadDot = IconName("unread.dot")
     nonisolated public static let viewGrid = IconName("view.grid")
     nonisolated public static let viewList = IconName("view.list")
+    nonisolated public static let windowNew = IconName("window.new")
     nonisolated public static let workspace = IconName("workspace")
     nonisolated public static let workspaceNew = IconName("workspace.new")
 }
