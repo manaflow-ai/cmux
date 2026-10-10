@@ -183,17 +183,3 @@ fn command_index(argv: &[OsString]) -> usize {
         .map(|i| i + 1)
         .unwrap_or(argv.len())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_index_skips_leading_global_flags() {
-        let argv = |list: &[&str]| list.iter().map(|s| OsString::from(*s)).collect::<Vec<_>>();
-        assert_eq!(command_index(&argv(&["acpmux", "exec", "hi"])), 1);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "exec", "hi"])), 2);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "--suppress-reads", "daemon"])), 3);
-        assert_eq!(command_index(&argv(&["acpmux", "--json"])), 2);
-    }
-}

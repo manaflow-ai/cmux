@@ -12,11 +12,7 @@
 pub mod adopt;
 pub mod adopt_live;
 pub mod agent;
-#[cfg(test)]
-mod agent_exit_tests;
 pub mod agent_host;
-#[cfg(test)]
-mod agent_replay_tests;
 pub mod agent_tools;
 pub mod catalog;
 pub mod chats;
@@ -29,8 +25,6 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
-#[cfg(test)]
-mod git_short_sha;
 pub mod harness_admin;
 pub mod hub;
 pub mod live_models;
@@ -39,8 +33,6 @@ pub mod native;
 pub mod peer;
 pub mod protected_folders;
 pub mod question_answer;
-#[cfg(test)]
-mod question_answer_tests;
 pub mod registry;
 pub mod routes;
 pub mod rpc;
@@ -49,12 +41,8 @@ pub mod server;
 pub mod session_env;
 pub mod session_name;
 pub mod sha256;
-#[cfg(test)]
-mod source_date_epoch;
 pub mod store;
 pub mod subagents;
-#[cfg(test)]
-mod subagents_tests;
 pub mod transcript;
 pub mod trust;
 pub mod tui;

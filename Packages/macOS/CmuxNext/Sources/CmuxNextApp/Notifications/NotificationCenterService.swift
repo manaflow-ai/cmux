@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -66,18 +67,18 @@ final class NotificationCenterService {
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.
         tasks.append(Task { [weak feed] in
-            for await signedIn in Observations({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
+            for await signedIn in ObservationStream({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
         })
         // At activation (launch, sign-in, the first install token, a daemon
         // that starts serving the capability) one pass rebuilds the queue (B3).
         tasks.append(Task {
-            for await active in Observations({ driver.isActive }) where active { driver.run() }
+            for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
         })
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
-            for await newest in Observations({ store.notifications.last?.notification.rawValue ?? 0 }) {
+            for await newest in ObservationStream({ store.notifications.last?.notification.rawValue ?? 0 }) {
                 guard let self, newest > self.lastSeen else { continue }
                 let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
                 self.lastSeen = newest
@@ -86,7 +87,7 @@ final class NotificationCenterService {
         })
         tasks.append(followViewedProgramStatus(store))
         tasks.append(Task { [weak self] in
-            for await count in Observations({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
+            for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
             }
         })
@@ -95,7 +96,7 @@ final class NotificationCenterService {
     /// Follows `notifications.*` in every loaded snapshot.
     func follow(_ settings: SettingsController) {
         tasks.append(Task { [weak self] in
-            for await prefs in Observations({ settings.snapshot.notifications }) {
+            for await prefs in ObservationStream({ settings.snapshot.notifications }) {
                 guard let self else { return }
                 if self.preferences != prefs { self.preferences = prefs }
                 self.updateDockBadge(self.currentUnreadCount())
