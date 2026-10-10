@@ -166,12 +166,11 @@ impl Daemon {
             unsafe { libc::close(fds[0]) };
         }
         let stdout = child.stdout.take().unwrap();
-        for line in BufReader::new(stdout).lines() {
-            let line = line.unwrap();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
-                break;
-            }
-        }
+        let ready = BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+            .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
+        assert!(ready, "the daemon exited before its ready line");
         Daemon { child, socket, dir }
     }
 }

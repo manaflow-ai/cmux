@@ -59,6 +59,9 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    // Only the person allows or widens what runs without asking
+    // (`hub/person.rs`): one check, before the request runs or reaches a peer.
+    hub.person_check(conn.is_person(), m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -96,6 +99,8 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
+                // This connection presented this launch's person key (`hub/person.rs`).
+                "person": conn.is_person(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
@@ -107,6 +112,37 @@ async fn dispatch_request(
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
+        method::MUX_PERSON_ENROLL => {
+            // The unix socket only: a WebSocket peer has no audit token.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/person_enroll is accepted only over the local unix socket",
+                )
+                .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+            }
+            let key = str_param(&params, "key")
+                .ok_or_else(|| RpcError::invalid_params("key is required"))?;
+            let signed = cmux_link::app_caller::signed_app_build();
+            let verified = match (signed, conn.peer.as_ref()) {
+                (true, Some(token)) => match cmux_link::app_caller::verify_containing_app(token) {
+                    Ok(()) => true,
+                    Err(why) => {
+                        tracing::warn!("person_enroll refused: {why}");
+                        return Err(RpcError::new(
+                            -32000,
+                            "only the cmux app that contains this daemon may enroll a person key",
+                        )
+                        .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+                    }
+                },
+                (true, None) => {
+                    return Err(RpcError::new(-32000, "the peer's audit token is unknown")
+                        .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
+                }
+                (false, _) => false,
+            };
+            hub.person.enroll(key, verified)
+        }
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =
