@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextPalette
+import typealias CmuxNextDaemon.SurfaceID
 
 /// The viewers' shared parts (R89): the recents store, the cmux picker,
 /// and the seams to the diff host and the code editor.
