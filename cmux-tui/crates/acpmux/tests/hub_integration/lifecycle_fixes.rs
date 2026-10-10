@@ -481,3 +481,38 @@ async fn a_harness_allowed_later_is_probed_and_its_models_listed() {
     assert!(listed(&catalog), "the later harness has no probed model list: {catalog}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// cx-m5up: an agent that stays alive but never answers its start fails
+/// the request with a typed deadline instead of holding the session's spawn
+/// lock (and every later request of the session) forever, and the same
+/// session starts normally once the agent answers.
+#[tokio::test]
+async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
+    let gate = std::env::temp_dir().join(format!("acpmux-start-gate-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&gate, b"").unwrap();
+    let env = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(1_500);
+    let created = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "gated"}}}),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    // Stop the agent; the next prompt starts a fresh one that never reads.
+    c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
+    std::fs::remove_file(&gate).unwrap();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]});
+    let refused = c
+        .request(method::SESSION_PROMPT, prompt.clone())
+        .await
+        .expect_err("a prompt whose agent never started succeeded");
+    assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // The agent answers from now on: the same session prompts normally.
+    std::fs::write(&gate, b"").unwrap();
+    let answered = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    assert!(answered["stopReason"].is_string(), "{answered}");
+    let _ = std::fs::remove_file(&gate);
+}

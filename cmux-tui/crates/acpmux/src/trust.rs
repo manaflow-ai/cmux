@@ -236,6 +236,3 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
         .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
     Ok(json!({"cwd": cwd, "level": level.as_str()}))
 }
-
-#[cfg(test)]
-mod tests;

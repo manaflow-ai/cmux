@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -83,7 +84,7 @@ extension BrowserProfileService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeRecordsObservation = Task { [weak self] in
             guard let store = self?.services.machines.local.store else { return }
-            for await (serves, records) in Observations({ [weak self] in
+            for await (serves, records) in ObservationStream({ [weak self] in
                 (self?.daemonServesRecords ?? false, store.personal.browserProfiles)
             }) {
                 guard let self else { return }

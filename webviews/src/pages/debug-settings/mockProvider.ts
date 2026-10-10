@@ -145,7 +145,8 @@ const UNIT_TEXT: Record<string, (value: number) => string> = {
 };
 
 function display(value: TunableValue, control: TunableControl): string {
-  if (typeof value === "number") return control.type === "number" ? UNIT_TEXT[control.unit]!(value) : formatNumber(value);
+  if (typeof value === "number")
+    return control.type === "number" ? UNIT_TEXT[control.unit]!(value) : formatNumber(value);
   if (typeof value === "boolean") return control.type === "bool" ? (value ? control.on : control.off) : String(value);
   if (typeof value === "string") {
     if (control.type === "choice" || control.type === "color")
@@ -158,7 +159,9 @@ function display(value: TunableValue, control: TunableControl): string {
 function clamp(value: unknown, control: TunableControl): TunableValue | null {
   switch (control.type) {
     case "number":
-      return typeof value === "number" && Number.isFinite(value) ? Math.min(Math.max(value, control.min), control.max) : null;
+      return typeof value === "number" && Number.isFinite(value)
+        ? Math.min(Math.max(value, control.min), control.max)
+        : null;
     case "bool":
       return typeof value === "boolean" ? value : null;
     case "choice":
@@ -230,7 +233,8 @@ export class MockDebugTunablesProvider implements PageClient {
           this.overrides.clear();
           this.notice = "Every tunable is back to its default.";
         } else if (typeof fields.section === "string") {
-          for (const tunable of this.tunables) if (tunable.section === fields.section) this.overrides.delete(tunable.key);
+          for (const tunable of this.tunables)
+            if (tunable.section === fields.section) this.overrides.delete(tunable.key);
           this.notice = `Reset ${this.sections.find((section) => section.id === fields.section)?.title ?? fields.section}.`;
         } else if (typeof fields.key === "string") this.overrides.delete(fields.key);
         break;

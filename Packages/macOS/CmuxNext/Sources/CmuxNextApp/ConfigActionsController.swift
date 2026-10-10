@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -24,7 +25,7 @@ final class ConfigActionsController {
         apply(settings.snapshot.commandActions)
         // task-owner: this controller (cancelled in stop); event-driven (Observation).
         task = Task { [weak self] in
-            for await commands in Observations({ settings.snapshot.commandActions }) {
+            for await commands in ObservationStream({ settings.snapshot.commandActions }) {
                 self?.apply(commands)
             }
         }

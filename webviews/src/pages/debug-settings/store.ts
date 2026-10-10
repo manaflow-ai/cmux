@@ -55,9 +55,12 @@ export class DebugSettingsStore {
     if (!this.client || this.unsubscribe || this.starting) return;
     this.starting = true;
     try {
-      const unsubscribe = await this.client.subscribe<{ state?: DebugSettingsState }>(DebugTunablesOps.changed, (data) => {
-        if (data?.state) this.accept(data.state);
-      });
+      const unsubscribe = await this.client.subscribe<{ state?: DebugSettingsState }>(
+        DebugTunablesOps.changed,
+        (data) => {
+          if (data?.state) this.accept(data.state);
+        },
+      );
       // The page went away while the subscribe was in flight.
       if (this.listeners.size === 0) return unsubscribe();
       this.unsubscribe = unsubscribe;
