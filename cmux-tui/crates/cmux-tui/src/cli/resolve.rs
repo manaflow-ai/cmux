@@ -11,7 +11,7 @@ use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, Re
 use serde_json::{Map, Value, json};
 
 use super::command::{RequestPlan, Resolve, ZoomStep};
-use super::wire::{print_operation_error, random_request_id, read_envelope};
+use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
@@ -19,6 +19,12 @@ type Reader = BufReader<Box<dyn transport::Stream>>;
 pub(super) enum Failure {
     /// A resource error from the daemon, or a local one in that shape.
     Resource(Value),
+    /// A local error in the resource shape that never reached a daemon,
+    /// with its own exit code (the socket resolver's typed failure).
+    Local {
+        error: Value,
+        exit: i32,
+    },
     Transport(String),
     /// The request belongs to the app, not the daemon: run this app action
     /// (by id) on this target instead (a browser tab's page zoom).
@@ -36,6 +42,7 @@ impl Failure {
                 3
             }
             Self::Resource(error) => print_operation_error(&error, output),
+            Self::Local { error, exit } => print_local_error(&error, output, exit),
             Self::Transport(message) => {
                 eprintln!("{message}");
                 3

@@ -21,6 +21,8 @@ use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
 };
+mod detached_terminals;
+pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
     insert_restored_terminal_runtime_checked, insert_surface_checked,
@@ -249,6 +251,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod session_paths;
+pub(crate) mod settings;
 mod shell_history_feed;
 mod sidebar_plugin;
 mod startup_restore;
@@ -699,6 +702,9 @@ pub struct Mux {
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// The settings owner (the settings file), started on first use or at
+    /// daemon start (mux/settings.rs).
+    settings: settings::SettingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.

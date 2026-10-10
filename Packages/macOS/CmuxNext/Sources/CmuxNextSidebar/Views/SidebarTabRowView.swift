@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
@@ -44,7 +45,8 @@ final class SidebarTabRowView: SidebarRowView {
         kind = tab.kind
         unread = tab.isUnread
         groupColor = row.groupColor
-        icon.image = NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
+        icon.image = tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.tabIconSize) }
+            ?? NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"

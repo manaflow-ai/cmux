@@ -54,12 +54,13 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
-    /// `newTab.sameKind` (Cmd-T, the strip's +): a tab of the kind of the
+    /// `newTab.default` (Cmd-T, the strip's +): a tab of the kind of the
     /// pane's selected tab (`NewTabKind`) unless `tabs.newTabKind` says
     /// otherwise, through the New Terminal Tab, New Browser Tab and New
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
-    /// MCP) always get the same kind, whatever the user's setting.
-    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+    /// MCP) always get the same kind, whatever the user's setting, and so
+    /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
+    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true) {
         // A named tab or pane that resolves to nothing is refused by the
         // lookup. Without one, a missing focused pane is not a refusal yet:
         // the active workspace may still be empty (below).
@@ -108,7 +109,7 @@ enum TabLifecycle {
         if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
-        if user {
+        if user, followsSetting {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
             kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
                                       sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
@@ -221,15 +222,21 @@ enum TabLifecycle {
         if [.cli, .mcp, .script].contains(invocation.origin) {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
+        // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
+        // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
+        let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
+        if let beside { agentTab = AgentBesidePlacement.placed(invocation, in: beside, then: agentTab) }
+        let background = beside != nil && invocation.newColumnBeside
         switch profileRequest {
         case .cascade: break
-        case .explicit(let id): return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+        case .explicit(let id):
+            return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
         case .agent:
             let profiles = ctx.services.browserProfiles
             ctx.registry.track(Task { @MainActor in
                 do {
                     let id = try await AgentBrowserProfile.ensure(profiles)
-                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
                     return nil
                 } catch {
                     return "agent-browser-profile: \(error)"
@@ -247,6 +254,10 @@ enum TabLifecycle {
         ) {
             opener = target
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
+        }
+        if let beside {
+            _ = beside.newBrowserTab(url: url, engine: engine, background: background, then: agentTab)
+            return
         }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
@@ -291,9 +302,9 @@ enum TabLifecycle {
     /// `profile` argument). Without a URL it opens the new tab page rather
     /// than copying the selected tab, whose page belongs to another profile.
     private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
-                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
+                                      background: Bool = false, then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         if let controller = ctx.services.paneController(for: pane) {
-            controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
+            controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, then: agentTab)
             return
         }
         let browserTabs = ctx.services.cache.browserTabs

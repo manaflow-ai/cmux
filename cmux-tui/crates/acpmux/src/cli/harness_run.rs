@@ -78,6 +78,7 @@ fn profiles_resolve(env: &mut BTreeMap<String, String>, lookups: &Lookups<'_>) -
 }
 
 /// `cmux harness run`: replace this process with the harness.
+#[cfg(unix)]
 pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let cfg = Config::load()?;
@@ -95,4 +96,11 @@ pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<
     // exec only returns on failure.
     let error = cmd.exec();
     Err(anyhow!("cannot start {}: {error}", plan.argv[0]))
+}
+
+/// Windows port: Windows has no exec; `cmux harness run` comes in a later
+/// landing.
+#[cfg(not(unix))]
+pub fn run_cmd(_id: &str, _cwd: Option<PathBuf>, _model: Option<String>) -> Result<()> {
+    Err(crate::platform::unsupported("cmux harness run"))
 }

@@ -143,6 +143,13 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.get",
+    "settings.list",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.schema",
+    "settings.set",
+    "settings.snapshot",
     "sidebar_layout.get",
     "sidebar_layout.update",
     "sidebar_view.attach",
@@ -321,6 +328,7 @@
       "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",
+      "new-remote-terminal-tab",
       "new-row",
       "new-screen",
       "new-tab",
@@ -339,6 +347,7 @@
       "reattach-view",
       "release-surface-size",
       "reload-config",
+      "remote-terminal-snapshot",
       "remove-screens-from-screen-group",
       "remove-tabs-from-tab-group",
       "rename-pane",
@@ -398,6 +407,7 @@
       "update-frontend-browser-tab",
       "update-personal-group",
       "update-profile",
+      "update-remote-terminal-tab",
       "update-screen-group",
       "update-tab-group",
       "update-workspace-group",
@@ -711,6 +721,12 @@
         "attach-byte",
         "attach-render",
         "attach-browser"
+      ]
+    },
+    {
+      "name": "settings-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

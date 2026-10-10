@@ -199,6 +199,12 @@
    "family": "agent.chat"
   },
   {
+   "name": "agent.chief",
+   "meaning": "The Chief, the agent that runs a server's other agents (server panel, Chief placement row).",
+   "sf": "brain",
+   "family": "agent"
+  },
+  {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
    "sf": "arrow.triangle.branch",
@@ -360,6 +366,18 @@
    "sf": "questionmark.square.dashed",
    "family": "browserprofile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "checkbox.off",
+   "meaning": "Unchecked box in a multiple-choice list",
+   "sf": "square",
+   "family": "checkbox"
+  },
+  {
+   "name": "checkbox.on",
+   "meaning": "Checked box in a multiple-choice list",
+   "sf": "checkmark.square.fill",
+   "family": "checkbox"
   },
   {
    "name": "cloud",

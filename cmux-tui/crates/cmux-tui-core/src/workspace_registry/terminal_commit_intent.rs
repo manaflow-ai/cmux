@@ -175,6 +175,7 @@ impl TerminalCommitIntent {
                 self.result_json,
             ],
         )?;
+        detached_terminals::keep_reserved_detached(tx, existing.as_ref(), terminal)?;
         Ok(TerminalRegistryCommit { revision, result: self.result.clone(), replayed: false })
     }
 }

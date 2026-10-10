@@ -292,3 +292,100 @@ fn with_no_explicit_socket_discovery_still_finds_the_default_session() {
     assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap().is_array());
     world.assert_app_untouched("implicit discovery");
 }
+
+/// The `socket.no_daemon` messages (localization/cli_connection.rs).
+const NO_DAEMON_EN: &str =
+    "CMUX_SOCKET_PATH names a cmux app socket, and nothing names that app's session";
+const NO_DAEMON_JA: &str = "CMUX_SOCKET_PATH は cmux アプリのソケットを指定していますが";
+
+/// The first JSON object on stderr.
+fn stderr_error(output: &Output) -> serde_json::Value {
+    String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .find_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Every CLI path that resolves the daemon socket reports the resolver's
+/// own `socket.no_daemon` (code, exit 2, en/ja message) when only
+/// `CMUX_SOCKET_PATH` is set, never "invalid session name", and connects
+/// nowhere (cx-siev follow-up).
+#[test]
+fn cmux_socket_path_alone_fails_with_no_daemon_on_every_daemon_path() {
+    let world = World::start("explicit-no-daemon");
+    let app = world.inherited_app.path.to_str().unwrap().to_owned();
+    let only_app = [("CMUX_BUNDLE_ID", ""), ("CMUX_SOCKET_PATH", app.as_str())];
+    let commands: &[&[&str]] = &[
+        &["raw", "command", "--request-json", r#"{"id":"r","cmd":"ping"}"#],
+        &["script", "run", "-e", "1"],
+        &["apps", "run", "notes", "list"],
+        &["agent", "inbox"],
+        &["server", "status"],
+        &["workspace", "list"],
+    ];
+    for words in commands {
+        let output = world.cmux(words, &only_app);
+        assert_eq!(failure_code(&output), (Some(2), "socket.no_daemon".into()), "{words:?}");
+        let message = stderr_error(&output)["message"].as_str().unwrap_or_default().to_owned();
+        assert!(message.starts_with(NO_DAEMON_EN), "{words:?}: {message}");
+        let mut japanese = only_app.to_vec();
+        japanese.push(("LANG", "ja_JP.UTF-8"));
+        let output = world.cmux(words, &japanese);
+        assert_eq!(failure_code(&output), (Some(2), "socket.no_daemon".into()), "{words:?} ja");
+        let message = stderr_error(&output)["message"].as_str().unwrap_or_default().to_owned();
+        assert!(message.starts_with(NO_DAEMON_JA), "{words:?} ja: {message}");
+        world.assert_app_untouched(&format!("CMUX_SOCKET_PATH alone: {words:?}"));
+    }
+
+    // `cmux mcp serve`: the tool call reports the same typed error. The
+    // server's action watch may subscribe to the app the env names; no
+    // daemon request ever goes to an app socket.
+    let config = world.base.join("cmux-next.json");
+    fs::write(&config, r#"{"mcp":{"enabled":true}}"#).unwrap();
+    let mut child = Command::new(bin())
+        .args(["mcp", "serve"])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &world.home)
+        .env("LANG", "en_US.UTF-8")
+        .env("XDG_RUNTIME_DIR", &world.base)
+        .env("CMUX_NEXT_CONFIG_FILE", &config)
+        .envs(only_app)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        for message in [
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "explicit-socket", "version": "1"}}}),
+            serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "workspace_list", "arguments": {}}}),
+        ] {
+            writeln!(stdin, "{message}").unwrap();
+        }
+    }
+    let output = child.wait_with_output().unwrap();
+    let reply = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|message| message["id"] == 2)
+        .unwrap_or_else(|| {
+            panic!("no tools/call reply: {}", String::from_utf8_lossy(&output.stderr))
+        });
+    let result = &reply["result"];
+    assert_eq!(result["isError"], true, "{reply}");
+    let error = &result["structuredContent"]["error"];
+    assert_eq!(error["code"], "socket.no_daemon", "{reply}");
+    assert!(error["message"].as_str().unwrap_or_default().starts_with(NO_DAEMON_EN), "{reply}");
+    assert_eq!(result["structuredContent"]["state"], "not_run", "{reply}");
+    assert_eq!(world.default_app.lines(), Vec::<String>::new(), "mcp: default app reached");
+    for line in world.inherited_app.lines() {
+        let method = serde_json::from_str::<serde_json::Value>(&line).unwrap()["method"].clone();
+        assert_eq!(method, "events.stream", "mcp: a daemon request reached the app: {line}");
+    }
+}

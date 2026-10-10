@@ -31,12 +31,9 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_or_report(&global) {
         Ok(resolved) => resolved,
-        Err(_) => {
-            eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
-            return 2;
-        }
+        Err(code) => return code,
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,

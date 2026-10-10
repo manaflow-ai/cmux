@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -99,7 +98,7 @@ public struct SidebarMapping {
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon) ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
-            kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,
+            kindBrand: front?.agentBrand,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
@@ -108,7 +107,8 @@ public struct SidebarMapping {
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
+                                  brand: tab.agentBrand)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
@@ -135,12 +135,11 @@ public struct SidebarMapping {
         return tab.kind == .browser ? .browser : .terminal
     }
 
-    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    /// The brand of the agent running in these tabs (design/agent-icons): the first that
+    /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        tabs.lazy.compactMap { tab -> String? in
-            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
-            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
-        }.first
+        let busy = tabs.lazy.filter { $0.agent?.state == .working || $0.agent?.state == .blocked }.compactMap(\.agentBrand).first
+        return busy ?? tabs.lazy.compactMap(\.agentBrand).first
     }
 
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
