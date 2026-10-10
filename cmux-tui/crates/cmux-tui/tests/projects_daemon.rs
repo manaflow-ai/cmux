@@ -433,3 +433,72 @@ fn projects_daemon_watch_picks_up_a_new_codex_app_project_and_keeps_user_edits()
         daemon.list(json!({})).iter().all(|project| project["path"] != "/srv/cx-m0p7-watch/new")
     );
 }
+
+#[test]
+fn projects_daemon_a_source_turned_off_leaves_and_is_ignored_until_turned_on() {
+    let daemon = Daemon::start("toggles");
+    let both = "/srv/cx-m0p7-toggles/both";
+    let only = "/srv/cx-m0p7-toggles/only-claude";
+    let edited = "/srv/cx-m0p7-toggles/edited";
+    let report = |entries: Value, key: &str| {
+        daemon.mutate(
+            "project.observe",
+            json!({"source": "claude-code", "entries": entries, "complete": true}),
+            key,
+        )
+    };
+    report(
+        json!([{"path": both, "last_used_ms": "1"}, {"path": only, "last_used_ms": "1"}, {"path": edited, "last_used_ms": "1"}]),
+        "t-1",
+    );
+    daemon.mutate(
+        "project.observe",
+        json!({"source": "codex", "entries": [{"path": both, "last_used_ms": "2"}]}),
+        "t-2",
+    );
+    daemon.mutate("project.update", json!({"path": edited, "pinned": true}), "t-3");
+
+    daemon.mutate(
+        "project.source.update",
+        json!({"source": "claude-code", "enabled": false}),
+        "t-4",
+    );
+    let list = daemon.send("project.list", json!({"include_hidden": true}), None).unwrap();
+    let projects = list["projects"].as_array().cloned().unwrap();
+    assert!(
+        projects.iter().all(|project| project["path"] != only),
+        "only Claude listed it: it goes: {projects:?}"
+    );
+    assert_eq!(
+        find(&projects, both)["sources"],
+        json!({"codex": find(&projects, both)["sources"]["codex"]})
+    );
+    assert!(
+        find(&projects, edited)["overlay"]["pinned"] == true,
+        "an edited project keeps its edits"
+    );
+    let sources = list["sources"].as_array().cloned().unwrap();
+    let claude = sources.iter().find(|source| source["id"] == "claude-code").unwrap();
+    assert_eq!(claude["enabled"], false, "{sources:?}");
+    assert_eq!(claude["projects"], 0);
+    assert_eq!(sources.iter().find(|source| source["id"] == "codex").unwrap()["projects"], 1);
+
+    // Its reports are ignored while it is off (the user wins), and count again once on.
+    report(json!([{"path": only, "last_used_ms": "3"}]), "t-5");
+    assert!(daemon.list(json!({})).iter().all(|project| project["path"] != only));
+    daemon.mutate(
+        "project.source.update",
+        json!({"source": "claude-code", "enabled": true}),
+        "t-6",
+    );
+    report(json!([{"path": only, "last_used_ms": "4"}]), "t-7");
+    assert!(find(&daemon.list(json!({})), only)["sources"]["claude-code"].is_object());
+
+    // The user source cannot be turned off.
+    let refused = daemon.send(
+        "project.source.update",
+        json!({"source": "user", "enabled": false}),
+        Some("t-8"),
+    );
+    assert_eq!(refused.unwrap_err()["code"], "validation.invalid");
+}

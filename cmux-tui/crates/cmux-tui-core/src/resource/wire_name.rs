@@ -172,6 +172,7 @@ impl ResourceOperation {
             Self::ProjectUpdate => "project.update",
             Self::ProjectRemove => "project.remove",
             Self::ProjectSync => "project.sync",
+            Self::ProjectSourceUpdate => "project.source.update",
             Self::PaletteUsageGet => "palette_usage.get",
             Self::PaletteUsageRecord => "palette_usage.record",
             Self::PaletteUsageImport => "palette_usage.import",

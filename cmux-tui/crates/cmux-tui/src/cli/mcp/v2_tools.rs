@@ -104,6 +104,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("project.update", PROJECT_REASON),
     ("project.remove", PROJECT_REASON),
     ("project.sync", PROJECT_REASON),
+    ("project.source.update", PROJECT_REASON),
     ("palette_usage.get", PALETTE_USAGE_REASON),
     ("palette_usage.record", PALETTE_USAGE_REASON),
     ("palette_usage.import", PALETTE_USAGE_REASON),

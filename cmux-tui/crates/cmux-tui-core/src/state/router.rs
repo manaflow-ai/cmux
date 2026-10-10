@@ -86,6 +86,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::ProjectUpdate
             | Op::ProjectRemove
             | Op::ProjectSync
+            | Op::ProjectSourceUpdate
             | Op::PaletteUsageGet
             | Op::PaletteUsageRecord
             | Op::PaletteUsageImport
@@ -631,6 +632,16 @@ pub(crate) fn dispatch(
                     &strings(fields, "existing"),
                     &strings(fields, "gone"),
                 )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectSourceUpdate => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            // The spec requires a boolean `enabled`; validation rejects anything else first.
+            let enabled = fields.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+            let commit = mux
+                .state_project_source_update(&mutation(&request)?, &source, enabled)
                 .map_err(state_error)?;
             state_result(mux, commit)
         }

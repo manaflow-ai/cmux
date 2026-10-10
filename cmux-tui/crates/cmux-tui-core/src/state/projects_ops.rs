@@ -102,6 +102,7 @@ impl Mux {
                 let mut projects = store::load(transaction)?;
                 let changed = apply(&mut projects)?;
                 store::write(transaction, &projects, &changed)?;
+                store::write_disabled(transaction, &projects)?;
                 Ok(changes(&projects, &changed))
             },
         )
@@ -178,6 +179,37 @@ impl Mux {
         self.commit_projects(mutation, "project.remove", &fingerprint, |projects| {
             projects.remove(path).map_err(rejected)?;
             Ok(vec![path.to_string()])
+        })
+    }
+
+    /// `project.source.update`: the user turns a source on or off. Turning
+    /// an editor or app source on reads it again at once.
+    pub(crate) fn state_project_source_update(
+        &self,
+        mutation: &WorkspaceMutation,
+        source: &str,
+        enabled: bool,
+    ) -> anyhow::Result<StateCommit> {
+        let fingerprint =
+            json!({"operation": "project.source.update", "source": source, "enabled": enabled});
+        let scans: Vec<SourceScan> = if enabled {
+            editor_scans().into_iter().filter(|scan| scan.source == source).collect()
+        } else {
+            Vec::new()
+        };
+        let refusals = store::refusals();
+        let now = now_ms();
+        self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
+            let mut changed: std::collections::BTreeSet<String> = projects
+                .set_source_enabled(source, enabled)
+                .map_err(rejected)?
+                .into_iter()
+                .collect();
+            for scan in &scans {
+                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                changed.extend(observed.map_err(rejected)?);
+            }
+            Ok(changed.into_iter().collect())
         })
     }
 
