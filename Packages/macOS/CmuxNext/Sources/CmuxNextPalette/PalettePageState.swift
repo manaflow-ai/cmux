@@ -20,6 +20,10 @@ final class PageState {
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
+    /// The rows on screen stand in for a rank still running off the main
+    /// actor (provider order or a cached rank): an empty stand-in is not
+    /// "No results" yet.
+    var awaitsRank = false
     /// Item last reported to the page's `onHighlight`.
     /// False until the page reported its first highlight: the row selected
     /// when the page opens is not a choice yet, so it previews nothing.

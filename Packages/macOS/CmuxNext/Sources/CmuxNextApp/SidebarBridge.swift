@@ -20,8 +20,8 @@ final class SidebarBridge {
     private var widthObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
-    /// The optional Chats section (`sidebar.showChats`, SIDEBAR-NO-RECENTS).
-    let chatsMount = SidebarChatsMount()
+    /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
+    private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
@@ -60,7 +60,10 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        container.sidebarView.appSections = chatsMount.makeSections(services: services)
+        appSections?.releaseAll()
+        let sections = SidebarAppSections(apps: services.apps)
+        appSections = sections
+        container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -81,7 +84,7 @@ final class SidebarBridge {
         selectionObservation?.cancel()
         widthObservation?.cancel()
         sectionsObservation?.cancel()
-        chatsMount.releaseSections()
+        appSections?.releaseAll()
         cardsObservation?.cancel()
     }
 
@@ -182,7 +185,9 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
-        let sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = seed.merge(live, launching: launching, failed: failed)
+        // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections)

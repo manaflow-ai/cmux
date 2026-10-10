@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Hands off a Chief home's acpmux daemon that runs without this Chief home in
 /// its own environment (an older build, or one an app started before it set

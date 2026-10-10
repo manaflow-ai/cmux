@@ -61,7 +61,7 @@ import Testing
         let field = try #require(c.scene.hostedField)
         let intent = try #require(c.sendHosted(text: "Ship it\n", from: field))
         #expect(emitted == [intent])
-        guard case .sendMessage(_, let parts) = intent.op else { Issue.record("not a send"); return }
+        guard case .sendMessage(_, let parts, _) = intent.op else { Issue.record("not a send"); return }
         #expect(parts == [.text("Ship it")])
         c.update(items: Fixtures.items(messages, pending: [PendingIntent(intent: intent)]), summary: Fixtures.summary(),
                  typing: [], hasOlder: false)
