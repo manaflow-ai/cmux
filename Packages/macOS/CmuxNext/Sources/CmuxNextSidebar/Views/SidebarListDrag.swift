@@ -13,9 +13,10 @@ final class SidebarListDrag {
     var grabOffsetX: CGFloat = 0
     let gapHeight: CGFloat
     let lift: DragLiftView
-    /// A workspace card's head row height: the card carries the tab rows
-    /// below it, but drops resolve against the head alone, as for a
-    /// one-row card, so its centre can still reach a row's onto band (cx-ikxz).
+    /// A workspace card's head row height (`head`, its first lifted row):
+    /// the card carries the tab rows below it, but drops resolve against the
+    /// head alone, as for a one-row card, so its centre can still reach a
+    /// row's onto band (cx-ikxz).
     var headHeight: CGFloat?
     /// The card as drops see it: the head row of a workspace card.
     var probeCard: CGRect {
@@ -44,13 +45,15 @@ final class SidebarListDrag {
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
-    init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, target: DropTarget?) {
+    init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
+         target: DropTarget?) {
         self.payload = payload
         self.grabbedKey = grabbedKey
         self.hiddenKeys = hiddenKeys
         self.grabOffsetY = grabOffsetY
         self.gapHeight = gapHeight
         self.lift = lift
+        if case .workspaces = payload { headHeight = head }
         self.target = target
         if case let .position(position)? = target { lastPosition = position }
         origin = lastPosition
