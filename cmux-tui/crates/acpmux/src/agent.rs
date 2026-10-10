@@ -147,6 +147,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Windows: the agent's job (its process group on Unix).
+    #[cfg(windows)]
+    job: Option<crate::job::Job>,
 }
 
 /// The in-process Codex bridge of a direct child: its translator, and the
@@ -263,8 +266,8 @@ pub(crate) fn harness_command(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     // Own process group, so stopping the session stops everything the
-    // agent started underneath it (background shells included). Windows
-    // port: a job object there (a later landing).
+    // agent started underneath it (background shells included). Windows: a
+    // job object (`job.rs`), made where the agent is spawned.
     #[cfg(unix)]
     cmd.process_group(0);
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
@@ -324,6 +327,14 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
 }
 
 impl ChildAgent {
+    /// Ends every process in the agent's job (Windows; killpg on Unix).
+    #[cfg(windows)]
+    fn kill_job(&self) {
+        if let Some(job) = &self.job {
+            job.kill();
+        }
+    }
+
     /// Spawn the agent and start its reader loop. Inbound requests and
     /// notifications are delivered on `inbound`.
     pub async fn spawn(
@@ -361,9 +372,25 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        #[cfg(windows)]
+        cmd.creation_flags(crate::job::START_SUSPENDED);
         let mut child = cmd
             .spawn()
             .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
+        #[cfg(windows)]
+        let job = {
+            let contained = child
+                .raw_handle()
+                .ok_or_else(|| std::io::Error::other("the agent has no process handle"))
+                .and_then(crate::job::Job::contain);
+            match contained {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    let _ = child.start_kill();
+                    anyhow::bail!("spawn agent {name}: its job object: {e}");
+                }
+            }
+        };
         let pid = child.id();
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
@@ -383,6 +410,8 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            #[cfg(windows)]
+            job,
         });
 
         // Writer task.
@@ -445,6 +474,8 @@ impl ChildAgent {
                                         libc::killpg(pg as i32, libc::SIGKILL);
                                     }
                                 }
+                                #[cfg(windows)]
+                                agent_for_exit.kill_job();
                             }
                             continue;
                         }
@@ -629,6 +660,12 @@ impl ChildAgent {
             unsafe {
                 libc::killpg(pid as i32, libc::SIGTERM);
             }
+            // Windows has no polite signal for a job: it ends at once.
+            #[cfg(windows)]
+            {
+                let _ = pid;
+                self.kill_job();
+            }
             if let Some(child) = guard.as_mut() {
                 let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
             }
@@ -680,6 +717,12 @@ impl ChildAgent {
             unsafe {
                 libc::killpg(pg, libc::SIGTERM);
             }
+        }
+        // Windows has no polite signal for a job: it ends at once.
+        #[cfg(windows)]
+        {
+            let _ = pgid;
+            self.kill_job();
         }
         let _ = tokio::time::timeout(grace, async {
             // The exit watcher may hold this lock while it reaps, and frees
@@ -1023,6 +1066,8 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            #[cfg(windows)]
+            job: None,
         });
         agent.start_reader(link);
         (agent, responses)
