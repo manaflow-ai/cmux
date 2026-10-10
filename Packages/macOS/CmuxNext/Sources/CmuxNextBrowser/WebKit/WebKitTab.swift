@@ -78,13 +78,10 @@ public final class WebKitTab: NSObject, BrowserTab {
         setDrawsPageBackground(!PageBackground.startsWithTheme(openedByPage: openedByPage))
 
         let controller = webViewConfiguration.userContentController
-        controller.addUserScript(WKUserScript(
-            source: PaneFullscreenScript.source,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        ))
+        controller.addUserScript(WKUserScript(source: PaneFullscreenScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
         WebKitContextHit.install(self, into: controller)
+        WebKitMediaHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()

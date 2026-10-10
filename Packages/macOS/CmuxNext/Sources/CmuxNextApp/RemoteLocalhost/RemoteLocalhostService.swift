@@ -203,15 +203,12 @@ final class RemoteLocalhostService {
         ])
     }
 
-    /// Closes the forwarding connection of every machine no longer here (a
-    /// forgotten machine): its streams and browser runtimes end with it.
-    func closeClientsOfRemovedMachines() {
-        let live = Set(machines.daemons.map(ObjectIdentifier.init))
-        for key in clients.keys where !live.contains(key) {
-            guard let client = clients.removeValue(forKey: key) else { continue }
-            // task-owner: one connection close; ends when the client has closed.
-            Task { await client.close() }
-        }
+    /// Closes the forwarding connection of a machine that left the registry:
+    /// its streams and browser runtimes end with it.
+    func closeClient(of daemon: DaemonService) {
+        guard let client = clients.removeValue(forKey: ObjectIdentifier(daemon)) else { return }
+        // task-owner: one connection close; ends when the client has closed.
+        Task { await client.close() }
     }
 
     func shutdown() async {
