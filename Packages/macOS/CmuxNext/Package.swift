@@ -20,7 +20,7 @@ import PackageDescription
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
+//   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -41,7 +41,7 @@ import PackageDescription
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
-//   CmuxNextBookmarks -> Design (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
@@ -362,7 +362,7 @@ let package = Package(
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -391,7 +391,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-activity"),
@@ -776,7 +776,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
