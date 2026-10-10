@@ -1191,40 +1191,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testVMPushRejectsTildeSymlinkTargetsInArchive() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("archive-symlink-tilde")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-        let source = try vmTransferTempDir("archive-symlink-tilde")
-        defer { try? FileManager.default.removeItem(at: source) }
-        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("danger"), withDestinationPath: "new/~")
-        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("ordinary"), withDestinationPath: "~alice")
-        try FileManager.default.createSymbolicLink(
-            at: source.appendingPathComponent("delimiter"),
-            withDestinationPath: "new/~/target -> ordinary"
-        )
-        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
-            if line.hasPrefix("auth ") { return "OK" }
-            return self.v2Response(
-                id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
-                error: ["code": "unexpected", "message": "symlink target should be rejected locally"]
+        let cases: [(String, String, Bool)] = [
+            ("danger", "new/~", true),
+            ("delimiter", "new/~/target -> ordinary", true),
+            ("ordinary", "~alice", false),
+            ("ordinary-arrow", "new/~ -> ordinary", false),
+            ("target-arrow", "prefix -> ~/file", false),
+            ("name -> ~", "ordinary", false),
+            ("name -> ordinary", "new/~/target -> ordinary", true),
+        ]
+        for (name, target, rejected) in cases {
+            let socketPath = makeSocketPath("archive-symlink-tilde")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let source = try vmTransferTempDir("archive-symlink-tilde")
+            defer { try? FileManager.default.removeItem(at: source) }
+            try FileManager.default.createSymbolicLink(
+                at: source.appendingPathComponent(name), withDestinationPath: target
             )
-        }
+            startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                if line.hasPrefix("auth ") { return "OK" }
+                return self.v2Response(
+                    id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                    error: ["code": "test-stop", "message": "archive passed local validation"]
+                )
+            }
 
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"],
-            environment: vmTransferEnvironment(socketPath: socketPath),
-            timeout: 30
-        )
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("unexpanded '~'"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("rm -rf"), result.stderr)
-        XCTAssertTrue(state.snapshot().isEmpty, "symlink target validation must precede upload")
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"],
+                environment: vmTransferEnvironment(socketPath: socketPath),
+                timeout: 30
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, result.stdout)
+            XCTAssertEqual(result.stderr.contains("unexpanded '~'"), rejected, "\(name) -> \(target): \(result.stderr)")
+            XCTAssertFalse(result.stderr.contains("rm -rf"), result.stderr)
+            if rejected {
+                XCTAssertTrue(state.snapshot().isEmpty, "symlink target validation must precede upload")
+            } else {
+                let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+                XCTAssertTrue(methods.contains("vm.scp_info"), "ordinary target must reach transfer: \(result.stderr)")
+            }
+        }
     }
 
     func testVMPushTildeArchiveValidationRespectsExcludesAndOrdinaryNames() throws {

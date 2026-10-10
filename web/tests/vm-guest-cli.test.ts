@@ -168,6 +168,17 @@ esac
     }
   });
 
+  test.each([
+    ["en_US.UTF-8", "unexpanded '~'"],
+    ["ja_JP.UTF-8", "展開されていない"],
+  ])("localizes rejected peer push tilde paths without polluting JSON (%s)", async (locale, message) => {
+    const result = await runShim(["vm", "push", "peer", "unused", "~", "--json"], { LC_ALL: locale });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(message);
+    expect(result.stderr).not.toContain("rm -rf");
+  });
+
   test("is valid POSIX sh", async () => {
     const result = await runChild("sh", ["-n"], { input: GUEST_CMUX_SHIM });
     expect(result.stderr).toBe("");
