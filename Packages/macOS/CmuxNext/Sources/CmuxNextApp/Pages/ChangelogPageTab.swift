@@ -13,6 +13,8 @@ extension InternalPageID {
 final class ChangelogPageTab: InternalPageProvider {
     private weak var services: AppServices?
     private var pages: [String: PageWebView] = [:]
+    /// The route the next page view opens on (``open(_:focus:from:to:)``).
+    private var pendingRoute: String?
 
     init(services: AppServices) {
         self.services = services
@@ -24,7 +26,9 @@ final class ChangelogPageTab: InternalPageProvider {
     var icon: IconName? { .fileText }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let services, let view = PageFactory(services: services).changelogPage() else { return NSView() }
+        let route = pendingRoute
+        pendingRoute = nil
+        guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
         pages[key] = view
         return view
     }
@@ -33,11 +37,32 @@ final class ChangelogPageTab: InternalPageProvider {
         pages.removeValue(forKey: key)?.close()
     }
 
-    /// Opens (or selects) the changelog tab in the active window.
+    /// Opens (or selects) the changelog tab in the active window. With `to` (an update's new
+    /// version, and `from` its previous one) the page highlights the releases after `from` up to
+    /// `to`, and says "Updated to <to>" when that span has no notes (`#/?from=<v>&to=<v>`).
     @discardableResult
-    static func open(_ services: AppServices, focus: Bool = true) -> Bool {
-        if services.pages.provider(.changelog) == nil { services.pages.register(ChangelogPageTab(services: services)) }
-        return services.pages.show(.changelog, in: services.windows.active, focus: focus) != nil
+    static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
+        let provider = services.pages.provider(.changelog) as? ChangelogPageTab ?? {
+            let made = ChangelogPageTab(services: services)
+            services.pages.register(made)
+            return made
+        }()
+        let route = Self.route(from: from, to: to)
+        provider.pendingRoute = route
+        let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
+        provider.pendingRoute = nil
+        // An open tab moves to the new span.
+        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        return view != nil
+    }
+
+    /// `#/?from=<from>&to=<to>`, nil without `to`.
+    static func route(from: String?, to: String?) -> String? {
+        guard let to, !to.isEmpty else { return nil }
+        var query = URLComponents()
+        query.queryItems = [from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) },
+                            URLQueryItem(name: "to", value: to)].compactMap { $0 }
+        return "#/?" + (query.percentEncodedQuery ?? "")
     }
 }
 
@@ -48,12 +73,12 @@ nonisolated enum ChangelogPageStrings {
 extension PageFactory {
     /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
     /// (Try it runs only the descriptor's allow-listed actions).
-    func changelogPage() -> PageWebView? {
+    func changelogPage(route: String? = nil) -> PageWebView? {
         let updater = services.updater
         let provider = ChangelogPageProvider(source: updater.releaseNotes, currentBuild: updater.identity.build)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes)
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
         return page
     }
