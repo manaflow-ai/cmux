@@ -22,11 +22,9 @@ export type Caller =
   | { readonly kind: "free"; readonly device: string }
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
-/** Tokens counted for one image part in the cost bound (no model we serve bills more per image). */
-const IMAGE_TOKEN_BOUND = 3_000
 
 /** Body fields passed upstream; everything else (provider routing fields, n, logit_bias...) is dropped. */
-const PASS_FIELDS = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "stop", "stream", "response_format", "seed", "frequency_penalty", "presence_penalty", "reasoning_effort", "user"] as const
+const PASS_FIELDS = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "stop", "stream", "response_format", "seed", "frequency_penalty", "presence_penalty", "reasoning_effort"] as const
 
 const err = (status: number, code: string, message: string, extra: Record<string, unknown> = {}) =>
   Response.json({ error: { code, message, type: status === 402 || status === 429 ? "insufficient_quota" : "invalid_request_error", ...extra } }, { status })
@@ -53,6 +51,8 @@ const resolveCaller = async (env: Env, request: Request): Promise<Caller | Respo
   const p = await authenticate(env, token)
   if (!p?.user || !p.team) return err(401, "auth.invalid", "the token is not valid")
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && !switchOn(env.INFERENCE_MACHINES_ENABLED)) return err(403, "auth.forbidden", "machine installs cannot use the model router yet")
+  const allowed = (env.INFERENCE_ALLOWED_TEAMS ?? "").split(",").map((t) => t.trim()).filter(Boolean)
+  if (allowed.length > 0 && !allowed.includes(p.team)) return err(403, "auth.forbidden", "this team cannot use the model router on this deployment yet")
   return { kind: "team", team: p.team, user: p.user }
 }
 
@@ -85,15 +85,22 @@ export const handleInferenceStatus = async (env: Env, request: Request): Promise
 
 export const guard = (env: Env) => env.SPEND_GUARD_DO.get(env.SPEND_GUARD_DO.idFromName("global"))
 
-/** Upper bound of the prompt's tokens: one token is at least one byte of the body, plus a bound per image. */
-const inputBound = (raw: string, messages: unknown): number => {
-  let images = 0
-  if (Array.isArray(messages)) {
-    for (const m of messages as Array<{ content?: unknown }>) {
-      if (Array.isArray(m?.content)) images += (m.content as Array<{ type?: unknown }>).filter((p) => p?.type === "image_url" || p?.type === "input_image").length
-    }
+/**
+ * Message content is text only: a string, or parts of type "text". Images, files, audio and video
+ * are refused, because their token cost has no bound we can compute from the body (a file part can
+ * pull in a large document). Then every prompt token is at least one byte of the body, so the body
+ * size bounds the prompt tokens. Tools must be plain functions (no billed server-side tools).
+ */
+const contentRefusal = (messages: ReadonlyArray<unknown>, tools: unknown): string | undefined => {
+  for (const m of messages) {
+    if (!m || typeof m !== "object") return "each message must be an object"
+    const content = (m as { content?: unknown }).content
+    if (content === undefined || content === null || typeof content === "string") continue
+    if (!Array.isArray(content)) return "message content must be a string or an array of text parts"
+    for (const part of content as Array<{ type?: unknown }>) if (part?.type !== "text") return "only text content parts are accepted"
   }
-  return new TextEncoder().encode(raw).length + images * IMAGE_TOKEN_BOUND
+  if (tools !== undefined && (!Array.isArray(tools) || (tools as Array<{ type?: unknown }>).some((t) => t?.type !== "function"))) return "tools must be an array of function tools"
+  return undefined
 }
 
 export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
@@ -102,8 +109,9 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   if (caller instanceof Response) return caller
   const length = Number(request.headers.get("content-length") ?? "0")
   if (length > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
-  const raw = await request.text()
-  if (raw.length > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
+  const bytes = new Uint8Array(await request.arrayBuffer())
+  if (bytes.byteLength > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
+  const raw = new TextDecoder().decode(bytes)
   let body: Record<string, unknown>
   try {
     body = JSON.parse(raw) as Record<string, unknown>
@@ -116,6 +124,8 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
   if (body.tools !== undefined && !model.tools) return err(400, "validation.invalid", "this model does not take tools")
   if (body.n !== undefined && body.n !== 1) return err(400, "validation.invalid", "n must be 1")
+  const refused = contentRefusal(body.messages as ReadonlyArray<unknown>, body.tools)
+  if (refused) return err(400, "validation.invalid", refused)
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"
@@ -125,7 +135,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
-  const promptBound = inputBound(raw, body.messages)
+  const promptBound = bytes.byteLength
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 
@@ -173,6 +183,13 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
       }
     })
     if (outcome.kind === "response") return outcome.response
+    if (outcome.kind === "charged") {
+      // The provider may have billed (a timeout or a broken body after the request was sent): the
+      // full reservation is spent and there is no fallback, so a client cannot repeat it for free.
+      ctx.waitUntil(guard(env).settle(id, plan.provider, maxMicros, null))
+      log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.charged_failure", upstream_status: outcome.status, attempt, usd: maxUsd })
+      return err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
+    }
     // Failed before the first byte: drop the reservation, count the failure, try the next provider.
     await guard(env).fail(id, plan.provider)
     log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.failed", upstream_status: outcome.status, attempt })

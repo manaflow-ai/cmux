@@ -216,6 +216,8 @@ export interface Env {
   readonly INFERENCE_ENABLED?: string
   /** Free tier switch (attested devices without sign-in), fail-closed: only "1". */
   readonly INFERENCE_FREE_ENABLED?: string
+  /** Comma list of team ids that may call the router (dev and staging); unset = every signed-in team. */
+  readonly INFERENCE_ALLOWED_TEAMS?: string
   /** "1" lets VM installs call the router. */
   readonly INFERENCE_MACHINES_ENABLED?: string
   /** Comma list of providers switched off (kill switch per provider), for example "openrouter,bedrock". */

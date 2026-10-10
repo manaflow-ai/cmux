@@ -14,9 +14,10 @@ import { runWorkersAi } from "./workers-ai.ts"
  * inside waitUntil so a client that leaves early still settles the spend.
  */
 
-const HEADER_TIMEOUT_MS = 60_000
+/** Streaming answers send headers at once; a non-streaming answer sends them after generation. */
+const HEADER_TIMEOUT_STREAM_MS = 60_000
+const HEADER_TIMEOUT_JSON_MS = 10 * 60_000
 const MAX_STREAM_MS = 15 * 60_000
-const MAX_ERROR_BYTES = 4_096
 
 export interface DoneInfo {
   readonly usage?: UpstreamUsage
@@ -27,7 +28,15 @@ export interface DoneInfo {
   readonly charged: "none" | "full"
 }
 
-export type Outcome = { readonly kind: "response"; readonly response: Response } | { readonly kind: "failed"; readonly status: number | string }
+/**
+ * "failed": the provider answered an error that bills nothing (try the next provider).
+ * "charged": the request may have been billed (sent, then a timeout or a broken body): charge the
+ * full reservation, no fallback.
+ */
+export type Outcome =
+  | { readonly kind: "response"; readonly response: Response }
+  | { readonly kind: "failed"; readonly status: number | string }
+  | { readonly kind: "charged"; readonly status: string }
 
 export interface Attempt {
   readonly id: string
@@ -37,7 +46,12 @@ export interface Attempt {
   readonly onDone: (d: DoneInfo) => Promise<void>
 }
 
-const retryable = (status: number) => status === 401 || status === 403 || status === 408 || status === 409 || status === 429 || status >= 500
+/** Provider errors that bill nothing and say nothing about the request: try the next provider. */
+const retryable = (status: number) => status === 401 || status === 402 || status === 403 || status === 404 || status === 408 || status === 409 || status === 429 || status >= 500
+
+/** Our own message per client-error status: provider bodies (vendor names, account state) never reach the client. */
+const clientError = (status: number) =>
+  status === 413 ? "the request is too large for this model" : "the model rejected the request (check messages, tools, max_tokens and the context length)"
 
 const headersOut = (id: string, contentType: string) => ({ "content-type": contentType, "cache-control": "no-cache", "x-cmux-request-id": id })
 
@@ -55,23 +69,25 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
       return { kind: "response", response: new Response(r.response.body, { status: 200, headers: h }) }
     } catch (e) {
       console.warn(JSON.stringify({ msg: "inference.workers_ai.error", id: a.id, error: String(e).slice(0, 300) }))
-      return { kind: "failed", status: "workers_ai_error" }
+      // An inference error may still be billed: charge the reservation, no fallback.
+      return { kind: "charged", status: "workers_ai_error" }
     }
   }
 
   const abort = new AbortController()
-  const headerTimer = setTimeout(() => abort.abort("header timeout"), HEADER_TIMEOUT_MS)
+  const headerTimer = setTimeout(() => abort.abort("header timeout"), a.body.stream === true ? HEADER_TIMEOUT_STREAM_MS : HEADER_TIMEOUT_JSON_MS)
   let upstream: Response
   try {
     upstream = await fetch(target.url, {
       method: "POST",
       headers: { authorization: `Bearer ${target.key}`, "content-type": "application/json", ...target.extraHeaders },
-      body: JSON.stringify({ ...a.body, ...target.extraBody, model: a.route.id }),
+      body: JSON.stringify({ ...a.body, ...target.extraBody, ...(a.route.provider === "openrouter" ? { provider: { data_collection: "deny", max_price: { prompt: a.model.card.input, completion: a.model.card.output } } } : {}), model: a.route.id }),
       signal: abort.signal
     })
-  } catch (e) {
+  } catch {
     clearTimeout(headerTimer)
-    return { kind: "failed", status: abort.signal.aborted ? "header_timeout" : "connect_error" }
+    // The request may have reached the provider: never assume it was free.
+    return { kind: "charged", status: abort.signal.aborted ? "header_timeout" : "connect_error" }
   } finally {
     clearTimeout(headerTimer)
   }
@@ -80,10 +96,11 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
       await upstream.body?.cancel()
       return { kind: "failed", status: upstream.status }
     }
-    // A client error: pass the provider's message (bounded), never its headers.
-    const text = (await upstream.text()).slice(0, MAX_ERROR_BYTES)
+    // A client error: our own message; the provider's body is dropped.
+    await upstream.body?.cancel()
     ctx.waitUntil(a.onDone({ ttfbMs: Date.now() - started, status: `client_error_${upstream.status}`, charged: "none" }))
-    return { kind: "response", response: new Response(text, { status: upstream.status, headers: headersOut(a.id, "application/json") }) }
+    const message = clientError(upstream.status)
+    return { kind: "response", response: Response.json({ error: { code: "upstream.rejected", message, type: "invalid_request_error", status: upstream.status } }, { status: upstream.status === 413 ? 413 : 400, headers: { "x-cmux-request-id": a.id } }) }
   }
   const ttfb = Date.now() - started
   const streaming = a.body.stream === true
@@ -93,13 +110,13 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
     try {
       text = await upstream.text()
     } catch {
-      return { kind: "failed", status: "body_error" }
+      return { kind: "charged", status: "body_error" }
     }
     let usage: UpstreamUsage | undefined
     try {
       usage = parseUsage((JSON.parse(text) as { usage?: unknown }).usage)
     } catch {
-      return { kind: "failed", status: "invalid_json" }
+      return { kind: "charged", status: "invalid_json" }
     }
     ctx.waitUntil(a.onDone({ ...(usage ? { usage } : {}), ttfbMs: ttfb, status: "ok", charged: "full" }))
     return { kind: "response", response: new Response(text, { status: 200, headers: headersOut(a.id, "application/json") }) }

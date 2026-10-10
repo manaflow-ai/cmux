@@ -32,9 +32,10 @@ const openai = (url: string, key: string | undefined, extraBody: Record<string, 
 export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget | undefined => {
   switch (provider) {
     case "openrouter":
-      // usage.include: the response carries the request's real cost. data_collection deny: only
-      // upstreams that do not keep or train on prompts.
-      return openai("https://openrouter.ai/api/v1/chat/completions", env.INFERENCE_OPENROUTER_KEY, { usage: { include: true }, provider: { data_collection: "deny" } }, { "X-Title": "cmux" })
+      // usage.include: the response carries the request's real cost. upstream.ts adds the provider
+      // preferences per request: data_collection deny (no upstream that keeps or trains on prompts)
+      // and max_price at our card, so no sub-provider costs more than the reservation assumed.
+      return openai("https://openrouter.ai/api/v1/chat/completions", env.INFERENCE_OPENROUTER_KEY, { usage: { include: true } }, { "X-Title": "cmux" })
     case "vercel":
       return openai("https://ai-gateway.vercel.sh/v1/chat/completions", env.INFERENCE_VERCEL_GATEWAY_KEY)
     case "deepseek":
