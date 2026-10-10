@@ -30,8 +30,13 @@ public nonisolated struct AgentPageOps {
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.showContextUsage",
             "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
+<<<<<<< HEAD
             "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "onboarding.importAndSync", "app.action", "chats.open",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState", "chat.archive", "chat.sideChat",
+=======
+            "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "onboarding.importAndSync", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState", "chat.archive",
+>>>>>>> 851c6e334761 (cmux-next: All chats moves to the New Tab page; no bottom-left sidebar sections (cx-n0i9, cx-tr0w))
             "shell.run", "shell.read", "shell.stop",
             "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
