@@ -106,7 +106,7 @@ enum TabGroupMoves {
     }
 
     private static func run(_ label: String, daemon: DaemonService,
-                            completion: @escaping Completion, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                            completion: @escaping Completion, _ body: @escaping DaemonCommandBody) {
         Task {
             let ok = await daemon.request(label, body) != nil
             completion(ok)
