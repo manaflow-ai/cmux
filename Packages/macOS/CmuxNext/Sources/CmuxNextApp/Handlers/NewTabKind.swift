@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -19,6 +20,24 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         if selectedKind == .browser { return .browser(engine: engine) }
         if isLocalBrowser { return .browser(engine: nil) }
         return .terminal
+    }
+
+    /// The action that opens this kind on its own, whose title New <Kind> Tab takes in a tab's menu.
+    var newActionID: ActionID {
+        switch self {
+        case .terminal: "newSurface"
+        case .browser: "openBrowser"
+        case .agent: "palette.newAgentChat"
+        case .page: "newTab.page"
+        }
+    }
+
+    /// The kind New <Kind> Tab opens next to tab `id`, as the user sees it:
+    /// agent tabs and New Tab pages count (`newTabOfPaneKind`).
+    @MainActor static func of(_ id: String, tab: TabModel?, services: AppServices) -> NewTabKind {
+        let agent = services.agentTabs.isAgentTab(id)
+        if agent, services.agentTabs.isNewTabPage(id) { return .page }
+        return resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: id.hasPrefix(LocalBrowserTab.prefix), isAgent: agent)
     }
 
     /// `tabs.newTabKind` over the same-kind rule. Auto takes the kind last

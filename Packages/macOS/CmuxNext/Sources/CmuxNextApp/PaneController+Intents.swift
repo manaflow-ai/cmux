@@ -23,8 +23,10 @@ extension PaneController {
             CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
-        case .newTab(_, let opensWorkspace):
-            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace) { _ = services.registry.perform($0, invocation: $1) }
+        case .newTab(_, let opensWorkspace, let sameKind):
+            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace, sameKind: sameKind) {
+                _ = services.registry.perform($0, invocation: $1)
+            }
         case .pin(let id), .unpin(let id):
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):
@@ -239,7 +241,17 @@ extension PaneController {
 
     /// A tab's menu, the same wherever it is opened (its strip, its row in
     /// the sidebar): a browser tab drops what does not apply to a page.
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
+    /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
+        if let item = menu.items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
+           let title = registry.title(for: sameKind.newActionID) {
+            item.title = title
+        }
+        return menu
+    }
+
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
@@ -260,7 +272,8 @@ extension PaneController {
         switch target {
         case .tab(let id, _):
             select(id)
-            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, registry: registry)
+            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

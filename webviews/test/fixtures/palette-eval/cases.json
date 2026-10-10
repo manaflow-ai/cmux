@@ -36,7 +36,7 @@
   "cases": [
     {
       "query": "new tab",
-      "expect": ["action:newTab.sameKind", "action:newSurface", "action:openBrowser"],
+      "expect": ["action:newTab.default", "action:newSurface", "action:openBrowser"],
       "group": "exact"
     },
     {
@@ -146,7 +146,7 @@
     },
     {
       "query": "new",
-      "expect": ["action:newTab.sameKind", "action:newTab", "action:newWindow", "action:newSurface"],
+      "expect": ["action:newTab.default", "action:newTab", "action:newWindow", "action:newSurface"],
       "group": "partial"
     },
     {
@@ -399,7 +399,7 @@
     },
     {
       "query": "nt",
-      "expect": ["action:newTab.sameKind", "action:newSurface"],
+      "expect": ["action:newTab.default", "action:newSurface"],
       "group": "acronym"
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "query": "new tba",
-      "expect": ["action:newTab.sameKind", "action:newSurface", "action:openBrowser"],
+      "expect": ["action:newTab.default", "action:newSurface", "action:openBrowser"],
       "group": "typo"
     },
     {
@@ -600,7 +600,7 @@
     {
       "query": "",
       "expect": [
-        "action:newTab.sameKind",
+        "action:newTab.default",
         "action:newSurface",
         "action:splitRight",
         "action:newTab",
@@ -888,7 +888,7 @@
     },
     {
       "query": "",
-      "expect": ["action:newTab.sameKind"],
+      "expect": ["action:newTab.default"],
       "at": 1,
       "group": "replay",
       "replay": [],
@@ -918,7 +918,7 @@
     },
     {
       "query": "",
-      "expect": ["action:newTab.sameKind"],
+      "expect": ["action:newTab.default"],
       "at": 2,
       "group": "replay",
       "replay": [
