@@ -35,8 +35,12 @@ enum DebugPointerHover {
         let key = window.windowNumber
         let before = inside[key] ?? [:]
         var now: [ObjectIdentifier: NSTrackingArea] = [:]
-        if let point {
-            for (view, area) in areas(in: root) where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
+        // Areas still attached to a view: an exit goes only to these (a removed
+        // area's owner may be gone; its view re-reads the pointer itself).
+        var attached: Set<ObjectIdentifier> = []
+        for (view, area) in areas(in: root) where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
+            attached.insert(ObjectIdentifier(area))
+            if let point {
                 guard !view.isHiddenOrHasHiddenAncestor else { continue }
                 // A tracking area's rect is in the coordinates of the view that holds it.
                 let local = view.convert(point, from: nil)
@@ -48,7 +52,7 @@ enum DebugPointerHover {
         var exited: [String] = []
         var entered: [String] = []
         var moved: [String] = []
-        for (id, area) in before where now[id] == nil {
+        for (id, area) in before where now[id] == nil && attached.contains(id) {
             guard let owner = area.owner as? NSResponder, area.options.contains(.mouseEnteredAndExited),
                   let event = enterExit(.mouseExited, area, location, window) else { continue }
             owner.mouseExited(with: event)
