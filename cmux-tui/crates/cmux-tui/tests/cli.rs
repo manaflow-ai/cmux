@@ -3661,6 +3661,9 @@ mod feed_local;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[cfg(unix)]
+#[path = "cli/settings_owner.rs"]
+mod settings_owner;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 
