@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentCursor
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -117,7 +118,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func observeRoom() {
         let state = state
         roomObservation = Task { [weak self] in
-            for await _ in Observations({ state.profileID }) {
+            for await _ in ObservationStream({ state.profileID }) {
                 guard let self else { return }
                 services.themes.windowDidChange(self)
             }
@@ -133,7 +134,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
                 [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
                     + windows.registry.members(of: state.id)
@@ -185,7 +186,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard startupObservation == nil else { return }
         let daemon = services.daemon
         startupObservation = Task { [weak self, weak view] in
-            for await startup in Observations({ daemon.startup }) {
+            for await startup in ObservationStream({ daemon.startup }) {
                 view?.apply(startup)
                 if self?.content != nil { return }
             }
@@ -225,7 +226,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         connectingView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
-            for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
+            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and,
         // now that the content is installed, re-applies it.

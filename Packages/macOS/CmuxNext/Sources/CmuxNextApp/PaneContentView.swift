@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -82,13 +83,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         reveal.hold(contentHost, until: .pane)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ PaneChromeMetrics.current }) {
+            for await _ in ObservationStream({ PaneChromeMetrics.current }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
         }
         placementObservation = Task { [weak self] in
-            for await (position, order) in Observations({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
+            for await (position, order) in ObservationStream({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
                 self?.barPosition = position
                 self?.barOrder = order
             }
