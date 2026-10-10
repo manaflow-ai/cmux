@@ -57,6 +57,8 @@ export interface EvalCase {
   notFirst?: string;
   /** Learning: this row must not be among the results at all (a hidden row). */
   absent?: string;
+  /** The first expected row must be at exactly this 1-based position (empty-query order). */
+  at?: number;
 }
 
 export interface EvalCases {
@@ -205,11 +207,15 @@ export function scoreCases(
       ? ids.includes(evalCase.absent)
         ? -1
         : 0
-      : evalCase.notFirst
-        ? ids[0] !== evalCase.notFirst
+      : evalCase.at
+        ? ids[evalCase.at - 1] === evalCase.expect[0]
           ? 0
           : -1
-        : ids.findIndex((id) => evalCase.expect.includes(id));
+        : evalCase.notFirst
+          ? ids[0] !== evalCase.notFirst
+            ? 0
+            : -1
+          : ids.findIndex((id) => evalCase.expect.includes(id));
     return {
       query: evalCase.query,
       group: evalCase.group,

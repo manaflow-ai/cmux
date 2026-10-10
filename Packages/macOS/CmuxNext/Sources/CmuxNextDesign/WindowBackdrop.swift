@@ -27,6 +27,10 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var art: BackdropArt? = nil
     /// Optional bundled or system image beneath the material.
     public var selection: BackdropSelection? = nil
+    /// The least tint over art at which every text role stays legible
+    /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
+    /// nor the tuner thins the glass below it.
+    public var legibleTintOpacity: Double = 0
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.
@@ -94,9 +98,13 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
             ? tokens.backgroundOpacity
-            : tokens.wallpaperTintOpacity
+            : max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        if resolvedSelection != nil, !isOpaque {
+            legibleTintOpacity = tokens.legibleTintOpacity(requested: 0)
+            tintOpacity = max(tintOpacity, legibleTintOpacity)
+        }
         self.art = art
         self.selection = resolvedSelection
         self.tuning = tuning
