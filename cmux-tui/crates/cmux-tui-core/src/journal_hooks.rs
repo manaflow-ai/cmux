@@ -1507,6 +1507,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(root);
         }
     }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn journal_hook_shutdown_cancels_an_active_detached_process_scope() {
