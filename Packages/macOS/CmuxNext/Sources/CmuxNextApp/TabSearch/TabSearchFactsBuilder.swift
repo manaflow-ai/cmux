@@ -34,15 +34,25 @@ enum TabSearchFactsBuilder {
         // Read inside the publisher's tracking: a close republishes.
         _ = tracker.changes.revision
         let connected = Set(services.machines.daemons.map(\.machineID))
+        // One id index per machine, built on first use: a linear search per
+        // record made this closed records x workspaces on every publish (cx-9c8m).
+        var titles: [String: [String: String]] = [:]
+        func workspaceTitle(machine: String, id: String) -> String? {
+            if titles[machine] == nil {
+                let workspaces = services.machines.daemon(machine: machine)?.store.workspaces ?? []
+                titles[machine] = Dictionary(workspaces.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+            }
+            return titles[machine]?[id]
+        }
         return tracker.records.map { record in
             let machineID = ClosedTabTracker.split(record.tabID)?.machine ?? MachineRegistry.localID
-            let workspace = ClosedTabTracker.split(record.workspaceID).flatMap { split in
-                services.machines.daemon(machine: split.machine)?.store.workspaces.first { $0.id == split.id }
+            let title = ClosedTabTracker.split(record.workspaceID).flatMap { split in
+                workspaceTitle(machine: split.machine, id: split.id)
             }
             return ControlClosedTab(
                 id: record.tabID, kind: record.kind == .browser ? "browser" : "terminal",
                 title: record.title ?? record.url ?? record.cwd ?? "", url: record.url, cwd: record.cwd,
-                workspaceTitle: workspace?.displayName,
+                workspaceTitle: title,
                 machine: machineID == MachineRegistry.localID ? nil : services.machines.machineName(machineID) ?? machineID,
                 closedAt: record.closedAt ?? .distantPast, isAvailable: connected.contains(machineID))
         }
