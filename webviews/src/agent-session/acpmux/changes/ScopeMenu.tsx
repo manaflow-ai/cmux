@@ -1,7 +1,8 @@
 // The changes view's scope pill and menu: Last turn, then the working tree
 // (Uncommitted, Unstaged, Staged), then history (Committed, Branch), the chosen one checked.
-// It is a shared menu button: Base UI owns focus, typeahead, arrows, and dismissal.
-import React, { useRef, useState } from "react";
+// Base UI owns direction-aware arrows, typeahead, Escape and focus restoration. The selected
+// scope is restored as the initial highlight whenever the menu opens.
+import { useId, useState, type ReactNode } from "react";
 import { ChevronDown } from "../changeIcons";
 import { SCOPE_LABEL, SCOPE_ORDER, type ChangeScope } from "./model";
 import { useT } from "../i18n";
@@ -15,20 +16,18 @@ export function ScopeMenu({
   scope: ChangeScope;
   onScope: (scope: ChangeScope) => void;
   /// Shown in the pill after the scope's name: its totals.
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
-  const focusSelected = () =>
-    document.querySelector<HTMLElement>('.acpmux-scope-list [role="menuitemradio"][aria-checked="true"]')?.focus({
-      preventScroll: true,
-    });
+  const menuId = useId();
+  const focusSelected = () => {
+    document.getElementById(menuId)?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+  };
   return (
     <span className="acpmux-scope-menu">
       <Menu open={open} onOpenChange={setOpen} onOpenChangeComplete={(next) => next && focusSelected()}>
         <MenuButton
-          buttonRef={button}
           className="acpmux-diff-scope"
           label={t("changes.scopeButton", { scope: t(SCOPE_LABEL[scope]) })}
           aria-haspopup="menu"
@@ -38,15 +37,16 @@ export function ScopeMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          id={menuId}
+          label={t("changes.scopeMenu")}
           className="acpmux-file-menu-list acpmux-scope-list"
-          aria-label={t("changes.scopeMenu")}
-          finalFocus={button}
+          align="start"
         >
           <MenuRadioGroup
             value={scope}
-            onValueChange={(next) => {
+            onValueChange={(value) => {
               setOpen(false);
-              onScope(next as ChangeScope);
+              onScope(value as ChangeScope);
             }}
           >
             {SCOPE_ORDER.map((entry, index) =>
@@ -54,7 +54,7 @@ export function ScopeMenu({
                 <MenuSeparator key={`separator-${index}`} />
               ) : (
                 <MenuRadioItem key={entry} value={entry} className="acpmux-file-menu-item">
-                  <span className="acpmux-scope-label">{t(SCOPE_LABEL[entry])}</span>
+                  {t(SCOPE_LABEL[entry])}
                 </MenuRadioItem>
               ),
             )}

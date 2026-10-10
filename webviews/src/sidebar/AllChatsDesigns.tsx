@@ -27,7 +27,7 @@ const glyph: Record<string, string> = { claude: "✳", codex: "◎", opencode: "
 
 function Icon({ d, label }: { d: string; label: string }) {
   return (
-    <span className="acd-icon" role="img" aria-label={label}>
+    <span className="acd-icon" title={label}>
       <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
         <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>

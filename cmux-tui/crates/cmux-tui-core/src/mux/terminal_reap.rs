@@ -440,7 +440,7 @@ impl Mux {
         let mut placed = Vec::new();
         {
             let registry = self.workspace_registry.lock().unwrap();
-            let state = self.state.lock().unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
             for terminal in terminals {
                 if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                     continue;
@@ -483,7 +483,7 @@ impl Mux {
     fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
         let tab_ids = {
             let registry = self.workspace_registry.lock().unwrap();
-            let state = self.state.lock().unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
             let mut tab_ids = Vec::new();
             for terminal_id in terminal_ids {
                 if let Some(public_id) = registry.terminal_resource_id(terminal_id)? {

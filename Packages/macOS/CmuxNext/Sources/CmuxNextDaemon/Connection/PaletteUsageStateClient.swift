@@ -27,6 +27,21 @@ public struct PaletteUsageStateClient: Sendable {
         }, as: ResourceMutationResult<JSONValue>.self).value
     }
 
+    /// Hides row `key` from the palette, or shows it again (`{revision}` only).
+    public func hide(key: String, hidden: Bool, idempotencyKey: String) async throws -> JSONValue {
+        try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "palette_usage.hide",
+                                    params: ["key": .string(key), "hidden": .bool(hidden)], idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<JSONValue>.self).value
+    }
+
+    /// Reset Ranking: forgets row `key`'s uses and learned picks (`{revision}` only).
+    public func forget(key: String, idempotencyKey: String) async throws -> JSONValue {
+        try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "palette_usage.forget", params: ["key": .string(key)], idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<JSONValue>.self).value
+    }
+
     /// Merges a former history from `source` once; returns
     /// `PaletteUsageImportResult` (`{revision, imported}`).
     public func importHistory(source: String, entries: [JSONValue], idempotencyKey: String) async throws -> JSONValue {

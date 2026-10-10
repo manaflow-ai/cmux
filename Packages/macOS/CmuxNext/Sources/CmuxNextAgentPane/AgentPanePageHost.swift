@@ -8,13 +8,18 @@ enum AgentPanePageHost {
     static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
-        return PageWebView(descriptor: .agent, root: root,
-                           routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
-                           options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+        let page = PageWebView(descriptor: .agent, root: root,
+                               routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+        // The composer menu's edits run as the page view's own responder actions.
+        provider.onEdit = { [weak page] command in
+            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+        }
+        return page
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, the edited-files card's settings, and a non-empty customization.
+    /// features, the edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
@@ -22,6 +27,7 @@ enum AgentPanePageHost {
         events.append(.preview(view.previewFeatures))
         events.append(.deviceChats(view.deviceChats))
         events.append(.editedFiles(view.editedFiles))
+        events.append(.composer(view.model.composer))
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
     }

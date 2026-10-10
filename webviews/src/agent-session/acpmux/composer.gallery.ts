@@ -5,6 +5,8 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -43,7 +45,8 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 420,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  // The transcript must not move while a play step opens a menu over it.
+  // The transcript must not move while a play step opens a menu over it, and the composer box
+  // must not move when queued prompts come and go above it.
   anchors: [
     { selector: ".acpmux-scroll" },
     { selector: ".acpmux-composer-box" },
@@ -71,6 +74,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
+    "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
     "new-chat": {
@@ -127,6 +131,26 @@ export default agentPaneEntry({
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
+    },
+    // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
+    "context-menu": {
+      note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const field = ctx.find({ selector: ".acpmux-md" });
+        ctx.document.defaultView!.getSelection()!.selectAllChildren(field);
+        const box = field.getBoundingClientRect();
+        field.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 40,
+            clientY: box.top + 12,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+      },
     },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
@@ -195,9 +219,38 @@ export default agentPaneEntry({
     },
     working: {
       note: "A turn running: Send becomes Stop.",
-      snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
+      snapshot: chat(working, { isWorking: true }),
+    },
+    queued: {
+      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      snapshot: chat(working, {
         isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
       }),
+    },
+    "queued-long": {
+      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          {
+            id: "q2",
+            prompt:
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+          },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ text: /^Once the retries land/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
     },
     "codex-model": {
       note: "Another harness and model in the chips.",
@@ -224,6 +277,34 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-context .acpmux-location-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
+      },
+    },
+    "context-usage-menu": {
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-usage",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 2,
+          usage: { used: 48_000, size: 200_000 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-context-ring"));
+        const ring = ctx.document.querySelector<HTMLElement>("button.acpmux-context-ring")!;
+        const box = ring.getBoundingClientRect();
+        const view = ctx.document.defaultView!;
+        ring.dispatchEvent(
+          new view.MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 4,
+            clientY: box.top + 4,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-context-menu [role=menuitem]"));
       },
     },
     "add-menu": {
@@ -266,6 +347,22 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    "slash-fork": {
+      note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/fork");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-slash-name")).some((node) => node.textContent === "/fork"),
+        );
       },
     },
     "reasoning-claude": {
@@ -329,6 +426,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
     "model-menu-keyboard": {
@@ -350,6 +449,24 @@ export default agentPaneEntry({
           const current = search.getAttribute("aria-activedescendant");
           return current !== previous && Boolean(current && ctx.document.getElementById(current));
         });
+      },
+    },
+    "picker-toggle": {
+      note: "Play: open the permission picker, then press its trigger again; the menu closes and does not reopen on the same WebKit click.",
+      snapshot: withSummary(chat(finished, { title: "Picker toggle" }), {
+        sessionId: "gallery-picker-toggle",
+        harness: "claude",
+        model: "claude-opus-5-5",
+        cwd: CWD,
+        turnCount: 1,
+        modes: composerControls.modes,
+      }),
+      play: async (ctx) => {
+        const trigger = '[aria-label="Mode"]';
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
       },
     },
     "reasoning-menu": {

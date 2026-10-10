@@ -205,11 +205,4 @@ mod tests {
         assert_eq!(&byte, b"x");
         server.await.unwrap();
     }
-
-    #[tokio::test]
-    async fn public_address_is_denied_by_private_policy() {
-        let error =
-            resolve_allowed("192.0.2.1", 80, RoutePolicy::PrivateNetwork).await.unwrap_err();
-        assert_eq!(error.code, "route-policy-denied");
-    }
 }

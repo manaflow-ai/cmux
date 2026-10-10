@@ -27,8 +27,8 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
-    /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
-    private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
+    /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
+    private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
@@ -165,6 +165,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Relays the Chats index and editor sources into the daemon's project list.
+    private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
@@ -217,11 +219,7 @@ final class AppServices {
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
         }
-        cache.machineBadge = { [weak self] key, url in
-            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
-            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
-        }
+        cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery, crashReporting] in
@@ -271,6 +269,7 @@ final class AppServices {
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
+            attachMachineBadgeMenu(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

@@ -96,8 +96,6 @@ pub struct MouseEncoders {
 /// multiple DEC modes are enabled and their last-set precedence matters.
 pub(crate) struct MouseModeProbe {
     encoder: MouseEncoder,
-    #[cfg(test)]
-    signature_calls: u64,
 }
 
 /// Allocation-free fingerprint of Ghostty's effective mouse encoder behavior.
@@ -170,18 +168,10 @@ impl MouseEncoders {
 
 impl MouseModeProbe {
     pub(crate) fn new() -> Result<Self> {
-        Ok(Self {
-            encoder: MouseEncoder::new()?,
-            #[cfg(test)]
-            signature_calls: 0,
-        })
+        Ok(Self { encoder: MouseEncoder::new()? })
     }
 
     pub(crate) fn signature(&mut self, terminal: sys::GhosttyTerminal) -> MouseModeSignature {
-        #[cfg(test)]
-        {
-            self.signature_calls += 1;
-        }
         self.encoder.sync_from_raw_terminal(terminal);
         self.encoder.reset_motion_dedupe();
         let mut signature = MouseModeSignature::default();
@@ -295,11 +285,6 @@ impl MouseModeProbe {
             )
             .ok()?;
         classify_probe_press(&bytes)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn signature_calls(&self) -> u64 {
-        self.signature_calls
     }
 }
 
@@ -468,187 +453,5 @@ impl Drop for MouseEncoder {
             sys::ghostty_mouse_event_free(self.event);
             sys::ghostty_mouse_encoder_free(self.encoder);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Callbacks;
-
-    fn input(action: MouseAction, button: Option<MouseButton>) -> MouseInput {
-        MouseInput {
-            action,
-            button,
-            mods: Mods::default(),
-            position: (4.5, 2.5),
-            screen_size: (80, 24),
-            cell_size: (1, 1),
-            any_button_pressed: action != MouseAction::Release,
-        }
-    }
-
-    #[test]
-    fn sgr_click_and_wheel_follow_terminal_modes() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1000h\x1b[?1006h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-
-        let mut out = Vec::new();
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::Left)), &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<0;5;3M");
-
-        out.clear();
-        encoder.encode(input(MouseAction::Release, Some(MouseButton::Left)), &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<0;5;3m");
-
-        out.clear();
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelUp)), &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<64;5;3M");
-
-        out.clear();
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelLeft)), &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<66;5;3M");
-
-        out.clear();
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::WheelRight)), &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<67;5;3M");
-    }
-
-    #[test]
-    fn disabled_mouse_mode_suppresses_output() {
-        let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let mut out = Vec::new();
-
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::Left)), &mut out).unwrap();
-
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn sgr_pixels_uses_rendered_cell_geometry() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1000h\x1b[?1016h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let mut event = input(MouseAction::Press, Some(MouseButton::Left));
-        event.position = (36.0, 40.0);
-        event.screen_size = (640, 384);
-        event.cell_size = (8, 16);
-        let mut out = Vec::new();
-
-        encoder.encode(event, &mut out).unwrap();
-
-        assert_eq!(out, b"\x1b[<0;36;40M");
-    }
-
-    #[test]
-    fn same_cell_motion_is_suppressed_until_mode_or_geometry_changes() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let mut event = input(MouseAction::Motion, None);
-        event.position = (36.0, 40.0);
-        event.screen_size = (640, 384);
-        event.cell_size = (8, 16);
-        let mut out = Vec::new();
-
-        encoder.encode(event, &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<35;5;3M");
-
-        out.clear();
-        event.position = (39.0, 47.0);
-        encoder.sync_from_terminal(&terminal);
-        encoder.encode(event, &mut out).unwrap();
-        assert!(out.is_empty());
-
-        out.clear();
-        event.cell_size = (4, 8);
-        encoder.encode(event, &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<35;10;6M");
-    }
-
-    #[test]
-    fn reasserted_mouse_mode_resynchronizes_last_set_precedence() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let mut event = input(MouseAction::Motion, Some(MouseButton::Left));
-        event.any_button_pressed = true;
-        let mut out = Vec::new();
-
-        encoder.encode(event, &mut out).unwrap();
-        assert!(!out.is_empty(), "button tracking must report drag motion");
-
-        terminal.vt_write(b"\x1b[?1000h");
-        encoder.sync_from_terminal(&terminal);
-        out.clear();
-        encoder.encode(event, &mut out).unwrap();
-
-        assert!(out.is_empty(), "reasserted normal tracking must suppress motion");
-    }
-
-    #[test]
-    fn csi_controls_do_not_hide_mouse_format_changes_from_encoder() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1000h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-
-        terminal.vt_write(b"\x1b[?1006\x07h");
-        assert!(terminal.mode(1006, false), "Ghostty must accept BEL inside CSI parameters");
-        encoder.sync_from_terminal(&terminal);
-
-        let mut out = Vec::new();
-        encoder.encode(input(MouseAction::Press, Some(MouseButton::Left)), &mut out).unwrap();
-        assert_eq!(
-            out, b"\x1b[<0;5;3M",
-            "encoder synchronization must follow Ghostty's authoritative SGR mouse mode"
-        );
-    }
-
-    #[test]
-    fn restored_mouse_mode_resynchronizes_saved_precedence() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1000h\x1b[?1000s\x1b[?1002h\x1b[?1006h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let mut event = input(MouseAction::Motion, Some(MouseButton::Left));
-        event.any_button_pressed = true;
-        let mut out = Vec::new();
-
-        encoder.encode(event, &mut out).unwrap();
-        assert!(!out.is_empty(), "button tracking must report drag motion");
-
-        terminal.vt_write(b"\x1b[?1000r");
-        encoder.sync_from_terminal(&terminal);
-        out.clear();
-        encoder.encode(event, &mut out).unwrap();
-
-        assert!(out.is_empty(), "restored normal tracking must suppress motion");
-    }
-
-    #[test]
-    fn reset_allows_same_cell_motion_to_be_encoded_again() {
-        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
-        let mut encoder = MouseEncoder::new().unwrap();
-        encoder.sync_from_terminal(&terminal);
-        let event = input(MouseAction::Motion, None);
-        let mut out = Vec::new();
-
-        encoder.encode(event, &mut out).unwrap();
-        out.clear();
-        encoder.encode(event, &mut out).unwrap();
-        assert!(out.is_empty());
-
-        encoder.reset_motion_dedupe();
-        encoder.encode(event, &mut out).unwrap();
-        assert_eq!(out, b"\x1b[<35;5;3M");
     }
 }

@@ -112,8 +112,6 @@ impl Mux {
         if self.commit_ordinary_tab_selection(actor, selectors).is_err() {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 

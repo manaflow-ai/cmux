@@ -166,15 +166,24 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ScreenGroupUngroup
         | ResourceOperation::ClosedList
         | ResourceOperation::ClosedReopen
+        | ResourceOperation::ClosedDelete
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::ProjectList
+        | ResourceOperation::ProjectObserve
+        | ResourceOperation::ProjectAdd
+        | ResourceOperation::ProjectUpdate
+        | ResourceOperation::ProjectRemove
+        | ResourceOperation::ProjectSync
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport
+        | ResourceOperation::PaletteUsageHide
+        | ResourceOperation::PaletteUsageForget
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
@@ -182,7 +191,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceProgressClear
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
-        | ResourceOperation::WorkspaceLogClear => OperationOwner::State,
+        | ResourceOperation::WorkspaceLogClear
+        | ResourceOperation::AgentMessageSend
+        | ResourceOperation::AgentMessageList
+        | ResourceOperation::AgentMessageMark => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList

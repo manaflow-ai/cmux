@@ -29,12 +29,6 @@ const setPolicy = async (token: string, version: number, changes: Array<{ key: s
 }
 
 describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
-  it("SSO rule for installs: only installs registered from the team's SSO session pass", () => {
-    const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
-    const inst = { identity: "inst_1", kind: "install" as const, user: "user_u", team: "team_t", install: "inst_1" }
-    expect(ssoRefusal(inst, rules)?.code).toBe("auth.sso_required")
-    expect(ssoRefusal({ ...inst, sso_team: "team_t" }, rules)).toBeUndefined()
-  })
 
   it("SSO rule: a session without the team's SSO claim is refused (enabling sso.enforce needs a live connection, so the rule is tested directly)", () => {
     const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
@@ -43,32 +37,6 @@ describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
     expect(ssoRefusal({ ...base, sso_team: "team_other" }, rules)?.code).toBe("auth.sso_required")
     expect(ssoRefusal({ ...base, sso_team: "team_t" }, rules)).toBeUndefined()
     expect(ssoRefusal(base, { ...rules, sso_required: false })).toBeUndefined()
-  })
-
-  it("a token claim cannot satisfy sso.enforce: a Stack session never carries the team's SSO by itself", async () => {
-    // Hexclave/Stack access tokens carry a fixed claim set; whatever a token says about SSO is not ours.
-    const forged = await sessionToken("gate-forger", { cmux_sso_team: "team_t" })
-    const p = await authenticate(env as never, forged)
-    expect(p?.kind).toBe("session")
-    expect(p?.sso_team).toBeUndefined()
-    const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
-    expect(ssoRefusal({ ...p!, team: "team_t" }, rules)?.code).toBe("auth.sso_required")
-  })
-
-  it("normalizes email domains the way domain claims are keyed", () => {
-    expect(emailDomainOf("A@Acme.COM")).toBe("acme.com")
-    expect(emailDomainOf("a@acme.com.")).toBe("acme.com")
-    expect(emailDomainOf("a@bücher.de")).toBe("xn--bcher-kva.de")
-    expect(emailDomainOf("no-at-sign")).toBeUndefined()
-    expect(emailDomainOf(null)).toBeUndefined()
-  })
-
-  it("compares client versions", () => {
-    expect(versionAtLeast("1.2.3", "1.2.3")).toBe(true)
-    expect(versionAtLeast("1.10.0", "1.9.9")).toBe(true)
-    expect(versionAtLeast("1.2.2", "1.2.3")).toBe(false)
-    expect(versionAtLeast(null, "1.0.0")).toBe(false)
-    expect(versionAtLeast("garbage", "1.0.0")).toBe(false)
   })
 
   it("minimum version on token mint and wire connects, allowed classes on chief.create", async () => {

@@ -55,6 +55,14 @@ enum MarkdownLinkPolicy {
         get { lock.lock(); defer { lock.unlock() }; return extra }
         set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
     }
+    // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
+    // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
+    // Set at launch with `extraSchemes`; nil allows nothing more.
+    private static var rule: (@Sendable (URL) -> Bool)?
+    static var extraRule: (@Sendable (URL) -> Bool)? {
+        get { lock.lock(); defer { lock.unlock() }; return rule }
+        set { lock.lock(); rule = newValue; lock.unlock() }
+    }
 
     /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
     /// whitespace and control characters are removed first; the scheme is compared without case.
@@ -79,9 +87,11 @@ enum MarkdownLinkPolicy {
         guard let first = head.first, ascii(first),
               head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
         let scheme = String(String.UnicodeScalarView(head)).lowercased()
-        guard builtInSchemes.contains(scheme) || extraSchemes.contains(scheme) else { return nil }
+        let whole = builtInSchemes.contains(scheme) || extraSchemes.contains(scheme)
+        guard whole || extraRule != nil else { return nil }
         let s = String(String.UnicodeScalarView(u))
         guard let url = URL(string: s), url.scheme?.lowercased() == scheme else { return nil }
+        if !whole { return extraRule?(url) == true ? s : nil } // cmux: one exact form
         let rest = u.count - colon - 1
         switch scheme {
         case "http", "https": guard let h = url.host, !h.isEmpty else { return nil }

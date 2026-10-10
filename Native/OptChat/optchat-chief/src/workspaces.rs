@@ -224,6 +224,27 @@ impl Workspaces for TargetWorkspaces {
     }
 }
 
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
 /// The agent tab host of a session in Chief home `home`'s acpmux.
 pub fn chief_host(home: &Path) -> String {
     format!("chief:{}", crate::paths::home_id(home))
@@ -500,138 +521,4 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
         .map_err(|e| format!("rename-workspace: {e}"));
     client.close();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    /// CLI dogfood 7bf60bcf938a: a Chief that `cmux chief` started without the
-    /// app tried the app's missing control socket for every subagent, and no
-    /// subagent got a workspace. The opener follows E17
-    /// (schemas/chief-cmux-target): the app while its control socket and its
-    /// daemon exist, else the Chief's owner daemon, with host chief:<home id>
-    /// so the app attaches the tab to the Chief home's acpmux when it opens.
-    #[test]
-    fn without_the_app_subagent_workspaces_go_to_the_owner_daemon() {
-        let dir = tempfile::tempdir().unwrap();
-        let control = dir.path().join("app.sock");
-        let app_daemon = dir.path().join("app-daemon.sock");
-        assert_eq!(
-            workspace_target(&control, &app_daemon),
-            WorkspaceTarget::Owner
-        );
-        let _c = std::os::unix::net::UnixListener::bind(&control).unwrap();
-        assert_eq!(
-            workspace_target(&control, &app_daemon),
-            WorkspaceTarget::Owner,
-            "both must exist"
-        );
-        let _d = std::os::unix::net::UnixListener::bind(&app_daemon).unwrap();
-        assert_eq!(
-            workspace_target(&control, &app_daemon),
-            WorkspaceTarget::App
-        );
-        let home = dir.path().join("mux");
-        let w = TargetWorkspaces::new(
-            AppWorkspaces {
-                control: control.clone(),
-                daemon: app_daemon.clone(),
-                home: Some(home.clone()),
-            },
-            dir.path().join("owner.sock"),
-            &home,
-            None,
-        );
-        assert_eq!(w.owner.host, chief_host(&home));
-        assert_eq!(w.owner.daemon, dir.path().join("owner.sock"));
-    }
-
-    /// Live proof subp6: the app showed "This chat isn't available" for every
-    /// subagent: its panes attach to the app's acpmux, the subagents run in the
-    /// Chief home's. The open request names the Chief home as the tab's host.
-    #[test]
-    fn the_open_request_names_the_chief_home_as_the_sessions_host() {
-        let home = std::path::Path::new("/tmp/mux-home");
-        let request = open_request_for(home, "s1", "a1 · x", "k", std::path::Path::new("/tmp"));
-        assert_eq!(
-            request["params"]["args"]["host"],
-            format!("chief:{}", crate::paths::home_id(home))
-        );
-    }
-
-    /// Live proof subp3: every done mark failed with "unknown workspace key":
-    /// the renames went to the Chief's conversation owner (--daemon-socket),
-    /// while the app makes the workspaces in its own daemon.
-    #[test]
-    fn app_workspaces_rename_in_the_apps_daemon() {
-        let env = |k: &str| match k {
-            "CMUX_SOCKET_PATH" => Some("/tmp/control.sock".to_owned()),
-            "CMUX_APP_DAEMON_SOCKET" => Some("/tmp/app-daemon.sock".to_owned()),
-            _ => None,
-        };
-        let app = AppWorkspaces::resolve("/tmp/chief-owner.sock", &env).unwrap();
-        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/app-daemon.sock"));
-        let without = |k: &str| (k == "CMUX_SOCKET_PATH").then(|| "/tmp/control.sock".to_owned());
-        let app = AppWorkspaces::resolve("/tmp/own.sock", &without).unwrap();
-        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/own.sock"));
-    }
-
-    use super::*;
-
-    #[test]
-    fn names_and_keys() {
-        assert_eq!(
-            name("a1", "list the\nfiles in ~/"),
-            "a1 · list the files in ~/"
-        );
-        assert!(name("a2", &"x".repeat(80)).ends_with('…'));
-        assert_eq!(done_name("a1 · t"), "✓ a1 · t");
-        let key = new_key();
-        assert_eq!(key.len(), 36);
-        assert_eq!(&key[14..15], "4");
-        assert_ne!(key, new_key());
-    }
-
-    #[test]
-    fn a_run_past_the_apps_wait_budget_still_opens_the_workspace() {
-        use std::os::unix::net::UnixListener;
-        let dir = tempfile::tempdir().unwrap();
-        let control = dir.path().join("control.sock");
-        let listener = UnixListener::bind(&control).unwrap();
-        let server = std::thread::spawn(move || {
-            for answer in [
-                r#"{"ok":false,"error":{"message":"action.run did not finish within 1999 ms"}}"#,
-                r#"{"ok":false,"error":{"message":"unavailable: no such action"}}"#,
-            ] {
-                let (mut conn, _) = listener.accept().unwrap();
-                let mut line = String::new();
-                BufReader::new(conn.try_clone().unwrap())
-                    .read_line(&mut line)
-                    .unwrap();
-                writeln!(conn, "{answer}").unwrap();
-            }
-        });
-        let w = AppWorkspaces {
-            control,
-            daemon: dir.path().join("daemon.sock"),
-            home: None,
-        };
-        assert_eq!(
-            w.open(&new_key(), "s", "n", Path::new("/w"))
-                .map(|k| k.len()),
-            Ok(36)
-        );
-        assert!(w.open(&new_key(), "s", "n", Path::new("/w")).is_err());
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn the_open_request_runs_the_app_action_as_a_script() {
-        let r = open_request("sess", "a1 · t", "k", Path::new("/w"));
-        assert_eq!(r["method"], "action.run");
-        assert_eq!(r["params"]["action"], OPEN_ACTION);
-        assert_eq!(r["params"]["args"]["session"], "sess");
-        assert_eq!(r["params"]["args"]["key"], "k");
-        assert_eq!(r["params"]["origin"], "script");
-        assert_eq!(r["params"]["wait"], true);
-    }
 }

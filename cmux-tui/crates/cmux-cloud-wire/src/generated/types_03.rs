@@ -5,6 +5,61 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRepoScope {
+    pub value: TeamPolicyValuesGithubRepoScopeValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRequireOrgAdmin {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TeamPolicyValuesGithubRepoAllowListValue {
+    None(LitNone),
+    List(Vec<RepoPattern>),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRepoAllowList {
+    pub value: TeamPolicyValuesGithubRepoAllowListValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
+    All(LitAll),
+    List(Vec<IntegrationProvider>),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesIntegrationsAllowedProviders {
+    pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesMcpServerValue {
+        UserChoice = "user_choice",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesMcpServer {
+    pub value: TeamPolicyValuesMcpServerValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesMcpRemoteTransport {
     pub value: bool,
     pub mode: PolicyMode,
@@ -202,6 +257,16 @@ pub struct TeamPolicyVersion {
     pub rollback_of: Option<i64>,
 }
 
+wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmAccountUser {
     pub user: String,
@@ -268,6 +333,8 @@ pub struct TeamVmView {
     pub updated_at: i64,
     pub taint: Option<TeamVmTaint>,
     pub retired: Vec<TeamVmRetired>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -437,7 +504,7 @@ pub struct UserTeam {
     pub id: TeamId,
     pub display_name: String,
     pub kind: UserTeamKind,
-    pub role: UserTeamRole,
+    pub role: TeamRole,
     pub sso_required: bool,
 }
 
@@ -445,14 +512,6 @@ wire_enum! {
     UserTeamKind {
         Personal = "personal",
         Stack = "stack",
-    }
-}
-
-wire_enum! {
-    UserTeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
     }
 }
 

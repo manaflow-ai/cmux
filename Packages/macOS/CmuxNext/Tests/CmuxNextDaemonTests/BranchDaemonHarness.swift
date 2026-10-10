@@ -31,13 +31,26 @@ struct BranchDaemonHarness {
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         let connection = DaemonConnection(
-            configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
+            configuration: Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
             endpointProvider: launcher.endpointProvider)
         let identity = try await connection.start()
         let store = await DaemonStore()
         let storeTask = Task { await store.run(connection: connection) }
         return BranchDaemonHarness(root: root, session: session, endpoint: ensured.endpoint, identity: identity,
                                    connection: connection, store: store, storeTask: storeTask)
+    }
+
+    /// The live daemon's connection without client deadlines: each request
+    /// waits for the daemon's own reply, and create-terminal answers once its
+    /// host is up (the event these suites need). A loaded host (32 suite
+    /// processes) missed the product's 5 s terminal start bound in three
+    /// suites of one shard at once, and a longer bound only moves that line.
+    /// These suites do not test the deadlines (DeadlineTests does); a hang
+    /// stops at each suite's `.timeLimit`.
+    static func configuration(terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+                              sessionEvents: Bool = false) -> DaemonConnection.Configuration {
+        DaemonConnection.Configuration(requestTimeout: nil, snapshotTimeout: nil,
+                                       terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
     }
 
     func stop() async {

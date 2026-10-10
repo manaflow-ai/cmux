@@ -132,8 +132,11 @@ final class TabContentCache {
     /// The surface for a daemon terminal tab, created (attached) on demand
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
-        let validity = "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
+        let validity = Self.terminalValidity(tab, daemon: daemon)
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
+        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
+                                                     generation: daemon.store.generation)
+        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) { return entry }
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.
@@ -142,17 +145,16 @@ final class TabContentCache {
             pendingMounts[tab.id] = nil
             stale.close()
         }
-        let target = DaemonTerminalIO.Target(
-            attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
-                                                  generation: daemon.store.generation),
-            initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user
-        )
+        let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
+                                             cursorDefault: .user)
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
-        let io = DaemonTerminalIO(target: target, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+        let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
+        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, policyBlocked: daemon.policyBlock.check,
+                                  endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
-                                  store: daemon.store, surface: tab.surface)
+                                  store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
@@ -175,6 +177,7 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
+        if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
         let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
@@ -200,7 +203,7 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }
-        let url = recordURL(tab)
+        let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
@@ -315,11 +318,10 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
-        showPendingNotice(on: entry, key: key)
+        showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
-        entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)

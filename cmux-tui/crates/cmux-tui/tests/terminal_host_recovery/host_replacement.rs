@@ -79,9 +79,25 @@ fn daemon_pty_masters(harness: &RecoveryHarness) -> Option<usize> {
     }
 }
 
-/// Wait until the daemon holds (or released) custody of a PTY master.
-/// Without `/proc`, a holding wait gives the custody thread a second.
-fn wait_for_daemon_custody(harness: &RecoveryHarness, held: bool) {
+/// Whether a daemon `pty-custody` thread is still running: it receives the
+/// master first and stores it in the attachment last.
+#[cfg(target_os = "linux")]
+fn daemon_custody_exchange_running(harness: &RecoveryHarness) -> bool {
+    let Some(pid) = harness.child.as_ref().map(Child::id) else { return false };
+    fs::read_dir(format!("/proc/{pid}/task"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|task| fs::read_to_string(task.path().join("comm")).ok())
+        .any(|name| name.trim_end() == "pty-custody")
+}
+
+/// Wait until the daemon holds (or released) custody of a PTY master. A
+/// holding wait also waits for the custody exchange to finish, so the
+/// attachment owns the master (sound for one terminal: another terminal's
+/// master would hide an exchange that has not started). Without `/proc`, a
+/// holding wait gives the custody thread a second.
+pub(super) fn wait_for_daemon_custody(harness: &RecoveryHarness, held: bool) {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         match daemon_pty_masters(harness) {
@@ -91,7 +107,11 @@ fn wait_for_daemon_custody(harness: &RecoveryHarness, held: bool) {
                 }
                 return;
             }
-            Some(count) if (count > 0) == held => return,
+            #[cfg(target_os = "linux")]
+            Some(count) if count > 0 && held && !daemon_custody_exchange_running(harness) => {
+                return;
+            }
+            Some(0) if !held => return,
             Some(count) => {
                 assert!(Instant::now() < deadline, "daemon holds {count} PTY masters, held={held}");
                 std::thread::sleep(Duration::from_millis(20));

@@ -121,6 +121,13 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// opens it in the app (`link.open`). Nil: the link opens nothing.
+    public var onAppLink: ((URL) -> Void)? {
+        get { controller.onAppLink }
+        set { controller.onAppLink = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings sidebar there.
     public var onNamePill: () -> Void {

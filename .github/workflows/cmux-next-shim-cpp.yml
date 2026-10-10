@@ -25,7 +25,6 @@ on:
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
-      - feat-cmux-next
       - main
     paths:
       - Packages/macOS/CmuxNext/CEFShim/**
