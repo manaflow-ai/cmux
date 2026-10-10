@@ -251,8 +251,11 @@ enum RemoteBrowserPages {
             let pages: [String: JSONValue] = services.cache.browsers.compactMapValues { entry in
                 (entry.tab as? MachineBrowserPageTab).map { JSONValue.string($0.messageText) }
             }
-            return ["sessions": .array(rows), "local_hosts": .array(hosts), "machine_pages": .object(pages),
+            return ["sessions": .array(rows), "local_hosts": .array(hosts), "machine_pages": .object(pages), "install": installReport,
                     "local_starting": .number(Double(startingLocalHosts)), "local_failure": failure]
+        case "install_machine":
+            // Install Browser on Machine (upload from this Mac) for `machine`; `state` shows the outcome.
+            return installMachine(params["machine"]?.stringValue ?? "", services: services)
         case "navigate":
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
             target.tab?.load(url)

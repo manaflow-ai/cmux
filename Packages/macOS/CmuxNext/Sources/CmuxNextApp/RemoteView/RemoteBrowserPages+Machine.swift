@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -15,6 +16,26 @@ extension RemoteBrowserPages {
 
     @MainActor
     static func runsOnMachine(_ key: String) -> Bool { machineKeys.contains(key) }
+
+    /// The last Install Browser on Machine outcome (debug socket).
+    @MainActor private static var lastInstall: CmuxNextSettings.JSONValue = .null
+
+    @MainActor static var installReport: CmuxNextSettings.JSONValue { lastInstall }
+
+    @MainActor
+    static func installMachine(_ machine: String, services: AppServices) -> CmuxNextSettings.JSONValue {
+        lastInstall = ["machine": .string(machine), "state": "installing"]
+        // task-owner: one install; ends with its outcome.
+        Task {
+            do {
+                let version = try await MachineBrowserInstall(services: services).install(machine: machine)
+                lastInstall = ["machine": .string(machine), "state": "installed", "version": .string(version)]
+            } catch {
+                lastInstall = ["machine": .string(machine), "state": "failed", "error": .string(String(describing: error))]
+            }
+        }
+        return ["installing": true]
+    }
 
     /// The streamed page of tab `key` for a runtime on `machine`. The tab
     /// owns the runtime: closing it stops the machine's browser.
