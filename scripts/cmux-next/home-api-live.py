@@ -4,7 +4,10 @@
 Launches the tagged app with no activation, then drives `debug.home.api` over the
 debug socket against the real local Chief owner: a local channel, a send, a thread
 reply, reaction add and remove, edit, retract, and an unread count that skips my
-own messages. Reads and writes only through the socket; no system input.
+own messages. Both Homes on one data path: the Swift Home shows the channel
+(its HomeStore) while a second `homeRouter.events()` subscriber (`watch_start`,
+as the React Home's provider subscribes) watches; a write through either one
+must show in the other. Reads and writes only through the socket; no system input.
 Runs on cmux-lawrence-2 (GUI host), never on the laptop. Quits the app with
 quitEndSessions and shuts down the tag's acpmux.
 
@@ -102,6 +105,16 @@ try:
         sys.exit(1)
     me = inbox["me"]
     stamp = str(int(time.time()))
+    watch = api(call="watch_start")
+    check("a second events() subscriber starts", bool(watch.get("ok")), watch)
+
+
+    def watched(text):
+        return next((e for e in (api(call="watch_read") or {}).get("events") or [] if e.get("text") == text), None)
+
+
+    def stored(predicate):
+        return next((i for i in (api(call="store", conversation=channel) or {}).get("items") or [] if predicate(i)), None)
 
     created = submit(kind="create_group", title=f"api-check-{stamp}", participants=[])
     channel = created.get("conversation") if created.get("ok") else None
@@ -117,10 +130,17 @@ try:
         check("a local conversation exists for the other checks", False, inbox)
         sys.exit(1)
 
+    opened = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": channel}, "focus": True})
+    shown = poll(lambda: (g := rpc("debug.home.drive", {"action": "geometry"})) and g.get("ok") and g, timeout=60)
+    check("the Swift Home shows the channel", bool(shown), opened)
+
     root_text = f"root {stamp}"
     sent = submit(kind="send", conversation=channel, text=root_text)
     root = poll(lambda: newest(channel, root_text)) if sent.get("ok") else None
     check("sendMessage commits", bool(root), sent)
+    check("the second subscriber gets the send", bool(poll(lambda: watched(root_text))), api(call="watch_read"))
+    check("the Swift Home store shows the send", bool(poll(lambda: stored(lambda i: i.get("text") == root_text))),
+          api(call="store", conversation=channel))
     unread = poll(lambda: (e := entry(channel)) and e.get("unread") == 0 and e) or entry(channel)
     check("unreadCount skips my own message", bool(unread) and unread.get("unread") == 0, unread)
     if root:
@@ -133,6 +153,9 @@ try:
         added = submit(kind="react", conversation=channel, message=root["id"], emoji="👍")
         mine = lambda m: any(r.get("author") == me and r.get("kind") == "👍" for r in (m or {}).get("reactions", []))
         check("reaction.add shows my reaction", bool(added.get("ok")) and bool(poll(lambda: mine(find(channel, root["id"])))), added)
+        check("the Swift Home store shows the reaction",
+              bool(poll(lambda: stored(lambda i: i.get("id") == root["id"] and i.get("reactions", 0) > 0))),
+              api(call="store", conversation=channel))
         removed = submit(kind="unreact", conversation=channel, message=root["id"], emoji="👍")
         check("reaction.remove takes my reaction back",
               bool(removed.get("ok")) and bool(poll(lambda: (m := find(channel, root["id"])) and not mine(m))), removed)
@@ -141,10 +164,21 @@ try:
         after = poll(lambda: (m := find(channel, root["id"])) and m.get("edited") and m)
         check("message.edit changes the text and marks it edited",
               bool(edited.get("ok")) and bool(after) and after.get("text") == root_text + " edited", after or edited)
+        check("the Swift Home store shows the edit",
+              bool(poll(lambda: stored(lambda i: i.get("id") == root["id"] and i.get("edited")))),
+              api(call="store", conversation=channel))
         if reply:
             retracted = submit(kind="retract", conversation=channel, message=reply["id"])
             gone = poll(lambda: (m := find(channel, reply["id"])) and m.get("retracted") and m)
             check("message.retract marks the message retracted", bool(retracted.get("ok")) and bool(gone), gone or retracted)
+    if shown:
+        swift_text = f"from the Swift Home {stamp}"
+        rpc("debug.home.drive", {"action": "type", "text": swift_text})
+        rpc("debug.home.drive", {"action": "send"})
+        check("a Swift Home send reaches the second subscriber", bool(poll(lambda: watched(swift_text))),
+              api(call="watch_read"))
+        check("a Swift Home send is in the owner's snapshot", bool(poll(lambda: newest(channel, swift_text))))
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "swift-home.png")})
 finally:
     if pid:
         rpc("action.run", {"id": "quitEndSessions"})

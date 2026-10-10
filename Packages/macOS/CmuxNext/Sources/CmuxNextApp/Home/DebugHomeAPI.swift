@@ -25,8 +25,15 @@ enum DebugHomeAPI {
                 let result = try await router.submit(HomeIntent(op: op))
                 return .object(["ok": .bool(true), "rev": JSONValue(Int(result.rev)), "replayed": .bool(result.replayed),
                                 "conversation": result.conversation.map { .string($0.rawValue) } ?? .null])
+            case "watch_start":
+                return await MainActor.run { DebugHomeWatch.start(router) }
+            case "watch_read":
+                return await MainActor.run { DebugHomeWatch.read() }
+            case "store":
+                guard let id = params["conversation"]?.stringValue else { return failure("conversation required") }
+                return await MainActor.run { DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id)) }
             default:
-                return failure("call must be inbox, snapshot or submit")
+                return failure("call must be inbox, snapshot, submit, watch_start, watch_read or store")
             }
         } catch {
             return failure(String(describing: error))
