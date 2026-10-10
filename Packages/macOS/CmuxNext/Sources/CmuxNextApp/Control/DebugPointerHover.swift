@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextSettings
 
 /// `debug.pointer_hover` {point: [x, y] | null, window?}: moves a synthetic
 /// pointer to `point` (window coordinates, bottom-left origin) in the
