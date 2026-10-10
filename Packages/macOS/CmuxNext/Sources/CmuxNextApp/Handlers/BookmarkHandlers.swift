@@ -145,11 +145,13 @@ enum BookmarkHandlers {
         services.bookmarkPages.open(selecting: node.id)
     }
 
-    /// Every web page tab of the pane into a new folder (Bookmark All Tabs).
+    /// Every web page tab of the window into a new folder (Bookmark All Tabs), as Chrome
+    /// bookmarks a window's tabs: every pane of every screen it shows, in layout order.
     private static func addAllTabs(_ invocation: ActionInvocation, _ context: AppActionContext, _ resolver: BookmarkResolver) throws {
         let services = context.services
         guard let pane = context.paneController(invocation) else { return }
-        let pages = pane.pane.tabs.compactMap { tab -> BookmarkDraft? in
+        let window = pane.workspace?.focusTopology().panes.flatMap(\.tabs).compactMap { services.locateTab($0.id)?.0 }
+        let pages = (window ?? pane.pane.tabs).compactMap { tab -> BookmarkDraft? in
             guard tab.kind == .browser, let url = (services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))),
                   BookmarkService.canBookmark(url) else { return nil }
             return .bookmark(services.cache.existingBrowser(tab.id)?.tab.state.title ?? tab.title, url)
