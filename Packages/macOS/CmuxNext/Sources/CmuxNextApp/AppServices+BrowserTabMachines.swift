@@ -52,7 +52,7 @@ extension AppServices {
     /// machine browser page: running there, or why not yet).
     func openTabOnMachine(key: String) -> Bool {
         guard let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return false }
-        cache.openOnMachine(key, machine: daemon.machineID)
+        MachineBrowserPages(cache: cache).openOnMachine(key, machine: daemon.machineID)
         return true
     }
 

@@ -131,7 +131,7 @@ extension TabContentCache {
         let profile = browserProfile?(key) ?? .default
         // A machine's own record (cx-2cob), before the loopback dev record of the same host.
         if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
-            return makeMachinePage(record, key: key, engine: engine, profile: profile)
+            return MachineBrowserPages(cache: self).makePage(record, key: key, engine: engine, profile: profile)
         }
         #if DEBUG
         if let url, RemoteBrowserTabRecord.matches(url) {

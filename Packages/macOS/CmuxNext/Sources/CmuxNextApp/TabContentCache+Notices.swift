@@ -1,4 +1,3 @@
-import CmuxNextBrowser
 import CmuxNextDaemon
 
 extension TabContentCache {
@@ -11,13 +10,6 @@ extension TabContentCache {
             entry.chrome.showNotice(text)
             return true
         }
-    }
-
-    /// A new page's chrome: its pending notice, and the machine chip (none
-    /// on a machine browser page: it runs there, cx-2cob).
-    func wireMachineChrome(_ entry: BrowserEntry, page: any BrowserTab, key: String) {
-        showPendingNotice(on: entry, key: key)
-        entry.chrome.machineBadge = page is MachineBrowserPageTab ? nil : { [weak self] url in self?.machineBadge?(key, url) }
     }
 
     /// Every page of a tab (web, app page, a late Chromium start, a
