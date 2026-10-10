@@ -62,7 +62,7 @@ final class MessageCell: UICollectionViewCell {
 
     /// Swipe-left timestamp reveal, 0...1 of the reveal distance (applied by the controller).
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
-    /// Points outgoing content travels at a full reveal (set per swipe).
+    /// Points every row travels at a full reveal (set per swipe).
     var timestampRevealDistance: CGFloat = 58 { didSet { applyShifts() } }
     /// Swipe-right reply drag offset in points (the bubble's travel).
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
@@ -473,12 +473,13 @@ final class MessageCell: UICollectionViewCell {
 
     private func applyShifts() {
         guard let model else { return }
+        // The drawer moves every row, incoming and outgoing alike, as
+        // Messages scrolls its whole transcript sideways.
         let reveal = timestampReveal * timestampRevealDistance
-        var x: CGFloat = 0
-        if model.isOutgoing { x -= reveal }
-        x += replyDrag + selectionShift
-        shiftable.transform = CGAffineTransform(translationX: x, y: 0)
-        footerLabel.transform = CGAffineTransform(translationX: model.isOutgoing ? -reveal : 0, y: 0)
+        shiftable.transform = CGAffineTransform(translationX: replyDrag + selectionShift - reveal, y: 0)
+        let drawer = CGAffineTransform(translationX: -reveal, y: 0)
+        footerLabel.transform = drawer
+        audioViews?.expiry.transform = drawer
         failedBadge.transform = shiftable.transform
         // The time slides in from just past the edge, a little faster than
         // the bubbles, to 17 pt inside it; iOS 27 also fades it in.
@@ -845,6 +846,12 @@ final class TypingCell: UICollectionViewCell {
     let indicator = TypingIndicatorView()
     let avatar = ConversationAvatarView()
     var margin: CGFloat = 20 { didSet { setNeedsLayout() } }
+    /// Swipe-left send-time drawer travel in points: the typing bubble
+    /// slides with the rest of the transcript. Shifting the bounds origin
+    /// leaves the content view's transform to arrival animations.
+    var timestampDrawerOffset: CGFloat = 0 {
+        didSet { contentView.bounds.origin.x = timestampDrawerOffset }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -863,6 +870,7 @@ final class TypingCell: UICollectionViewCell {
         contentView.mask = nil
         indicator.transform = .identity
         indicator.alpha = 1
+        timestampDrawerOffset = 0
     }
 
     static func height(isGroup: Bool) -> CGFloat {

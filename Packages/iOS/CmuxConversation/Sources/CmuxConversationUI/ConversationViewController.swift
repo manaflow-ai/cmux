@@ -1147,6 +1147,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .typing(ids):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TypingCell.reuseID, for: indexPath) as! TypingCell
             cell.margin = layoutMargin
+            cell.timestampDrawerOffset = timestampReveal * timestampRevealDistance
             // Batch updates and reuse strip layer animations; restart the pulse.
             cell.indicator.startAnimating()
             let participant = ids.first.flatMap { store.info?.participant($0) }
