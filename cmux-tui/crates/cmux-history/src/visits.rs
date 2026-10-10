@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
-use crate::fold::tokens;
+use crate::fold::{fold, tokens};
 
 /// Visits older than 90 days are pruned.
 pub const RETENTION_MS: i64 = 90 * 86_400_000;
@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS removed_visits(
   visit_time_ms INTEGER NOT NULL, tab TEXT);
 CREATE INDEX IF NOT EXISTS removed_visits_backup ON removed_visits(backup);
 CREATE INDEX IF NOT EXISTS removed_visits_time ON removed_visits(visit_time_ms);
-PRAGMA user_version=2;
+CREATE TABLE IF NOT EXISTS imported_logs(
+  source TEXT PRIMARY KEY, visits INTEGER NOT NULL);
+PRAGMA user_version=3;
 ";
 
 /// A finished main-frame navigation to record.
@@ -110,14 +112,61 @@ impl VisitStore {
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
         connection.execute_batch(SCHEMA)?;
-        Ok(Self { connection })
+        let searchable = connection
+            .prepare("SELECT 1 FROM pragma_table_info('visits') WHERE name = 'search'")?
+            .exists([])?;
+        if !searchable {
+            connection.execute_batch("ALTER TABLE visits ADD COLUMN search TEXT")?;
+        }
+        let store = Self { connection };
+        store.fill_search()?;
+        Ok(store)
+    }
+
+    /// Sets the folded search text of every visit that has none: rows from
+    /// before the column, restored and imported rows. A record or a title
+    /// update writes it in its own statement. Runs in batches by id, so it
+    /// never loads every row at once.
+    fn fill_search(&self) -> Result<(), HistoryError> {
+        const BATCH: i64 = 1000;
+        let mut after = i64::MIN;
+        loop {
+            let rows: Vec<(i64, String, Option<String>)> = {
+                let mut statement = self.connection.prepare(
+                    "SELECT id, url, title FROM visits WHERE id > ?1 AND search IS NULL \
+                     ORDER BY id LIMIT ?2",
+                )?;
+                statement
+                    .query_map(params![after, BATCH], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })?
+                    .collect::<Result<_, _>>()?
+            };
+            let Some(&(last, _, _)) = rows.last() else { return Ok(()) };
+            let transaction = self.connection.unchecked_transaction()?;
+            {
+                let mut update =
+                    transaction.prepare("UPDATE visits SET search = ?1 WHERE id = ?2")?;
+                for (id, url, title) in &rows {
+                    update.execute(params![search_text(url, title.as_deref()), id])?;
+                }
+            }
+            transaction.commit()?;
+            after = last;
+        }
     }
 
     /// Records a visit; returns its id.
     pub fn record(&self, visit: &NewVisit) -> Result<i64, HistoryError> {
         self.connection.execute(
-            "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
-            params![visit.url, visit.title, visit.at_ms, visit.tab],
+            "INSERT INTO visits(url, title, visit_time_ms, tab, search) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                visit.url,
+                visit.title,
+                visit.at_ms,
+                visit.tab,
+                search_text(&visit.url, visit.title.as_deref())
+            ],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
@@ -126,14 +175,15 @@ impl VisitStore {
     /// Returns the number of visits changed (0 or 1).
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
         Ok(self.connection.execute(
-            "UPDATE visits SET title = ?1 WHERE id = \
+            "UPDATE visits SET title = ?1, search = ?3 WHERE id = \
              (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1)",
-            params![title, url],
+            params![title, url, search_text(url, Some(title))],
         )?)
     }
 
     /// Visits newest first. Every folded token of `text` must appear in the
-    /// URL or the title (SQL `LIKE`, ASCII case insensitive, as in Swift),
+    /// folded URL and title (SQL `LIKE` on the `search` column, so the limit
+    /// applies after the filter),
     /// and the visit must be at or after `since_ms`.
     pub fn visits(
         &self,
@@ -146,10 +196,8 @@ impl VisitStore {
         );
         let mut bindings = vec![Sql::Integer(since_ms.unwrap_or(0))];
         for token in tokens(text) {
-            sql.push_str(" AND (url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')");
-            let pattern = format!("%{}%", escape_like(&token));
-            bindings.push(Sql::Text(pattern.clone()));
-            bindings.push(Sql::Text(pattern));
+            sql.push_str(" AND search LIKE ? ESCAPE '\\'");
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&token))));
         }
         sql.push_str(" ORDER BY visit_time_ms DESC, id DESC LIMIT ?");
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -292,6 +340,7 @@ impl VisitStore {
         }
         transaction.execute("DELETE FROM removed_visits WHERE backup = ?1", params![backup])?;
         transaction.commit()?;
+        self.fill_search()?;
         Ok(rows.len())
     }
 
@@ -375,11 +424,67 @@ impl VisitStore {
         Ok(removed)
     }
 
+    /// Copies every visit of another log file of the same schema (the app's
+    /// own `History.sqlite` from before the daemon owned page history) in
+    /// one transaction, keeping times, titles and tabs; new ids. The other
+    /// file is opened read-only and never changed. The same transaction
+    /// records the file (path, size, modification time), so the same file
+    /// is never imported twice, also not by another session. Returns how
+    /// many visits came in (0 for a file imported before).
+    pub fn import(&self, other: &Path) -> Result<usize, HistoryError> {
+        let meta = std::fs::metadata(other)?;
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let marker = format!("{}|{}|{modified}", other.display(), meta.len());
+        let source = Connection::open_with_flags(
+            other,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        source.busy_timeout(Duration::from_millis(250))?;
+        let mut rows = source.prepare(
+            "SELECT url, title, visit_time_ms, tab FROM visits ORDER BY visit_time_ms, id",
+        )?;
+        let transaction = self.connection.unchecked_transaction()?;
+        let seen = transaction
+            .prepare("SELECT 1 FROM imported_logs WHERE source = ?1")?
+            .exists(params![marker])?;
+        if seen {
+            return Ok(0);
+        }
+        let mut imported = 0;
+        {
+            let mut insert = transaction.prepare(
+                "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let mut cursor = rows.query([])?;
+            while let Some(row) = cursor.next()? {
+                let (url, title, at_ms, tab): (String, Option<String>, i64, Option<String>) =
+                    (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
+                imported += insert.execute(params![url, title, at_ms, tab])?;
+            }
+        }
+        transaction.execute(
+            "INSERT INTO imported_logs(source, visits) VALUES (?1, ?2)",
+            params![marker, i64::try_from(imported).unwrap_or(i64::MAX)],
+        )?;
+        transaction.commit()?;
+        self.fill_search()?;
+        Ok(imported)
+    }
+
     pub fn count(&self) -> Result<u64, HistoryError> {
         let count: i64 =
             self.connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;
         Ok(count.unsigned_abs())
     }
+}
+
+/// The folded text a search matches: URL and title.
+fn search_text(url: &str, title: Option<&str>) -> String {
+    fold(&format!("{url} {}", title.unwrap_or_default()))
 }
 
 /// Escapes `LIKE` wildcards with backslash.
