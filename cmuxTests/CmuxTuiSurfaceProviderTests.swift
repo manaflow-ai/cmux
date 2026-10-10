@@ -1087,21 +1087,35 @@ import Testing
             ["--socket", "/k.sock", "--json", "--expected-revision", "9", "tab", "tab_1", "rename", "--name", "db shell"])
     }
 
-    @Test func vmTuiConnectPassesReceiptSession() {
-        let config = CMUXCLI.VMTuiConnectConfig(
-            vmId: "vm-1",
-            route: "ws://10.0.0.7:1337/v1/link",
-            session: "cloud",
-            carrier: true,
-            clientPath: "/tmp/cmux-tui",
-            stateDir: "/tmp/cmux-tui-state",
-            deviceName: "cmux-mac"
+    @Test func vmTuiConnectPassesReceiptSession() throws {
+        let harness = CMUXCLIErrorOutputRegressionTests()
+        let cliPath = try harness.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tui-argv-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = root.appendingPathComponent("client")
+        try "#!/bin/sh\nprintf '%s\\n' \"$@\"\n".write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: client.path)
+        let configURL = root.appendingPathComponent("config.json")
+        try JSONSerialization.data(withJSONObject: [
+            "vmId": "vm-1", "route": "ws://10.0.0.7:1337/v1/link",
+            "session": "cloud", "carrier": true, "clientPath": client.path,
+            "stateDir": root.path, "deviceName": "cmux-mac",
+        ]).write(to: configURL)
+        let result = harness.runProcess(
+            executablePath: cliPath,
+            arguments: ["vm-tui-connect", "--config", configURL.path],
+            environment: BundledCLITestSupport.hermeticCLIEnvironment(home: root)
         )
-        #expect(CMUXCLI.vmTuiConnectArguments(config: config) == [
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stdout.split(separator: "\n").map(String.init) == [
             "remote", "connect", "ws://10.0.0.7:1337/v1/link",
-            "--device-name", "cmux-mac", "--state-dir", "/tmp/cmux-tui-state",
+            "--device-name", "cmux-mac", "--state-dir", root.path,
             "--carrier", "--session", "cloud",
         ])
+        #expect(!FileManager.default.fileExists(atPath: configURL.path))
     }
 
     @Test func socketRenameParameterPreservesExplicitEmptyValue() {
