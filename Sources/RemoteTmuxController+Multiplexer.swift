@@ -572,7 +572,7 @@ extension RemoteTmuxController {
                 channelsByHostSession.removeValue(forKey: key)
                 if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
                     completion(false)
-                    view.killWorkspaceSession(named: sessionView.sessionName)
+                    multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionView.sessionName)
                 }
                 continue
             }
