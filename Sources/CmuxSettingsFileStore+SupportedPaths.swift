@@ -145,6 +145,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showCustomMetadata",
         "sidebar.compactAgentStatus",
         "sidebar.compactStatusIcons",
+        "sidebar.showJumpToUnreadButton",
         RightSidebarWidthSettings.settingsPath,
         "sidebar.activeTabIndicatorStyle",
         "sidebar.selectionColor",

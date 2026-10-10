@@ -193,6 +193,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarCompactStatusIcons"
     )
 
+    /// Whether the left sidebar shows the "Last unread" button above its
+    /// footer while something is unread (`sidebar.showJumpToUnreadButton`).
+    /// The button's × turns this off; Settings > Sidebar turns it back on.
+    public let showJumpToUnreadButton = DefaultsKey<Bool>(
+        id: "sidebar.showJumpToUnreadButton",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowJumpToUnreadButton"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,

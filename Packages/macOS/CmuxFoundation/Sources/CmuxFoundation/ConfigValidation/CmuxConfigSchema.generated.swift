@@ -1766,6 +1766,11 @@ enum CmuxEmbeddedConfigSchema {
           },
           "additionalProperties": false
         },
+        "showJumpToUnreadButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Last unread button above the left sidebar footer while notifications are unread. Clicking it jumps to the latest unread notification, like the jumpToUnread shortcut. Its close button turns this off."
+        },
         "activeTabIndicatorStyle": {
           "type": "string",
           "enum": ["leftRail", "solidFill", "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"],

@@ -143,6 +143,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
 | `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
+| `sidebar.showJumpToUnreadButton` | boolean | `true` | Show a Last unread button above the left sidebar footer while notifications are unread. Clicking it jumps to the latest unread notification, like the jumpToUnread shortcut. Its close button turns this off. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.branchVerticalLayout` | boolean | `true` | Show git branch details stacked vertically when true, or inline when false. |
