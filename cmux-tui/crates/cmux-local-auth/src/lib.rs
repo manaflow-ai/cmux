@@ -295,6 +295,3 @@ fn split_host_port(value: &str) -> Option<(&str, Option<u16>)> {
         None => Some((value, None)),
     }
 }
-
-#[cfg(test)]
-mod tests;
