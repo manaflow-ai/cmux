@@ -9,6 +9,7 @@ job's summary lists each tier and the reason for it.
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
 | generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph) | the CmuxNext package, `plans/cmux-next/`, the generators | mini |
+| swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
@@ -21,6 +22,15 @@ type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
 proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. gallery-pr diffs the touched entries. A
 `dev-build` PR still compiles its dogfood app.
+
+The Swift canary is the pull-request gate for a small package-only Swift diff.
+It builds only the affected CmuxNext production targets with `swift build
+--configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
+It catches type-checking, dependency and module errors in those targets. It
+does not exercise optimizer-only behavior, Release compiler settings, Xcode
+scheme integration, signing or the CEF shim. The full Release compile still
+runs for diagnostics on that PR class and remains hard-gated on every
+`feat-cmux-next` push and on broader pull requests.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's

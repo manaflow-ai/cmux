@@ -1,7 +1,7 @@
 import type { SlashCommand } from "./slashCommands";
 
 /** Commands owned by cmux and available in every harness chat. */
-export type CmuxCommand = SlashCommand & { source: "cmux"; action: "import" | "continue" };
+export type CmuxCommand = SlashCommand & { source: "cmux"; action: "import" | "continue" | "fork" };
 
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
@@ -17,17 +17,28 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "continue",
   },
+  {
+    name: "fork",
+    description: "",
+    source: "cmux",
+    action: "fork",
+  },
 ];
 
 /** cmux commands come first, while a harness keeps the order it advertised. */
-export function mergedCommands(agent: readonly SlashCommand[] | undefined): SlashCommand[] {
+export function mergedCommands(
+  agent: readonly SlashCommand[] | undefined,
+  enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
+): SlashCommand[] {
   const seen = new Set<string>();
-  return [...CMUX_COMMANDS, ...(agent ?? [])].filter((command) => {
-    const name = command.name.trim().toLowerCase();
-    if (!name || seen.has(name)) return false;
-    seen.add(name);
-    return true;
-  });
+  return [...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)), ...(agent ?? [])].filter(
+    (command) => {
+      const name = command.name.trim().toLowerCase();
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    },
+  );
 }
 
 export function commandArgs(text: string, command: SlashCommand): string | undefined {

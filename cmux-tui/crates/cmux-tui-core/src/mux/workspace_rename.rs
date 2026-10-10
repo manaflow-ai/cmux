@@ -142,7 +142,7 @@ impl Mux {
             return workspace_mutation_result(&commit);
         }
         let (renamed, result) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;

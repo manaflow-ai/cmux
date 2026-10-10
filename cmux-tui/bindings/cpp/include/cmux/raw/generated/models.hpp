@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "60b00704e734fbaad3e3161b79c80a01c6dfb1b5c49a4fac220520a2f4d3519e";
+inline constexpr std::string_view kProtocolIrSha256 = "b8b43866481c5ae62cbceae54404aa97d1053dc50a1b9ae421f70ff3f3ccf3d1";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -108,6 +108,7 @@ enum class PaneDirection;
 enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
+struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
@@ -142,6 +143,7 @@ struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetSizeCountsResult;
@@ -300,6 +302,11 @@ struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
 struct ExportLayoutRequest;
+struct FeedLocalHandoffAbortRequest;
+struct FeedLocalHandoffBeginRequest;
+struct FeedLocalHandoffDoneRequest;
+struct FeedLocalListRequest;
+struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -2184,6 +2191,34 @@ struct ExportLayoutResult {
     friend bool operator==(const ExportLayoutResult&, const ExportLayoutResult&) = default;
 };
 
+struct FeedLocalHandoffAbortRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffAbortRequest&, const FeedLocalHandoffAbortRequest&) = default;
+};
+
+struct FeedLocalHandoffBeginRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffBeginRequest&, const FeedLocalHandoffBeginRequest&) = default;
+};
+
+struct FeedLocalHandoffDoneRequest {
+    std::string home{};
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffDoneRequest&, const FeedLocalHandoffDoneRequest&) = default;
+};
+
+struct FeedLocalListRequest {
+    Field<std::string> state{};
+    Field<std::string> terminal_id{};
+    std::optional<bool> unread{};
+    friend bool operator==(const FeedLocalListRequest&, const FeedLocalListRequest&) = default;
+};
+
+struct FeedLocalReadRequest {
+    std::vector<std::string> items{};
+    friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
+};
+
 enum class PaneDirection {
     left,
     right,
@@ -3122,8 +3157,10 @@ struct NewPaneRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -3140,8 +3177,10 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     Field<float> width{};
@@ -3322,6 +3361,16 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PaneSurfaceResult {
+    Field<std::string> pane_id{};
+    Field<bool> replayed{};
+    Id surface{};
+    Field<std::string> tab_id{};
+    Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
+    friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
 struct PasteImageRequest {
@@ -3994,6 +4043,15 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsWritePath {
+    std::uint64_t effect_intent_batches{};
+    std::uint64_t effect_intent_failures{};
+    std::uint64_t effect_intents{};
+    std::uint64_t request_effect_commits{};
+    std::uint64_t writer_registry_locks{};
+    friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
+};
+
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -4001,6 +4059,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
+    std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
@@ -4292,8 +4351,10 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -5483,6 +5544,12 @@ struct Codec<PaneRef> {
 };
 
 template <>
+struct Codec<PaneSurfaceResult> {
+    static Result<Json> encode(const PaneSurfaceResult& value);
+    static Result<PaneSurfaceResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -5684,6 +5751,12 @@ template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWritePath> {
+    static Result<Json> encode(const ServerStatsWritePath& value);
+    static Result<ServerStatsWritePath> decode(const Json& value);
 };
 
 template <>
@@ -6632,6 +6705,36 @@ template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffAbortRequest> {
+    static Result<Json> encode(const FeedLocalHandoffAbortRequest& value);
+    static Result<FeedLocalHandoffAbortRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffBeginRequest> {
+    static Result<Json> encode(const FeedLocalHandoffBeginRequest& value);
+    static Result<FeedLocalHandoffBeginRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffDoneRequest> {
+    static Result<Json> encode(const FeedLocalHandoffDoneRequest& value);
+    static Result<FeedLocalHandoffDoneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalListRequest> {
+    static Result<Json> encode(const FeedLocalListRequest& value);
+    static Result<FeedLocalListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalReadRequest> {
+    static Result<Json> encode(const FeedLocalReadRequest& value);
+    static Result<FeedLocalReadRequest> decode(const Json& value);
 };
 
 template <>

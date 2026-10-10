@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 60b00704e734fbaad3e3161b79c80a01c6dfb1b5c49a4fac220520a2f4d3519e. */
+/* cmux-tui mux protocol 12, IR b8b43866481c5ae62cbceae54404aa97d1053dc50a1b9ae421f70ff3f3ccf3d1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -634,6 +634,15 @@ export type PaneNeighborResult = {
 /** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
 export type PaneRef = JsonValue;
 
+export type PaneSurfaceResult = {
+  "pane_id"?: (string) | null;
+  "replayed"?: (boolean) | null;
+  "surface": Id;
+  "tab_id"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
@@ -943,6 +952,15 @@ export type ServerStatsResult = {
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;
+  "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsWritePath = {
+  "effect_intent_batches": bigint;
+  "effect_intent_failures": bigint;
+  "effect_intents": bigint;
+  "request_effect_commits": bigint;
+  "writer_registry_locks": bigint;
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";

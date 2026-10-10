@@ -108,6 +108,13 @@ nonisolated enum UpdaterStrings {
     }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
+    // Short notice titles; the version goes in the detail line.
+    static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
+    static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
+    static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
+    static func needsMacOSDetail(_ version: String, _ required: String) -> String {
+        format("updater.notice.needsMacOS", "Needs macOS %1$@ for %2$@", required, version)
+    }
 
     // Buttons
     static var install: String { text("updater.button.install", "Install and Relaunch") }

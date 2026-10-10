@@ -1014,6 +1014,17 @@ class PaneNeighborResult:
 
 
 @dataclass(frozen=True)
+class PaneSurfaceResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PaneSurfaceResult'
+    surface: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    replayed: Union[bool, None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class PingResult:
     __cmux_schema_path__: ClassVar[str] = 'types/PingResult'
     ok: Literal[True]
@@ -1372,6 +1383,17 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePath:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePath'
+    effect_intent_batches: int
+    effect_intent_failures: int
+    effect_intents: int
+    request_effect_commits: int
+    writer_registry_locks: int
 
 
 @dataclass(frozen=True)
@@ -2713,6 +2735,39 @@ class ExportLayoutRequest:
 
 
 @dataclass(frozen=True)
+class FeedLocalHandoffAbortRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-abort/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -3184,8 +3239,10 @@ class NewPaneRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3198,8 +3255,10 @@ class NewPaneRightRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -3862,8 +3921,10 @@ class SplitRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -5011,6 +5072,7 @@ __all__ = [
     'NotificationMarker',
     'NotifyResult',
     'PaneNeighborResult',
+    'PaneSurfaceResult',
     'PingResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
@@ -5043,6 +5105,7 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
@@ -5194,6 +5257,11 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffAbortRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',

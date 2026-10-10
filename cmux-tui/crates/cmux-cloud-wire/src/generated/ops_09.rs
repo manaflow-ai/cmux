@@ -4,6 +4,117 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team_vm.ssh_cert.challenge declares.
+    TeamVmSshCertChallengeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.
+    TeamVmSshCertRevokeOp {
+        name: "team_vm.ssh_cert.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmSshCertRevokeParams,
+        result: TeamVmSshCertRevokeResult,
+        error: TeamVmSshCertRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<InstallId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeResult {
+    pub revoked: Vec<i64>,
+    pub krl_version: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_cert.revoke declares.
+    TeamVmSshCertRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshRevocationsFull = "team_vm.ssh_revocations_full",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Show the team VM: its state, epoch and active wake leases.
+    TeamVmStatusOp {
+        name: "team_vm.status",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmStatusParams,
+        result: TeamVmView,
+        error: TeamVmStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmStatusParams {}
+
+wire_errors! {
+    /// The error codes team_vm.status declares.
+    TeamVmStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.
+    TeamVmTaintAcceptOp {
+        name: "team_vm.taint.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmTaintAcceptParams,
+        result: TeamVmTaintAcceptResult,
+        error: TeamVmTaintAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptParams {
+    pub epoch: i64,
+    pub users: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmTaintAcceptResult {
     pub epoch: i64,

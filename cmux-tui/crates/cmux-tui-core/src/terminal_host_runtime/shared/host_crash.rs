@@ -19,8 +19,10 @@ use super::super::sys::{self, PrivateOpen};
 const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
 
 /// Debug builds only: the path of a marker file. The first host that creates
-/// it panics and aborts once it published its record (crash tests); hosts
-/// that find it already present run normally, so a replacement host lives.
+/// it panics and aborts once it published its record and the test opens the
+/// FIFO `<marker>.trigger` for writing (crash tests decide the moment, for
+/// example after the owner holds the PTY custody); hosts that find the
+/// marker already present run normally, so a replacement host lives.
 #[cfg(debug_assertions)]
 const ABORT_ONCE_TEST_ENV: &str = "CMUX_TUI_TEST_HOST_ABORT_ONCE";
 
@@ -88,10 +90,28 @@ fn abort_once_for_test() {
     if OpenOptions::new().write(true).create_new(true).open(&marker).is_err() {
         return;
     }
-    let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(|| {
-        std::thread::sleep(std::time::Duration::from_millis(300));
+    let mut trigger = marker;
+    trigger.push(".trigger");
+    let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(move || {
+        // Opening a FIFO for reading blocks until the test opens it for
+        // writing: the crash happens at the moment the test chose.
+        let _ = std::fs::File::open(&trigger);
         // crash-allow: a test-only injected crash (debug builds, explicit env).
         let _ = std::panic::catch_unwind(|| panic!("test-injected host crash"));
+        // No core dump: a dump of this process (systemd-coredump compresses
+        // it) keeps the host alive for seconds under load, which delays the
+        // owner's replacement the test waits for.
+        #[cfg(target_os = "linux")]
+        // SAFETY: prctl(PR_SET_DUMPABLE) takes integer arguments only.
+        unsafe {
+            libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+        }
+        #[cfg(unix)]
+        // SAFETY: `limit` is a valid rlimit that outlives the call.
+        unsafe {
+            let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            libc::setrlimit(libc::RLIMIT_CORE, &limit);
+        }
         // crash-allow: a test-only injected crash (debug builds, explicit env).
         std::process::abort();
     });

@@ -1,0 +1,86 @@
+{
+  "oracle": {},
+  "cmux": {
+    "table-sample-data-rows": 59,
+    "offscreen-lower-bound": "# at least N interactive elements outside the viewport are not shown; snapshot() shows the whole page",
+    "offscreen-exact": "3000",
+    "visible-box-charged": {
+      "after": true,
+      "cut": true
+    },
+    "long-url": {
+      "url": false,
+      "cut": true
+    },
+    "big-values-cut": {
+      "generated": true,
+      "placeholder": true,
+      "option": true,
+      "editable": true
+    },
+    "shared-label-names": {
+      "cut": true,
+      "fast": true
+    },
+    "locator-read-cut": {
+      "short": true,
+      "cut": true
+    },
+    "locator-inner-cut": {
+      "short": true,
+      "cut": true
+    },
+    "all-text-cut": {
+      "first": "one",
+      "secondCut": true,
+      "third": ""
+    },
+    "content-cut": {
+      "short": true,
+      "cut": true
+    },
+    "password-read": {
+      "value": "********",
+      "attribute": "********"
+    },
+    "short-secret-html": "masked",
+    "markdown-cut": {
+      "short": true,
+      "note": true,
+      "tail": false
+    },
+    "markdown-placeholder-forged": 1,
+    "markdown-frames-cut": true,
+    "markdown-main": {
+      "main": true,
+      "nav": false
+    },
+    "search-context-capped": true,
+    "extract-cut": {
+      "count": 2,
+      "total": true
+    },
+    "storage-state-cut": "refused-with-note",
+    "tabs-content-cut": {
+      "short": true,
+      "note": true
+    },
+    "frame-clicks": [
+      "Light clicked",
+      "Shadow clicked"
+    ],
+    "tabs-content-html-masked": {
+      "leaked": false,
+      "masked": true
+    },
+    "blocked-coalesced": [
+      3
+    ],
+    "blocked-long-cut": true,
+    "blocked-dropped": {
+      "first": "dropped",
+      "counted": true,
+      "size": 1001
+    }
+  }
+}

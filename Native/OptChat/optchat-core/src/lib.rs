@@ -16,9 +16,9 @@ mod node;
 mod render;
 
 pub use compact::{
-    compact_request, cut_at_bytes, finish_line, size_check, size_check_in, strip_head,
-    system_prompt, CompactPrompt, CompactRequest, MissingNode, SizeCheck, CMUX_PROMPT_ADDITIONS,
-    MIDRUN, RULER, TAELIN_PROMPT,
+    compact_request, cut_at_bytes, finish_line, size_check, size_check_for, size_check_in,
+    strip_head, system_prompt, CompactPrompt, CompactRequest, MissingNode, SizeCheck,
+    CMUX_PROMPT_ADDITIONS, FRAGMENT_DIVISOR, MIDRUN, RULER, TAELIN_PROMPT,
 };
 pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};

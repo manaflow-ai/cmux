@@ -239,7 +239,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision);
             return Ok(true);
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let terminal_snapshot = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
@@ -429,7 +429,7 @@ impl Mux {
             // owner that no longer knows this shutdown window agrees. Best
             // effort: on failure the tab stays dead now and a later owner
             // that still knows the window settles it again.
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             let settled = terminal_exit_snapshot_in_state(&registry, &state, terminal_id).and_then(
                 |snapshot| registry.settle_terminal_exit(terminal_id, recorded, lost, snapshot),
             );
@@ -455,7 +455,7 @@ impl Mux {
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         // Tabs the workspace store keeps (`kept_tabs`, keep-layout) survive
         // the terminal's exit and owner restarts; a frontend relaunches them.
         if Self::terminal_tabs_kept_locked(&registry, &state, &terminal_public_id)? {

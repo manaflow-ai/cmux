@@ -12,6 +12,3 @@ pub mod manifest;
 pub mod manifest_update;
 pub mod process;
 pub mod scanner;
-
-#[cfg(test)]
-mod herdr_parity_tests;

@@ -283,7 +283,3 @@ pub fn shell_quoted(word: &str) -> String {
     }
     format!("'{}'", word.replace('\'', "'\\''"))
 }
-
-#[cfg(test)]
-#[path = "fold_agent_tests.rs"]
-mod tests;

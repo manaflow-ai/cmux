@@ -29,21 +29,21 @@ extension UpdateCard {
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.downloading,
                                           detail: UpdaterStrings.keepsRunning, showsProgress: true, progress: progress, dismissible: false)
         case .available(let found):
-            return UpdateCardPresentation(symbol: "arrow.down.circle",
-                                          title: found.map(UpdaterStrings.available) ?? UpdaterStrings.availableNoVersion,
-                                          detail: UpdaterStrings.youHave(current), actions: [.update, .releaseNotes])
+            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.noticeAvailable,
+                                          detail: found.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.youHave(current),
+                                          actions: [.update, .releaseNotes])
         case .note(.upToDate):
             return UpdateCardPresentation(symbol: "checkmark.circle", title: UpdaterStrings.upToDate,
                                           detail: UpdaterStrings.upToDateDetail(current), dismissesAfter: UpdateCard.upToDateDuration)
         case .note(.checkFailed):
-            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.checkFailed,
+            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.noticeCheckFailed,
                                           detail: UpdaterStrings.checkFailedDetail, actions: [.retry, .details])
         case .note(.found(let found)):
-            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.available(found),
-                                          detail: UpdaterStrings.disabledDevelopment, actions: [.releaseNotes])
-        case .note(.needsNewerMacOS(let required)):
-            return UpdateCardPresentation(symbol: "desktopcomputer", title: UpdaterStrings.needsNewerMacOS(required),
-                                          detail: UpdaterStrings.youHave(current))
+            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.noticeAvailable,
+                                          detail: UpdaterStrings.foundVersion(found), actions: [.releaseNotes])
+        case .note(.needsNewerMacOS(let found, let required)):
+            return UpdateCardPresentation(symbol: "desktopcomputer", title: UpdaterStrings.noticeAvailable,
+                                          detail: UpdaterStrings.needsMacOSDetail(found, required))
         }
     }
 

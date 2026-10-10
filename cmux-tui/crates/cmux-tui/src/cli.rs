@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_message;
 #[cfg(unix)]
 mod agents;
 #[cfg(unix)]
@@ -283,6 +284,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
+            CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
             // Words the mux grammar does not know may name an app action
@@ -659,6 +662,10 @@ fn apply_idempotency_key(plan: &mut CommandPlan, key: Option<&str>) -> Result<()
             request.idempotency_key = Some(key.to_owned());
             Ok(())
         }
+        CommandPlan::AgentMessage(message) => {
+            message.idempotency_key = Some(key.to_owned());
+            Ok(())
+        }
         _ => Err(UsageError::new("--idempotency-key is accepted only for mutations")),
     }
 }
@@ -874,6 +881,9 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
+  cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

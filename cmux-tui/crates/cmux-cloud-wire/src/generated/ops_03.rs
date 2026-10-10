@@ -4,6 +4,46 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes cloud.vm.self.get declares.
+    CloudVmSelfGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmStatusReportOp {
+        name: "cloud.vm.status.report",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmStatusReportParams,
+        result: CloudVmStatusReportResult,
+        error: CloudVmStatusReportError,
+    }
+}
+
+wire_enum! {
+    CloudVmStatusReportParamsState {
+        Running = "running",
+        Degraded = "degraded",
+        Stopping = "stopping",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParamsDaemon {
+    pub version: String,
+    pub capabilities: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmStatusReportParamsHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -859,45 +899,5 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.
-    FeedKindsOp {
-        name: "feed.kinds",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedKindsParams,
-        result: FeedKindsResult,
-        error: FeedKindsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsResultKindsItem {
-    pub kind: String,
-    pub priority: FeedPriority,
-    pub needs_mac: bool,
-    pub docs: String,
-    pub prompt_schema: Value,
-    pub answer_schema: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsResult {
-    pub kinds: Vec<FeedKindsResultKindsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.kinds declares.
-    FeedKindsError {
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

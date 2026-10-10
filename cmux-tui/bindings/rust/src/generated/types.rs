@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 60b00704e734fbaad3e3161b79c80a01c6dfb1b5c49a4fac220520a2f4d3519e.
+// cmux-tui mux protocol 12, IR b8b43866481c5ae62cbceae54404aa97d1053dc50a1b9ae421f70ff3f3ccf3d1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1031,6 +1031,22 @@ pub struct PaneNeighborResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneSurfaceResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replayed: Optional<bool>,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PingResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
@@ -1461,6 +1477,18 @@ pub struct ServerStatsResult {
     pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     pub uptime_ms: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<ServerStatsWritePath>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsWritePath {
+    pub effect_intent_batches: u64,
+    pub effect_intent_failures: u64,
+    pub effect_intents: u64,
+    pub request_effect_commits: u64,
+    pub writer_registry_locks: u64,
 }
 
 #[rustfmt::skip]

@@ -304,7 +304,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     func themeDidChange() {
         needsLayout = true
         let tokens = themeTokens
-        let paints = WindowBackdrop(tokens).panesPaintBackground
+        let paints = WindowBackdrop.current(tokens).panesPaintBackground
         performWithTheme {
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
             frost?.dim = Palette.surfaceBackground

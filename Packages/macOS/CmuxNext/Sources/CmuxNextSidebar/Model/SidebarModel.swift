@@ -69,8 +69,6 @@ public final class SidebarModel {
     public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
-    /// The card stack above the bottom band (R114): update, announcements.
-    public var cards: [SidebarCard] = []
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
@@ -79,8 +77,6 @@ public final class SidebarModel {
     public var noticeCard: SidebarNoticeCard?
     /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
     public var updatedCard: SidebarUpdatedCard?
-    /// A card's click, button or dismiss.
-    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
