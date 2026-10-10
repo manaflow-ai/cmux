@@ -193,7 +193,7 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
-use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
+use kitty_reservation::kitty_image_limits_exceed;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
