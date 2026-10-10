@@ -117,8 +117,9 @@ const makeLive = (name, environment, replies) => {
   live.location = { directory: `/tmp/${name}` };
   live.ui.router.onChange = (refresh) => { live.refresh = refresh; return () => {}; };
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
+  live.permissionCalls = [];
   live.client = {
-    permission: { reply: async (value) => { replies.permission?.resolve(value); } },
+    permission: { reply: async (value) => { live.permissionCalls.push(value); replies.permission?.resolve(value); } },
     session: {
       update: async () => {},
       prompt: async (value) => live.promptError ? { error: "prompt unavailable" } : (replies.feedback?.resolve(value), undefined),
@@ -196,6 +197,19 @@ liveA.ui.router.current = () => fixture.starterClosed.route;
 delayedResponses.get("form-route")?.();
 const routeForm = await Promise.race([repliesA.routeForm.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("route-change form reply timed out")), 2000))]);
 if (routeForm.value.formID !== "form-route" || routeForm.value.answer.choice !== "yes-value") throw new Error("resolved TUI reply was dropped after route change");
+
+liveA.ui.router.current = () => fixture.tuis.a.route;
+liveA.refresh?.();
+holdNextResponse = true;
+liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-session-end", action: "edit" } } });
+await waitForObserved((event) => event._opencode_request_id === "perm-session-end");
+liveA.ui.router.current = () => fixture.starterClosed.route;
+liveA.refresh?.();
+liveA.emit({ details: { type: "session.deleted", data: { info: { id: "child-a" } } } });
+await new Promise((resolve) => setImmediate(resolve));
+delayedResponses.get("perm-session-end")?.();
+await new Promise((resolve) => setTimeout(resolve, 100));
+if (liveA.permissionCalls.some((value) => value.requestID === "perm-session-end")) throw new Error("session deletion left an OpenCode permission waiter alive");
 
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
 
