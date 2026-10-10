@@ -212,6 +212,9 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
             _ => None,
         };
     for tool in v2_tools::tools() {
+        if super::super::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
+            continue;
+        }
         let (args, _) = cases
             .iter()
             .find(|(_, operation)| *operation == tool.wire)

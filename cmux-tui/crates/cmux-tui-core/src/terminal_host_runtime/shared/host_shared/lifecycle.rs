@@ -95,6 +95,7 @@ impl HostShared {
         }
     }
 
+    #[cfg(not(unix))]
     pub(crate) fn finish_group_escalation(&self) {
         self.publish_child_wait_predicate(&self.group_escalation_complete);
     }

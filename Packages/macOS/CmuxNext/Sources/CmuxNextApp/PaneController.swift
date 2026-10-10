@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
@@ -89,7 +90,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func observe() {
         observation = Task { [weak self] in
             guard let self else { return }
-            for await snapshot in Observations({ [weak self] in self?.snapshot() }) {
+            for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
                 guard let snapshot else { return }
                 self.apply(snapshot)
             }
@@ -98,11 +99,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func snapshot() -> Snapshot {
+        #if DEBUG
+        DebugLayoutCounters.paneSnapshots &+= 1
+        #endif
         let store = daemon.store
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
-        let workspaceID = store.workspace(containing: pane.handle)?.id
+        // Only a browser tab's profile badge needs the workspace. The lookup scans
+        // every workspace's screens and panes, so reading it for every pane made
+        // each structural change re-run all N pane snapshots at O(N) each.
+        var workspaceLookup: String??
+        func workspaceID() -> String? {
+            if let found = workspaceLookup { return found }
+            let found = store.workspace(containing: pane.handle)?.id
+            workspaceLookup = .some(found)
+            return found
+        }
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
@@ -113,7 +126,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
-            if tab.page != nil, let page = services.pages.storeTabItem(tab) {
+            // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
+            // content, when the app becomes available after the tree arrived.
+            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
+               let page = services.pages.storeTabItem(tab, page: provider.page) {
+                // An app tab names and badges itself like its app.
+                item.title = page.title
+                item.icon = page.icon
+            } else if tab.page != nil, let page = services.pages.storeTabItem(tab) {
                 // A page tab names and badges itself like the page it shows.
                 item.title = page.title
                 item.icon = page.icon
@@ -141,7 +161,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     item.title = live.title ?? Strings.untitledBrowser
                     item.subtitle = live.url
                 } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
+                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
@@ -167,7 +187,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count))
+                        // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
+                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count)
+                            || store.workspace(containing: pane.handle)?.app != nil)
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -318,6 +340,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
             services.themes.terminalDidMount(entry)
             return .terminal(entry)
+        case .browser where tab.appTab != nil: return appTabContent(tab)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:

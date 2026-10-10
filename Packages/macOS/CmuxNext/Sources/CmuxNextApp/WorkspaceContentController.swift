@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -30,6 +31,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// True while `apply` mounts panes: it sends the topology once at its end,
+    /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
+    private var isApplying = false
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -98,7 +102,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let workspace = workspace
         apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in Observations({ LayoutMapping.shared.map(workspace) }) {
+            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
                 self?.apply(result)
             }
         }
@@ -107,7 +111,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // is live, even if the tree itself does not change.
         let store = daemon.store
         connectionObservation = Task { [weak self] in
-            for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
+            for await _ in ObservationStream({ (String(describing: store.connectionState), store.isLoaded) }) {
                 self?.repairIfEmpty()
             }
         }
@@ -115,14 +119,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // workspace is empty decides whether it shows its title.
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+            for await _ in ObservationStream({ workspace.key.map { repair.isSettling($0) } ?? false }) {
                 self?.updateEmptyState()
             }
         }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications
         attentionObservation = Task { [weak self] in
-            for await marks in Observations({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
                 if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
             }
@@ -136,6 +140,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func apply(_ result: LayoutMapping.Result) {
+        #if DEBUG
+        DebugLayoutCounters.workspaceApplies &+= 1
+        #endif
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
         handles = result.handles
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
@@ -214,7 +224,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.workspace = self
         panes[pane] = controller
         services.paneMounts.changed()
-        sendTopology()
+        if !isApplying { sendTopology() }
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {

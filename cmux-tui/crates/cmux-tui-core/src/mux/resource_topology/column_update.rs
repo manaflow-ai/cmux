@@ -76,12 +76,14 @@ fn reduce_column_update(
         apply_column_dock(&mut next.layout_columns, index, dock)
             .map_err(|error| invalid("dock", error.to_string()))?;
     }
-    let width_changed =
-        update.width.is_some_and(|width| (next.layout_columns[index].width - width).abs() > 0.0);
-    if let Some(width) = update.width.filter(|_| width_changed) {
+    if let Some(width) = update.width {
         next.layout_columns[index].width = width;
-        sync_layout_column_widths(&mut next);
+        // The same sync as `set-viewport-pane-width`: a lone column of rows
+        // fills the width again (1.0).
+        sync_layout_column_projection(&mut next);
     }
+    let width_changed =
+        (next.layout_columns[index].width - layout.layout_columns[index].width).abs() > 0.0;
     let flags_changed = next
         .layout_columns
         .iter()
