@@ -284,6 +284,7 @@ extension CmxIrohEndpointSupervisorError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .inactive: .endpointUnavailable
+        case .activationTimedOut: .endpointUnavailable
         case .relayReadinessTimedOut: .endpointUnavailable
         case .superseded: .superseded
         }
