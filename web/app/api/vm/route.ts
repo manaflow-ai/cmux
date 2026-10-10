@@ -329,7 +329,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
+      // Let the workflow inspect an idempotent existing row before rejecting
+      // an old, now-over-limit shape. New allocations still receive the same
+      // typed plan error from createVm.
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -768,14 +771,16 @@ async function resolveCreateMemory(
   planId: string,
   requestedMemoryMb: number | undefined,
   request: Request,
+  deferLockedPlanCheck = false,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
   const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
-    requestedMemoryMb !== undefined &&
-    locked.memoryOptionsMb.includes(requestedMemoryMb)
+    !deferLockedPlanCheck &&
+    requestedLockedMemory
   ) {
     const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
@@ -796,7 +801,7 @@ async function resolveCreateMemory(
     };
   }
   const memoryMb =
-    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb) || (deferLockedPlanCheck && requestedLockedMemory)
       ? requestedMemoryMb ?? planMemoryMb
       : planMemoryMb;
   setSpanAttributes(span, {
