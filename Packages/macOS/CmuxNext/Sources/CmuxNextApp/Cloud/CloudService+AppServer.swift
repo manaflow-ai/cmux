@@ -33,7 +33,9 @@ extension CloudService {
                 return try await ops(op, args, key, origin)
             },
             confirm: { [weak self] prompt in await CloudPresenter.confirmCreate(prompt, in: self?.confirmWindow?()) },
-            approve: { request in try await approvals.approve(request: request) },
+            approve: { request, params in
+                try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params))
+            },
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
@@ -52,6 +54,7 @@ extension CloudService {
     private func sessionCall() -> CloudApprovalAnswer.Call {
         let base = FeedService.apiBaseURL(auth: auth)
         let auth = auth
+        let session = Self.sessionTransport
         return { path, body in
             var request = URLRequest(url: base.appendingPathComponent(path))
             request.httpMethod = "POST"
@@ -59,22 +62,43 @@ extension CloudService {
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
             request.httpBody = body
-            return try await URLSession.shared.data(for: request).0
+            return try await session.data(for: request).0
         }
     }
+
+    /// No cache, no cookies, and redirects refused: the Stack bearer never
+    /// follows one (as `InstallHTTPTransport`).
+    private static let sessionTransport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = 15
+        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+    }()
 }
 
 extension CloudPresenter {
     /// The native confirmation of a Cloud machine create: true only for the
     /// person's click on Create; no window answers false.
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?) async -> Bool {
-        let body = switch prompt {
-        case .agentRequest: CloudStrings.createConfirmAgent
-        case .approval: CloudStrings.createConfirmApproval
+        let (intro, machine) = switch prompt {
+        case .agentRequest(let machine): (CloudStrings.createConfirmAgent, machine)
+        case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
+        var lines = [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)]
+        if let name = machine.name { lines.insert(CloudStrings.createConfirmName(name), at: 0) }
+        let body = ([intro] + lines).joined(separator: "\n")
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, body, button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
         }
+    }
+}
+
+/// Answers every redirect with "do not follow" (completion-handler form).
+private nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
