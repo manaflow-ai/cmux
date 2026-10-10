@@ -87,28 +87,16 @@ struct SharedLiveAgentIndexLoader {
                 agentProcessIDs: detected.agentProcessIDs
             )
         }
-        // Hook-backed agents such as Claude Code are never process-detected,
-        // so scope their recorded PID against the same process snapshot.
-        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
             hibernationProcessScopes: hibernationProcessScopes,
-            hookProcessScopeProvider: { key, agentProcessID in
-                guard let panelProcessIDs = scopedProcessIDsByPanelKey[key],
-                      panelProcessIDs.contains(agentProcessID) else {
-                    return nil
-                }
-                return (
-                    processIDs: panelProcessIDs,
-                    scope: processSnapshot.agentHibernationProcessScope(
-                        panelProcessIDs: panelProcessIDs,
-                        agentProcessIDs: [agentProcessID]
-                    )
-                )
-            },
+            hookProcessScopeProvider: Self.hookProcessScopeProvider(
+                processSnapshot: processSnapshot,
+                processArgumentsProvider: processArgumentsProvider
+            ),
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
@@ -127,6 +115,41 @@ struct SharedLiveAgentIndexLoader {
                 validator: cachedAgentProcessValidator
             )
         )
+    }
+
+    /// Hook-backed agents such as Claude Code are never process-detected, so
+    /// scope a live recorded PID against the same process snapshot: the
+    /// panel's cmux-scoped processes must include it. Every index that gates
+    /// hibernation needs this provider; without it a live hook record stays
+    /// unsafe to reclaim.
+    static func hookProcessScopeProvider(
+        processSnapshot: CmuxTopProcessSnapshot,
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments?
+    ) -> (RestorableAgentSessionIndex.PanelKey, Int) -> RestorableAgentSessionIndex.HookProcessScope? {
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
+        return { key, agentProcessID in
+            guard let panelProcessIDs = scopedProcessIDsByPanelKey[key],
+                  panelProcessIDs.contains(agentProcessID) else {
+                return nil
+            }
+            return (
+                processIDs: panelProcessIDs,
+                scope: processSnapshot.agentHibernationProcessScope(
+                    panelProcessIDs: panelProcessIDs,
+                    agentProcessIDs: [agentProcessID],
+                    isRegisteredCmuxHelper: { process in
+                        guard let arguments = processArgumentsProvider(process.pid) else {
+                            return false
+                        }
+                        return CmuxAgentHelperProcess.isRegistered(
+                            arguments,
+                            workspaceId: key.workspaceId,
+                            surfaceId: key.panelId
+                        )
+                    }
+                )
+            )
+        }
     }
 
     static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
@@ -158,6 +181,7 @@ struct SharedLiveAgentIndexLoader {
                 key.panelId.uuidString,
                 boundedProcessIDFingerprint(scope.panelProcessIDs),
                 boundedProcessIDFingerprint(scope.terminationProcessIDs),
+                boundedProcessIDFingerprint(scope.cmuxHelperProcessIDs),
                 scope.containsUnrelatedProcess ? "unrelated" : "exclusive"
             ].joined(separator: "|")
         })
@@ -200,6 +224,7 @@ struct SharedLiveAgentIndexLoader {
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
                 boundedProcessIDFingerprint(entry.terminationProcessIDs),
+                boundedProcessIDFingerprint(entry.cmuxHelperProcessIDs),
                 identities
             ].joined(separator: "|")
         })

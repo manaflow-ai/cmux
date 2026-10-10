@@ -318,32 +318,275 @@ struct ClaudeHookSessionLivenessTests {
         #expect(!entry.processSafetyAllowsScheduledHibernation)
     }
 
+    /// The two indexes that gate hibernation: the shared live index, and the
+    /// process census that manual hibernation, memory-pressure reclaim and
+    /// the teardown's final revalidation load.
+    enum HibernationIndexLoader: String, CaseIterable, Sendable {
+        case shared
+        case processCensus
+    }
+
+    /// cmux's Claude wrapper starts `cmux hooks claude inbox-wait` on
+    /// SessionStart and Stop. Claude Code runs it detached: a child of the
+    /// agent that leads its own session and process group, with no terminal.
+    enum DetachedWork: String, CaseIterable, Sendable {
+        /// The registered helper, but scoped to another surface.
+        case helperForAnotherSurface
+        /// A cmux hook the wrapper runs but that does work, so it is not registered.
+        case unregisteredCmuxHook
+        /// A user's background job, detached the same way.
+        case userJob
+        /// The registered helper argv, but in the agent's process group.
+        case helperInAgentProcessGroup
+        /// The registered helper argv, but with a child of its own.
+        case helperWithChild
+    }
+
+    /// Every live Claude used to refuse manual hibernation with
+    /// `process_scope_unsafe`: the census index left the hook PID unscoped.
+    @Test(
+        "A live Claude alone in its pane is safe to hibernate from every index",
+        arguments: HibernationIndexLoader.allCases
+    )
+    func claudeAloneInItsPaneIsSafeFromEveryIndex(loader: HibernationIndexLoader) throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-hook-scope-\(loader.rawValue)")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let shellPID = 8_000
+        let agentPID = 8_001
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        let index = loadIndex(
+            fixture: fixture,
+            loader: loader,
+            processes: [
+                processInfo(fixture: fixture, pid: shellPID, parentPID: 1, name: "zsh", path: "/bin/zsh"),
+                processInfo(
+                    fixture: fixture,
+                    pid: agentPID,
+                    parentPID: shellPID,
+                    name: "claude",
+                    path: fixture.executablePath,
+                    processGroupID: agentPID
+                ),
+            ],
+            agentPID: agentPID,
+            identities: [agentPID: identity]
+        )
+
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.terminationProcessIDs == [agentPID])
+        #expect(entry.cmuxHelperProcessIDs.isEmpty)
+        #expect(entry.containsUnrelatedProcess == false)
+        #expect(entry.processSafetyAllowsScheduledHibernation)
+    }
+
+    @Test(
+        "A wrapped Claude's detached inbox helper is terminated with it",
+        arguments: HibernationIndexLoader.allCases
+    )
+    func wrappedClaudeInboxHelperIsTerminatedWithIt(loader: HibernationIndexLoader) throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-hook-helper-\(loader.rawValue)")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let shellPID = 8_100
+        let agentPID = 8_101
+        let helperPID = 8_102
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        let helperIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(helperPID),
+            startSeconds: 1_790_627_560,
+            startMicroseconds: 0
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        let index = loadIndex(
+            fixture: fixture,
+            loader: loader,
+            processes: [
+                processInfo(fixture: fixture, pid: shellPID, parentPID: 1, name: "zsh", path: "/bin/zsh"),
+                processInfo(
+                    fixture: fixture,
+                    pid: agentPID,
+                    parentPID: shellPID,
+                    name: "claude",
+                    path: fixture.executablePath,
+                    processGroupID: agentPID
+                ),
+                processInfo(
+                    fixture: fixture,
+                    pid: helperPID,
+                    parentPID: agentPID,
+                    name: "cmux",
+                    path: Self.bundledCLIPath,
+                    processGroupID: helperPID,
+                    ttyDevice: nil
+                ),
+            ],
+            agentPID: agentPID,
+            identities: [agentPID: identity, helperPID: helperIdentity],
+            otherArguments: [
+                helperPID: CmuxTopProcessArguments(
+                    arguments: Self.inboxWaitArguments,
+                    environment: liveEnvironment(fixture: fixture)
+                ),
+            ]
+        )
+
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.terminationProcessIDs == [agentPID, helperPID])
+        #expect(Set(entry.terminationProcessIdentities.keys) == [agentPID, helperPID])
+        #expect(entry.cmuxHelperProcessIDs == [helperPID])
+        #expect(entry.containsUnrelatedProcess == false)
+        #expect(entry.processSafetyAllowsScheduledHibernation)
+    }
+
+    @Test(
+        "Detached work beside a Claude that is not its registered helper keeps it unsafe",
+        arguments: DetachedWork.allCases, HibernationIndexLoader.allCases
+    )
+    func detachedWorkBesideClaudeKeepsItUnsafe(
+        work: DetachedWork,
+        loader: HibernationIndexLoader
+    ) throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-hook-detached-\(work.rawValue)")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let shellPID = 8_200
+        let agentPID = 8_201
+        let detachedPID = 8_202
+        let grandchildPID = 8_203
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        var environment = liveEnvironment(fixture: fixture)
+        var arguments = Self.inboxWaitArguments
+        var processGroupID = detachedPID
+        switch work {
+        case .helperForAnotherSurface:
+            environment["CMUX_SURFACE_ID"] = UUID().uuidString
+            environment["CMUX_PANEL_ID"] = environment["CMUX_SURFACE_ID"]
+        case .unregisteredCmuxHook:
+            arguments = [Self.bundledCLIPath, "hooks", "claude", "auto-name"]
+        case .userJob:
+            arguments = ["/usr/bin/python3", "-m", "http.server"]
+        case .helperInAgentProcessGroup:
+            processGroupID = agentPID
+        case .helperWithChild:
+            break
+        }
+        var processes = [
+            processInfo(fixture: fixture, pid: shellPID, parentPID: 1, name: "zsh", path: "/bin/zsh"),
+            processInfo(
+                fixture: fixture,
+                pid: agentPID,
+                parentPID: shellPID,
+                name: "claude",
+                path: fixture.executablePath,
+                processGroupID: agentPID
+            ),
+            processInfo(
+                fixture: fixture,
+                pid: detachedPID,
+                parentPID: agentPID,
+                name: (arguments[0] as NSString).lastPathComponent,
+                path: arguments[0],
+                processGroupID: processGroupID,
+                ttyDevice: nil
+            ),
+        ]
+        if work == .helperWithChild {
+            processes.append(processInfo(
+                fixture: fixture,
+                pid: grandchildPID,
+                parentPID: detachedPID,
+                name: "sleep",
+                path: "/bin/sleep",
+                processGroupID: detachedPID,
+                ttyDevice: nil
+            ))
+        }
+        let index = loadIndex(
+            fixture: fixture,
+            loader: loader,
+            processes: processes,
+            agentPID: agentPID,
+            identities: [
+                agentPID: identity,
+                detachedPID: AgentPIDProcessIdentity(
+                    pid: pid_t(detachedPID), startSeconds: 1_790_627_560, startMicroseconds: 0
+                ),
+                grandchildPID: AgentPIDProcessIdentity(
+                    pid: pid_t(grandchildPID), startSeconds: 1_790_627_561, startMicroseconds: 0
+                ),
+            ],
+            otherArguments: [
+                detachedPID: CmuxTopProcessArguments(arguments: arguments, environment: environment),
+            ]
+        )
+
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.cmuxHelperProcessIDs.isEmpty)
+        #expect(entry.containsUnrelatedProcess)
+        #expect(!entry.processSafetyAllowsScheduledHibernation)
+    }
+
+    private static let bundledCLIPath = "/Applications/cmux.app/Contents/Resources/bin/cmux"
+    private static let inboxWaitArguments = [bundledCLIPath, "hooks", "claude", "inbox-wait"]
+
     private func loadIndex(
         fixture: Fixture,
+        loader: HibernationIndexLoader = .shared,
         processes: [CmuxTopProcessInfo],
         agentPID: Int,
-        identities: [Int: AgentPIDProcessIdentity]
+        identities: [Int: AgentPIDProcessIdentity],
+        otherArguments: [Int: CmuxTopProcessArguments] = [:]
     ) -> RestorableAgentSessionIndex {
         let processSnapshot = CmuxTopProcessSnapshot(
             processes: processes,
             sampledAt: Date(timeIntervalSince1970: fixture.capturedAt),
             includesProcessDetails: true
         )
-        return SharedLiveAgentIndexLoader(
-            homeDirectory: fixture.root.path,
-            fileManager: .default,
-            registry: CmuxVaultAgentRegistry(registrations: []),
-            processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { fixture.capturedAt },
-            processArgumentsProvider: { pid in
-                guard pid == agentPID else { return nil }
-                return CmuxTopProcessArguments(
-                    arguments: liveArguments(fixture: fixture),
-                    environment: liveEnvironment(fixture: fixture)
-                )
-            },
-            processIdentityProvider: { pid in identities[pid] }
-        ).loadSynchronously()
+        let agentArguments = CmuxTopProcessArguments(
+            arguments: liveArguments(fixture: fixture),
+            environment: liveEnvironment(fixture: fixture)
+        )
+        let processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = { pid in
+            pid == agentPID ? agentArguments : otherArguments[pid]
+        }
+        switch loader {
+        case .shared:
+            return SharedLiveAgentIndexLoader(
+                homeDirectory: fixture.root.path,
+                fileManager: .default,
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                processSnapshotProvider: { processSnapshot },
+                capturedAtProvider: { fixture.capturedAt },
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: { pid in identities[pid] }
+            ).loadSynchronously()
+        case .processCensus:
+            return RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously(
+                processSnapshot: processSnapshot,
+                homeDirectory: fixture.root.path,
+                fileManager: .default,
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: { pid in identities[pid] }
+            )
+        }
     }
 
     private func makeFixture(prefix: String) throws -> Fixture {
@@ -420,7 +663,8 @@ struct ClaudeHookSessionLivenessTests {
         parentPID: Int,
         name: String,
         path: String,
-        processGroupID: Int? = nil
+        processGroupID: Int? = nil,
+        ttyDevice: Int64? = 0x123
     ) -> CmuxTopProcessInfo {
         let resolvedProcessGroupID = processGroupID ?? (parentPID == 1 ? pid : parentPID)
         return CmuxTopProcessInfo(
@@ -428,7 +672,7 @@ struct ClaudeHookSessionLivenessTests {
             parentPID: parentPID,
             name: name,
             path: path,
-            ttyDevice: 0x123,
+            ttyDevice: ttyDevice,
             cmuxWorkspaceID: fixture.workspaceId,
             cmuxSurfaceID: fixture.panelId,
             cmuxAttributionReason: "cmux-test",
