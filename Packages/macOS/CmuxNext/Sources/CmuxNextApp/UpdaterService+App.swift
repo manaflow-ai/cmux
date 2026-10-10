@@ -21,9 +21,9 @@ extension UpdaterService {
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
-        // The span route (`#/?from=&to=`) lands with the React changelog
-        // page; until then the span opens the changelog page itself.
-        openChangelogSpan = { [weak services] _, _ in services.map { ChangelogPageTab.open($0) } ?? false }
+        // "See What's New" on the Updated card: the React changelog page
+        // for the releases this update crossed (`#/?from=&to=`).
+        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         runAllowListedAction = { [weak services] id in
