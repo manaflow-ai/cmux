@@ -5,11 +5,25 @@
   min-width: 140px;
   max-width: min(240px, calc(100vw - 24px));
   padding: 5px;
-  border: 0;
+  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
   border-radius: 10px;
-  background: var(--acpmux-menu-bg);
-  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  background-color: color-mix(in srgb, var(--acpmux-menu-bg) var(--surface-text-min, 92%), transparent);
+  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-effort-menu {
+    background-color: var(--acpmux-menu-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-effort-menu {
+  background-color: var(--acpmux-menu-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .ui-menu-item.acpmux-effort-item {
   display: flex;

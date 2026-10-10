@@ -32,7 +32,11 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
-              "tabs.cmdWClosesPinnedTabs"
+              "tabs.cmdWClosesPinnedTabs",
+              "tabs.swapCmdTAndCmdN",
+              "tabs.tabBar.terminal",
+              "tabs.tabBar.browser",
+              "tabs.tabBar.agent"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -1770,6 +1774,280 @@
       "title" : {
         "key" : "settings.tabs.cmdWClosesPinnedTabs",
         "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.swapCmdTAndCmdN.help",
+        "text" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.swapCmdTAndCmdN",
+      "keywords" : [
+        "cmd-t",
+        "cmd-n",
+        "swap",
+        "new tab",
+        "new workspace",
+        "shortcut",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "swapCmdTAndCmdN"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.swapCmdTAndCmdN",
+        "text" : "Swap Cmd-T and Cmd-N"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabBarAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabBar.help",
+        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.tabBar.terminal",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "strip",
+        "horizontal",
+        "show",
+        "hide",
+        "terminal",
+        "pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "tabBar",
+        "terminal"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.tabBar.terminal",
+        "text" : "Tab Bar in Terminal Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabBarAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabBar.help",
+        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.tabBar.browser",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "strip",
+        "horizontal",
+        "show",
+        "hide",
+        "browser",
+        "pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "tabBar",
+        "browser"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.tabBar.browser",
+        "text" : "Tab Bar in Browser Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabBarAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabBar.help",
+        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.tabBar.agent",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "strip",
+        "horizontal",
+        "show",
+        "hide",
+        "agent",
+        "pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "tabBar",
+        "agent"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.tabBar.agent",
+        "text" : "Tab Bar in Agent Chats"
       },
       "validation" : "portable"
     },
@@ -17597,7 +17875,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e05deae950161b11b95375c5c81fad6ec29585dc9f8d89897ed46e7e67ca1065",
+  "schema_hash" : "b80a715624cf80085c07f7db99bea69f7b0f51b5e51fd1ff273e6bc37355f8d7",
   "sections" : [
     {
       "id" : "general",

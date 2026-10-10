@@ -25,6 +25,9 @@ extension UpdaterService {
     /// once, or when the download finishes. Running agents never hold it:
     /// the relaunch keeps them (`willRelaunch` records keep sessions).
     public func installClicked() {
+        #if DEBUG
+        UpdateHarness.mark("install_clicked")
+        #endif
         syncFlowPhase()
         send(.installRequested)
     }
@@ -58,7 +61,15 @@ extension UpdaterService {
         switch effect {
         case .install:
             log.append("gate: installing the staged update")
+            #if DEBUG
+            UpdateHarness.mark("install_started")
+            #endif
+            recordBeforeInstall()
+            willInstallStaged?()
             installStaged()
+            #if DEBUG
+            UpdateHarness.mark("install_handed_to_sparkle")
+            #endif
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -71,8 +82,23 @@ extension UpdaterService {
     func syncFlowPhase() {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        #if DEBUG
+        if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
+        #endif
+        let wasInstalling = flow.phase == .installing
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        switch phase {
+        case .ready:
+            recordStagedUpdate()
+            keepRunningBuildForRollback()
+        case .note where wasInstalling:
+            // The install failed: no relaunch comes.
+            log.append("install ended without a relaunch")
+            installAbandoned?()
+        default:
+            break
+        }
     }
 
     /// Follows Sparkle's flow through observation (no polling).
@@ -125,3 +151,20 @@ extension UpdaterService {
         pathMonitor = monitor
     }
 }
+
+#if DEBUG
+extension UpdateIndicatorPhase {
+    /// The phase's case name for the update harness's timeline.
+    var harnessName: String {
+        switch self {
+        case .hidden: "hidden"
+        case .checking: "checking"
+        case .downloading: "downloading"
+        case .available: "available"
+        case .ready: "ready"
+        case .installing: "installing"
+        case .note: "note"
+        }
+    }
+}
+#endif

@@ -119,6 +119,8 @@ final class AppServices {
     let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
+    /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
+    let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
@@ -159,6 +161,8 @@ final class AppServices {
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost: RemoteLocalhostService = RemoteLocalhostService(machines: machines)  // first read in init (no IUO)
+    /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?

@@ -16,6 +16,8 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             fadesNextFill = false
             needsDisplay = true
+            // Rows show controls on the selected row too (the menu button, cx-a9h6).
+            needsLayout = true
         }
     }
 

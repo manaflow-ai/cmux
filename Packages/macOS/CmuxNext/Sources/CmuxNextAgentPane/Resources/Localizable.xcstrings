@@ -1966,6 +1966,137 @@
         }
       }
     },
+    "agentPane.error.chiefStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief لا يعمل. أعد فتح cmux وافتح الرئيسية لتشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief nije pokrenut. Ponovo otvorite cmux i otvorite Početna da ga pokrenete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief kører ikke. Åbn cmux igen, og åbn Hjem for at starte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief läuft nicht. Öffne cmux erneut und öffne Home, um ihn zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief is not running. Reopen cmux and open Home to start it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief no se está ejecutando. Vuelve a abrir cmux y abre Inicio para iniciarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief n’est pas en cours d’exécution. Rouvrez cmux et ouvrez Accueil pour le démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief non è in esecuzione. Riapri cmux e apri Home per avviarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が実行されていません。cmux を開き直してホームを開くと起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief មិនកំពុងដំណើរការទេ។ បើក cmux ម្តងទៀត ហើយបើកទំព័រដើម ដើម្បីចាប់ផ្តើមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 실행 중이 아닙니다. cmux를 다시 열고 홈을 열면 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief kjører ikke. Åpne cmux på nytt og åpne Hjem for å starte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief nie działa. Otwórz ponownie cmux i otwórz Start, aby go uruchomić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chief não está em execução. Reabra o cmux e abra Início para iniciá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief не запущен. Откройте cmux заново и откройте Главная, чтобы запустить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ไม่ได้ทำงานอยู่ เปิด cmux ใหม่แล้วเปิดหน้าหลักเพื่อเริ่มทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief çalışmıyor. Başlatmak için cmux'u yeniden açın ve Ana Sayfa'yı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief не запущено. Відкрийте cmux знову й відкрийте Головна, щоб запустити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief không chạy. Mở lại cmux rồi mở Trang chủ để khởi động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 未在运行。重新打开 cmux 并打开主页即可启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 未在執行。重新開啟 cmux 並開啟主頁即可啟動。"
+          }
+        }
+      }
+    },
     "agentPane.error.daemonFailed": {
       "extractionState": "manual",
       "localizations": {

@@ -5,7 +5,10 @@ import WebKit
 /// base64}] }`, as the CDP driver does it (cdp/choosers.rs): the files are
 /// built in the page agent's world and set on the file input, which then
 /// gets `input` and `change`. No Open panel is shown.
-extension WebKitDriver {
+@MainActor
+struct WebKitSetFiles {
+    let driver: WebKitDriver
+
     private static let assignFiles = """
     const [input, files] = __handlesThenArgs(__handles, __args);
     const transfer = new DataTransfer();
@@ -22,10 +25,10 @@ extension WebKitDriver {
     """
 
     func inputSetFiles(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
-        let (tab, session) = try target(params)
+        let (tab, session) = try driver.target(params)
         let element = try params.string("element")
         let files = try params.array("files").map(\.foundationValue)
-        let frame = try await frameInfo(params, tab: tab, session: session)
-        return try await runInAgent(Self.assignFiles, handles: [element], args: [files], frame: frame, tab: tab)
+        let frame = try await driver.frameInfo(params, tab: tab, session: session)
+        return try await driver.runInAgent(Self.assignFiles, handles: [element], args: [files], frame: frame, tab: tab)
     }
 }

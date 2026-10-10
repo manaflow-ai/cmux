@@ -12,7 +12,7 @@ extension AppServices {
         let live = cache.existingBrowser(key)?.tab
         let address = cache.pageRequests.proxiedTabs.appFetchableFavicon(
             live.map { $0.state.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: live)
-        return favicons.image(for: address, profile: browserProfiles.engineProfile(forTab: key))
+        return favicons.image(for: address, profile: browserProfiles.engineProfile(forTab: key), tab: live)
     }
 
     /// What the sidebar row of `workspace` shows of its front browser tab

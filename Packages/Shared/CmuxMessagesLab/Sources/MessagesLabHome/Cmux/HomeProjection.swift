@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import Observation
+import os
 
 /// The adapter between HomeStore (the single writer of the transcript,
 /// plans/cmux-next/home-mac.md section 2) and the vendored MessagesLab
@@ -23,7 +24,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let conversation: ConversationID
     let me: ParticipantID
     let controller: ChatController
-    /// False while the owner is unreachable (H17: Send and tapbacks off).
+    /// False while the owner is unreachable (H17: tapbacks off). A send then
+    /// waits in HomeStore's offline queue as "sending" (cx-ebm.55).
     var isSendEnabled = true
     /// The host's notice, MessagesLab's system row under the newest message (nil: none).
     var notice: String? {
@@ -236,17 +238,36 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// rendering from HomeStore): swipe-to-reply stays off.
     var canReply: Bool { false }
 
-    func send() {
-        guard isSendEnabled, homeStore.isOnline, let store = controller.store else { return }
+    /// Sends the field's draft. Nil when it went to HomeStore: committed, or
+    /// waiting for the owner as "sending" (HomeStore's offline queue: a
+    /// send made while the owner or its connection is still starting goes
+    /// at the reconnect, or fails "Not Delivered" at the deadline, never
+    /// silently). Else why nothing was sent; the text stays in the field.
+    @discardableResult
+    func send() -> String? {
+        guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
-        guard !text.isEmpty || !attachments.isEmpty, store.state.atNewest else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
-        controller.dispatch(.send)
+        // The paths that used to drop a send without a word (cx-ebm.55), one line each,
+        // so a lost send in dogfood says which one it took.
+        if !homeStore.isOnline { _ = noteSend("queued: the store is offline") }
+        if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
+        if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
+        if store.state.atNewest {
+            controller.dispatch(.send)
+            // The local bubble morphs into HomeStore's item; without it the item shows on its own.
+            _ = core.recordSend(key, in: store.state)
+        } else {
+            // A window of older messages: no local bubble here, HomeStore's
+            // item shows at the newest.
+            for a in draft.attachments { controller.dispatch(.removeDraftAttachment(a.id)) }
+            controller.dispatch(.setDraft(""))
+        }
         homeStore.setDraft("", for: conversation)
-        guard core.recordSend(key, in: store.state) else { return }
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
@@ -269,7 +290,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 // CancellationError: Cancel Upload removed the row.
             }
         }
+        return nil
     }
+
+    /// Logs one send outcome with the store's state; returns `outcome` (a refusal's reason).
+    private func noteSend(_ outcome: String) -> String {
+        Self.log.notice("home send \(outcome, privacy: .public): conversation \(self.conversation.rawValue, privacy: .public), store_online \(self.homeStore.isOnline), listed \(self.homeStore.summary(self.conversation) != nil)")
+        return outcome
+    }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// Refused before it reached the log (offline, nothing queues, or an
     /// attachment the owner would refuse): the local message goes and the

@@ -85,6 +85,8 @@ export type NewTabHost = {
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
+  /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
+  openTabs?: OmnibarContext["tabs"];
   defaultKind?: DefaultKind;
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
@@ -99,6 +101,8 @@ export type NewTabHost = {
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
   focusesField?: boolean;
+  /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
+  history?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -116,6 +120,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const cwd =
     typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
   const omnibar = omnibarContext(object.omnibar);
+  const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
   const tools = Array.isArray(object.tools)
     ? object.tools.flatMap((tool) => {
@@ -141,6 +146,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
       ? {
           projects: object.projects
@@ -158,6 +164,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
+    ...(object.history === true ? { history: true } : {}),
   };
 }
 
@@ -608,7 +615,7 @@ function rowDetail(row: OmnibarRow): string | undefined {
 function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
   switch (row.type) {
     case "tab":
-      return <KindIcon kind={row.kind} />;
+      return row.icon ? <Favicon src={row.icon} /> : <KindIcon kind={row.kind} />;
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
@@ -619,12 +626,17 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "run":
       return <KindIcon kind="terminal" />;
     case "history":
-      return <ClockIcon />;
+      return row.icon ? <Favicon src={row.icon} /> : <ClockIcon />;
     case "open":
       return <KindIcon kind="browser" />;
     case "ask":
       return <AgentMark harness={agent} />;
   }
+}
+
+/// A page's favicon (cx-d0d.8), drawn as is at the row icons' size.
+function Favicon({ src }: { src: string }) {
+  return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
 /// The agent's brand mark (design/agent-icons), so a session's row says which agent it

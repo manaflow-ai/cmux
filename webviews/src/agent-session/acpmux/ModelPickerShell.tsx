@@ -119,7 +119,7 @@ export function ModelPickerShell({
         <div
           ref={menu}
           id={menuId}
-          className={`acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${layout ?? "cascade"}`}
+          className={`ui-popup acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${layout ?? "cascade"}`}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="menu"
           aria-label={modelLabel}
