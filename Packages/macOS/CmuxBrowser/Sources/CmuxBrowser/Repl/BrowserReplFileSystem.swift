@@ -909,7 +909,9 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Writes the `count` bytes at `bytes` through `write` (one `write(2)`
     /// of at most ``chunkBytes``, returning the bytes written, or -1 with
-    /// `errno` set), checking `isCancelled` between writes.
+    /// `errno` set), checking `isCancelled` between writes. A write that
+    /// makes no progress fails with `EIO`: a pathological or FUSE file
+    /// system could return 0 forever, and nothing would stop the loop.
     static func writeFully(
         _ bytes: UnsafeRawPointer,
         count: Int,
@@ -926,6 +928,7 @@ public struct BrowserReplFileSystem: Sendable {
                 if errno == EINTR { continue }
                 throw posixError(errno, syscall: syscall, display: display)
             }
+            if written == 0 { throw posixError(EIO, syscall: syscall, display: display) }
             offset += written
         }
     }
@@ -949,7 +952,7 @@ public struct BrowserReplFileSystem: Sendable {
                 try writeBudget.take(copied + count - max(size, copied), syscall: "copyfile", display: display, callBytes: copied + count)
             }
             try buffer.withUnsafeBytes { bytes in
-                try Self.writeFully(bytes.baseAddress!, count: count, syscall: "copyfile", display: display, isCancelled: { false }) { pointer, length in
+                try Self.writeFully(bytes.baseAddress!, count: count, syscall: "copyfile", display: display, isCancelled: isCancelled) { pointer, length in
                     write(destination.fd, pointer, length)
                 }
             }
