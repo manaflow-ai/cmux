@@ -290,7 +290,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
-        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarSetting.parse(root)
+        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
         snapshot.paneTabBars = paneTabBars
         snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)

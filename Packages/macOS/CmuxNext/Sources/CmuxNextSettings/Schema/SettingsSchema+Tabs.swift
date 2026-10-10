@@ -94,7 +94,7 @@ nonisolated enum TabSettingsSchema {
         }
         return PaneTabBarKind.allCases.map { kind in
             SettingDescriptor(
-                PaneTabBarSetting.path(kind), section: .general, group: group,
+                kind.settingsPath, section: .general, group: group,
                 title: title(kind),
                 help: SettingsText.keyed("settings.tabs.tabBar.help",
                                          "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),

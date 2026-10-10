@@ -11,6 +11,9 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
     nonisolated enum Outcome: Equatable, Sendable {
         case refuse(String)
         case open(BrowserOpenPlan)
+        /// `chrome://settings`: Settings > Browser opens instead of a tab
+        /// (ChromiumPageRoute).
+        case browserSettings
     }
 
     /// The page to load; nil opens the default page.
@@ -26,8 +29,11 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
     @MainActor
     static func make(url text: String?, engine requested: String?, origin: ActionOrigin) -> Outcome {
         var engine = requested
-        // A Chromium internal page opens in a Chromium tab (never searched in WebKit).
-        if engine == nil, let text, ChromiumInternalURL(typed: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil {
+        let route = text.flatMap { ChromiumPageRoute(typed: $0) }
+        // A Chromium internal page opens in a Chromium tab (never searched in
+        // WebKit); a page cmux shows itself opens in any tab.
+        if engine == nil, let text, ChromiumInternalURL(typed: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil,
+           route?.isCmuxOwned != true {
             engine = BrowserEngineTag.cef.rawValue
         }
         var url: URL?
@@ -40,7 +46,11 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
             if origin != .user, AgentURLPolicy.refuses(resolved) {
                 return .refuse(MiscHandlerStrings.agentChromiumPage)
             }
-            url = resolved
+            switch ChromiumPageRoute(resolved) {
+            case .cmuxPage(let page)?: url = page
+            case .browserSettings?: return .browserSettings
+            case .chromium?, nil: url = resolved
+            }
         }
         return .open(BrowserOpenPlan(url: url, engine: engine, recordedEngine: requested))
     }

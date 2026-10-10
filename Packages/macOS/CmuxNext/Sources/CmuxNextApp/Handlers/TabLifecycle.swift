@@ -196,6 +196,9 @@ enum TabLifecycle {
                                     origin: invocation.origin) {
         case .refuse(let message): return ctx.refuse(message)
         case .open(let opened): plan = opened
+        case .browserSettings:
+            do { try ctx.services.settingsWindow.show(section: .browser, focus: invocation.allowsViewChange) } catch { ctx.refuse(String(describing: error)) }
+            return
         }
         let url = plan.url
         let rawProfile = invocation["profile"]?.stringValue
