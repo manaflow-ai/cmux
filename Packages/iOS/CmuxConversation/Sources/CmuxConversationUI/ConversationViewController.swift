@@ -262,6 +262,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        installComposerSwipeDown()
         installTimestampDrawer()
         installMentions()
         installAudio()
@@ -310,6 +311,9 @@ public final class ConversationViewController: UIViewController {
         // With the keyboard up Messages insets the composer by the system
         // layout margin (16 pt, 20 pt on Plus/Max-width iPhones).
         composer.keyboardSideInset = systemMinimumLayoutMargins.leading
+        // As in Messages, a transcript drag takes the keyboard once the finger
+        // reaches the field's top edge.
+        view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
         followKeyboardProgress()
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under
@@ -423,7 +427,8 @@ public final class ConversationViewController: UIViewController {
         let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
         let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
             guideTop: guideTop, restingGuideTop: restingGuideTop,
-            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation
+            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation,
+            dismissPadding: view.keyboardLayoutGuide.keyboardDismissPadding
         )
         let drop: CGFloat
         if photoDrawer != nil {

@@ -22,6 +22,22 @@ public enum ConversationKeyboardPinGeometry {
     /// Drop below the base line with the keyboard up (negative: above it).
     public static let dockedDrop: CGFloat = -8
 
+    /// The field's bottom edge above a docked keyboard's top edge: the base
+    /// line's 4 pt, the docked drop, and the field's 4 pt inset in the composer.
+    public static let dockedFieldGap: CGFloat = 4 - dockedDrop + 4
+
+    /// The keyboard layout guide's dismiss padding for a field this tall.
+    ///
+    /// Messages sets the padding to its entry view's height (ChatKit,
+    /// `-[CKChatController _setEntryViewFrame:isContentChange:animated:completionHandler:]`),
+    /// which spans the field's top edge to the keyboard's: a transcript drag
+    /// starts moving the keyboard when the finger reaches the field's top
+    /// edge, and the keyboard's top edge then rides that far below the finger
+    /// (measured on iOS 26.5: 56 to 58 pt with a one-line 40.33 pt field).
+    public static func dismissPadding(fieldHeight: CGFloat) -> CGFloat {
+        fieldHeight + dockedFieldGap
+    }
+
     /// The composer's drop below its base line.
     /// - Parameters:
     ///   - keyboardTop: the keyboard's top edge, or the screen's bottom edge
@@ -38,8 +54,8 @@ public enum ConversationKeyboardPinGeometry {
     /// when the composer should hold still.
     ///
     /// UIKit's interactive dismissal puts the keyboard's top edge, and the
-    /// layout guide's, at the finger once the finger is below the docked
-    /// keyboard. The guide stops at the bottom safe-area edge; below it the
+    /// layout guide's, at the finger (plus the guide's dismiss padding) once
+    /// that point is below the docked keyboard. The guide stops at the bottom safe-area edge; below it the
     /// finger alone tells where the keyboard is. When the finger lets go,
     /// UIKit puts the guide back at rest before it animates the keyboard away
     /// (and posts the keyboard notification inside that animation), so a
@@ -51,10 +67,16 @@ public enum ConversationKeyboardPinGeometry {
     ///   - screenBottom: the bottom edge of the view.
     ///   - dragLocation: the finger's location while it drags the transcript
     ///     over a shown keyboard, else nil.
-    public static func keyboardTop(guideTop: CGFloat, restingGuideTop: CGFloat, screenBottom: CGFloat, dragLocation: CGFloat?) -> CGFloat? {
+    ///   - dismissPadding: the guide's `keyboardDismissPadding`; the
+    ///     keyboard's top edge rides this far below the finger.
+    public static func keyboardTop(
+        guideTop: CGFloat, restingGuideTop: CGFloat, screenBottom: CGFloat,
+        dragLocation: CGFloat?, dismissPadding: CGFloat = 0
+    ) -> CGFloat? {
         if guideTop < restingGuideTop - 0.5 { return guideTop }
         guard let dragLocation else { return screenBottom }
-        guard dragLocation >= restingGuideTop - 0.5 else { return nil }
-        return min(screenBottom, dragLocation)
+        let keyboardTop = dragLocation + max(0, dismissPadding)
+        guard keyboardTop >= restingGuideTop - 0.5 else { return nil }
+        return min(screenBottom, keyboardTop)
     }
 }

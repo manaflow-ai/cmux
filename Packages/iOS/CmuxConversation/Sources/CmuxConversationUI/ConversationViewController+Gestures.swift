@@ -56,6 +56,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             // drag belongs to the transcript's scroll pan (send times).
             return velocity.x > 0 && replySwipeCell(at: pan.location(in: collectionView), velocity: velocity) != nil
         }
+        if gestureRecognizer.name == Self.composerSwipeDownName {
+            return composerSwipeDownShouldBegin()
+        }
         if gestureRecognizer is UILongPressGestureRecognizer {
             return !isSelecting && !touchBelongsToTextSelection(gestureRecognizer.location(in: collectionView))
                 && messageCell(at: gestureRecognizer.location(in: collectionView), requireContentHit: true) != nil
@@ -70,7 +73,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             // may still scroll or swipe; it cancels the growing bubble.
             return presses.contains(other.name) || (other is UIPanGestureRecognizer && pressedActions?.isPressing == true)
         }
-        return gestureRecognizer is UITapGestureRecognizer
+        return gestureRecognizer is UITapGestureRecognizer || gestureRecognizer.name == Self.composerSwipeDownName
     }
 
     static let pressName = "conversation.press"
