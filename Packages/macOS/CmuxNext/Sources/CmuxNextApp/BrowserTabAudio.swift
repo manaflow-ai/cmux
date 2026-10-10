@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextTabs
 
