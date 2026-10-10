@@ -12,14 +12,14 @@ import os
 enum SidebarHiddenSections {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
-    /// The rows a section header's menu leaves out: Hide on an app section
-    /// only, Hide Section on Recents only (other sections are removed
-    /// instead). Recents shows Hide Section alone, not its app's Hide too.
+    /// The rows a section header's menu leaves out. Every hideable header
+    /// (Recents and each app section) shows the same one row, Hide <Section>
+    /// (`sidebar.section.hide`, cx-w1r5: one visibility path everywhere); the
+    /// app item row Hide stays on items only. An item section the user made
+    /// has no hidden state, so it offers Remove Section instead.
     static func headerMenuRemovals(_ id: LayoutSectionID, isApp: Bool) -> Set<ActionID> {
-        let isRecents = id == SidebarLayoutDocument.recentsSectionID
-        var removed: Set<ActionID> = []
-        if !isApp || isRecents { removed.insert("sidebar.item.hideApp") }
-        if !isRecents { removed.insert("sidebar.section.hide") }
+        var removed: Set<ActionID> = ["sidebar.item.hideApp"]
+        if !isApp && id != SidebarLayoutDocument.recentsSectionID { removed.insert("sidebar.section.hide") }
         return removed
     }
 
@@ -38,10 +38,21 @@ enum SidebarHiddenSections {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
-        registry.bind("sidebar.section.hide", unavailable: { settings().showChats ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
-            guard hidesRecents(invocation.target) else { throw ActionFailure(message: SidebarSectionStrings.notHideable) }
-            try write([(hidePath, false)], invocation, context)
+        // One handler for every section's Hide; each kind keeps its one
+        // owner: Recents is the `sidebar.showChats` setting, an app section
+        // is its app's hidden flag on the app platform (forwarded through
+        // `sidebar.item.hideApp`, the same `app.hide` path as the item row).
+        registry.bind("sidebar.section.hide", unavailable: { nil }) { [weak registry] invocation in
+            if hidesRecents(invocation.target) {
+                guard settings().showChats else { throw ActionFailure(message: SidebarSectionStrings.alreadyHidden) }
+                return try write([(hidePath, false)], invocation, context)
+            }
+            guard try SidebarSectionResolve.owningApp(invocation.target, in: context.services.sidebarLayout.document) != nil, let registry else {
+                throw ActionFailure(message: SidebarSectionStrings.cannotHide)
+            }
+            _ = registry.perform("sidebar.item.hideApp", invocation: invocation)
         }
+        SidebarSectionMenuTitles.bind(into: registry, context: context)
         registry.bind("sidebar.projects.hide", unavailable: { settings().showProjects ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
             try write([(SidebarSectionsSetting.showProjectsPath, false)], invocation, context)
         }
