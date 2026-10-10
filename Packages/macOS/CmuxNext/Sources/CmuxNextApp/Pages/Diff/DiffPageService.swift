@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -74,31 +75,40 @@ final class DiffPageService: InternalPageProvider {
     /// folder is in no repository.
     @discardableResult
     func open(folder: URL, source: DiffOpenSource = .default, in pane: PaneController,
-              focus: Bool) async throws(DiffOpenFailure) -> String {
+              focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) async throws(DiffOpenFailure) -> String {
         guard let repository = await runtime.repository(at: folder) else { throw .notRepository }
-        return open(repository: repository, source: source, in: pane, focus: focus)
+        return open(repository: repository, source: source, in: pane, focus: focus, created: created)
     }
 
     /// ``open(folder:source:in:focus:)`` once the repository is known.
     @discardableResult
-    func open(repository: DiffRepository, source: DiffOpenSource = .default, in pane: PaneController, focus: Bool) -> String {
+    func open(repository: DiffRepository, source: DiffOpenSource = .default, in pane: PaneController, focus: Bool,
+              created: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         record(repository, source: source)
-        return show(in: pane, focus: focus, Tab(repository: repository, source: source)) {
+        return show(in: pane, focus: focus, Tab(repository: repository, source: source), created: created) {
             $0.repository?.root == repository.root && $0.source == source
         }
     }
 
 
-    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (Tab) -> Bool) -> String {
+    /// The tab opens as a store tab where the pane's daemon holds page tabs
+    /// (page-tabs-v1), so it moves between panes and columns like any daemon
+    /// tab (`created` gets its surface); else as an app-only tab.
+    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, created: (@MainActor (SurfaceID) -> Void)?,
+                      matching: (Tab) -> Bool) -> String {
         let window = services.windowController(showing: pane)
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
-            if let shown = services.pages.tabIDs(in: candidate.paneKey).first(where: { tabs[$0].map(matching) ?? false }) {
+            let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            if let shown = keys.first(where: { tabs[$0].map(matching) ?? false }) {
                 if focus { reveal(shown, in: candidate) }
                 return shown
             }
         }
         let key = LocalPageTab.makeKey(.diff)
         tabs[key] = tab
+        if let window, services.pages.openStoreTab(.diff, in: pane, window: window, focus: focus, key: key, created: created) != nil {
+            return key
+        }
         services.pages.open(.diff, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                             window: window, key: key)
         pane.apply(pane.snapshot())
@@ -107,7 +117,7 @@ final class DiffPageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
-        pane.select(StripTabID(key))
+        pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
 
@@ -151,7 +161,9 @@ final class DiffPageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard var tab = tabs[key] else { return NSView() }
+        // A store tab restored without its repository (the daemon keeps only
+        // its page) shows the empty state: recents and a folder chooser.
+        var tab = tabs[key] ?? Tab(repository: nil, source: .default)
         let host = DiffTabHost(service: self, key: key)
         let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
