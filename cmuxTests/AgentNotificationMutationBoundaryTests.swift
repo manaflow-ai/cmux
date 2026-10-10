@@ -37,9 +37,9 @@ extension AgentNotificationRegressionTests {
         )
     }
 
-    /// The async socket handoff must preserve stale-evidence rejection.
-    @Test("Async socket dispatch forwards stale PID evidence to the MainActor validator")
-    func staleSocketPIDEvidenceIsRejectedThroughAsyncDispatch() async throws {
+    /// Both supported PID encodings must revalidate evidence after the actor hop.
+    @Test("Async socket dispatch rejects stale PID evidence", arguments: [false, true])
+    func staleSocketPIDEvidenceIsRejectedThroughAsyncDispatch(useStringPID: Bool) async throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
         let identity = try #require(agentLiveProcessIdentity(pid: Darwin.getpid()))
@@ -48,22 +48,50 @@ extension AgentNotificationRegressionTests {
             startSeconds: identity.scopeCacheKey.startSeconds &+ 1,
             startMicroseconds: identity.scopeCacheKey.startMicroseconds
         )
-        let staleEvidence = AgentDeliveryProcessEvidence(
+        let scope = CmuxTopProcessScope(
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            attributionReason: "test"
+        )
+        let currentEvidence = AgentDeliveryProcessEvidence(
             isLive: true,
             identityValidated: true,
-            ttyDevice: identity.ttyDevice,
-            scope: nil,
-            scopeCacheKey: staleKey
+            ttyDevice: nil,
+            scope: scope,
+            scopeCacheKey: identity.scopeCacheKey
         )
         let request = ControlRequest(
             id: .string("stale-evidence"),
             method: "agent.resolve_delivery_target",
             params: [
-                "pid": .int(Int64(identity.scopeCacheKey.pid)),
-                "pid_resolution": .string(AgentProcessBindingResolution.controllingTTY.rawValue),
+                "pid": useStringPID
+                    ? .string(" \(identity.scopeCacheKey.pid) \n")
+                    : .int(Int64(identity.scopeCacheKey.pid)),
+                "pid_resolution": .string(AgentProcessBindingResolution.corroborated.rawValue),
             ]
         )
 
+        let currentEncoded = try await TerminalController.shared.socketAgentResolveDeliveryTargetResponseAsync(
+            request,
+            precomputedProcessEvidence: currentEvidence
+        )
+        let currentResponse = try #require(
+            JSONSerialization.jsonObject(with: Data(currentEncoded.utf8)) as? [String: Any]
+        )
+        try #require(currentResponse["ok"] as? Bool == true)
+        let currentTarget = try #require(currentResponse["result"] as? [String: Any])
+        #expect(currentTarget["workspace_id"] as? String == fixture.source.id.uuidString)
+        #expect(currentTarget["surface_id"] as? String == fixture.panelId.uuidString)
+
+        // Change only the process birth-time key. The ownership lookup above
+        // must succeed, so not_found below proves that revalidation ran.
+        let staleEvidence = AgentDeliveryProcessEvidence(
+            isLive: true,
+            identityValidated: true,
+            ttyDevice: nil,
+            scope: scope,
+            scopeCacheKey: staleKey
+        )
         let encoded = try await TerminalController.shared.socketAgentResolveDeliveryTargetResponseAsync(
             request,
             precomputedProcessEvidence: staleEvidence
