@@ -175,7 +175,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
     }
 
     /// A split-zoom retry flushes its host window without touching peers.
-    @Test func browserSplitZoomRetriesFlushOnlyOwningWindow() throws {
+    @Test func browserSplitZoomRetriesFlushOnlyOwningWindow() async throws {
         let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let window = VisibleLayoutWindow(
             contentRect: contentView.frame,
@@ -216,12 +216,8 @@ struct BrowserWindowPortalRegistryNotificationTests {
         contentView.layoutFlushCount = 0
         unrelatedContentView.layoutFlushCount = 0
 
-        let deadline = Date(timeIntervalSinceNow: 1)
-        while contentView.layoutFlushCount < 2, Date() < deadline {
-            RunLoop.main.run(
-                mode: .default,
-                before: min(deadline, Date(timeIntervalSinceNow: 0.01))
-            )
+        for _ in 0..<8 where contentView.layoutFlushCount < 2 {
+            await waitForNextMainTurn()
         }
         #expect(
             contentView.layoutFlushCount >= 2,
@@ -234,7 +230,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
     }
 
     /// A browser visibility retry still flushes after terminal geometry settles.
-    @Test func browserVisibilityRetryAfterGeometryPassFlushesOwningWindow() throws {
+    @Test func browserVisibilityRetryAfterGeometryPassFlushesOwningWindow() async throws {
         let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let window = VisibleLayoutWindow(
             contentRect: contentView.frame,
@@ -267,12 +263,8 @@ struct BrowserWindowPortalRegistryNotificationTests {
         contentView.layoutFlushCount = 0
         workspace.setPortalRenderingEnabled(true, reason: "test.geometryOnly")
 
-        let deadline = Date(timeIntervalSinceNow: 1)
-        while contentView.layoutFlushCount < 2, Date() < deadline {
-            RunLoop.main.run(
-                mode: .default,
-                before: min(deadline, Date(timeIntervalSinceNow: 0.01))
-            )
+        for _ in 0..<8 where contentView.layoutFlushCount < 2 {
+            await waitForNextMainTurn()
         }
         #expect(
             contentView.layoutFlushCount >= 2,
