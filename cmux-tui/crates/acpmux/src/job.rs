@@ -15,16 +15,37 @@ use windows_sys::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject, TerminateJobObject,
 };
-use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+use windows_sys::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED};
 
-/// The creation flag `contain` expects the agent to have started with.
-pub(crate) const START_SUSPENDED: u32 = CREATE_SUSPENDED;
+/// The creation flags of an agent: suspended (`contain` resumes it in its
+/// job) and the leader of its own process group, so Ctrl+Break reaches it
+/// and what it starts, and nothing else.
+pub(crate) const AGENT_FLAGS: u32 = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP;
+
+/// `CTRL_BREAK_EVENT`.
+const CTRL_BREAK_EVENT: u32 = 1;
 
 #[link(name = "ntdll")]
 unsafe extern "system" {
     /// Resumes every thread of a process (ntdll; stable since Windows XP).
     /// std and tokio give the process handle only, not the main thread's.
     fn NtResumeProcess(process: HANDLE) -> i32;
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    /// Sends a console control event to a process group sharing our console.
+    fn GenerateConsoleCtrlEvent(event: u32, group: u32) -> i32;
+}
+
+/// The polite stop (SIGTERM to the group on Unix): Ctrl+Break to the
+/// agent's process group (`group` is its leader's pid). The daemon and its
+/// agents share one console (hidden for a started daemon). False when no
+/// event could be sent (no console); the caller ends the job after its
+/// grace either way.
+pub(crate) fn ctrl_break(group: u32) -> bool {
+    // SAFETY: no pointers; an unknown group only fails.
+    unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, group) != 0 }
 }
 
 /// One agent's job.

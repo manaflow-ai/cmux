@@ -745,3 +745,82 @@ fn a_killed_daemon_takes_its_agents_with_it() {
     assert_eq!(left, 0, "processes of a killed daemon's agent survived:\n{}", daemon.log());
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// Stopping a running agent asks first: its process group gets Ctrl+Break
+/// (SIGTERM on Unix), and only after the grace does the job end it. The
+/// agent is this test binary's `ctrl_break_agent`, which records the event.
+#[test]
+fn a_stopped_agent_gets_ctrl_break_before_its_job_ends() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("jobbreak");
+    std::fs::create_dir_all(&home).unwrap();
+    // The agent runs a copy: the build folder may be locked by other runs.
+    let agent = home.join("agent.exe");
+    std::fs::copy(std::env::current_exe().unwrap(), &agent).unwrap();
+    let config = serde_json::json!({
+        "harnesses": {"breaker": {"argv": [agent, "--ignored", "--exact", "ctrl_break_agent", "--test-threads", "1"]}},
+        "defaultHarness": "breaker",
+        "permissionPolicy": "approve-all",
+    });
+    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
+    let log = std::env::temp_dir().join(format!("amxw-jobbreak-{}.log", std::process::id()));
+    let mut daemon = Daemon::start(&exe, &home, log);
+    wait_ready(&exe, &home, &mut daemon);
+    let mut new = acpmux(&exe, &home)
+        .args(["new", "--detach", "--cwd"])
+        .arg(&home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn acpmux new");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !home.join("agent-ready").exists() {
+        assert!(Instant::now() < deadline, "the agent did not start:\n{}", daemon.log());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    let _ = new.kill();
+    let _ = new.wait();
+    let _ = daemon.child.wait();
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert!(
+        home.join("agent-ctrl-break").exists(),
+        "the agent got no Ctrl+Break before its job ended:\n{}",
+        daemon.log()
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The agent of `a_stopped_agent_gets_ctrl_break_before_its_job_ends`:
+/// records a Ctrl+Break in its session folder, handles it, and keeps
+/// running until its job ends.
+#[test]
+#[ignore = "run as an agent by a_stopped_agent_gets_ctrl_break_before_its_job_ends"]
+fn ctrl_break_agent() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    unsafe extern "system" fn on_ctrl(event: u32) -> i32 {
+        // CTRL_BREAK_EVENT
+        if event == 1 {
+            if let Some(home) = HOME.get() {
+                let _ = std::fs::write(home.join("agent-ctrl-break"), b"1");
+            }
+            return 1;
+        }
+        0
+    }
+    // The session folder (`acpmux new --cwd`) is the agent's current folder.
+    let home = std::env::current_dir().unwrap();
+    HOME.set(home.clone()).unwrap();
+    // SAFETY: a static handler for this process.
+    assert_ne!(unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) }, 0);
+    std::fs::write(home.join("agent-ready"), b"1").unwrap();
+    std::thread::sleep(Duration::from_secs(300));
+}
