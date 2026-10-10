@@ -181,7 +181,7 @@ pub fn terminate_unadoptable_terminal_host(
     let (Some(_held), Some(pid)) = (held_unadoptable_marker(record), record.host_pid) else {
         return Ok(false);
     };
-    // The host is a session leader (`setsid` at spawn), so its process
+    // The host is a session leader (`setsid` at host start), so its process
     // group is its PID, and its held marker proves it runs.
     if !sys::kill_process_group(pid)? {
         return Ok(false);
