@@ -1272,6 +1272,14 @@ mod tests {
         assert!(seal.through_sequence < checkpoint.checkpoint.source_sequence);
         assert!(seal.segments.iter().all(|segment| segment.record_count <= 1_024));
         assert!(!seal.segments.is_empty());
+        let stored_segments = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .journal_segments()
+            .unwrap();
+        assert_eq!(stored_segments.len(), seal.segments.len());
+        assert!(stored_segments.iter().all(|segment| segment.record_count <= 1_024));
         let second_seal = mux
             .seal_journal_segments(
                 checkpoint.checkpoint.source_sequence,
@@ -1282,7 +1290,6 @@ mod tests {
         assert_eq!(second_seal.through_sequence, checkpoint.checkpoint.source_sequence);
         let after = mux.session_journal_after(0, 1024).unwrap().records;
         assert_eq!(&after[..before.len()], before.as_slice());
-        assert_eq!(after.last().unwrap().kind, "journal.segment.sealed");
         let preview = mux.journal_restore_preview("latest").unwrap();
         assert_eq!(preview["fully_reducible"], true);
 

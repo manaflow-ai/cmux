@@ -1170,52 +1170,26 @@ impl C1Normalizer {
 /// feeding the parser and all replay trackers. The normalizer above converts
 /// 8-bit C1 forms to this same 7-bit spelling first.
 #[derive(Default)]
-struct EmptyKittyProbeFilter {
-    pending: Vec<u8>,
-}
+struct EmptyKittyProbeFilter;
 
 impl EmptyKittyProbeFilter {
     fn write<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
-        let had_pending = !self.pending.is_empty();
-        if !had_pending && !data.windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
-            for length in 1..EMPTY_PROBE.len() {
-                if data.ends_with(&EMPTY_PROBE[..length]) {
-                    self.pending = data[data.len() - length..].to_vec();
-                    return Cow::Owned(data[..data.len() - length].to_vec());
-                }
-            }
+        if !data.windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
             return Cow::Borrowed(data);
         }
 
-        let mut input = Vec::with_capacity(self.pending.len() + data.len());
-        input.extend_from_slice(&self.pending);
-        input.extend_from_slice(data);
-        self.pending.clear();
-        let mut output = Vec::with_capacity(input.len());
+        let mut output = Vec::with_capacity(data.len());
         let mut cursor = 0;
-        let mut changed = had_pending;
-        while cursor < input.len() {
-            if input[cursor..].starts_with(EMPTY_PROBE) {
+        while cursor < data.len() {
+            if data[cursor..].starts_with(EMPTY_PROBE) {
                 cursor += EMPTY_PROBE.len();
-                changed = true;
                 continue;
             }
-            let remaining = &input[cursor..];
-            if (1..EMPTY_PROBE.len()).any(|length| {
-                remaining.len() == length && remaining == &EMPTY_PROBE[..length]
-            }) {
-                self.pending = remaining.to_vec();
-                break;
-            }
-            output.push(input[cursor]);
+            output.push(data[cursor]);
             cursor += 1;
         }
-        if !changed && self.pending.is_empty() {
-            Cow::Borrowed(data)
-        } else {
-            Cow::Owned(output)
-        }
+        Cow::Owned(output)
     }
 }
 
