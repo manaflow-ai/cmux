@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997. */
+/* cmux-tui mux protocol 12, IR 7ea59149ad31b078e3187dc8ba31abf0011fcba464a7bd7f17d45f6f6f0c5354. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997" as const;
+export const SDK_IR_SHA256 = "7ea59149ad31b078e3187dc8ba31abf0011fcba464a7bd7f17d45f6f6f0c5354" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1005,6 +1005,64 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "feed-local-handoff-abort": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-handoff-begin": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-handoff-done": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+      "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+      "See spec/commands.md for the result object."
+    ]
   },
   "focus-direction": {
     "authority": "control",
@@ -2157,7 +2215,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -8916,7 +8974,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "schema is 1.",
       "journal_writer is null for ephemeral sessions without a durable journal.",
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
-      "resource_projection is present only when the request names it in include."
+      "resource_projection is present only when the request names it in include.",
+      "write_path is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -8960,6 +9019,64 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "uptime_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "write_path": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsWritePath"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsWritePath": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start.",
+      "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    ],
+    "fields": {
+      "effect_intent_batches": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "effect_intent_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "effect_intents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "request_effect_commits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "writer_registry_locks": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15651,6 +15768,136 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ExportLayoutResult"
+    }
+  },
+  "feed-local-handoff-abort": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-handoff-begin": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-handoff-done": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "home": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "state": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminal_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "unread": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "items": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "focus-direction": {

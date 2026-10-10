@@ -4,6 +4,9 @@
 declare namespace Cmux {
   type AddressId = string
   type AgentId = string
+  type AgentMessageDelivery = { recipient: string; state: Cmux.AgentMessageState; attempts: string; updated_at_ms: string; via: string | null; error: string | null }
+  type AgentMessageSnapshot = { id: string; session_id: string /* session_… */; thread_id: string; kind: "message" | "reply"; sender: string; sender_name: string | null; recipients: Array<string>; body: string; created_at_ms: string; in_reply_to: string | null; references: Array<string>; deliveries: Array<Cmux.AgentMessageDelivery> }
+  type AgentMessageState = "queued" | "delivered" | "acknowledged" | "failed"
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
@@ -260,6 +263,7 @@ declare namespace Cmux {
   type RunError = { code: string; message: string }
   type RunId = string
   type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
+  type RunWithBody = { id: Cmux.RunId; automation: Cmux.AutomationId; automation_version: number; owner: Cmux.TeamId; trigger: { id: Cmux.TriggerId | null; type: string; scheduled_at?: number; delivery_id?: string; parent_run?: Cmux.RunId; root_run?: Cmux.RunId; depth?: number }; state: Cmux.RunState; step: number; created_at: number; started_at: number | null; finished_at: number | null; error: Cmux.RunError | null; outcome: { goal_met: boolean; summary?: string } | null; body: Cmux.Body }
   type SavedTabGroupReopenResult = { saved_tab_group_id: Cmux.StateId; tab_group: Cmux.TabGroupSnapshot }
   type SavedTabGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: Cmux.GroupColor; members: Array<Cmux.SavedTabMemberSnapshot>; index: number; updated_at_ms: string }
   type SavedTabMemberSnapshot = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; engine: "webkit" | "cef" | null; browser_profile_id: string | null }
@@ -396,6 +400,14 @@ interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
     list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
+    message: {
+      /** `agent.message.list` (read, scope `agent:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; recipient?: string; sender?: string; thread_id?: string; state?: Cmux.AgentMessageState; limit?: number; oldest_first?: boolean }, Array<Cmux.AgentMessageSnapshot>>
+      /** `agent.message.mark` (mutation, scope `agent:write`) */
+      mark: CmuxOp<{ machine?: string; session?: string; ids: Array<string>; recipient: string; state: "delivered" | "acknowledged" | "failed"; via?: string; error?: string; expected_revision?: string }, Cmux.MutationResult<Array<Cmux.AgentMessageSnapshot>>>
+      /** `agent.message.send` (mutation, scope `agent:write`) */
+      send: CmuxOp<{ machine?: string; session?: string; recipients?: Array<string>; body: string; sender?: string; sender_name?: string; thread_id?: string; in_reply_to?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentMessageSnapshot>>
+    }
     /** `agent.report` (mutation, scope `agent:write`) */
     report: CmuxOp<{ machine?: string; session?: string; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket"; source_session?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentSnapshot>>
   }
@@ -414,8 +426,8 @@ interface CmuxGlobal {
     deploy: CmuxOp<{ automation: Cmux.AutomationId; commit: Cmux.CommitSha; expected_version?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.Automation>>
     /** `automation.get` (read, scope `automation:read`): Read one automation. */
     get: CmuxOp<{ automation: Cmux.AutomationId }, Cmux.Automation>
-    /** `automation.list` (read, scope `automation:read`): List the automations of the caller's team. */
-    list: CmuxOp<Record<string, never>, { owner: Cmux.TeamId | null; automations: Array<Cmux.Automation>; revision: string }>
+    /** `automation.list` (read, scope `automation:read`): List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
+    list: CmuxOp<{ cursor?: string; limit?: number }, { owner: Cmux.TeamId | null; automations: Array<Cmux.Automation>; automation_count?: unknown; next_cursor?: string | null; revision: string }>
     /** `automation.run` (mutation, scope `automation:execute`): Start a run of an automation now (manual trigger). */
     run: CmuxOp<{ automation: Cmux.AutomationId; expected_revision?: string }, Cmux.MutationResult<Cmux.Run>>
     runs: {
@@ -1112,6 +1124,12 @@ interface CmuxGlobal {
     unpin: CmuxOp<{ machine?: string; session?: string; workspace: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspacePlacementSnapshot>>
     /** `room.update` (mutation, scope `room:write`) */
     update: CmuxOp<{ machine?: string; session?: string; room: Cmux.StateId; name?: string; color?: string | null; icon?: string | null; theme?: string | null; browser_profile_id?: string | null; default_session_id?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.RoomSnapshot>>
+  }
+  run: {
+    /** `run.get` (read, scope `run:read`): Read one kept run with the body of the automation version that fired it. */
+    get: CmuxOp<{ run: Cmux.RunId }, Cmux.RunWithBody>
+    /** `run.list` (read, scope `run:read`): Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages). */
+    list: CmuxOp<{ automation?: Cmux.AutomationId; state?: Cmux.RunState; cursor?: string; limit?: number }, { runs: Array<Cmux.Run>; next_cursor: string | null; revision: string }>
   }
   saved_tab_group: {
     /** `saved_tab_group.delete` (mutation, scope `saved_tab_group:write`) */

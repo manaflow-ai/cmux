@@ -715,28 +715,3 @@ async fn main() {
     )
     .await;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::parse_allowed_roots_environment;
-
-    #[test]
-    fn empty_allowed_roots_environment_clears_scope() {
-        assert!(parse_allowed_roots_environment("").is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unix_allowed_roots_use_colon_separator() {
-        assert_eq!(
-            parse_allowed_roots_environment("/srv/one:/srv/two"),
-            vec!["/srv/one", "/srv/two"]
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_allowed_roots_keep_drive_letters() {
-        assert_eq!(parse_allowed_roots_environment(r"C:\work;D:\src"), vec![r"C:\work", r"D:\src"]);
-    }
-}

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997";
+inline constexpr std::string_view kProtocolIrSha256 = "7ea59149ad31b078e3187dc8ba31abf0011fcba464a7bd7f17d45f6f6f0c5354";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -143,6 +143,7 @@ struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetSizeCountsResult;
@@ -301,6 +302,11 @@ struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
 struct ExportLayoutRequest;
+struct FeedLocalHandoffAbortRequest;
+struct FeedLocalHandoffBeginRequest;
+struct FeedLocalHandoffDoneRequest;
+struct FeedLocalListRequest;
+struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -2183,6 +2189,34 @@ struct ExportLayoutResult {
     friend bool operator==(const ExportLayoutResult&, const ExportLayoutResult&) = default;
 };
 
+struct FeedLocalHandoffAbortRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffAbortRequest&, const FeedLocalHandoffAbortRequest&) = default;
+};
+
+struct FeedLocalHandoffBeginRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffBeginRequest&, const FeedLocalHandoffBeginRequest&) = default;
+};
+
+struct FeedLocalHandoffDoneRequest {
+    std::string home{};
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffDoneRequest&, const FeedLocalHandoffDoneRequest&) = default;
+};
+
+struct FeedLocalListRequest {
+    Field<std::string> state{};
+    Field<std::string> terminal_id{};
+    std::optional<bool> unread{};
+    friend bool operator==(const FeedLocalListRequest&, const FeedLocalListRequest&) = default;
+};
+
+struct FeedLocalReadRequest {
+    std::vector<std::string> items{};
+    friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
+};
+
 enum class PaneDirection {
     left,
     right,
@@ -4005,6 +4039,15 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsWritePath {
+    std::uint64_t effect_intent_batches{};
+    std::uint64_t effect_intent_failures{};
+    std::uint64_t effect_intents{};
+    std::uint64_t request_effect_commits{};
+    std::uint64_t writer_registry_locks{};
+    friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
+};
+
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -4012,6 +4055,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
+    std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
@@ -5706,6 +5750,12 @@ struct Codec<ServerStatsResult> {
 };
 
 template <>
+struct Codec<ServerStatsWritePath> {
+    static Result<Json> encode(const ServerStatsWritePath& value);
+    static Result<ServerStatsWritePath> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsWriterPhase> {
     static Result<Json> encode(const ServerStatsWriterPhase& value);
     static Result<ServerStatsWriterPhase> decode(const Json& value);
@@ -6651,6 +6701,36 @@ template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffAbortRequest> {
+    static Result<Json> encode(const FeedLocalHandoffAbortRequest& value);
+    static Result<FeedLocalHandoffAbortRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffBeginRequest> {
+    static Result<Json> encode(const FeedLocalHandoffBeginRequest& value);
+    static Result<FeedLocalHandoffBeginRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffDoneRequest> {
+    static Result<Json> encode(const FeedLocalHandoffDoneRequest& value);
+    static Result<FeedLocalHandoffDoneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalListRequest> {
+    static Result<Json> encode(const FeedLocalListRequest& value);
+    static Result<FeedLocalListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalReadRequest> {
+    static Result<Json> encode(const FeedLocalReadRequest& value);
+    static Result<FeedLocalReadRequest> decode(const Json& value);
 };
 
 template <>

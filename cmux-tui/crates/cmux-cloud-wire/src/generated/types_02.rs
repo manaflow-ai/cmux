@@ -576,6 +576,46 @@ wire_enum! {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBody {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunWithBodyTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunWithBodyOutcome>,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
 pub type ServerCapability = String;
 
 /// A Cloud machine snapshot.
@@ -816,86 +856,4 @@ pub struct TeamPolicy {
     pub values: TeamPolicyValues,
     pub updated_at: Option<i64>,
     pub updated_by: Option<String>,
-}
-
-/// Set keys of a team policy; an absent key means the product default and the user's choice.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValues {
-    #[serde(rename = "github.repoScope", default, skip_serializing_if = "Option::is_none")]
-    pub github_repo_scope: Option<TeamPolicyValuesGithubRepoScope>,
-    #[serde(rename = "github.requireOrgAdmin", default, skip_serializing_if = "Option::is_none")]
-    pub github_require_org_admin: Option<TeamPolicyValuesGithubRequireOrgAdmin>,
-    #[serde(rename = "github.repoAllowList", default, skip_serializing_if = "Option::is_none")]
-    pub github_repo_allow_list: Option<TeamPolicyValuesGithubRepoAllowList>,
-    #[serde(rename = "integrations.allowedProviders", default, skip_serializing_if = "Option::is_none")]
-    pub integrations_allowed_providers: Option<TeamPolicyValuesIntegrationsAllowedProviders>,
-    #[serde(rename = "mcp.server", default, skip_serializing_if = "Option::is_none")]
-    pub mcp_server: Option<TeamPolicyValuesMcpServer>,
-    #[serde(rename = "mcp.remoteTransport", default, skip_serializing_if = "Option::is_none")]
-    pub mcp_remote_transport: Option<TeamPolicyValuesMcpRemoteTransport>,
-    #[serde(rename = "apps.install", default, skip_serializing_if = "Option::is_none")]
-    pub apps_install: Option<TeamPolicyValuesAppsInstall>,
-    #[serde(rename = "apps.allowedTiers", default, skip_serializing_if = "Option::is_none")]
-    pub apps_allowed_tiers: Option<TeamPolicyValuesAppsAllowedTiers>,
-    #[serde(rename = "apps.allowList", default, skip_serializing_if = "Option::is_none")]
-    pub apps_allow_list: Option<TeamPolicyValuesAppsAllowList>,
-    #[serde(rename = "apps.forcedInstalls", default, skip_serializing_if = "Option::is_none")]
-    pub apps_forced_installs: Option<TeamPolicyValuesAppsForcedInstalls>,
-    #[serde(rename = "computerUse.allowed", default, skip_serializing_if = "Option::is_none")]
-    pub computer_use_allowed: Option<TeamPolicyValuesComputerUseAllowed>,
-    #[serde(rename = "browserAutomation.rawCdp", default, skip_serializing_if = "Option::is_none")]
-    pub browser_automation_raw_cdp: Option<TeamPolicyValuesBrowserAutomationRawCdp>,
-    #[serde(rename = "cloud.sandboxes", default, skip_serializing_if = "Option::is_none")]
-    pub cloud_sandboxes: Option<TeamPolicyValuesCloudSandboxes>,
-    #[serde(rename = "cloud.connectServices", default, skip_serializing_if = "Option::is_none")]
-    pub cloud_connect_services: Option<TeamPolicyValuesCloudConnectServices>,
-    #[serde(rename = "cloud.idlePause", default, skip_serializing_if = "Option::is_none")]
-    pub cloud_idle_pause: Option<TeamPolicyValuesCloudIdlePause>,
-    #[serde(rename = "telemetry.level", default, skip_serializing_if = "Option::is_none")]
-    pub telemetry_level: Option<TeamPolicyValuesTelemetryLevel>,
-    #[serde(rename = "updates.channel", default, skip_serializing_if = "Option::is_none")]
-    pub updates_channel: Option<TeamPolicyValuesUpdatesChannel>,
-    #[serde(rename = "updates.minimumVersion", default, skip_serializing_if = "Option::is_none")]
-    pub updates_minimum_version: Option<TeamPolicyValuesUpdatesMinimumVersion>,
-    #[serde(rename = "retention.cuaEventsDays", default, skip_serializing_if = "Option::is_none")]
-    pub retention_cua_events_days: Option<TeamPolicyValuesRetentionCuaEventsDays>,
-    #[serde(rename = "retention.cuaFramesDays", default, skip_serializing_if = "Option::is_none")]
-    pub retention_cua_frames_days: Option<TeamPolicyValuesRetentionCuaFramesDays>,
-    #[serde(rename = "retention.transcriptDays", default, skip_serializing_if = "Option::is_none")]
-    pub retention_transcript_days: Option<TeamPolicyValuesRetentionTranscriptDays>,
-    #[serde(rename = "retention.auditDays", default, skip_serializing_if = "Option::is_none")]
-    pub retention_audit_days: Option<TeamPolicyValuesRetentionAuditDays>,
-    #[serde(rename = "sso.enforce", default, skip_serializing_if = "Option::is_none")]
-    pub sso_enforce: Option<TeamPolicyValuesSsoEnforce>,
-    #[serde(rename = "sso.enforceForOwners", default, skip_serializing_if = "Option::is_none")]
-    pub sso_enforce_for_owners: Option<TeamPolicyValuesSsoEnforceForOwners>,
-    #[serde(rename = "sso.allowGuests", default, skip_serializing_if = "Option::is_none")]
-    pub sso_allow_guests: Option<TeamPolicyValuesSsoAllowGuests>,
-    #[serde(rename = "sso.sessionMaxAgeHours", default, skip_serializing_if = "Option::is_none")]
-    pub sso_session_max_age_hours: Option<TeamPolicyValuesSsoSessionMaxAgeHours>,
-    #[serde(rename = "sso.idleTimeoutHours", default, skip_serializing_if = "Option::is_none")]
-    pub sso_idle_timeout_hours: Option<TeamPolicyValuesSsoIdleTimeoutHours>,
-    #[serde(rename = "agents.allowedClasses", default, skip_serializing_if = "Option::is_none")]
-    pub agents_allowed_classes: Option<TeamPolicyValuesAgentsAllowedClasses>,
-    #[serde(rename = "device.settings", default, skip_serializing_if = "Option::is_none")]
-    pub device_settings: Option<TeamPolicyValuesDeviceSettings>,
-}
-
-wire_enum! {
-    TeamPolicyValuesGithubRepoScopeValue {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoScope {
-    pub value: TeamPolicyValuesGithubRepoScopeValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRequireOrgAdmin {
-    pub value: bool,
-    pub mode: PolicyMode,
 }

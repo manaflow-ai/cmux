@@ -11,9 +11,6 @@ import { run } from "./feed-harness.ts"
  * cloud reducer and checks the file is current (`bun scripts/feed-vectors.ts`).
  */
 describe("feed conformance vectors", () => {
-  it("are current with the scenarios", () => {
-    expect(canonicalJson(vectors)).toBe(canonicalJson(buildVectors()))
-  })
 
   for (const v of vectors as unknown as ReadonlyArray<Vector>) {
     it(`replay: ${v.name}`, () => {

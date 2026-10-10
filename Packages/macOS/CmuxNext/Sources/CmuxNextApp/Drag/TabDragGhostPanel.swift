@@ -15,7 +15,7 @@ import QuartzCore
 final class TabDragGhostPanel {
     let panel: NSPanel
     private let root: GhostRootView
-    private let glass: NSGlassEffectView
+    private let glass: GlassPanelView
     private let tabLayer = CALayer()
     private let thumbLayer = CALayer()
     private let cardSize: CGSize
@@ -58,6 +58,9 @@ final class TabDragGhostPanel {
         root.wantsLayer = true
         glass = Glass.makePanel(style: .regular, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
+        // The ghost is the whole content of a clear panel: before Liquid
+        // Glass the card blurs the desktop under it.
+        glass.samplesBehindWindow = true
         glass.alphaValue = 0
         root.addSubview(glass)
 
