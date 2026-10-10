@@ -56,6 +56,13 @@
   scrollbar-width: thin;
 }
 
+/* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
+   long custom pickers use their own scroll containers and Base UI keeps ordinary menus compact. */
+.ui-menu {
+  max-height: none;
+  overflow: visible;
+}
+
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
    or filtering a list never changes the composer's geometry. */
 .ui-picker-popup {

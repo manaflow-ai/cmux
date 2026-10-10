@@ -8,7 +8,8 @@
   /* A popup is a glass surface above the page, rather than a second opaque panel.  Hosts may
      provide --ui-popup-bg, but the shared material keeps enough of it transparent for the page
      to read through while the border and shadow preserve the edge at either theme. */
-  --ui-popup-glass-alpha: 88%;
+  --ui-popup-glass-alpha: var(--surface-text-min, 92%);
+  --ui-popup-blur: var(--surface-blur, blur(20px) saturate(1.4));
   --ui-popup-shadow:
     0 8px 24px color-mix(in srgb, black 18%, transparent),
     0 1px 3px color-mix(in srgb, black 14%, transparent),
@@ -27,18 +28,32 @@
   }
 }
 
-/* Every popup is an opaque surface on the dropdown layer by default (webviews/src/ui/README.md, "Layers
-   and transparency"). Zero-specificity defaults: a feature's own surface class still wins. A host maps
-   --ui-popup-bg/--ui-popup-fg to its theme (the agent pane: acpmux/styles.css), so a popup that names
-   no surface (a nested submenu, a new menu) is never see-through. */
+/* Every popup is a legible glass surface on the dropdown layer by default (webviews/src/ui/README.md,
+   "Layers and transparency"). Zero-specificity defaults: a feature's own surface class still wins. A
+   host maps --ui-popup-bg/--ui-popup-fg to its theme (the agent pane: acpmux/styles.css), so a popup
+   that names no surface (a nested submenu, a new menu) still gets the same material. */
 :where(.ui-positioner) {
   z-index: var(--layer-dropdown);
 }
 :where(.ui-popup) {
   background-color: color-mix(in srgb, var(--ui-popup-bg, var(--ui-surface, Canvas)) var(--ui-popup-glass-alpha), transparent);
   color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: var(--ui-popup-blur);
+  backdrop-filter: var(--ui-popup-blur);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :where(.ui-popup) {
+    background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+:root[data-reduce-transparency] :where(.ui-popup) {
+  background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew

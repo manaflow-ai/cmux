@@ -42,7 +42,8 @@ export function EffortPicker({
   // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
   // real levels in the menu so the first arrow lands on an actionable choice.
   const visibleEfforts = efforts.filter((choice) => !isDefaultChoice(choice));
-  const selected = visibleEfforts.find((choice) => choice.id === current) ?? visibleEfforts[0];
+  const selected = efforts.find((choice) => choice.id === current) ?? efforts[0];
+  const selectedVisible = visibleEfforts.find((choice) => choice.id === current);
   const level = !selected || isDefaultChoice(selected) ? t("picker.reasoning") : selected.name;
   const fast = speed !== undefined && speed.current === speed.on;
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
@@ -83,7 +84,7 @@ export function EffortPicker({
           {visibleEfforts.length > 0 && (
             <MenuGroup label={t("picker.reasoning")}>
               <MenuRadioGroup
-                value={selected?.id ?? ""}
+                value={selectedVisible?.id ?? ""}
                 onValueChange={(next) => {
                   onPick(next);
                   setOpen(false);
