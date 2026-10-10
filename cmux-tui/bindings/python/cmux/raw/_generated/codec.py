@@ -477,6 +477,7 @@ MODEL_BY_PATH = {
     'events/frame/payload': models.FrameEvent,
     'events/frontend-projection-changed/payload': models.FrontendProjectionChangedEvent,
     'events/graphics-status/payload': models.GraphicsStatusEvent,
+    'events/history-changed/payload': models.HistoryChangedEvent,
     'events/layout-changed/payload': models.LayoutChangedEvent,
     'events/machine-usage-changed/payload': models.MachineUsageChangedEvent,
     'events/notification/payload': models.NotificationEvent,

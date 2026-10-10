@@ -4,6 +4,9 @@
 declare namespace Cmux {
   type AddressId = string
   type AgentId = string
+  type AgentMessageDelivery = { recipient: string; state: Cmux.AgentMessageState; attempts: string; updated_at_ms: string; via: string | null; error: string | null }
+  type AgentMessageSnapshot = { id: string; session_id: string /* session_… */; thread_id: string; kind: "message" | "reply"; sender: string; sender_name: string | null; recipients: Array<string>; body: string; created_at_ms: string; in_reply_to: string | null; references: Array<string>; deliveries: Array<Cmux.AgentMessageDelivery> }
+  type AgentMessageState = "queued" | "delivered" | "acknowledged" | "failed"
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
@@ -122,6 +125,17 @@ declare namespace Cmux {
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string }
+  type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
+  type HistoryPurgeResult = { purged: number }
+  type HistoryRange = "hour" | "today" | "week" | "month" | "all"
+  type HistoryRemovalResult = { removed: number; restore_id: string | null }
+  type HistoryRestoreResult = { restored: number }
+  type HistoryVisitImportResult = { imported: number }
+  type HistoryVisitRecordResult = { id: string }
+  type HistoryVisitSummary = { url: string; title: string | null; visit_count: number; last_visit_ms: string }
+  type HistoryVisitTitleResult = { updated: number }
   type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }
@@ -396,6 +410,14 @@ interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
     list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
+    message: {
+      /** `agent.message.list` (read, scope `agent:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; recipient?: string; sender?: string; thread_id?: string; state?: Cmux.AgentMessageState; limit?: number; oldest_first?: boolean }, Array<Cmux.AgentMessageSnapshot>>
+      /** `agent.message.mark` (mutation, scope `agent:write`) */
+      mark: CmuxOp<{ machine?: string; session?: string; ids: Array<string>; recipient: string; state: "delivered" | "acknowledged" | "failed"; via?: string; error?: string; expected_revision?: string }, Cmux.MutationResult<Array<Cmux.AgentMessageSnapshot>>>
+      /** `agent.message.send` (mutation, scope `agent:write`) */
+      send: CmuxOp<{ machine?: string; session?: string; recipients?: Array<string>; body: string; sender?: string; sender_name?: string; thread_id?: string; in_reply_to?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentMessageSnapshot>>
+    }
     /** `agent.report` (mutation, scope `agent:write`) */
     report: CmuxOp<{ machine?: string; session?: string; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket"; source_session?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentSnapshot>>
   }

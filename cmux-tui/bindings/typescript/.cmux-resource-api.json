@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3e57c3e9e793b2873bdaf1ae32324a1652e82bcb5df6b75417706abfc61db470",
+  "catalog_sha256": "d6d8af7f3c23d0d0ac06d13cbdb0ada801c06190f71d7f42cee5d5dd6e870577",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -159,6 +159,39 @@
     },
     "git.status": {
       "class": "read"
+    },
+    "history.backups.purge": {
+      "class": "mutation"
+    },
+    "history.clear": {
+      "class": "mutation"
+    },
+    "history.entries.list": {
+      "class": "read"
+    },
+    "history.entries.remove": {
+      "class": "mutation"
+    },
+    "history.restore": {
+      "class": "mutation"
+    },
+    "history.site.remove": {
+      "class": "mutation"
+    },
+    "history.visit.import": {
+      "class": "mutation"
+    },
+    "history.visit.record": {
+      "class": "mutation"
+    },
+    "history.visit.remove": {
+      "class": "mutation"
+    },
+    "history.visit.summaries": {
+      "class": "read"
+    },
+    "history.visit.title": {
+      "class": "mutation"
     },
     "machine.get": {
       "class": "read"

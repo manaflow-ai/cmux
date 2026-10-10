@@ -13,6 +13,18 @@
       "scope": "agent:read",
       "class": "read"
     },
+    "agent.message.list": {
+      "scope": "agent:read",
+      "class": "read"
+    },
+    "agent.message.mark": {
+      "scope": "agent:write",
+      "class": "mutation"
+    },
+    "agent.message.send": {
+      "scope": "agent:write",
+      "class": "mutation"
+    },
     "agent.report": {
       "scope": "agent:write",
       "class": "mutation"
@@ -1774,6 +1786,17 @@
     "firewall.delete",
     "frontend_projection.get",
     "frontend_projection.put",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "host.enroll",
     "host.remove",
     "install.list",
