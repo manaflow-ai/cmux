@@ -1,6 +1,9 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
 import Foundation
+#if DEBUG
+import CmuxNextRemoteBrowser
+#endif
 
 /// Tabs whose page runs on another machine (`MachineBrowserRecord`,
 /// cx-2cob slice 1), served for `cache`. Until a machine has a browser
