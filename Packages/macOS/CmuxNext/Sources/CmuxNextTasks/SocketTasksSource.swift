@@ -346,3 +346,22 @@ nonisolated final class TasksSocketConnection: @unchecked Sendable {
         }
     }
 }
+
+/// `{"id", "op", "key"?, "origin"?, "params"}` with arbitrary top-level fields.
+private nonisolated struct TasksRequestLine: Encodable {
+    var fields: [String: TasksJSON]
+    var params: [String: TasksJSON]
+
+    struct Key: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: Key.self)
+        for (key, value) in fields { try container.encode(value, forKey: Key(stringValue: key)) }
+        try container.encode(params, forKey: Key(stringValue: "params"))
+    }
+}
