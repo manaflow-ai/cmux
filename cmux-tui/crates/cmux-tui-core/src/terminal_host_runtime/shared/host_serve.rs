@@ -18,6 +18,11 @@ use super::codec::*;
 use super::host_shared::HostShared;
 use super::host_state::*;
 
+mod stdio;
+// Only the Unix host process runs this loop until the Windows host lands.
+#[cfg_attr(not(unix), allow(unused_imports))]
+pub use stdio::serve_terminal_host_stdio;
+
 pub(crate) struct LaunchOwnerConnection {
     pub(crate) host: Arc<HostShared>,
     pub(crate) claimed: bool,

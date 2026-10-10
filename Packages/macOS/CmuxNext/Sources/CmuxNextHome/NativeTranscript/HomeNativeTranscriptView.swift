@@ -49,6 +49,11 @@ public final class HomeNativeTranscriptView: NSView {
     public var isWorking = false {
         didSet { if isWorking != oldValue { transcript.isWorking = isWorking } }
     }
+    /// A click on a Chief subagent's link in agent text (the host's `link.open`).
+    public var onAppLink: ((URL) -> Void)? {
+        get { transcript.onAppLink }
+        set { transcript.onAppLink = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
