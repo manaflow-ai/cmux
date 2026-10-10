@@ -351,6 +351,11 @@ the number of records in the complete snapshot. When a snapshot has more than
 number of chunks. A one-chunk snapshot still carries these fields, so consumers
 can use the same assembly path for every change. This keeps every event below
 the event stream's 16 KiB line limit without dropping the addressed record.
+Each chunk is a separate event. If the stream reports `slow_consumer` or
+`ack.resume.gap` indicates that events are missing, discard every chunk for the
+affected `snapshot_id` and do not apply a partial snapshot. Reconnect with the
+last successfully processed sequence and wait for the next complete snapshot;
+cmux does not currently provide a dedicated program-status snapshot query.
 `transient_drop` is emitted when shell prompt-idle or child-exit cleanup removes
 working/blocked records; `dismissed` is emitted when focusing a pane removes
 done/error records. Both events are suppressed when the store is already

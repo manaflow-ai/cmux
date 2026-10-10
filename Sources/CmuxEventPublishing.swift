@@ -42,6 +42,12 @@ extension CmuxEventBus {
 
     /// Converts the package-owned payload into the event bus's JSON-compatible
     /// dictionary representation and publishes it to terminal subscribers.
+    ///
+    /// Each chunk is a separate event. Consumers must discard every chunk for
+    /// a `snapshot_id` when the stream reports `slow_consumer` or
+    /// `ack.resume.gap`, then wait for the next complete snapshot. There is no
+    /// dedicated program-status snapshot query; the next complete status event
+    /// is the recovery point.
     private func publishProgramStatusChanged(
         workspaceId: UUID,
         surfaceId: UUID,
