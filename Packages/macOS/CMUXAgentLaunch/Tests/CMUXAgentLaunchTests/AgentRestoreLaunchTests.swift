@@ -496,7 +496,7 @@ import Testing
         ))
 
         #expect(invocation.arguments == [
-            "/shim/claude", "--resume", sessionID,
+            "/shim/claude", "--resume", sessionID, "--model", "sonnet",
             "--permission-mode", "bypassPermissions",
         ])
         #expect(
