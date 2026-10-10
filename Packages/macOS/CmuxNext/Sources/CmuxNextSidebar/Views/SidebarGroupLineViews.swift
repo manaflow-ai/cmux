@@ -27,7 +27,12 @@ final class SidebarGroupLineViews {
                 let view = GroupLineView()
                 list.addSubview(view, positioned: .above, relativeTo: decorations)
                 views[line.group] = view
-                Motion.withoutAnimation { view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame }
+                Motion.withoutAnimation {
+                    view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
+                    // Fades in with its header, so it never shows over the
+                    // members' fills before they indent.
+                    view.alphaValue = animated ? 0 : 1
+                }
                 return view
             }()
             view.color = line.color
@@ -41,7 +46,10 @@ final class SidebarGroupLineViews {
         leavingViews.removeAll { $0.superview == nil }
         leavingViews += leaving.map(\.0)
         let changes = {
-            for (view, frame) in moves { view.animator().frame = frame }
+            for (view, frame) in moves {
+                view.animator().frame = frame
+                view.animator().alphaValue = 1
+            }
             for (view, frame) in leaving {
                 view.animator().frame = frame
                 view.animator().alphaValue = 0
