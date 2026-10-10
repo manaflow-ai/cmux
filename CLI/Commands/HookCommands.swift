@@ -13,7 +13,7 @@ struct HooksCommand: LegacyHookCommand {
     @Flag(name: .customLong("project")) var project = false
     // See `CMUXCLI.hooksTargetNames` for why this stays a sink instead of a
     // subcommand tree; the completion kind is what makes `cmux hooks <TAB>`
-    // offer `setup`, `uninstall`, and every agent the catalog knows.
+    // offer `setup`, `uninstall`, `feed`, and every agent the catalog knows.
     @Argument(parsing: .allUnrecognized, completion: .list(CMUXCLI.hooksTargetNames))
     var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "hooks", helpNames: [])

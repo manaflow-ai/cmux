@@ -615,7 +615,7 @@ command  hooks  aliases=-
   arg  --agent  kind=option  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovo,rovodev)
   arg  --project  kind=flag  completion=-
   arg  --yes  kind=flag  completion=-
-  arg  arguments  kind=argument  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovo,rovodev,setup,uninstall)
+  arg  arguments  kind=argument  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,feed,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovo,rovodev,setup,uninstall)
 command  identify  aliases=-
   arg  --no-caller  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom

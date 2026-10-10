@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Asserts `cmux hooks <TAB>` offers every catalog-wide verb `cmux hooks --help` documents.
 
-The verbs are the literal first words of the `cmux hooks ...` usage lines in
-CLI/cmux.swift (`setup`, `uninstall`, `feed`); `<agent>` lines are covered by
-the agent names. The offered words come from docs/cli-command-tree.txt, which
+The verbs are the literal first words of the `cmux hooks ...` lines in the help
+text in CLI/cmux.swift: `setup`, `uninstall` and `feed`, plus any agent an
+example names (`codex`, `opencode`). Placeholder `<agent>` lines are skipped. The offered words come from docs/cli-command-tree.txt, which
 test_cli_command_tree_snapshot.py ties to the built binary.
 """
 from __future__ import annotations
