@@ -597,7 +597,7 @@ struct MachinesPanelView: View {
                         for: scope.teamID,
                         name: teamName
                     )
-                    coderouterState.finishRemoval(accountID: account.id)
+                    coderouterState.finishRemoval(accountID: account.id, for: scope)
                 } catch {
                     Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
                     coderouterState.restore(account, at: previousIndex, for: scope)

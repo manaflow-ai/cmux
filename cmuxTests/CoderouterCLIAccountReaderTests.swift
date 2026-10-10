@@ -571,7 +571,7 @@ struct CoderouterAccountStateTests {
 
         // The CLI write succeeded, but the first read can still observe its
         // old account list. Keep the row pending until a later read omits it.
-        state.finishRemoval(accountID: "a2")
+        state.finishRemoval(accountID: "a2", for: Self.teamA)
         #expect(state.pendingRemovalIDs == ["a2"])
         let staleRead = state.beginRefresh(for: Self.teamA)
         #expect(
@@ -598,6 +598,31 @@ struct CoderouterAccountStateTests {
         )
         #expect(state.accounts.map(\.id) == ["a1"])
         #expect(state.pendingRemovalIDs.isEmpty)
+    }
+
+    @Test("A team switch keeps an unconfirmed removal scoped to that team")
+    func teamRoundTripKeepsRemovalHidden() {
+        var state = loaded(Self.teamA, ["a2"])
+        #expect(state.removeOptimistically(accountID: "a2", for: Self.teamA) == 0)
+        state.finishRemoval(accountID: "a2", for: Self.teamA)
+
+        state.select(Self.teamB)
+        #expect(state.pendingRemovalIDs.isEmpty)
+        state.select(Self.teamA)
+        #expect(state.pendingRemovalIDs == ["a2"])
+
+        let read = state.beginRefresh(for: Self.teamA)
+        #expect(
+            state.apply(
+                accounts: [account("a2")],
+                organizationID: "org-team-a",
+                teamScope: .teamOption,
+                for: Self.teamA,
+                startedAt: read
+            )
+        )
+        #expect(state.accounts.isEmpty)
+        #expect(state.pendingRemovalIDs == ["a2"])
     }
 }
 

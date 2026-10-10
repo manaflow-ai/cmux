@@ -20,6 +20,11 @@ struct CoderouterAccountDestination: Equatable {
     let teamScope: CoderouterTeamScope
 }
 
+private struct CoderouterAccountRemovalKey: Hashable {
+    let scope: CoderouterAccountScope
+    let accountID: String
+}
+
 /// Owns the sidebar snapshot and the scope it belongs to.
 ///
 /// Team and signed-in identity changes clear rows synchronously. A read from a
@@ -35,7 +40,8 @@ struct CoderouterAccountState: Equatable {
     /// Removals whose CLI write succeeded but whose next account read has not
     /// confirmed that the row is gone yet. These IDs remain filtered so a
     /// stale post-action read cannot briefly put a removed account back.
-    private var completedRemovalIDs: Set<String> = []
+    private var pendingRemovalKeys: Set<CoderouterAccountRemovalKey> = []
+    private var completedRemovalKeys: Set<CoderouterAccountRemovalKey> = []
     /// Every read and mutation gets a revision. A response from an older
     /// revision must never overwrite newer post-action state.
     private var revision: UInt64 = 0
@@ -46,8 +52,7 @@ struct CoderouterAccountState: Equatable {
         scope = newScope
         accounts = []
         destination = nil
-        pendingRemovalIDs = []
-        completedRemovalIDs = []
+        pendingRemovalIDs = pendingIDs(for: newScope)
         isLoadingScope = newScope != nil
     }
 
@@ -61,7 +66,6 @@ struct CoderouterAccountState: Equatable {
         accounts = []
         destination = nil
         pendingRemovalIDs = []
-        completedRemovalIDs = []
         isLoadingScope = false
     }
 
@@ -92,11 +96,14 @@ struct CoderouterAccountState: Equatable {
         // A successful removal stays pending until a read that began after the
         // write omits the ID. The first read can still be stale, so do not let
         // it publish an incorrect intermediate row.
-        let confirmedRemovals = completedRemovalIDs.filter { !returnedIDs.contains($0) }
-        for accountID in confirmedRemovals {
-            pendingRemovalIDs.remove(accountID)
-            completedRemovalIDs.remove(accountID)
+        let confirmedRemovals = completedRemovalKeys.filter {
+            $0.scope == readScope && !returnedIDs.contains($0.accountID)
         }
+        for removal in confirmedRemovals {
+            pendingRemovalKeys.remove(removal)
+            completedRemovalKeys.remove(removal)
+        }
+        pendingRemovalIDs = pendingIDs(for: readScope)
         accounts = newAccounts.filter { !pendingRemovalIDs.contains($0.id) }
         destination = CoderouterAccountDestination(organizationID: organizationID, teamScope: teamScope)
         isLoadingScope = false
@@ -123,18 +130,21 @@ struct CoderouterAccountState: Equatable {
     mutating func removeOptimistically(accountID: String, for removeScope: CoderouterAccountScope) -> Int? {
         guard removeScope == scope,
               let index = accounts.firstIndex(where: { $0.id == accountID }) else { return nil }
+        let removal = CoderouterAccountRemovalKey(scope: removeScope, accountID: accountID)
         accounts.remove(at: index)
+        pendingRemovalKeys.insert(removal)
+        completedRemovalKeys.remove(removal)
         pendingRemovalIDs.insert(accountID)
-        completedRemovalIDs.remove(accountID)
         revision &+= 1
         return index
     }
 
     /// Marks the CLI write as successful while retaining the pending filter.
     /// The next authoritative read clears it only after the account is absent.
-    mutating func finishRemoval(accountID: String) {
-        guard pendingRemovalIDs.contains(accountID) else { return }
-        completedRemovalIDs.insert(accountID)
+    mutating func finishRemoval(accountID: String, for removeScope: CoderouterAccountScope) {
+        let removal = CoderouterAccountRemovalKey(scope: removeScope, accountID: accountID)
+        guard pendingRemovalKeys.contains(removal) else { return }
+        completedRemovalKeys.insert(removal)
         revision &+= 1
     }
 
@@ -143,11 +153,23 @@ struct CoderouterAccountState: Equatable {
         at index: Int,
         for removeScope: CoderouterAccountScope
     ) {
-        pendingRemovalIDs.remove(account.id)
-        completedRemovalIDs.remove(account.id)
+        let removal = CoderouterAccountRemovalKey(scope: removeScope, accountID: account.id)
+        pendingRemovalKeys.remove(removal)
+        completedRemovalKeys.remove(removal)
         revision &+= 1
-        guard removeScope == scope, !accounts.contains(where: { $0.id == account.id }) else { return }
+        guard removeScope == scope else { return }
+        pendingRemovalIDs.remove(account.id)
+        guard !accounts.contains(where: { $0.id == account.id }) else { return }
         accounts.insert(account, at: min(index, accounts.endIndex))
+    }
+
+    private func pendingIDs(for pendingScope: CoderouterAccountScope?) -> Set<String> {
+        guard let pendingScope else { return [] }
+        return Set(
+            pendingRemovalKeys
+                .filter { $0.scope == pendingScope }
+                .map(\.accountID)
+        )
     }
 }
 
