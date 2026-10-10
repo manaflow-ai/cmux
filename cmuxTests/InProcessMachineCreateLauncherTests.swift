@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -258,7 +259,23 @@ struct InProcessMachineCreateLauncherTests {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             let destination = TabManager(autoWelcomeIfNeeded: false)
-            defer { destination.tabs.forEach { $0.teardownAllPanels() } }
+            let destinationWindowID = UUID()
+            let destinationWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false
+            )
+            destinationWindow.isReleasedWhenClosed = false
+            destinationWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(destinationWindowID.uuidString)")
+            fixture.app.registerMainWindow(
+                destinationWindow, windowId: destinationWindowID, tabManager: destination,
+                sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            defer {
+                destination.tabs.forEach { $0.teardownAllPanels() }
+                fixture.app.unregisterMainWindowContextForTesting(windowId: destinationWindowID)
+                destinationWindow.close()
+            }
             let source = fixture.manager
             fixture.catalog.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
                 workspace: { source.workspacesById[$0] ?? destination.workspacesById[$0] },
@@ -284,6 +301,8 @@ struct InProcessMachineCreateLauncherTests {
             if move {
                 let detached = try #require(source.detachWorkspace(tabId: pending.id))
                 destination.attachWorkspace(detached, select: false)
+                #expect(Workspace.liveWorkspace(id: pending.id) === pending)
+                #expect(pending.owningTabManager === destination)
                 await #expect(throws: (any Error).self) {
                     try await InProcessMachineCreateLauncher.open(
                         try invocation(workspaceID: pending.id), provider: fixture.provider, catalog: fixture.catalog,
