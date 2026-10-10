@@ -115,8 +115,8 @@ extension CmuxTuiSurfaceProvider {
         // SSH loopback aliases are distinct destinations: preserve an explicit
         // IPv6 loopback URL instead of rewriting it to the advertised IPv4 alias.
         let requestedHost = url.host?.lowercased()
-        let routeAddress = machine.isSSH && ["127.0.0.1", "localhost", "::1"].contains(requestedHost ?? "")
-            ? requestedHost! : address
+        let routeAddress = machine.isSSH && requestedHost.map(RemoteLoopbackProxyAlias.isLoopbackHost) == true
+            ? (requestedHost == "0.0.0.0" ? "127.0.0.1" : requestedHost!) : address
         guard let privateURL = CloudPortRoutePolicy().privateURL(
             url.absoluteString,
             address: routeAddress,

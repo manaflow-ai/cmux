@@ -160,7 +160,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
 
     func loopbackForward(machineID: String, target: CloudPortForwardTarget) async throws -> UInt16 {
         guard machineID == connection.id, target.port > 0, target.port <= Int(UInt16.max),
-              ["127.0.0.1", "localhost", "::1"].contains(target.host.lowercased()) else {
+              RemoteLoopbackProxyAlias.isLoopbackHost(target.host) else {
             throw CancellationError()
         }
         let key = LoopbackForwardKey(machineID: machineID, host: target.host.lowercased(), port: target.port)

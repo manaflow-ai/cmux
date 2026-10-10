@@ -31,7 +31,7 @@ public struct PrivateAddressRouteSelector<Machine: Hashable & Sendable>: Sendabl
 
     private func normalizedRouteAddress(_ address: String) -> String {
         let value = normalized(address)
-        if ["127.0.0.1", "localhost", "::1"].contains(value) { return "<loopback-alias>" }
+        if RemoteLoopbackProxyAlias.isLoopbackHost(value) { return "<loopback-alias>" }
         return value
     }
 

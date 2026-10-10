@@ -11,7 +11,7 @@ struct PrivateAddressRouteSelectorTests {
         #expect(selector.machine(forHost: "127.0.0.1", owner: "ssh:a", addresses: addresses) == "ssh:a")
     }
 
-    @Test(arguments: ["localhost", "::1", "127.0.0.1"])
+    @Test(arguments: ["localhost", "::1", "127.0.0.1", "0.0.0.0", "api.localhost"])
     func ownerLoopbackAliasesRouteToSSHMachine(host: String) {
         #expect(selector.machine(forHost: host, owner: "ssh:a", addresses: ["ssh:a": "127.0.0.1"]) == "ssh:a")
     }

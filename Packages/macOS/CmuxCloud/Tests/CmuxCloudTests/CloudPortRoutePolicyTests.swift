@@ -20,6 +20,25 @@ struct CloudPortRoutePolicyTests {
         #expect(policy.privateURL("http://localhost:3000", address: "::1", allowLoopback: true)?.host == "::1")
     }
 
+    @Test("accepts localhost subdomains and maps wildcard binds to loopback")
+    func loopbackAliasesAreSafeDestinations() {
+        #expect(policy.privateURL(
+            "http://localhost:3000/path",
+            address: "api.localhost",
+            allowLoopback: true
+        )?.host == "api.localhost")
+        #expect(policy.privateURL(
+            "http://0.0.0.0:3000/path",
+            address: "0.0.0.0",
+            allowLoopback: true
+        )?.host == "127.0.0.1")
+        #expect(policy.privateURL(
+            "http://0.0.0.0:3000/path",
+            address: "0.0.0.0",
+            allowLoopback: false
+        ) == nil)
+    }
+
     @Test("rewrites only HTTP routes to the local forward")
     func localForwardPolicy() {
         #expect(policy.localURL(

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 /// Validates Cloud and SSH browser URLs before a route is opened.
 ///
@@ -14,18 +15,25 @@ public struct CloudPortRoutePolicy: Sendable {
     /// - Parameters:
     ///   - raw: The URL string to validate and rewrite.
     ///   - address: The authenticated machine address that owns the route.
-    ///   - allowLoopback: Whether `127.0.0.1` and `::1` are valid owners.
+    ///   - allowLoopback: Whether localhost-family hosts, including
+    ///     `*.localhost` and `0.0.0.0`, are valid owners.
     /// - Returns: A rewritten URL, or `nil` when the scheme, host, or address
     ///   is outside the route policy.
     public func privateURL(_ raw: String, address: String, allowLoopback: Bool = false) -> URL? {
         guard var parts = URLComponents(string: raw),
               ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
-              let host = IPNetworkPrefix.routeHost(Self.route(for: address)),
-              !["0.0.0.0", "::"].contains(host)
+              let routeHost = IPNetworkPrefix.routeHost(Self.route(for: address))
         else { return nil }
-        if ["127.0.0.1", "localhost", "::1"].contains(host.lowercased()) {
+        let host: String
+        if RemoteLoopbackProxyAlias.isLoopbackHost(routeHost) {
             guard allowLoopback else { return nil }
+            // A wildcard bind is an advertisement for where the service
+            // listens, not a safe destination to dial. SSH loopback forwards
+            // must connect to the loopback interface explicitly.
+            host = routeHost == "0.0.0.0" ? "127.0.0.1" : routeHost
         } else {
+            guard routeHost != "::" else { return nil }
+            host = routeHost
             guard Self.isPrivateNetworkHost(host) else { return nil }
         }
         parts.host = host.contains(":") ? "[\(host)]" : host
