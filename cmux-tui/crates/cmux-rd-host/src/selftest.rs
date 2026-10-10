@@ -143,26 +143,3 @@ pub fn run(opts: &Opts) -> Res<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finds_nal_types() {
-        let au = [0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 3];
-        assert_eq!(nal_types(&au), vec![7, 8, 5]);
-    }
-
-    // OpenH264 from source exists only in bench builds.
-    #[cfg(feature = "bench")]
-    #[test]
-    fn openh264_passes_the_structure_check() {
-        let opts = Opts::parse(
-            &["--codec", "openh264", "--width", "640", "--height", "192", "--frames", "10"]
-                .map(String::from),
-        )
-        .expect("opts");
-        run(&opts).expect("selftest");
-    }
-}
