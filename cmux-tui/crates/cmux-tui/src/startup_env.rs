@@ -83,3 +83,41 @@ fn remember_chief_tools_socket() {
 pub(crate) fn chief_tools_socket() -> Option<PathBuf> {
     CHIEF_TOOLS_SOCKET.get().cloned().flatten()
 }
+
+/// Agent caller claims (cx-4nar). An owner an agent started (a Chief turn,
+/// an acpmux session) must not pass them to a person's terminals in it, or
+/// `--all-sessions` there refuses the person (cli/federation.rs
+/// `agent_marker`). acpmux sets the first three in every agent (agent.rs
+/// `spawn`); the Chief's turn env sets the owner socket (optchat-chief
+/// cmux_env.rs), a route to the Chief's own owner; cmux-tasks reads the
+/// principal, class and harness (owner.rs). The one list for both owner
+/// starts: a detached owner drops them from its command
+/// (local_owner.rs `configure_detached_owner_environment`), a foreground
+/// owner from its own environment (`take_agent_caller_env`).
+pub(crate) const AGENT_CALLER_ENV: [&str; 7] = [
+    "ACPMUX_ENV",
+    "ACPMUX_SESSION_ID",
+    "ACPMUX_SESSION_NAME",
+    "CMUX_CHIEF_OWNER_SOCKET",
+    "CMUX_AGENT_PRINCIPAL",
+    "CMUX_AGENT_CLASS",
+    "CMUX_AGENT_HARNESS",
+];
+
+/// Remove the agent caller claims from this process's environment when it
+/// runs as a foreground owner (`server start`, `--headless`, the
+/// interactive mux), so no terminal host, shell or hook it spawns inherits
+/// them. The process acts for the person whose terminals it hosts, not for
+/// the agent that started it.
+///
+/// # Safety
+///
+/// The caller must call this while no other thread exists: removing an
+/// environment variable is unsound while another thread can read the
+/// environment.
+pub(crate) unsafe fn take_agent_caller_env() {
+    for key in AGENT_CALLER_ENV {
+        // SAFETY: forwarded from this function's own contract (see # Safety).
+        unsafe { std::env::remove_var(key) };
+    }
+}
