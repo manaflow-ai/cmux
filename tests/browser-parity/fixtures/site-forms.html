@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Site Forms Fixture</title>
+<!-- Imitates the forms the site helpers act on (sites/gmail.js compose and
+     reply, sites/google-calendar.js event editor), prefilled from the URL as
+     on the real sites. ?tamper=<what> makes the page hold something other
+     than the draft, as a page script, an extension or a site change could. -->
+<body>
+<script>
+  const q = new URLSearchParams(location.search);
+  const site = q.get("site");
+  const tamper = q.get("tamper") || "";
+  const el = (html) => {
+    const t = document.createElement("template");
+    t.innerHTML = html;
+    return t.content.firstElementChild;
+  };
+  const chip = (a) => `<span data-hovercard-id="${a}">${a}</span>`;
+  const row = (field, list) => `<div class="row-${field}">${list.map(chip).join("")}<input aria-label="${field[0].toUpperCase() + field.slice(1)} recipients"></div>`;
+  const split = (v) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []);
+  // A reply composer (subject null) opens empty, with no signature, so the
+  // helper's click puts the caret where it types the body.
+  const compose = (rcpt, subject, body) => {
+    const signature = subject === null ? "" : '<div class="gmail_signature">-- Sent from the fixture</div>';
+    const form = el(`<form>${row("to", rcpt.to)}${row("cc", rcpt.cc)}${row("bcc", rcpt.bcc)}${subject === null ? "" : '<input name="subjectbox">'}<div role="textbox" aria-label="Message Body" contenteditable="true" style="min-height:3em"><div class="draft"></div>${signature}</div><div role="button" data-tooltip="Send">Send</div></form>`);
+    if (subject !== null) form.querySelector('[name="subjectbox"]').value = subject;
+    form.querySelector(".draft").textContent = body;
+    form.querySelector('[data-tooltip="Send"]').onclick = () => (document.body.innerHTML = "<p>Message sent</p>");
+    return form;
+  };
+  if (site === "gmail") {
+    const rcpt = { to: split(q.get("to")), cc: split(q.get("cc")), bcc: split(q.get("bcc")) };
+    let subject = q.get("su") || "";
+    if (tamper === "to") rcpt.to.push("eve@example.com");
+    if (tamper === "bcc") rcpt.bcc.push("eve@example.com");
+    if (tamper === "subject") subject = "Re: something else";
+    const dialog = el('<div role="dialog"></div>');
+    dialog.appendChild(compose(rcpt, subject, q.get("body") || ""));
+    if (tamper === "outside") dialog.querySelector("form").insertBefore(el(chip("eve@example.com")), dialog.querySelector('[role="textbox"]'));
+    document.body.appendChild(dialog);
+  } else if (site === "gmail-thread") {
+    // A thread whose sender Gmail's Reply addresses.
+    document.body.innerHTML = '<div role="main"><h2 class="hP">Thread subject</h2><div class="adn"><div class="a3s">Hello from the sender</div></div><div role="button" data-tooltip="Reply" tabindex="0">Reply</div></div>';
+    document.querySelector('[data-tooltip="Reply"]').onclick = () => {
+      const rcpt = { to: ["sender@example.com"], cc: tamper === "cc" ? ["eve@example.com"] : [], bcc: [] };
+      document.querySelector('[role="main"]').appendChild(compose(rcpt, null, ""));
+    };
+  } else if (site === "calendar") {
+    // The event editor Calendar's template link opens.
+    const zone = q.get("ctz") || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const [from, to] = (q.get("dates") || "").split("/");
+    const parse = (s) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(9, 11) || 0, +s.slice(11, 13) || 0));
+    let start = parse(from);
+    const end = parse(to);
+    if (tamper === "time") start = new Date(start.getTime() + 3600000);
+    const day = (d) => new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", year: "numeric" }).format(d);
+    const time = (d) => new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit", hour12: true }).format(d).replace(/\s/g, "").toLowerCase();
+    const guests = split(q.get("add"));
+    if (tamper === "guest") guests.push("eve@example.com");
+    const title = tamper === "title" ? "Another event" : q.get("text") || "";
+    document.body.innerHTML = `<a aria-label="Google Account: Me (me@example.com)" href="#">Me</a><div role="main"><input aria-label="Title"><input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time">${day(end) !== day(start) ? '<input aria-label="End date">' : ""}<div class="guests"></div><div role="button" tabindex="0">Save</div></div>`;
+    const set = (label, v) => (document.querySelector(`[aria-label="${label}"]`).value = v);
+    set("Title", title);
+    set("Start date", day(start));
+    set("Start time", time(start));
+    set("End time", time(end));
+    if (document.querySelector('[aria-label="End date"]')) set("End date", day(end));
+    const list = document.querySelector(".guests");
+    const showGuests = (all) => (list.innerHTML = all.map((g) => `<div data-email="${g}">${g}</div>`).join(""));
+    showGuests(guests.length ? ["me@example.com", ...guests] : []);
+    const finish = () => (document.querySelector('[role="main"]').innerHTML = "<p>Event saved</p>");
+    document.querySelector('[role="main"] [role="button"]').onclick = () => {
+      if (!guests.length) return finish();
+      // Save asks whether to email the guests; with tamper=late a guest is
+      // added while that dialog is open.
+      if (tamper === "late") showGuests(["me@example.com", ...guests, "eve@example.com"]);
+      const dialog = el('<div role="dialog"><p>Send invitation emails?</p><div role="button" tabindex="0">Send</div></div>');
+      dialog.querySelector('[role="button"]').onclick = () => {
+        dialog.remove();
+        finish();
+      };
+      document.body.appendChild(dialog);
+    };
+  }
+</script>
+</body>

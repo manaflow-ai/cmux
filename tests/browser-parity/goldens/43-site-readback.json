@@ -1,0 +1,23 @@
+{
+  "oracle": {},
+  "cmux": {
+    "gmail-new": {
+      "honest": "sent",
+      "to": "compose_mismatch: to",
+      "bcc": "compose_mismatch: bcc",
+      "subject": "compose_mismatch: subject",
+      "outside": "compose_mismatch: to"
+    },
+    "gmail-reply": {
+      "honest": "sent",
+      "cc": "compose_mismatch: cc"
+    },
+    "calendar-create": {
+      "honest": "saved",
+      "title": "compose_mismatch: title",
+      "time": "compose_mismatch: start",
+      "guest": "compose_mismatch: guests",
+      "late": "compose_mismatch: guests"
+    }
+  }
+}
