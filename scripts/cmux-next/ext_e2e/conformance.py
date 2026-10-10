@@ -192,11 +192,17 @@ class Run:
         for target in cdp.targets(self.app.cdp_port):
             if target.get("type") != "page" or target.get("url") != "about:blank":
                 continue
-            page = cdp.Session(target["webSocketDebuggerUrl"])
+            socket_url = target.get("webSocketDebuggerUrl")
+            if not socket_url:
+                continue
             try:
-                entries = page.call("Page.getNavigationHistory").get("entries") or []
-            finally:
-                page.close()
+                page = cdp.Session(socket_url)
+                try:
+                    entries = page.call("Page.getNavigationHistory").get("entries") or []
+                finally:
+                    page.close()
+            except (OSError, RuntimeError, ValueError):
+                continue  # the tab closed or another client holds it
             if entries and entries[0].get("url") == options:
                 self.collector.reclassify(
                     "mv3", "runtime", "openOptionsPage", "unverified",
