@@ -63,6 +63,7 @@ public final class WebKitDriver: DriverCallHandler {
             if let kind = Self.clipboardShortcut(params) { return try await clipboardKey(kind, params) }
             return try await inputKey(params)
         case "input.setFiles": return try await inputSetFiles(params)
+        case "input.drag": return try await inputDrag(params)
         case "clipboard.read": return try clipboardRead(params)
         case "clipboard.write": return try clipboardWrite(params)
         case "input.insertText": return try await inputInsertText(params)
