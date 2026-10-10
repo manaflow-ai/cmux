@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Drive our Chief (optchat-chief) on a scratch brain through one scenario.
+(This file is the only copy: other parity harnesses load it from here.)
 
-Runs on the build host (cmux-lawrence-2), never on the laptop. Starts the
+Runs on a build host, never on the laptop. Starts the
 production trio on a scratch brain home, exactly as the always-on brain runs
 (deploy/brain/install.sh), but as plain child processes of this script:
   cmux-tui --headless (the session daemon that owns the Chief conversation)

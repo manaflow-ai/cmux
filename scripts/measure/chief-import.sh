@@ -30,7 +30,7 @@ for arg in "$@"; do
 done
 [[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "chief-import.sh: base_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "chief-import.sh: claude=X.Y.Z" >&2; exit 2; }
-[[ "$sessions" =~ ^[0-9]{1,2}$ && "$sessions" -ge 1 && "$sessions" -le 64 ]] || { echo "chief-import.sh: sessions must be 1-64" >&2; exit 2; }
+[[ "$sessions" =~ ^[1-9][0-9]?$ && "$sessions" -le 64 ]] || { echo "chief-import.sh: sessions must be 1-64" >&2; exit 2; }
 [[ "$import_timeout" =~ ^[0-9]{2,5}$ ]] || { echo "chief-import.sh: timeout is seconds" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -66,16 +66,21 @@ git rev-parse HEAD > "$work/bin/REV"
 npm install --prefix "$work/cc" --no-fund --no-audit "@anthropic-ai/claude-code@$claude_version" >/dev/null
 ln -s "$work/cc/node_modules/.bin/claude" "$work/home/.local/bin/claude"
 echo "CHIEF-IMPORT-BIN claude $(HOME="$work/home" "$work/home/.local/bin/claude" --version)"
+# A worker keychain login could reach Claude Code outside HOME; the env key and
+# the route win over it, and the config dir below stays in the step. Report
+# whether one exists (the item's presence only, never its content).
+if security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1; then echo "CHIEF-IMPORT-KEYCHAIN login item present (not used: env key + route)"; else echo "CHIEF-IMPORT-KEYCHAIN no login item"; fi
 
-# Claude Code processes on the worker: this run's (started from $work/cc) and all.
-claude_count() { echo "$(pgrep -f "$work/cc/" 2>/dev/null | wc -l | tr -d ' ') $(pgrep -x claude 2>/dev/null | wc -l | tr -d ' ')"; }
+# Claude Code processes on the worker: this run's (acpmux starts the
+# $work/home/.local/bin/claude link; npm may run it under node) and all.
+claude_count() { echo "$(pgrep -f "$work/(home/\.local/bin/claude|cc/)" 2>/dev/null | wc -l | tr -d ' ') $(pgrep -f '(^|/)claude( |$)' 2>/dev/null | wc -l | tr -d ' ')"; }
 sampler() {
   while true; do
     echo "$(date +%s) $(sysctl -n vm.loadavg | tr -d '{}') $(claude_count)" >> "$work/host.txt"
     sleep 30
   done
 }
-sampler &
+sampler >/dev/null 2>&1 &
 sampler_pid=$!
 trap 'kill "$sampler_pid" 2>/dev/null || true' EXIT
 echo "CHIEF-IMPORT-LOAD start $(sysctl -n vm.loadavg) claude_procs=$(claude_count)"
@@ -83,13 +88,19 @@ status=0
 HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario import \
   --out "$work/run" --bins "$work/bin" --import-timeout "$import_timeout" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
-  --env "OPTCHAT_COMPACTOR_SESSIONS=$sessions" > "$work/driver.log" 2>&1 || status=$?
+  --env "OPTCHAT_COMPACTOR_SESSIONS=$sessions" --env "CLAUDE_CONFIG_DIR=$work/home/.claude" > "$work/driver.log" 2>&1 || status=$?
 echo "CHIEF-IMPORT-LOAD end $(sysctl -n vm.loadavg) claude_procs=$(claude_count)"
 tail -5 "$work/driver.log"
 python3 - "$work" <<'EOF' || status=$?
 import glob, json, os, statistics, sys
 work = sys.argv[1]
-ev = [json.loads(l) for f in glob.glob(os.path.join(work, "run", "traces", "*.jsonl")) for l in open(f) if l.strip()]
+def lines(f):
+    for l in open(f):
+        try:
+            yield json.loads(l)
+        except ValueError:
+            pass  # a line cut by the stop
+ev = [e for f in glob.glob(os.path.join(work, "run", "traces", "*.jsonl")) for e in lines(f)]
 n = [e for e in ev if e.get("ev") == "node"]
 if not n:
     sys.exit("CHIEF-IMPORT no node in the trace")
