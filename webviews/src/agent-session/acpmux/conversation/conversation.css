@@ -70,6 +70,32 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+.cv-user__context {
+  box-sizing: border-box;
+  max-width: 70%;
+  margin-bottom: 4px;
+  font-family: var(--cv-font);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__context > summary {
+  cursor: pointer;
+  text-align: right;
+  list-style-position: inside;
+}
+.cv-user__context-text {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
