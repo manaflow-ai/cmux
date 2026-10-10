@@ -1292,10 +1292,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
                 }
                 return 0
             default:
-                return index > 0 && isMessage(index - 1) ? 10 : 0
+                return index > 0 && isMessage(index - 1) ? ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.mediumSpace) : 0
             }
         }
-        guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
+        guard index > 0, case let .message(previous) = rows[index - 1] else { return TimestampCell.nextRowGap }
         // Gaps run body to body; the previous row's tail hangs into this one.
         let width = collectionView.bounds.width
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)

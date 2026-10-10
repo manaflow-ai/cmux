@@ -71,25 +71,44 @@ public enum ConversationTranscriptMetrics {
     /// 19.33, 22.33, 27 at Large, XL, XXL, XXXL, AX1, AX2, AX3 (caption line
     /// spacing 13, 18, 20, 22, 25, 29, 35).
     public static func space(_ base: CGFloat, captionLineSpacing: CGFloat, scale: CGFloat) -> CGFloat {
-        base
+        let factor = max(1, captionLineSpacing / referenceCaptionLineSpacing)
+        let s = scale > 0 ? scale : 1
+        return (base * factor * s).rounded() / s
     }
+
+    /// Logged `transcriptBoldTextAlignmentInsets` by caption point size.
+    private static let captionInsets: [(size: CGFloat, top: CGFloat, bottom: CGFloat)] = [
+        (11, 7.0 / 3, 3), (13, 3, 3), (15, 11.0 / 3, 10.0 / 3), (17, 13.0 / 3, 4), (20, 14.0 / 3, 5),
+        (24, 6, 17.0 / 3), (29, 7, 20.0 / 3), (34, 25.0 / 3, 8), (40, 29.0 / 3, 10),
+    ]
 
     /// `CKUIBehavior.transcriptBoldTextAlignmentInsets` (top, bottom) for the
     /// caption 2 point size (iOS 26.5 and 27.0): how far a timestamp's line
     /// box reaches beyond its type. Sizes between the logged ones interpolate.
     public static func captionAlignmentInsets(pointSize: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
-        (0, 0)
+        let table = captionInsets
+        if pointSize <= table[0].size {
+            return (table[0].top * pointSize / table[0].size, table[0].bottom * pointSize / table[0].size)
+        }
+        for (low, high) in zip(table, table.dropFirst()) where pointSize <= high.size {
+            let t = (pointSize - low.size) / (high.size - low.size)
+            return (low.top + (high.top - low.top) * t, low.bottom + (high.bottom - low.bottom) * t)
+        }
+        let last = table[table.count - 1]
+        return (last.top * pointSize / last.size, last.bottom * pointSize / last.size)
     }
 
     /// Bubble body bottom to the timestamp's line box: ChatKit puts the type
     /// `mediumLargeSpace` under the body.
     public static func timestampLineGap(captionLineSpacing: CGFloat, captionPointSize: CGFloat, scale: CGFloat) -> CGFloat {
-        13.67
+        space(mediumLargeSpace, captionLineSpacing: captionLineSpacing, scale: scale)
+            - captionAlignmentInsets(pointSize: captionPointSize).top
     }
 
     /// The timestamp's line box to the next bubble body: `mediumSpace` from
     /// the type.
     public static func timestampFollowingGap(captionLineSpacing: CGFloat, captionPointSize: CGFloat, scale: CGFloat) -> CGFloat {
-        7
+        space(mediumSpace, captionLineSpacing: captionLineSpacing, scale: scale)
+            - captionAlignmentInsets(pointSize: captionPointSize).bottom
     }
 }

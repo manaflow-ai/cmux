@@ -682,8 +682,18 @@ final class TimestampCell: UICollectionViewCell {
     }
 
     /// Messages starts the separator's line 13.67 pt under the bubble body
-    /// above it (iOS 27.0, a message two hours after the one before).
-    static let gapAfterBody: CGFloat = 41.0 / 3.0
+    /// above it at Large (19 at XL; iOS 26.5 and 27.0, a message two hours
+    /// after the one before).
+    static var gapAfterBody: CGFloat {
+        let font = ConversationTheme.captionFont
+        return ConversationTranscriptMetrics.timestampLineGap(
+            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+        )
+    }
+
+    /// The gap the transcript leaves under any row that is not a message
+    /// (the next bubble's spacing); `height` accounts for it.
+    static let nextRowGap: CGFloat = 4
 
     /// The separator's baseline below the row's top (UILabel centers the
     /// line in the label).
@@ -692,9 +702,15 @@ final class TimestampCell: UICollectionViewCell {
         return 10 + (max(18, ceil(font.lineHeight)) - font.lineHeight) / 2 + font.ascender
     }
 
-    /// Messages sets the next bubble 10.6 pt below the separator's baseline
-    /// (28.6 pt at Large); the row grows with the caption 2 timestamp font.
-    static var height: CGFloat { 28.6 + max(0, ceil(ConversationTheme.timestampFont.lineHeight) - 14) }
+    /// Messages sets the next bubble 7 pt under the separator's line box at
+    /// Large (11 at XL, 14.33 at AX1); the row ends `nextRowGap` above it.
+    static var height: CGFloat {
+        let font = ConversationTheme.captionFont
+        let below = ConversationTranscriptMetrics.timestampFollowingGap(
+            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+        )
+        return lineTop + MessageCellLayout.pixelCeil(ConversationTheme.timestampFont.lineHeight) + below - nextRowGap
+    }
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current

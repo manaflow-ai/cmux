@@ -23,7 +23,10 @@ enum ConversationTheme {
     /// is on, so bumping the weight again would double it.
     static func font(_ size: CGFloat, _ weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body, maximum: CGFloat? = nil) -> UIFont {
         cachedFont(FontRequest(name: style.rawValue, size: size, weight: weight.rawValue, maximum: maximum ?? 0)) {
-            var pointSize = scaled(size, style)
+            // Transcript captions follow the caption 2 type itself (13 pt at
+            // XL, 20 at AX1), as ChatKit's transcript fonts do; its metrics
+            // scale by line spacing and would set 15.33 pt at XL.
+            var pointSize = style == .caption2 ? size * captionFont.pointSize / 11 : scaled(size, style)
             if let maximum { pointSize = min(pointSize, maximum) }
             return .systemFont(ofSize: pointSize, weight: weight)
         }
@@ -136,11 +139,23 @@ enum ConversationTheme {
         isAccessibilitySize ? width - accessibilityBubbleInset : ConversationTranscriptMetrics.balloonMaxWidth(betweenMargins: width)
     }
 
+    /// The caption 2 font (11 pt at Large), ChatKit's `transcriptTextFont`.
+    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { .preferredFont(forTextStyle: .caption2) } }
+
+    /// A transcript space given at Large, at the current text size
+    /// (`ConversationTranscriptMetrics.space`): Messages grows every gap with
+    /// the caption line spacing above Large (between runs 14 pt at XL, 19.33
+    /// at AX1).
+    static func transcriptSpace(_ base: CGFloat) -> CGFloat {
+        let font = captionFont
+        return ConversationTranscriptMetrics.space(base, captionLineSpacing: font.lineHeight + font.leading, scale: displayScale)
+    }
+
     /// Body-to-body gap between bubbles in a run (`balloonContiguousSpace`).
-    static let groupedSpacing: CGFloat = 4
+    static var groupedSpacing: CGFloat { transcriptSpace(ConversationTranscriptMetrics.contiguousSpace) }
     /// Body-to-body gap between runs (`balloonNonContiguousSpace`); a tail
     /// hangs into it.
-    static let ungroupedSpacing: CGFloat = 10
+    static var ungroupedSpacing: CGFloat { transcriptSpace(ConversationTranscriptMetrics.nonContiguousSpace) }
     static let avatarSize: CGFloat = 32
     static let avatarGap: CGFloat = 7
     /// A timestamp separates messages this far apart.
@@ -166,8 +181,9 @@ enum ConversationTheme {
     /// body and 20 pt in from its trailing edge.
     static var footerFont: UIFont { font(11, .semibold, style: .caption2) }
     static var footerDetailFont: UIFont { font(11, style: .caption2) }
-    static var footerHeight: CGFloat { scaled(40.0 / 3, .caption2) }
-    static let footerGap: CGFloat = 6
+    static var footerHeight: CGFloat { MessageCellLayout.pixelCeil(footerFont.lineHeight) }
+    /// Body to "Delivered" (`smallTranscriptSpace`, 8.33 pt at XL).
+    static var footerGap: CGFloat { transcriptSpace(ConversationTranscriptMetrics.smallSpace) }
     static let footerInset: CGFloat = 20
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
