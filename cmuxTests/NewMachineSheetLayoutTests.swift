@@ -19,6 +19,11 @@ import Testing
 @Suite("New machine sheet layout")
 struct NewMachineSheetLayoutTests {
     private static let longName = String(repeating: "very-long-machine-name-", count: 6) + "end"
+    private static let menuAccessibilityLabels: Set<String> = [
+        String(localized: "machines.new.row.baseImage", defaultValue: "Base"),
+        String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"),
+        String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"),
+    ]
 
     @Test("long base machine names keep every control inside the sheet", arguments: NewMachineSheetLayout.allCases)
     func longBaseMachineNamesStayInsideSheet(layout: NewMachineSheetLayout) {
@@ -260,7 +265,9 @@ struct NewMachineSheetLayoutTests {
             .filter {
                 guard !$0.isHiddenOrHasHiddenAncestor else { return false }
                 let role = $0.accessibilityRole()
-                return role == .popUpButton || role == .menuButton
+                return role == .popUpButton
+                    || role == .menuButton
+                    || Self.menuAccessibilityLabels.contains($0.accessibilityLabel() ?? "")
             }
             .sorted { lhs, rhs in
                 let lhsFrame = lhs.convert(lhs.bounds, to: root)
