@@ -1,7 +1,8 @@
 //! Debug-build lock ranks (lockdep style) for the mux and surface locks.
 //!
-//! Order, outer first: `Mux::state` -> PTY geometry -> terminal -> PTY
-//! runtime -> attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
+//! Order, outer first: workspace registry -> journal writer -> registry
+//! connection -> `Mux::state` -> PTY geometry -> terminal -> PTY runtime ->
+//! attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
 //! after every rank the thread already holds. A blocking acquisition at a rank
 //! equal to or before a held rank panics in debug and test builds and names
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
@@ -15,6 +16,16 @@ use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLoc
 /// Rank of a ranked lock. A thread acquires ranks in ascending order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum LockRank {
+    /// `Mux::workspace_registry` (the registry `SignaledMutex`).
+    WorkspaceRegistry,
+    /// Not a lock: the journal writer thread holds this rank for each loop
+    /// iteration (`JournalWriterCommitScope`). It ranks after the registry,
+    /// so the writer can never take the registry lock: a request thread
+    /// holds the registry while it waits for a writer receipt.
+    JournalWriter,
+    /// `RegistryConnection`, the SQLite connection lock. It is reentrant for
+    /// its holder; only the first acquisition on a thread is ranked.
+    RegistryConnection,
     /// `Mux::state`.
     MuxState,
     /// `PtyTerminalRuntime::geometry`.
@@ -63,7 +74,8 @@ mod held {
             // crash-allow: the debug and test lock-order assertion; release builds compile it out.
             panic!(
                 "lock order violation: acquiring {name} ({rank:?}) while this thread holds \
-                 {held_name} ({held_rank:?}); the order is mux.state > pty.geometry > pty.term > \
+                 {held_name} ({held_rank:?}); the order is workspace.registry > journal.writer > \
+                 registry.connection > mux.state > pty.geometry > pty.term > \
                  pty.runtime > pty.taps > leaf (see PtyTerminalRuntime)"
             );
         }

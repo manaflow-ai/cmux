@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod effect_commit;
+
 impl Mux {
     pub fn registry_identity(&self) -> (String, String) {
         let registry = self.workspace_registry.lock().unwrap();
@@ -123,13 +125,16 @@ impl Mux {
         deltas: Option<&Value>,
     ) -> anyhow::Result<u64> {
         let mut registry = self.workspace_registry.lock().unwrap();
-        let revision = registry.commit_resource_effect(
+        let (intent, finish) = registry.prepare_effect_outcome_intent(
             idempotency_key,
             operation,
             fingerprint,
             outcome,
             deltas,
         )?;
+        // The registry stays held across the writer receipt (see
+        // effect_commit.rs); the connection and state are not held.
+        let revision = self.commit_effect_intent(&mut registry, intent, finish)?.revision();
         if deltas.is_some() {
             self.state.lock().unwrap().resource_revision = revision;
             drop(registry);
@@ -142,9 +147,13 @@ impl Mux {
     }
 
     /// Capture a post-effect live projection and commit its topology, public
-    /// deltas, and effect receipt while holding one registry -> state writer
-    /// fence. This prevents another topology writer from landing between the
-    /// captured tree and its durable revision.
+    /// deltas, and effect receipt under one registry hold. The registry
+    /// keeps every other topology writer out between the captured tree and
+    /// its durable revision. State and the connection pin are released
+    /// before the journal writer receipt wait (lock order: registry ->
+    /// connection -> state; the writer needs the connection), and state is
+    /// locked again to install the committed revision. Readers in between see
+    /// the pre-commit state and revision, as before publication.
     pub(crate) fn commit_resource_effect_projection(
         &self,
         idempotency_key: &str,
@@ -160,7 +169,7 @@ impl Mux {
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
-        let commit = registry.commit_resource_effect_patch(
+        let (intent, finish) = registry.prepare_effect_patch_intent(
             idempotency_key,
             operation,
             fingerprint,
@@ -169,8 +178,12 @@ impl Mux {
             &projection.changes,
             projection.restates_all,
         )?;
-        state.resource_revision = commit.revision;
+        drop(projection);
         drop(state);
+        let commit =
+            self.commit_effect_intent(&mut registry, intent, finish)?.into_patch_commit()?;
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
+            commit.revision;
         drop(registry);
         self.publish_resource_event();
         self.publish_pending_terminal_directories();
