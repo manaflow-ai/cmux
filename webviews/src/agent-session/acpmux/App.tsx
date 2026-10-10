@@ -355,7 +355,11 @@ const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
     return <WorkingFor row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.at === b.row.at &&
+    a.row.durationMs === b.row.durationMs,
 );
 
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
@@ -1399,12 +1403,23 @@ function AcpmuxPane() {
       : snapshot.rows;
     return withMoveRows(
       withShellRows(
-        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        withSubagentRows(
+          turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
+          expanded,
+        ),
         chatShellRuns,
       ),
       sessionMoves,
     );
-  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  }, [
+    snapshot.rows,
+    expanded,
+    snapshot.isWorking,
+    snapshot.clockOffsetMs,
+    snapshot.permissionGroups,
+    chatShellRuns,
+    sessionMoves,
+  ]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
