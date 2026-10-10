@@ -700,6 +700,8 @@ export default agentPaneEntry({
         const style = ctx.document.defaultView!.getComputedStyle(popup);
         if (style.backdropFilter === "none" && style.getPropertyValue("-webkit-backdrop-filter") === "none")
           throw new Error("shared popup is missing glass material");
+        if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
+          throw new Error("shared popup is missing its themed surface fill");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
