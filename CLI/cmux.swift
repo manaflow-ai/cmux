@@ -11804,6 +11804,15 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
+        if let rules = workspaceGroupArgumentRules(sub: sub, args: rest) {
+            try rejectUnexpectedArguments(
+                rest,
+                commandName: "workspace group \(sub)",
+                valueOptions: rules.valueOptions,
+                flags: rules.flags,
+                maxPositionals: rules.maxPositionals
+            )
+        }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
 
@@ -11811,10 +11820,11 @@ struct CMUXCLI {
             let (gidOpt, rem0) = parseOption(rest, name: "--group")
             if let gidOpt { return gidOpt }
             // Strip --window before scanning for a positional so a `--window
-            // <value>` pair never gets parsed as the group id.
+            // <value>` pair never gets parsed as the group id. After `--` the
+            // group id is taken literally.
             let (_, rem1) = parseOption(rem0, name: "--window")
-            for arg in rem1 where !arg.hasPrefix("--") {
-                return arg
+            if let positional = firstPositionalArgument(rem1, valueOptions: []) {
+                return positional
             }
             throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
         }
@@ -11849,7 +11859,7 @@ struct CMUXCLI {
             let (_, rem5) = parseOption(rem4, name: "--window")
             // Use the remainder AFTER every named option is stripped so the
             // positional name lookup can't pick up --from/--window values.
-            let resolvedName = nameOpt ?? rem5.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let resolvedName = nameOpt ?? firstPositionalArgument(rem5, valueOptions: []) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
             if let idempotencyOpt { params["idempotency_key"] = idempotencyOpt }
@@ -11895,10 +11905,23 @@ struct CMUXCLI {
 
         case "rename":
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let gid = try resolveGroupId(in: rem0)
+            let (groupOpt, rem1) = parseOption(rem0, name: "--group")
+            // Strip --window too, so its value is never read as the new name.
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            var positionals: [String] = []
+            var pastTerminator = false
+            for argument in rem2 {
+                if !pastTerminator, argument == "--" {
+                    pastTerminator = true
+                } else if pastTerminator || !argument.hasPrefix("-") {
+                    positionals.append(argument)
+                }
+            }
+            guard let gid = groupOpt ?? positionals.first else {
+                throw CLIError(message: "workspace-group rename requires a group id or --group <id>")
+            }
             params["group_id"] = gid
-            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
-            guard let newName = nameOpt ?? positional.first else {
+            guard let newName = nameOpt ?? positionals.dropFirst(groupOpt == nil ? 1 : 0).first else {
                 throw CLIError(message: "rename requires --name <name>")
             }
             params["name"] = newName
@@ -11931,7 +11954,7 @@ struct CMUXCLI {
             // Strip --window before scanning for a positional so a `--window
             // <value>` pair never gets parsed as the workspace id.
             let (_, rem1) = parseOption(rem0, name: "--window")
-            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
+            guard let wsId = wsOpt ?? firstPositionalArgument(rem1, valueOptions: []) else {
                 throw CLIError(message: "remove requires --workspace <id>")
             }
             params["workspace_id"] = wsId
@@ -11972,7 +11995,7 @@ struct CMUXCLI {
             // when both flags are passed; --hex wins.
             let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex/--color with no value (or `""`) as a clear.
+            // Leaving out --hex/--color, or passing `""`, clears the color.
             params["hex"] = hexOpt ?? colorOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -12019,6 +12042,44 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+    }
+
+    /// The options each `workspace group` subcommand reads a value for, the
+    /// flags it takes, and how many positionals are left once named options
+    /// fill their part (a `--group` replaces the positional group id).
+    /// `list` and unknown subcommands aren't checked here.
+    private func workspaceGroupArgumentRules(
+        sub: String,
+        args: [String]
+    ) -> (valueOptions: Set<String>, flags: Set<String>, maxPositionals: Int)? {
+        func given(_ name: String) -> Bool { optionValue(args, name: name) != nil }
+        let groupSlot = given("--group") ? 0 : 1
+        switch sub {
+        case "create":
+            return (["--name", "--cwd", "--from", "--idempotency-key", "--external-id", "--window"], [], given("--name") ? 0 : 1)
+        case "ungroup":
+            return (["--group", "--window"], ["--remove-generated-anchor"], groupSlot)
+        case "delete":
+            return (["--group", "--window"], ["--close-workspaces", "--remove-generated-anchor"], groupSlot)
+        case "rename":
+            return (["--name", "--group", "--window"], [], groupSlot + (given("--name") ? 0 : 1))
+        case "collapse", "expand", "pin", "unpin", "focus":
+            return (["--group", "--window"], [], groupSlot)
+        case "add", "set-anchor":
+            return (["--group", "--workspace", "--window"], [], 0)
+        case "remove":
+            return (["--workspace", "--window"], [], given("--workspace") ? 0 : 1)
+        case "new-workspace":
+            return (["--placement", "--group", "--window"], [], groupSlot)
+        case "set-color":
+            return (["--hex", "--color", "--group", "--window"], [], groupSlot)
+        case "set-icon":
+            return (["--symbol", "--icon", "--group", "--window"], [], groupSlot)
+        case "move":
+            return (["--to-index", "--before", "--after", "--group", "--window"], [], groupSlot)
+        default:
+            return nil
         }
     }
 
