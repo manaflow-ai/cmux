@@ -154,7 +154,7 @@ final class TabCell {
     }
 
     static let noActions: [String: any CAAction] = [
-        "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
+        "bounds": NSNull(), "position": NSNull(), "zPosition": NSNull(), "contents": NSNull(), "opacity": NSNull(),
         "hidden": NSNull(), "string": NSNull(), "foregroundColor": NSNull(), "backgroundColor": NSNull(),
         "mask": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "sublayers": NSNull(),
     ]

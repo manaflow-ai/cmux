@@ -30,7 +30,8 @@ extension TabCell {
     /// The lifted tab rides above everything; the selected tab above its
     /// neighbors, so a reorder passes it over them (`occlude(by:)`).
     func updateStacking() {
-        layer.zPosition = isLifted ? 10 : isSelected ? 1 : 0
+        // Below group chips (1), above the other tabs.
+        layer.zPosition = isLifted ? 10 : isSelected ? 0.5 : 0
     }
 
     /// Hides the part of this tab under `cover` (the selected pill passing
@@ -66,8 +67,9 @@ enum TabOcclusion {
             guard let cell = cells[id], cell.frame.width > 0 else { return nil }
             return cell.layer.convert(cell.pillFrameInCell, to: clip)
         }
-        for (id, cell) in cells where id != selected {
-            let crossing = cover.flatMap { cover in !cell.isLifted && cell.frame.intersects(cover) ? cover : nil }
+        for (id, cell) in cells {
+            // The selected tab itself is never covered, even one selected mid-crossing.
+            let crossing = cover.flatMap { cover in id != selected && !cell.isLifted && cell.frame.intersects(cover) ? cover : nil }
             cell.occlude(by: crossing.map { clip?.convert($0, to: cell.layer) ?? $0 })
         }
     }
