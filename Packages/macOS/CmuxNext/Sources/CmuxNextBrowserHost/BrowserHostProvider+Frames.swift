@@ -3,7 +3,8 @@ import CmuxNextBrowserAutomation
 import Foundation
 
 extension BrowserHostProvider {
-    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open"]
+    /// `cookies.restore` names a backup, not a tab: the backup records its profile.
+    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
 
     /// One frame from the host, in order, on the main actor.
     func handle(_ frame: ProviderFrame) {
@@ -31,8 +32,8 @@ extension BrowserHostProvider {
     /// changed meanwhile). Calls run concurrently, as the driver allows.
     private func handleCall(id: UInt64, method: String, params: DriverJSON) {
         let targetID: String? = if case .object(let fields) = params, case .string(let value)? = fields["targetId"] { value } else { nil }
-        // Only tabs.list and tabs.open name no tab. Every other call without
-        // a tab (cookies.*, a malformed targetId) is refused here, whatever
+        // Only tabs.list, tabs.open and cookies.restore name no tab. Every other
+        // call without a tab (cookies.get/set/clear, a malformed targetId) is refused here, whatever
         // the host forwards: the app does not rely on the host for it.
         guard targetID != nil || Self.tabLessMethods.contains(method) else {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "\(method): the app serves only calls on a tab").json))
