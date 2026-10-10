@@ -30,6 +30,9 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     /// The row has a keyboard shortcut (`PaletteItem.keycaps`): a core command,
     /// ranked first among equal matches.
     public var hasShortcut = false
+    /// `PaletteItem.suggestedRank`, and the Suggested section's index in the page's table.
+    public var suggestedRank: Int?
+    public var suggestedSectionIndex: Int?
 
     public init(
         title: String,
@@ -148,5 +151,6 @@ extension PaletteSearchEntry {
         actionID = item.actionID?.rawValue
         demoted = item.isDemoted
         hasShortcut = !(item.keycaps ?? []).isEmpty
+        suggestedRank = item.suggestedRank
     }
 }
