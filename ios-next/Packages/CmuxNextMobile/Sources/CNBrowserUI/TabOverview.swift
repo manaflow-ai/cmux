@@ -1,12 +1,13 @@
 #if os(iOS)
 import CNCore
+import CNDesign
 import SwiftUI
 import UIKit
 
 
 /// One tab card: snapshot with rounded corners, close button, title row.
 struct TabCard: View {
-    var tab: BrowserTab
+    var item: TabItem
     var image: UIImage?
     var topColor: Color
     var startPage: Bool
@@ -25,7 +26,7 @@ struct TabCard: View {
     var body: some View {
         VStack(spacing: 0) {
             ScaledPage(image: image, topColor: topColor, startPage: startPage, tabs: tabs, pageSize: pageSize,
-                       safeTop: safeTop, strip: 0)
+                       safeTop: safeTop, strip: 0, terminal: item.isTerminal)
                 .frame(width: width, height: height)
                 .clipShape(.rect(cornerRadius: radius, style: .continuous))
                 .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
@@ -44,13 +45,13 @@ struct TabCard: View {
                         }
                         .buttonStyle(.plain)
                         .opacity(detailsOpacity)
-                        .accessibilityLabel("Close \(tab.title)")
+                        .accessibilityLabel("Close \(item.title)")
                     }
                 }
             HStack(spacing: 6) {
-                Image(systemName: "globe").font(.system(size: 14))
+                Image(systemName: item.isTerminal ? "apple.terminal" : "globe").font(.system(size: 14))
                     .foregroundStyle(style.colors.secondaryLabel)
-                Text(startPage ? "Start Page" : (tab.title.isEmpty ? tab.displayHost : tab.title))
+                Text(startPage ? "Start Page" : item.title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(style.colors.label)
                     .lineLimit(1)
@@ -81,6 +82,9 @@ struct ScaledPage: View {
     /// Status strip above the page in full-page points (safeTop for the
     /// full page, 0 for a card).
     var strip: CGFloat
+    /// A terminal card: the image is the terminal's text, top-aligned on the
+    /// terminal background below the status strip.
+    var terminal = false
 
     var body: some View {
         GeometryReader { geo in
@@ -95,7 +99,17 @@ struct ScaledPage: View {
     }
 
     @ViewBuilder private var content: some View {
-        if startPage {
+        if terminal {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: max(strip, safeTop))
+                if let image {
+                    Image(uiImage: image).resizable().interpolation(.medium)
+                        .frame(width: pageSize.width, height: pageSize.width * image.size.height / max(1, image.size.width))
+                }
+                Spacer(minLength: 0)
+            }
+            .background(Color.cn(\.terminalBackground))
+        } else if startPage {
             StartPageView(tabs: tabs, safeTop: strip, onOpen: { _ in })
         } else {
             VStack(spacing: 0) {
@@ -117,7 +131,7 @@ let browserScreenSpace = "cn.browser.screen"
 /// Tab overview: blurred wallpaper, 2-column grid, top controls and the
 /// bottom bar (+, "N Tabs", Done).
 struct TabOverview: View {
-    var model: BrowserModel
+    var tabs: TabsModel
     var images: [String: UIImage]
     var layout: OverviewLayout
     /// 0 while the page is full screen, 1 with the grid at rest.
@@ -135,17 +149,21 @@ struct TabOverview: View {
     var onSelect: (String) -> Void
     var onClose: (String) -> Void
     var onNewTab: () -> Void
+    /// Set when the grid also holds terminals: (+) offers both.
+    var onNewTerminal: (() -> Void)?
     var onDone: () -> Void
     var onCloseAll: () -> Void
     /// A tab being created with (+): its start-page card is already in the
     /// grid (at index tabs.count) so the zoom can land on its real frame.
     var placeholderId: String?
+    var placeholderTerminal = false
     /// Origin of the grid's scroll content in the screen's coordinate space
     /// (moves with the scroll offset). A card's screen frame is its content
     /// frame (`OverviewLayout.card`) offset by it.
     var onContentOrigin: (CGPoint) -> Void = { _ in }
 
     private let style = BrowserStyle.shared
+    @Namespace private var filterSpace
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -154,10 +172,11 @@ struct TabOverview: View {
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
-                    ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
+                    ForEach(Array(tabs.items.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
-                        TabCard(tab: tab, image: images[tab.id], topColor: Color(uiColor: model.frames[tab.id]?.topColor ?? .white),
-                                startPage: model.showsStartPage(tab.id), tabs: model.tabs, pageSize: layout.size,
+                        TabCard(item: tab, image: images[tab.id] ?? tabs.cardImage(tab.id),
+                                topColor: Color(uiColor: tabs.browser.frames[tab.id]?.topColor ?? .white),
+                                startPage: tabs.showsStartPage(tab.id), tabs: tabs.browser.tabs, pageSize: layout.size,
                                 safeTop: layout.safeTop, width: r.width, height: r.height, radius: layout.cardRadius, showsClose: true,
                                 detailsOpacity: detailsOpacity, onClose: { onClose(tab.id) })
                             .opacity(tab.id == hiddenTabId ? 0 : 1)
@@ -167,9 +186,11 @@ struct TabOverview: View {
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
                     if let placeholderId {
-                        let r = layout.card(model.tabs.count)
-                        TabCard(tab: BrowserTab(id: placeholderId, url: "", title: ""), image: nil, topColor: .white, startPage: true,
-                                tabs: model.tabs, pageSize: layout.size, safeTop: layout.safeTop, width: r.width, height: r.height,
+                        let r = layout.card(tabs.items.count)
+                        TabCard(item: placeholderTerminal ? .terminal(Terminal(id: placeholderId, title: "Terminal", cwd: "", cols: 80, rows: 24, running: true, createdAt: 0))
+                                    : .browser(BrowserTab(id: placeholderId, url: "", title: "")),
+                                image: nil, topColor: .white, startPage: !placeholderTerminal,
+                                tabs: tabs.browser.tabs, pageSize: layout.size, safeTop: layout.safeTop, width: r.width, height: r.height,
                                 radius: layout.cardRadius, showsClose: false, detailsOpacity: detailsOpacity, onClose: {})
                             .opacity(placeholderId == hiddenTabId ? 0 : 1)
                             .offset(x: r.minX, y: r.minY)
@@ -201,6 +222,36 @@ struct TabOverview: View {
         .frame(width: layout.size.width, height: layout.size.height)
     }
 
+    /// All · Browser · Terminals: one glass capsule with a glass pill under
+    /// the selected segment (Safari's tab-group switcher), at the top.
+    private var filterControl: some View {
+        HStack(spacing: 0) {
+            ForEach(TabsModel.Filter.allCases, id: \.self) { f in
+                Button {
+                    withAnimation(BrowserStyle.shared.motion.resolve(BrowserStyle.shared.motion.reflow)) { tabs.filter = f }
+                } label: {
+                    Text(f.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(tabs.filter == f ? style.colors.label : style.colors.secondaryLabel)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background {
+                            if tabs.filter == f {
+                                Capsule().fill(style.colors.label.opacity(0.1))
+                                    .matchedGeometryEffect(id: "filter.selection", in: filterSpace)
+                            }
+                        }
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(f.title), \(tabs.count(f))")
+                .accessibilityAddTraits(tabs.filter == f ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .glassEffect(.regular, in: .capsule)
+    }
+
     private var topControls: some View {
         let y = layout.safeTop + 4 + style.metrics.overviewTopControl / 2
         return ZStack(alignment: .topLeading) {
@@ -211,6 +262,10 @@ struct TabOverview: View {
                     .buttonStyle(ShellCircleButtonStyle(diameter: style.metrics.overviewTopControl))
                     .glassEffect(.regular, in: .circle)
                     .position(x: 20 + 18, y: y)
+            }
+            if tabs.includesTerminals {
+                filterControl
+                    .position(x: layout.size.width / 2, y: y)
             }
             Menu {
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
@@ -230,15 +285,31 @@ struct TabOverview: View {
 
     private var bottomBar: some View {
         let bar = layout.barRect
-        let count = model.tabs.count
+        let count = tabs.items.count
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
-                Button(action: onNewTab) {
-                    Image(systemName: "plus").font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(style.colors.label)
-                        .frame(width: 48, height: 48).contentShape(.circle)
+                Group {
+                    if let onNewTerminal {
+                        // Browser tabs and terminals: (+) asks which.
+                        Menu {
+                            Button("New Browser Tab", systemImage: "safari", action: onNewTab)
+                            Button("New Terminal", systemImage: "apple.terminal", action: onNewTerminal)
+                        } label: {
+                            Image(systemName: "plus").font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(style.colors.label)
+                                .frame(width: 48, height: 48).contentShape(.circle)
+                        }
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                    } else {
+                        Button(action: onNewTab) {
+                            Image(systemName: "plus").font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(style.colors.label)
+                                .frame(width: 48, height: 48).contentShape(.circle)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .position(x: 38 + 24, y: bar.midY)
                 .accessibilityLabel("New Tab")

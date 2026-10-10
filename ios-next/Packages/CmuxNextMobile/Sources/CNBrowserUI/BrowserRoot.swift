@@ -10,14 +10,30 @@ import UIKit
 /// toolbar, address editing, page menu, tab overview and toolbar swipes.
 public struct BrowserRoot: View {
     let connection: HostConnection
-    @State private var model: BrowserModel
+    @State private var tabs: TabsModel
 
     public init(connection: HostConnection) {
         self.connection = connection
-        _model = State(initialValue: BrowserModel(connection: connection))
+        _tabs = State(initialValue: TabsModel(connection: connection, includesTerminals: false))
     }
 
     public var body: some View {
+        TabsScreenHost(tabs: tabs, connection: connection)
+    }
+}
+
+/// Hosts `BrowserScreen` for a `TabsModel`: geometry, loading, events.
+/// Shared by `BrowserRoot` (browser tabs) and `TabsRoot` (browser tabs and
+/// terminals).
+struct TabsScreenHost: View {
+    let tabs: TabsModel
+    let connection: HostConnection
+    var terminalContent: (String) -> AnyView = { _ in AnyView(Color.black) }
+    var terminalFontStep: (Int) -> Void = { _ in }
+
+    private var model: BrowserModel { tabs.browser }
+
+    var body: some View {
         // The outermost reader respects the keyboard: SwiftUI changes its
         // bottom inset inside the keyboard's own animation, so the address
         // field rides exactly with the keyboard (no notification lag).
@@ -25,22 +41,23 @@ public struct BrowserRoot: View {
             GeometryReader { outer in
                 GeometryReader { full in
                     let kb = withKeyboard.safeAreaInsets.bottom
-                    BrowserScreen(model: model, size: full.size, safeTop: outer.safeAreaInsets.top,
+                    BrowserScreen(tabs: tabs, size: full.size, safeTop: outer.safeAreaInsets.top,
                                   safeBottom: outer.safeAreaInsets.bottom,
-                                  keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
+                                  keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0,
+                                  terminalContent: terminalContent, terminalFontStep: terminalFontStep)
                 }
                 .ignoresSafeArea()
             }
             .ignoresSafeArea(.keyboard)
         }
-        .task(id: connection.generation) { await model.reload() }
+        .task(id: connection.generation) { await tabs.reload() }
         #if DEBUG
         .onChange(of: model.activeFrame != nil) { _, hasFrame in
             if hasFrame { Task { await model.simulateDisplacementIfRequested() } }
         }
         #endif
         .task {
-            for await push in connection.pushes() { model.handle(push) }
+            for await push in connection.pushes() { tabs.handle(push) }
         }
         .task {
             for await event in connection.events(topic: HostTopic.browserDetached.rawValue) {
@@ -63,7 +80,9 @@ struct ZoomOverlay {
 }
 
 struct BrowserScreen: View {
-    let model: BrowserModel
+    let tabs: TabsModel
+    /// Browser-specific state (page stream, navigation, viewport).
+    private var model: BrowserModel { tabs.browser }
     let size: CGSize
     let safeTop: CGFloat
     let safeBottom: CGFloat
@@ -79,6 +98,8 @@ struct BrowserScreen: View {
     @State private var gridContentOrigin: CGPoint?
     /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
     @State private var newTabPending = false
+    /// The pending (+) item is a terminal.
+    @State private var newTabIsTerminal = false
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     /// While true the page's own touches are cancelled on the host.
@@ -104,9 +125,12 @@ struct BrowserScreen: View {
     private var motion: BrowserMotion { style.motion }
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
 
-    private var displaced: Bool { model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
+    private var displaced: Bool { tabs.activeTerminal == nil && model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
 
-    private var showsStartPage: Bool { creatingTab || model.showsStartPage(model.activeTabId) }
+    /// Live terminal content for a terminal tab (from the tabs root).
+    var terminalContent: (String) -> AnyView = { _ in AnyView(Color.black) }
+
+    private var showsStartPage: Bool { creatingTab || tabs.showsStartPage(tabs.activeKey) }
 
     private static let newTabMarker = "\u{0}new"
     private var zoomState: TabZoomState { zoomDriver.state }
@@ -139,17 +163,18 @@ struct BrowserScreen: View {
     private func zoomEndpoint() -> CGRect {
         let index: Int
         if zoomTabId == Self.newTabMarker {
-            index = model.tabs.count
+            index = tabs.items.count
         } else {
-            index = zoomTabId.flatMap { id in model.tabs.firstIndex { $0.id == id } } ?? (model.activeIndex ?? 0)
+            index = zoomTabId.flatMap { id in tabs.items.firstIndex { $0.id == id } } ?? (tabs.activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(model.tabs.count, index + 1))
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.items.count, index + 1))
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
-                                        editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69)
+                                        editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69,
+                                        noBack: tabs.activeTerminal != nil)
         ZStack(alignment: .topLeading) {
             pageLayer
                 .frame(width: size.width, height: size.height)
@@ -161,19 +186,21 @@ struct BrowserScreen: View {
 
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
-            if model.loaded {
-                TabOverview(model: model, images: overviewImages, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
+            if tabs.loaded {
+                TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
                             hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
                             scrollOffset: $overviewScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
-                            onClose: { id in withAnimation(motion.resolve(motion.reflow)) { model.close(id) } },
+                            onClose: { id in withAnimation(motion.resolve(motion.reflow)) { tabs.close(id) } },
                             onNewTab: newTabFromOverview,
-                            onDone: { closeOverview(selecting: model.activeTabId) },
+                            onNewTerminal: tabs.includesTerminals ? { newTerminalFromOverview() } : nil,
+                            onDone: { closeOverview(selecting: tabs.activeKey) },
                             onCloseAll: closeAll,
                             placeholderId: newTabPending ? Self.newTabMarker : nil,
+                            placeholderTerminal: newTabIsTerminal,
                             onContentOrigin: { origin in if gridContentOrigin != origin { gridContentOrigin = origin } })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)
@@ -186,7 +213,7 @@ struct BrowserScreen: View {
                 let g = zoomGeometry()
                 let content = zoomContent()
                 ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
-                           pageSize: size, safeTop: safeTop, strip: g.strip)
+                           pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
                     .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
                     #if DEBUG
@@ -202,7 +229,9 @@ struct BrowserScreen: View {
                     .allowsHitTesting(false)
             }
 
-            BrowserToolbar(chrome: chrome, tab: model.activeTab, showsStartPage: showsStartPage, size: size, safeBottom: safeBottom,
+            BrowserToolbar(chrome: chrome, tab: model.activeTab, terminal: tabs.activeTerminal,
+                           terminalHost: tabs.connection.hostInfo?.hostName ?? "",
+                           showsStartPage: showsStartPage, size: size, safeBottom: safeBottom,
                            keyboard: keyboard,
                            onBack: model.goBack, onForward: model.goForward, onReload: model.reloadOrStop,
                            onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
@@ -215,7 +244,7 @@ struct BrowserScreen: View {
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
-            if model.loaded && !overviewVisible {
+            if tabs.loaded && !overviewVisible {
                 PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: style.metrics.control, height: style.metrics.control),
                          capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
@@ -246,7 +275,7 @@ struct BrowserScreen: View {
                     .accessibilityAddTraits(.isStaticText)
             }
 
-            if let error = model.errorText, model.tabs.isEmpty {
+            if let error = model.errorText, tabs.items.isEmpty {
                 ContentUnavailableView("Browser Unavailable", systemImage: "safari", description: Text(error))
                     .frame(width: size.width, height: size.height)
                     .background(.background)
@@ -266,11 +295,17 @@ struct BrowserScreen: View {
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
         // A browser row in the drawer opens that tab (by id).
         .onChange(of: shellRoute?.nonce, initial: true) { _, _ in
-            guard let route = shellRoute, route.kind == .browserTab, let id = route.id else { return }
+            guard let route = shellRoute, let raw = route.id else { return }
+            let id: String
+            switch route.kind {
+            case .browserTab: id = raw
+            case .terminal where tabs.includesTerminals: id = TabItem.terminalPrefix + raw
+            default: return
+            }
             if chrome.editing { endEditing() }
             if chrome.menuOpen { closeMenu() }
             if overviewVisible { closeOverview(selecting: id) }
-            model.open(tabId: id)
+            tabs.open(key: id)
         }
         .onChange(of: model.thumbnails) { _, _ in if overviewVisible { captureOverviewImages() } }
         #if DEBUG
@@ -285,15 +320,26 @@ struct BrowserScreen: View {
                 }
             }
         }
-        .onChange(of: model.tabs.isEmpty) { _, empty in
+        .onChange(of: tabs.items.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.
-            if empty, model.loaded, !overviewVisible { Task { await model.newTab() } }
+            if empty, tabs.loaded, !overviewVisible { Task { await tabs.newBrowserTab() } }
         }
     }
 
     // MARK: Page
 
     @ViewBuilder private var pageLayer: some View {
+        if let terminal = tabs.activeTerminal, !chrome.swiping {
+            // A terminal tab: its live terminal fills the page (the terminal
+            // module's embeddable view), under the same floating toolbar.
+            terminalContent(terminal.id)
+                .frame(width: size.width, height: size.height)
+        } else {
+            browserPageLayer
+        }
+    }
+
+    @ViewBuilder private var browserPageLayer: some View {
         let frame = model.activeFrame
         let topColor = Color(uiColor: frame?.topColor ?? .systemBackground)
         ZStack(alignment: .topLeading) {
@@ -347,16 +393,16 @@ struct BrowserScreen: View {
     }
 
     private func swipeNeighbor(for offset: CGFloat) -> ZoomOverlay? {
-        guard let index = model.activeIndex, offset != 0 else { return nil }
+        guard let index = tabs.activeIndex, offset != 0 else { return nil }
         let next = offset < 0 ? index + 1 : index - 1
         guard next >= 0 else { return nil }
-        guard next < model.tabs.count else {
+        guard next < tabs.items.count else {
             return ZoomOverlay(tabId: "", image: nil, topColor: style.colors.startBackground, startPage: true, rect: fullRect, radius: 0, strip: 0)
         }
-        let tab = model.tabs[next]
+        let tab = tabs.items[next]
         let frame = model.frames[tab.id]
-        return ZoomOverlay(tabId: tab.id, image: model.cardImage(tab.id), topColor: Color(uiColor: frame?.topColor ?? .white),
-                           startPage: model.showsStartPage(tab.id), rect: fullRect, radius: 0, strip: 0)
+        return ZoomOverlay(tabId: tab.id, image: tabs.cardImage(tab.id), topColor: Color(uiColor: frame?.topColor ?? .white),
+                           startPage: tabs.showsStartPage(tab.id), rect: fullRect, radius: 0, strip: 0)
     }
 
     @ViewBuilder private var editingBackground: some View {
@@ -369,7 +415,7 @@ struct BrowserScreen: View {
         } else {
             AddressSuggestions(query: chrome.editText, tabs: model.tabs, activeTabId: model.activeTabId, safeTop: safeTop,
                                onSwitch: { id in
-                                   model.select(id)
+                                   tabs.select(id)
                                    endEditing()
                                },
                                onGo: go)
@@ -438,6 +484,18 @@ struct BrowserScreen: View {
     }
 
     private var menuGroups: [[PageMenuItem]] {
+        if let terminal = tabs.activeTerminal, let key = tabs.activeKey {
+            return [
+                [
+                    PageMenuItem(title: "Rename", symbol: "pencil", action: menuAction { renameTerminal(key: key, current: terminal.title) }),
+                    PageMenuItem(title: "Close Terminal", symbol: "xmark.square", action: menuAction { tabs.close(key) }),
+                ],
+                [
+                    PageMenuItem(title: "Larger Text", symbol: "textformat.size.larger", action: menuAction { terminalFontStep(1) }),
+                    PageMenuItem(title: "Smaller Text", symbol: "textformat.size.smaller", action: menuAction { terminalFontStep(-1) }),
+                ],
+            ]
+        }
         let tab = model.activeTab
         let desktop = model.isDesktop(model.activeTabId)
         return [
@@ -466,7 +524,7 @@ struct BrowserScreen: View {
                              symbol: desktop ? "iphone" : "desktopcomputer", action: menuAction(model.toggleDesktop)),
                 PageMenuItem(title: "Open on Mac", symbol: "macbook", action: menuAction(model.openOnMac)),
                 PageMenuItem(title: "Close Tab", symbol: "xmark.square", enabled: tab != nil, action: menuAction {
-                    if let id = model.activeTabId { model.close(id) }
+                    if let id = tabs.activeKey { tabs.close(id) }
                 }),
             ],
         ]
@@ -475,24 +533,27 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: model.tabs.count + (newTabPending ? 1 : 0))
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: tabs.items.count + (newTabPending ? 1 : 0))
     }
 
     /// What the zooming rect shows: the same image the card shows (or the
     /// live frame for the page), or the start page.
-    private func zoomContent() -> (image: UIImage?, topColor: Color, startPage: Bool) {
+    private func zoomContent() -> (image: UIImage?, topColor: Color, startPage: Bool, terminal: Bool) {
         guard let id = zoomTabId, id != Self.newTabMarker else {
-            return (nil, style.colors.startBackground, true)
+            return (nil, style.colors.startBackground, !newTabIsTerminal, newTabIsTerminal)
+        }
+        if TabItem.terminalId(fromKey: id) != nil {
+            return (overviewImages[id] ?? tabs.cardImage(id), .black, false, true)
         }
         let frame = model.frames[id]
-        let image = id == model.activeTabId ? (frame?.uiImage ?? overviewImages[id]) : (overviewImages[id] ?? model.cardImage(id))
-        return (image, Color(uiColor: frame?.topColor ?? .white), model.showsStartPage(id) || (creatingTab && id == model.activeTabId))
+        let image = id == model.activeTabId ? (frame?.uiImage ?? overviewImages[id]) : (overviewImages[id] ?? tabs.cardImage(id))
+        return (image, Color(uiColor: frame?.topColor ?? .white), tabs.showsStartPage(id) || (creatingTab && id == tabs.activeKey), false)
     }
 
     /// Prepares the grid when it is about to appear from the page.
     private func prepareOverview(revealing index: Int, count: Int) {
         chrome.pageKeyboard = false
-        model.refreshThumbnails()
+        tabs.refreshThumbnails()
         captureOverviewImages()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
@@ -510,15 +571,17 @@ struct BrowserScreen: View {
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
     private func openOverview() {
         if zoomState.phase == .page {
-            zoomTabId = model.activeTabId
-            prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
+            // The active tab must be in the grid to zoom into its card.
+            if let key = tabs.activeKey, !tabs.items.contains(where: { $0.id == key }) { tabs.filter = .all }
+            zoomTabId = tabs.activeKey
+            prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
         }
         zoomDriver.go(toOverview: true)
     }
 
     private func captureOverviewImages() {
         var images: [String: UIImage] = [:]
-        for tab in model.tabs { images[tab.id] = model.cardImage(tab.id) }
+        for tab in model.tabs { images[tab.id] = tabs.cardImage(tab.id) }
         overviewImages = images
     }
 
@@ -526,11 +589,11 @@ struct BrowserScreen: View {
     private func closeOverview(selecting tabId: String?) {
         guard overviewVisible else { return }
         if zoomState.phase == .overview {
-            guard let tabId, model.tabs.contains(where: { $0.id == tabId }) else {
-                if model.tabs.isEmpty { newTabFromOverview() } else { zoomTabId = model.activeTabId; zoomDriver.go(toOverview: false) }
+            guard let tabId, tabs.items.contains(where: { $0.id == tabId }) else {
+                if tabs.items.isEmpty { newTabFromOverview() } else { zoomTabId = tabs.activeKey; zoomDriver.go(toOverview: false) }
                 return
             }
-            if tabId != model.activeTabId { model.select(tabId) }
+            if tabId != tabs.activeKey { tabs.select(tabId) }
             zoomTabId = tabId
         }
         zoomDriver.go(toOverview: false)
@@ -543,19 +606,58 @@ struct BrowserScreen: View {
         guard zoomState.phase == .overview else { return }
         // The new start page's card goes into the grid now (placeholder) so
         // the zoom grows from its real frame; the created tab takes its place.
+        newTabIsTerminal = false
         newTabPending = true
         zoomTabId = Self.newTabMarker
         creatingTab = true
         zoomDriver.start(from: 1, toOverview: false)
         Task {
-            let id = await model.newTab(onCreated: { id in
+            let id = await tabs.newBrowserTab(onCreated: { id in
                 newTabPending = false
                 if zoomTabId == Self.newTabMarker { zoomTabId = id }
             })
             newTabPending = false
             creatingTab = false
-            if zoomTabId == Self.newTabMarker { zoomTabId = id ?? model.activeTabId }
+            if zoomTabId == Self.newTabMarker { zoomTabId = id ?? tabs.activeKey }
         }
+    }
+
+    /// (+) > New Terminal: the terminal's card goes into the grid at once and
+    /// the zoom grows from it into the terminal.
+    private func newTerminalFromOverview() {
+        guard zoomState.phase == .overview else { return }
+        newTabIsTerminal = true
+        newTabPending = true
+        zoomTabId = Self.newTabMarker
+        zoomDriver.start(from: 1, toOverview: false)
+        Task {
+            let key = await tabs.newTerminal(onCreated: { key in
+                newTabPending = false
+                if zoomTabId == Self.newTabMarker { zoomTabId = key }
+            })
+            newTabPending = false
+            newTabIsTerminal = false
+            if zoomTabId == Self.newTabMarker { zoomTabId = key ?? tabs.activeKey }
+        }
+    }
+
+    // MARK: Terminal tabs
+
+    /// Font step for the active terminal (the tabs root wires the terminal module).
+    var terminalFontStep: (Int) -> Void = { _ in }
+
+    private func renameTerminal(key: String, current: String) {
+        let alert = UIAlertController(title: "Rename Terminal", message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.text = current; $0.clearButtonMode = .whileEditing }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak alert] _ in
+            let text = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
+            if !text.isEmpty { tabs.rename(terminalKey: key, to: text) }
+        })
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              var top = scene.keyWindow?.rootViewController else { return }
+        while let p = top.presentedViewController { top = p }
+        top.present(alert, animated: true)
     }
 
     // MARK: Pinch
@@ -598,7 +700,7 @@ struct BrowserScreen: View {
         case .animating, .interactive:
             engage()
         case .page:
-            guard !chrome.editing, !chrome.menuOpen, model.activeTabId != nil || showsStartPage else {
+            guard !chrome.editing, !chrome.menuOpen, tabs.activeKey != nil || showsStartPage else {
                 session.decision = .rejected; return
             }
             // Local decision, no round trip: a pinch-in that reaches 0.96
@@ -609,8 +711,9 @@ struct BrowserScreen: View {
             let atMinimumZoom = showsStartPage || (model.activeFrame?.pageScale ?? 1) <= 1.02
             let moving = session.movementStart.map { sample.time - $0 } ?? 0
             if sample.scale <= ZoomPinchSession.engageIn, atMinimumZoom || moving <= ZoomPinchSession.decisionWindow {
-                zoomTabId = model.activeTabId
-                prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
+                if let key = tabs.activeKey, !tabs.items.contains(where: { $0.id == key }) { tabs.filter = .all }
+                zoomTabId = tabs.activeKey
+                prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
                 engage()
             } else if sample.scale > 1.005 || (!atMinimumZoom && moving > ZoomPinchSession.decisionWindow) {
                 session.decision = .rejected
@@ -653,8 +756,8 @@ struct BrowserScreen: View {
         let v = session.velocity()
         let toOverview = PinchTracker.releaseToOverview(progress: zoomState.progress, velocity: v.p,
                                                         startedFromOverview: session.startedFromOverview, path: zoomPath())
-        if !toOverview, let id = zoomTabId, id != model.activeTabId, model.tabs.contains(where: { $0.id == id }) {
-            model.select(id)
+        if !toOverview, let id = zoomTabId, id != tabs.activeKey, tabs.items.contains(where: { $0.id == id }) {
+            tabs.select(id)
         }
         zoomDriver.release(toOverview: toOverview)
     }
@@ -662,7 +765,7 @@ struct BrowserScreen: View {
     /// The tab whose card is under `point` (screen coordinates).
     private func cardTab(at point: CGPoint) -> String? {
         let grid = overviewLayout
-        for (i, tab) in model.tabs.enumerated()
+        for (i, tab) in tabs.items.enumerated()
         where grid.zoomEndpoint(i, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll).contains(point) {
             return tab.id
         }
@@ -707,8 +810,8 @@ struct BrowserScreen: View {
     #endif
 
     private func closeAll() {
-        let ids = model.tabs.map(\.id)
-        withAnimation(motion.resolve(motion.reflow)) { for id in ids { model.close(id) } }
+        let ids = tabs.items.map(\.id)
+        withAnimation(motion.resolve(motion.reflow)) { for id in ids { tabs.close(id) } }
         newTabFromOverview()
     }
 
@@ -717,35 +820,35 @@ struct BrowserScreen: View {
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping {
             chrome.swiping = true
-            if let i = model.activeIndex {
-                if i > 0 { model.requestThumbnail(model.tabs[i - 1].id) }
-                if i + 1 < model.tabs.count { model.requestThumbnail(model.tabs[i + 1].id) }
+            if let i = tabs.activeIndex {
+                if i > 0 { tabs.requestThumbnail(tabs.items[i - 1].id) }
+                if i + 1 < tabs.items.count { tabs.requestThumbnail(tabs.items[i + 1].id) }
             }
         }
-        let atFirst = (model.activeIndex ?? 0) == 0
+        let atFirst = (tabs.activeIndex ?? 0) == 0
         chrome.swipeOffset = dx > 0 && atFirst ? dx * 0.25 : dx
     }
 
     private func swipeEnded(_ dx: CGFloat, _ predicted: CGFloat) {
         let pitch = size.width + 12
-        let index = model.activeIndex ?? 0
+        let index = tabs.activeIndex ?? 0
         let commit = abs(predicted) > size.width * 0.35 || abs(dx) > size.width * 0.5
         var target: CGFloat = 0
         var destination: String?? = nil  // .some(nil) = new tab
         if commit, dx < 0 {
             target = -pitch
-            destination = index + 1 < model.tabs.count ? .some(model.tabs[index + 1].id) : .some(nil)
+            destination = index + 1 < tabs.items.count ? .some(tabs.items[index + 1].id) : .some(nil)
         } else if commit, dx > 0, index > 0 {
             target = pitch
-            destination = .some(model.tabs[index - 1].id)
+            destination = .some(tabs.items[index - 1].id)
         }
         withAnimation(motion.resolve(motion.swipe)) { chrome.swipeOffset = target } completion: {
             switch destination {
-            case .some(.some(let id)): model.select(id)
+            case .some(.some(let id)): tabs.select(id)
             case .some(.none):
                 creatingTab = true
                 Task {
-                    await model.newTab()
+                    await tabs.newBrowserTab()
                     creatingTab = false
                 }
             case .none: break
