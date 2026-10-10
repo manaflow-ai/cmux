@@ -182,6 +182,8 @@ extension CMUXCLI {
 
         payload["session_id"] = updated.id.uuidString
         payload["session_name"] = updated.name
+        payload["tmux_session_id"] = originalRecord.tmuxBinding?.sessionID.rawValue ?? NSNull()
+        payload["surface_id"] = updated.surfaceID ?? NSNull()
         payload["socket_path"] = socketPath
         payload["mode"] = profile.mode
         let fallback = profile.attached(updated.name, surfaceID)

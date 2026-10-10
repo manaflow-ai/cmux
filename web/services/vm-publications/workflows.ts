@@ -18,6 +18,7 @@ import {
 } from "./repository";
 import {
   VmPublicationProvider,
+  VmPublicationProviderError,
   VmPublicationProviderLive,
   isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
@@ -391,7 +392,9 @@ function provisionPublicationsWaitingOnZone(input: {
     });
     for (const target of targets) {
       if (!publicationInCurrentAccount(target, { userId: input.ownerUserId, teamIds: input.teamIds })) continue;
-      if (target.publication.state !== "provisioning") continue;
+      // An `unavailable` row failed at the provider; a zone verification is
+      // the automatic retry for both, so a transient error never strands it.
+      if (target.publication.state !== "provisioning" && target.publication.state !== "unavailable") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
         provider: input.provider,
@@ -525,14 +528,17 @@ export function createPublication(input: {
     // resume this durable provisioning record after any provider failure.
     if (isCustom && domain) {
       if (domain.verificationState !== "verified") {
-        domain = yield* ensureCustomDomainVerification({
+        // A provider failure here strands the reserved row just like one in
+        // provisioning: mark it unavailable, which verify and every zone
+        // verification still retry.
+        domain = yield* markUnavailableOnProviderFailure({ repository, target, now }, ensureCustomDomainVerification({
           repository,
           provider,
           domain,
           publicationHostname: target.publication.hostname,
           ownerUserId: input.principal.userId,
           now,
-        });
+        }));
         target = { ...target, domain };
       }
       if (domain.verificationState !== "verified") return publicationDto(target);
@@ -663,6 +669,9 @@ export function updatePublicationAccess(input: {
     const publication = target.publication;
     if (access.accessMode === "team" && target.vm.billingTeamId && access.teamId !== target.vm.billingTeamId) {
       return yield* new PublicationConflictError({ reason: "invalid_access_policy" });
+    }
+    if (publication.state === "unavailable") {
+      return yield* new PublicationConflictError({ reason: "publication_failed" });
     }
     if (publication.state !== "active") {
       return yield* new PublicationProvisioningBusyError({
@@ -1030,6 +1039,40 @@ function ensureCustomDomainVerification(input: {
   });
 }
 
+/**
+ * Report a provider failure to the state machine (PUBLICATION_PROVISIONING_STATES
+ * in repository.ts). The repository decides: a row with no recorded rule moves
+ * to `unavailable`, which PATCH refuses with `publication_failed` and verify
+ * and zone verification retry; a row whose rule is recorded stays
+ * `provisioning`. Left `provisioning`, it read as "already being configured" and
+ * every PATCH answered a retryable 503 forever. Marking is best-effort and
+ * never replaces the provider's error.
+ */
+function markUnavailableOnProviderFailure<A, E, R>(
+  input: {
+    readonly repository: CloudVmPublicationRepositoryShape;
+    readonly target: CloudVmPublicationTarget;
+    readonly now: Date;
+  },
+  operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return operation.pipe(Effect.tapError((error) => {
+    if (!(error instanceof VmPublicationProviderError)) return Effect.void;
+    // Suspended so a repository that throws while building its effect is
+    // caught below like any other marking failure.
+    return Effect.suspend(() => input.repository.markPublicationUnavailable({
+      id: input.target.publication.id,
+      expectedRoutingRevision: input.target.publication.routingRevision,
+      now: input.now,
+    })).pipe(
+      Effect.asVoid,
+      Effect.catchAllCause((cause) => Effect.sync(() => {
+        console.error("[vm-publications] could not mark a failed publication unavailable", input.target.publication.id, cause);
+      })),
+    );
+  }));
+}
+
 function provisionReservedPublication(input: {
   readonly repository: CloudVmPublicationRepositoryShape;
   readonly provider: VmPublicationProviderShape;
@@ -1045,7 +1088,7 @@ function provisionReservedPublication(input: {
       publicationId: input.target.publication.id,
       ownerUserId: input.ownerUserId,
       now: input.now,
-    }, Effect.gen(function* () {
+    }, markUnavailableOnProviderFailure(input, Effect.gen(function* () {
       let domain = input.target.domain;
       if (domain?.kind === "custom") {
         if (domain.verificationState !== "verified") {
@@ -1116,7 +1159,7 @@ function provisionReservedPublication(input: {
         now: input.now,
       });
       return { ...input.target, publication: active, domain };
-    }));
+    })));
   });
 }
 
