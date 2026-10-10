@@ -390,15 +390,15 @@ cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwi
 
 ### Ich habe einen Feature-Wunsch oder einen Bug gefunden?
 
-Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star-Verlauf
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -414,11 +414,17 @@ Möglichkeiten, sich einzubringen:
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Scannen Sie den QR-Code, um der Community beizutreten.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-Code zum Beitritt zur cmux-Community" width="240" />
+</p>
 
 ## Founder's Edition
 
@@ -435,6 +441,6 @@ cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung
 
 ## Lizenz
 
-cmux ist Open Source unter [GPL-3.0-or-later](LICENSE).
+cmux ist Open Source unter [GPL-3.0-or-later](LICENSE). Die cmux-Serversoftware (`web/`, die Cloudflare-Worker und die in [LICENSE](LICENSE) aufgeführten Relay-Dienste) steht stattdessen unter der [Business Source License 1.1](web/LICENSE): Sie dürfen sie lesen, ändern und für nicht-produktive Zwecke ausführen; für den Produktivbetrieb oder Self-Hosting ist eine kommerzielle Lizenz erforderlich.
 
-Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@manaflow.com](mailto:founders@manaflow.com) für Details.
+Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@cmux.com](mailto:founders@cmux.com) für Details.

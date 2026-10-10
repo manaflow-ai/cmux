@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 
 @MainActor
 final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
@@ -8,6 +9,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     private let presentingWindowProvider: () -> NSWindow?
     private let completion: Completion
     private var didFinish = false
+    private var joinedCancellationAction: (() -> Void)?
 
     init(
         alert: NSAlert? = nil,
@@ -15,9 +17,18 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         completion: @escaping Completion
     ) {
         self.alert = alert ?? Self.makeAlert()
-        self.presentingWindowProvider = presentingWindowProvider ?? { cmuxMainWindowForModalPresentation() }
+        self.presentingWindowProvider = presentingWindowProvider ?? {
+            NSApp.cmuxMainWindowForModalPresentation()
+        }
         self.completion = completion
         super.init()
+    }
+
+    func joinCancellationAction(_ action: @escaping () -> Void) {
+        guard !didFinish else { return }
+        // Only one sole-terminal recovery can be relevant while this decision
+        // is open. Replacing the action coalesces duplicate child-exit delivery.
+        joinedCancellationAction = action
     }
 
     private static func makeAlert() -> NSAlert {
@@ -48,6 +59,15 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        alert.layout()
+        // NSAlert defers its button-stack constraints until the window enters
+        // a display/layout pass. Resolve that pass while the window is still
+        // hidden so the controls have stable, non-overlapping hit frames when
+        // it is shown (and before a synthetic test click can arrive).
+        let window = alert.window
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+
         let buttons = alert.buttons
         if buttons.indices.contains(0) {
             buttons[0].target = self
@@ -58,7 +78,6 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
             buttons[1].action = #selector(cancelQuit)
         }
 
-        let window = alert.window
         window.delegate = self
         window.level = .modalPanel
         window.center()
@@ -80,24 +99,89 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     private func finish(_ response: NSApplication.ModalResponse) {
         guard !didFinish else { return }
         didFinish = true
+        let cancellationAction = joinedCancellationAction
+        joinedCancellationAction = nil
         alert.window.delegate = nil
         alert.window.orderOut(nil)
         completion(response, alert.suppressionButton?.state ?? .off)
+        if response != .alertFirstButtonReturn {
+            cancellationAction?()
+        }
     }
 }
 
 extension AppDelegate {
+    /// Whether the quit path needs the precise dirty-workspace scan.
+    ///
+    /// The scan is only an input to a user quit in ``ConfirmQuitMode/dirtyOnly``.
+    /// Running it for an unconditional warning, a disabled warning, a dev build,
+    /// an already-confirmed request, or a session/update termination adds work
+    /// before ``NSApplication`` can commit to quitting. The precise scan also
+    /// reaches Ghostty's close-risk query, so keeping this gate narrow avoids
+    /// taking that renderer mutex on paths that ignore its result.
+    static func shouldEvaluateQuitConfirmationDirtyWorkspaces(
+        isQuitWarningConfirmed: Bool,
+        buildFlavor: BuildFlavor,
+        confirmQuitMode: ConfirmQuitMode,
+        quitReason: QuitRequestReason = .user
+    ) -> Bool {
+        guard quitReason == .user,
+              !isQuitWarningConfirmed,
+              buildFlavor != .dev else {
+            return false
+        }
+        return confirmQuitMode == .dirtyOnly
+    }
+
+    /// Requests application termination for the Cmd+Q quit path.
+    ///
+    /// The `terminate` seam exists so the quit path's *scheduling* is testable
+    /// without ending the test process, and so every Cmd+Q caller goes through
+    /// one place that decides when `NSApp.terminate` runs.
+    ///
+    /// `applicationShouldTerminate` can answer `.terminateLater` and finish the
+    /// quit from a `Task { @MainActor }` (owned runtime cleanup plus the fresh
+    /// session snapshot). `terminate` then waits for that reply in a nested
+    /// run loop, and CFRunLoop does not drain the GCD main queue from a nested
+    /// loop while the thread is already inside a main-queue callout. So a
+    /// caller that is itself a main-queue block (the debug socket's
+    /// `DispatchQueue.main.sync` hop for `simulate_shortcut cmd+q`, issue
+    /// #10788) starves the cleanup task and the quit hangs. Keyboard Cmd+Q
+    /// escaped it only because AppKit delivers that key in a run-loop event
+    /// callout.
+    static func requestApplicationTermination(
+        terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
+    ) {
+        // Run the terminate from a run-loop block, not DispatchQueue.main.async:
+        // a GCD main-queue block is itself a main-queue callout, so the nested
+        // `.terminateLater` loop would still never drain the cleanup task. A
+        // run-loop block runs outside any main-queue callout, and `.default`
+        // keeps it out of modal-panel and event-tracking loops.
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated {
+                terminate()
+            }
+        }
+    }
+
     static func pendingTerminateReply(
-        isAwaitingTerminateKills: Bool,
+        isAwaitingTerminateCleanup: Bool,
         hasActiveQuitConfirmation: Bool,
         activeQuitConfirmationOwnsTerminateRequest: Bool
     ) -> NSApplication.TerminateReply? {
-        if isAwaitingTerminateKills { return .terminateLater }
+        if isAwaitingTerminateCleanup { return .terminateLater }
         guard hasActiveQuitConfirmation else { return nil }
         return activeQuitConfirmationOwnsTerminateRequest ? .terminateLater : .terminateCancel
     }
 
     func hasQuitConfirmationDirtyWorkspaces() -> Bool {
+        // Per-window Docks die with their windows (and with the app), so their
+        // busy terminals count toward the quit warning exactly like a
+        // workspace Dock's do via `Workspace.needsConfirmClose()`.
+        if existingWindowDocks.contains(where: { $0.needsConfirmClose() }) {
+            return true
+        }
+
         var visitedManagers = Set<ObjectIdentifier>()
 
         func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
@@ -113,6 +197,8 @@ extension AppDelegate {
         if managerHasDirtyWorkspace(tabManager) {
             return true
         }
-        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+        // Quit confirmation is a lifecycle/data-safety check, so it must include
+        // windowless recoverable owners that UI-routing snapshots intentionally hide.
+        return mainWindowSessionPersistenceRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
     }
 }

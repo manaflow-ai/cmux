@@ -3,14 +3,37 @@ import Foundation
 
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
-        await connectAttemptRegistry.markAbandoned(lease: connecting.lease)
-        startAbandonedConnectionCleanup(
-            task: connecting.task,
-            lease: connecting.lease,
-            tracksRouteGate: true,
-            cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
-            lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
-        )
+        let cleanupID = UUID()
+        let cleanupTask = Task.detached {
+            do {
+                let candidate = try await connecting.task.value
+                if let cancellationCloseTask =
+                    await connecting.cancellationClose.task() {
+                    await cancellationCloseTask.value
+                }
+                await candidate.close()
+            } catch {
+                if let cancellationCloseTask =
+                    await connecting.cancellationClose.task() {
+                    await cancellationCloseTask.value
+                }
+            }
+        }
+        let registrationTask = Task {
+            [connectAttemptRegistry] in
+            await connectAttemptRegistry.handOffPhysicalCleanup(
+                lease: connecting.lease
+            ) {
+                await cleanupTask.value
+            }
+        }
+        abandonedConnectionCleanupTasks[cleanupID] = registrationTask
+        // Teardown cannot return while the cancelled dial still owns the
+        // active route lease. Transfer that exact physical lifetime first;
+        // the registry then admits one bounded recovery without waiting for
+        // a cancellation-ignoring connect or close to settle.
+        await registrationTask.value
+        abandonedConnectionCleanupTasks[cleanupID] = nil
     }
 
     func closeUninstalledConnectedCandidate(
@@ -23,7 +46,6 @@ extension MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
-            tracksRouteGate: true,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -32,94 +54,49 @@ extension MobileCoreRPCSession {
     func startAbandonedConnectionCleanup(
         task: Task<any CmxByteTransport, any Error>,
         lease: MobileRPCConnectAttemptLease?,
-        tracksRouteGate: Bool,
+        cancellationClose: MobileRPCConnectCancellationClose? = nil,
         cleanupTimeoutNanoseconds: UInt64,
         lateCloseTimeoutNanoseconds: UInt64
     ) {
-        Task.detached { [connectAttemptRegistry] in
+        let cleanupID = UUID()
+        let cleanupTask = Task.detached {
+            [connectAttemptRegistry, weak self] in
             let taskTimeout = RPCTaskTimeout()
             let cleaner = MobileRPCAbandonedConnectCleaner(
                 registry: connectAttemptRegistry,
                 lease: lease,
-                tracksRouteGate: tracksRouteGate
+                cancellationClose: cancellationClose
             )
             do {
                 let candidate = try await taskTimeout.value(
                     task,
                     timeoutNanoseconds: cleanupTimeoutNanoseconds
                 )
-                let didClose = await cleaner.closeCandidate(
+                let close = await cleaner.closeCandidate(
                     candidate,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
-                if didClose {
+                if close.completedWithinDeadline {
                     await cleaner.clearFinishedConnectGate()
                 } else {
-                    await cleaner.clearTimedOutAbandonedCleanupGate()
+                    await cleaner.handOffCloseToRegistry(close.task)
                 }
             } catch MobileShellConnectionError.requestTimedOut {
-                if tracksRouteGate {
-                    await connectAttemptRegistry.clearTimedOutAbandonedCleanup(lease: lease)
-                }
-                cleaner.closeLateAbandonedCandidate(
+                await cleaner.finishLateAbandonedCandidate(
                     task: task,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
             } catch {
-                await cleaner.clearFinishedConnectGate()
-            }
-        }
-    }
-}
-
-private struct MobileRPCAbandonedConnectCleaner: Sendable {
-    let registry: MobileRPCConnectAttemptRegistry
-    let lease: MobileRPCConnectAttemptLease?
-    let tracksRouteGate: Bool
-
-    func closeLateAbandonedCandidate(
-        task: Task<any CmxByteTransport, any Error>,
-        timeoutNanoseconds: UInt64
-    ) {
-        Task.detached {
-            let taskTimeout = RPCTaskTimeout()
-            do {
-                let candidate = try await taskTimeout.value(
-                    task,
-                    timeoutNanoseconds: timeoutNanoseconds
+                await cleaner.finishCancellationClose(
+                    timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
-                let didClose = await closeCandidate(candidate, timeoutNanoseconds: timeoutNanoseconds)
-                if didClose {
-                    await clearFinishedConnectGate()
-                } else {
-                    await clearTimedOutAbandonedCleanupGate()
-                }
-            } catch {
             }
+            await self?.abandonedConnectionCleanupDidFinish(cleanupID)
         }
+        abandonedConnectionCleanupTasks[cleanupID] = cleanupTask
     }
 
-    func closeCandidate(_ candidate: any CmxByteTransport, timeoutNanoseconds: UInt64) async -> Bool {
-        let closeTask = Task<Void, any Error> {
-            await candidate.close()
-        }
-        do {
-            try await RPCTaskTimeout().value(closeTask, timeoutNanoseconds: timeoutNanoseconds)
-            return true
-        } catch {
-            closeTask.cancel()
-            return false
-        }
-    }
-
-    func clearFinishedConnectGate() async {
-        guard tracksRouteGate else { return }
-        await registry.clearFinishedConnect(lease: lease)
-    }
-
-    func clearTimedOutAbandonedCleanupGate() async {
-        guard tracksRouteGate else { return }
-        await registry.markAbandoned(lease: lease)
-        await registry.clearTimedOutAbandonedCleanup(lease: lease)
+    private func abandonedConnectionCleanupDidFinish(_ cleanupID: UUID) {
+        abandonedConnectionCleanupTasks[cleanupID] = nil
     }
 }

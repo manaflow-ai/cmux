@@ -83,6 +83,17 @@ import Testing
         )
     }
 
+    @Test func groupScopedHeaderBottomIndicatorAlignsWithMemberRows() {
+        for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
+            let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: scale)
+
+            #expect(
+                metrics.groupScopedBottomDropIndicatorLeadingInset
+                    == SidebarWorkspaceGroupingMetrics.memberIndent
+            )
+        }
+    }
+
     @Test func groupPlusAndWorkspaceCloseStayAlignedWhenFontScaleChanges() {
         for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
             let closeButtonWidth = max(

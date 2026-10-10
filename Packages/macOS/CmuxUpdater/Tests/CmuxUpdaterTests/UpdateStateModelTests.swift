@@ -1,9 +1,55 @@
 import Foundation
 import Testing
+@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 @MainActor
 @Suite struct UpdateStateModelTests {
+    private func makeItem(_ version: String) -> SUAppcastItem {
+        SUAppcastItem(dictionary: [
+            "title": "cmux \(version)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": version,
+                "sparkle:shortVersionString": version,
+            ],
+        ]) ?? SUAppcastItem.empty()
+    }
+
+    /// Regression for #8368: `updaterDidNotFindUpdate` is shared by background probes and
+    /// foreground checks. Clearing passive detection must never answer or remove an unrelated
+    /// foreground prompt.
+    @Test func clearingDetectedUpdateDoesNotDismissForegroundPrompt() {
+        let model = UpdateStateModel()
+        let detected = makeItem("0.64.15")
+        let foreground = makeItem("0.64.16")
+        let reply = ChoiceBox()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+
+        model.recordDetectedUpdate(detected)
+        model.setState(.updateAvailable(.init(appcastItem: foreground, reply: { choice in
+            MainActor.assumeIsolated { reply.choice = choice }
+        })))
+
+        driver.handleDidNotFindUpdate(NSError(domain: SUSparkleErrorDomain, code: 1001))
+
+        #expect(model.detectedUpdateItem == nil)
+        #expect(model.detectedUpdateVersion == nil)
+        #expect(reply.choice == nil)
+        guard case .updateAvailable(let available) = model.state else {
+            Issue.record("background no-update result dismissed foreground state: \(model.state)")
+            return
+        }
+        #expect(available.appcastItem.displayVersionString == "0.64.16")
+    }
+
     @Test func setStateEmitsOnStateChangesStream() async {
         let model = UpdateStateModel()
         var iterator = model.stateChanges().makeAsyncIterator()
@@ -24,6 +70,34 @@ import Testing
 
         #expect(signal != nil)
         #expect(model.overrideState == .notFound(.init(acknowledgement: {})))
+    }
+
+    @Test func progressStateChangesCoalesceBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 50)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 90)))
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 1)
+        guard case .downloading(let download) = changes.first?.state else {
+            Issue.record("expected latest downloading state")
+            return
+        }
+        #expect(download.progress == 90)
+    }
+
+    @Test func controlStateChangesStayOrderedBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.idle)
+        model.setState(.checking(.init(cancel: {})))
+        model.setState(.idle)
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 3)
+        #expect(changes.map(\.state) == [.idle, .checking(.init(cancel: {})), .idle])
     }
 
     @Test func effectiveStatePrefersOverride() {
@@ -57,7 +131,7 @@ import Testing
 
     @Test func errorDetailsIncludesLogPath() {
         let err = NSError(domain: "cmux.update", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"])
-        let details = UpdateStateModel.errorDetails(for: err, technicalDetails: "ctx", feedURLString: "https://feed", logPath: "/tmp/x.log")
+        let details = UpdateErrorDetailsFormatter().details(for: err, technicalDetails: "ctx", feedURLString: "https://feed", logPath: "/tmp/x.log")
         #expect(details.contains("Log: /tmp/x.log"))
         #expect(details.contains("Feed: https://feed"))
         #expect(details.contains("Debug: ctx"))
@@ -74,10 +148,10 @@ import Testing
     // constant, so tests don't need to import Sparkle. Title/message assertions check English
     // substrings because `String(localized:)` falls back to its `defaultValue` under the test bundle.
 
-    /// Regression: a 4005 installation error wrapping an agent-connection timeout (the wedged
-    /// launchd-session case) adds restart guidance on top of the existing "move into Applications"
-    /// guidance, rather than replacing it. Both must be present.
-    @Test func installerAgentFailureKeepsRelocateGuidanceAndAddsRestart() {
+    /// Regression for #9660: a 4005 installation error wrapping an agent-connection timeout must
+    /// explain that endpoint security can delay the helper and direct the user to the one-time
+    /// manual upgrade. Generic permission/location guidance is inaccurate for this precise error.
+    @Test func installerAgentFailureExplainsEndpointSecurityRecovery() {
         let underlying = NSError(
             domain: "SUSparkleErrorDomain",
             code: 10,
@@ -92,8 +166,11 @@ import Testing
             ]
         )
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
-        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("retry"))
         #expect(message.localizedCaseInsensitiveContains("restart"))
+        #expect(message.localizedCaseInsensitiveContains("download"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
     @Test func installerAgentFailureHasOwnTitleAndOffersManualDownload() {
@@ -104,13 +181,19 @@ import Testing
             userInfo: [NSUnderlyingErrorKey: underlying]
         )
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(UpdateManualDownloadRecovery().url(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
     }
 
     @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 4010)
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     @Test func genericInstallFailureKeepsPermissionTitleAndOffersDownload() {
@@ -120,7 +203,7 @@ import Testing
         #expect(title.contains("Permission"))
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     /// A 4005 wrapping a non-agent installer cause (auth failure, relaunch failure) must NOT be
@@ -138,7 +221,7 @@ import Testing
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
         #expect(!title.contains("Start Updater"))
         #expect(title.contains("Permission"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     /// The agent-connection text signal classifies the failure even when no underlying error is
@@ -149,29 +232,46 @@ import Testing
             NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
         ])
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
+    }
+
+    /// Some Sparkle traces carry the exact timeout only on the top-level installation error.
+    @Test func installFailureWithStartupTimeoutTextExplainsEndpointSecurityRecovery() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4005, userInfo: [
+            NSLocalizedDescriptionKey: "An error occurred while running the updater.",
+            NSLocalizedFailureReasonErrorKey: "Timeout: agent connection was never initiated",
+        ])
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("retry"))
+        #expect(message.localizedCaseInsensitiveContains("restart"))
+        #expect(message.localizedCaseInsensitiveContains("download"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
     @Test func downloadErrorOffersManualDownload() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 2001)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
-    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002])
+    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002, 4006])
     func feedSignatureAndNoUpdateErrorsDoNotOfferManualDownload(code: Int) {
         let err = NSError(domain: "SUSparkleErrorDomain", code: code)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func diskImageErrorStillSaysMoveToApplications() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 1003)
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func nonSparkleErrorHasNoManualDownload() {
         let err = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func errorDetailsNamesInstallationError() {
@@ -180,7 +280,7 @@ import Testing
             code: 4005,
             userInfo: [NSLocalizedDescriptionKey: "boom"]
         )
-        let details = UpdateStateModel.errorDetails(
+        let details = UpdateErrorDetailsFormatter().details(
             for: err,
             technicalDetails: nil,
             feedURLString: nil,

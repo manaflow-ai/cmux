@@ -14,6 +14,8 @@ public enum UpdateState: Equatable {
     case idle
     /// Sparkle is asking whether to enable automatic checks (cmux suppresses this UI).
     case permissionRequest(PermissionRequest)
+    /// A requested check is waiting for updater readiness or an older Sparkle cycle to finish.
+    case preparingCheck(Checking)
     /// A check is in progress.
     case checking(Checking)
     /// An update was found and is awaiting the user's install/dismiss choice.
@@ -22,6 +24,8 @@ public enum UpdateState: Equatable {
     case notFound(NotFound)
     /// A check or install failed.
     case error(Error)
+    /// The user accepted the freshly resolved update and Sparkle is starting its download.
+    case startingDownload
     /// The update payload is downloading.
     case downloading(Downloading)
     /// The downloaded payload is being extracted/prepared.
@@ -39,8 +43,10 @@ public enum UpdateState: Equatable {
     /// by repeatedly confirming (checking through installing).
     public var isInstallable: Bool {
         switch self {
-        case .checking,
+        case .preparingCheck,
+                .checking,
                 .updateAvailable,
+                .startingDownload,
                 .downloading,
                 .extracting,
                 .installing:
@@ -51,9 +57,9 @@ public enum UpdateState: Equatable {
     }
 
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
-    public func cancel() {
+    @MainActor public func cancel() {
         switch self {
-        case .checking(let checking):
+        case .preparingCheck(let checking), .checking(let checking):
             checking.cancel()
         case .updateAvailable(let available):
             available.reply(.dismiss)
@@ -68,8 +74,22 @@ public enum UpdateState: Equatable {
         }
     }
 
+    /// Causally completes a Sparkle prompt/check after a newer visible state supersedes it.
+    @MainActor func finishAsSuperseded() {
+        switch self {
+        case .preparingCheck(let checking), .checking(let checking):
+            checking.cancelAsSuperseded()
+        case .updateAvailable(let available):
+            available.reply.consume(.dismiss, source: .superseded)
+        case .notFound(let notFound):
+            notFound.acknowledgement()
+        default:
+            break
+        }
+    }
+
     /// Confirms the current phase, installing the update when one is available.
-    public func confirm() {
+    @MainActor public func confirm() {
         switch self {
         case .updateAvailable(let available):
             available.reply(.install)
@@ -84,6 +104,8 @@ public enum UpdateState: Equatable {
             return true
         case (.permissionRequest, .permissionRequest):
             return true
+        case (.preparingCheck, .preparingCheck):
+            return true
         case (.checking, .checking):
             return true
         case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
@@ -92,6 +114,8 @@ public enum UpdateState: Equatable {
             return true
         case (.error(let lErr), .error(let rErr)):
             return lErr.error.localizedDescription == rErr.error.localizedDescription
+        case (.startingDownload, .startingDownload):
+            return true
         case (.downloading(let lDown), .downloading(let rDown)):
             return lDown.progress == rDown.progress && lDown.expectedLength == rDown.expectedLength
         case (.extracting(let lExt), .extracting(let rExt)):
@@ -109,6 +133,8 @@ public enum UpdateState: Equatable {
         public let acknowledgement: () -> Void
 
         /// Creates the payload.
+        ///
+        /// - Parameter acknowledgement: Tells Sparkle the result was acknowledged.
         public init(acknowledgement: @escaping () -> Void) {
             self.acknowledgement = acknowledgement
         }
@@ -130,12 +156,27 @@ public enum UpdateState: Equatable {
 
     /// Payload for ``UpdateState/checking(_:)``.
     public struct Checking {
-        /// Cancels the in-progress check.
-        public let cancel: () -> Void
+        private let cancellationHandler: (UpdateCheckCancellationSource) -> Void
 
         /// Creates the payload.
+        ///
+        /// - Parameter cancel: Cancels the in-progress check.
         public init(cancel: @escaping () -> Void) {
-            self.cancel = cancel
+            self.cancellationHandler = { _ in cancel() }
+        }
+
+        init(cancellationHandler: @escaping (UpdateCheckCancellationSource) -> Void) {
+            self.cancellationHandler = cancellationHandler
+        }
+
+        /// Cancels a check at the user's request.
+        public func cancel() {
+            cancellationHandler(.user)
+        }
+
+        /// Cancels a superseded check without treating the controller transition as user intent.
+        func cancelAsSuperseded() {
+            cancellationHandler(.superseded)
         }
     }
 
@@ -143,11 +184,16 @@ public enum UpdateState: Equatable {
     public struct UpdateAvailable {
         /// The appcast item describing the available update.
         public let appcastItem: SUAppcastItem
-        /// Replies to Sparkle with the user's install/dismiss choice.
-        public let reply: @Sendable (SPUUserUpdateChoice) -> Void
+        /// Replies to Sparkle with the user's install/dismiss choice (at most once).
+        public let reply: UpdatePromptReply
 
         /// Creates the payload.
-        public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        @MainActor public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+            self.appcastItem = appcastItem
+            self.reply = UpdatePromptReply(reply)
+        }
+
+        init(appcastItem: SUAppcastItem, reply: UpdatePromptReply) {
             self.appcastItem = appcastItem
             self.reply = reply
         }

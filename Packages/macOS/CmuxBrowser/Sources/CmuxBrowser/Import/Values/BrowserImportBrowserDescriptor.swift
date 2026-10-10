@@ -110,7 +110,10 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             tier: 1,
             bundleIdentifiers: ["company.thebrowser.Browser", "company.thebrowser.arc"],
             appNames: ["Arc.app"],
-            dataRootRelativePaths: ["Library/Application Support/Arc"],
+            dataRootRelativePaths: [
+                "Library/Application Support/Arc/User Data",
+                "Library/Application Support/Arc",
+            ],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),
@@ -205,6 +208,17 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             bundleIdentifiers: ["company.thebrowser.Dia", "company.thebrowser.dia"],
             appNames: ["Dia.app"],
             dataRootRelativePaths: ["Library/Application Support/Dia/User Data"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "aside",
+            displayName: "Aside",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["at.studio.AsideBrowser"],
+            appNames: ["Aside.app"],
+            dataRootRelativePaths: ["Library/Application Support/Aside"],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),

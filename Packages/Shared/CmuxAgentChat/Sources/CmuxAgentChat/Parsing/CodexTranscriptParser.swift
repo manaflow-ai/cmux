@@ -5,11 +5,12 @@ import Foundation
 /// Reads the format written under `~/.codex/sessions/YYYY/MM/DD/` as of
 /// Codex CLI 0.139: every line is `{timestamp, type, payload}`. Content
 /// lives in `response_item` payloads (`message`, `reasoning`,
-/// `function_call`, `function_call_output`, `custom_tool_call`, ...);
-/// `event_msg`, `turn_context`, and token bookkeeping are skipped. The
-/// parser is stateless and fails open: malformed or unknown lines are
-/// dropped silently. Pairing of calls with their `*_output` works across
-/// parse calls through ``ChatTranscriptParseState``.
+/// `function_call`, `function_call_output`, `custom_tool_call`, ...), while
+/// modern patch completions arrive as `event_msg` `patch_apply_end` payloads.
+/// Other event messages, `turn_context`, and token bookkeeping are skipped.
+/// The parser is stateless and fails open: malformed or unknown lines are
+/// dropped silently. Pairing of calls with their `*_output` works across parse
+/// calls through ``ChatTranscriptParseState``.
 public struct CodexTranscriptParser: Sendable {
     private static let userNoisePrefixes = [
         "<user_instructions",
@@ -22,7 +23,7 @@ public struct CodexTranscriptParser: Sendable {
     private static let shellToolNames: Set<String> = [
         "shell", "exec_command", "local_shell_call", "container.exec",
     ]
-    private static let shellWrapperBinaries: Set<String> = ["bash", "sh", "zsh"]
+    static let shellWrapperBinaries: Set<String> = ["bash", "sh", "zsh"]
     private static let summaryArgumentKeys = [
         "path", "file_path", "pattern", "query", "url", "text", "key",
         "app", "session_id", "plan",
@@ -30,6 +31,9 @@ public struct CodexTranscriptParser: Sendable {
 
     private let budget = TranscriptTextBudget()
     private let timestamps = TranscriptTimestampParser()
+    private let attachmentTokens = ChatAttachmentTokenExtractor()
+    private let referencedPaths = ChatToolReferencedPathExtractor()
+    let artifactText = ChatArtifactTextReferenceExtractor()
 
     /// Creates a Codex transcript parser.
     public init() {}
@@ -75,6 +79,8 @@ public struct CodexTranscriptParser: Sendable {
                 )
             case "response_item":
                 appendResponseItem(payload, seq: seq, timestamp: timestamp, into: &assembler)
+            case "event_msg":
+                appendEventMessage(payload, seq: seq, timestamp: timestamp, into: &assembler)
             default:
                 continue
             }
@@ -124,9 +130,32 @@ public struct CodexTranscriptParser: Sendable {
         case "custom_tool_call":
             appendCustomToolCall(payload, seq: seq, timestamp: timestamp, into: &assembler)
         case "function_call_output", "custom_tool_call_output":
-            resolveOutput(payload, into: &assembler)
+            resolveOutput(payload, seq: seq, into: &assembler)
         case "web_search_call":
             appendWebSearch(payload, seq: seq, timestamp: timestamp, into: &assembler)
+        default:
+            return
+        }
+    }
+
+    private func appendEventMessage(
+        _ payload: TranscriptJSONValue?,
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        switch payload?["type"]?.string {
+        case "patch_apply_end":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
+            appendPatchApplyEnd(payload, seq: seq, timestamp: timestamp, into: &assembler)
+        case "agent_message":
+            if let text = payload?["message"]?.string {
+                assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+            }
+        case "exec_command_begin":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
+        case "exec_command_end", "exec_command_output_delta":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
         default:
             return
         }
@@ -160,6 +189,13 @@ public struct CodexTranscriptParser: Sendable {
             return text
         }
         guard !texts.isEmpty else { return }
+        for text in texts {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+        }
+        if role == .user {
+            appendUserTexts(texts, seq: seq, timestamp: timestamp, into: &assembler)
+            return
+        }
         assembler.append(
             ChatMessage(
                 id: "line-\(seq)",
@@ -169,6 +205,44 @@ public struct CodexTranscriptParser: Sendable {
                 kind: .prose(ChatProse(text: budget.body(texts.joined(separator: "\n\n"))))
             )
         )
+    }
+
+    private func appendUserTexts(
+        _ texts: [String],
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        var emitted = 0
+        for text in texts {
+            let extraction = attachmentTokens.extractLeadingAttachments(from: text)
+            for attachment in extraction.attachments {
+                assembler.append(
+                    ChatMessage(
+                        id: blockID(lineID: "line-\(seq)", emitted: emitted),
+                        seq: seq,
+                        role: .user,
+                        timestamp: timestamp,
+                        kind: .attachment(attachment)
+                    )
+                )
+                emitted += 1
+            }
+            let prose = extraction.remainingProse
+            guard !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            assembler.append(
+                ChatMessage(
+                    id: blockID(lineID: "line-\(seq)", emitted: emitted),
+                    seq: seq,
+                    role: .user,
+                    timestamp: timestamp,
+                    kind: .prose(ChatProse(text: budget.body(prose)))
+                )
+            )
+            emitted += 1
+        }
     }
 
     private func appendReasoning(
@@ -182,6 +256,7 @@ public struct CodexTranscriptParser: Sendable {
         }
         let text = summaries.joined(separator: "\n\n")
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
         assembler.append(
             ChatMessage(
                 id: "line-\(seq)",
@@ -195,6 +270,42 @@ public struct CodexTranscriptParser: Sendable {
 
     // MARK: - Tool calls
 
+    private func appendPatchApplyEnd(
+        _ payload: TranscriptJSONValue?,
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        guard payload?["success"]?.bool == true else { return }
+        let changes = payload?["changes"]?.object ?? [:]
+        let changedPaths = changes.keys.sorted()
+        let movePaths = changedPaths.compactMap { changes[$0]?["move_path"]?.string }
+        let paths = deduplicatedPaths(changedPaths + movePaths)
+        var summary = "apply_patch"
+        if let firstPath = changedPaths.first {
+            summary += " \(budget.summaryArgument(firstPath))"
+            if paths.count > 1 {
+                summary += " (+\(paths.count - 1))"
+            }
+        }
+        assembler.append(
+            ChatMessage(
+                id: payload?["call_id"]?.string ?? "line-\(seq)",
+                seq: seq,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(
+                    ChatToolUse(
+                        toolName: "apply_patch",
+                        summary: summary,
+                        status: .succeeded,
+                        referencedPaths: paths.isEmpty ? nil : paths
+                    )
+                )
+            )
+        )
+    }
+
     private func appendFunctionCall(
         _ payload: TranscriptJSONValue,
         seq: Int,
@@ -205,9 +316,36 @@ public struct CodexTranscriptParser: Sendable {
         let callID = payload["call_id"]?.string
         let arguments = payload["arguments"]?.string
         let parsedArguments = arguments.flatMap { TranscriptJSONValue(jsonLine: $0) }
+        // Codex's interactive picker is a `request_user_input` function call whose
+        // arguments carry `questions[]` in the same shape as Claude's
+        // AskUserQuestion. Render each as a tappable `.question` so the GUI shows
+        // a real picker (wired to mobile.chat.answer) instead of plain text.
+        if name == "request_user_input" {
+            let questions = Self.codexQuestions(from: parsedArguments)
+            if !questions.isEmpty {
+                for (index, question) in questions.enumerated() {
+                    let baseID = callID ?? "line-\(seq)"
+                    assembler.append(
+                        ChatMessage(
+                            id: index == 0 ? baseID : "\(baseID)-q\(index)",
+                            seq: seq,
+                            role: .agent,
+                            timestamp: timestamp,
+                            kind: .question(question)
+                        ),
+                        // Pair with the request_user_input function_call_output by
+                        // call id so the answer marks the question resolved (the
+                        // GUI then shows the selection and stops being tappable).
+                        pendingKey: index == 0 ? callID : nil
+                    )
+                }
+                return
+            }
+        }
         let kind: ChatMessageKind
         if Self.shellToolNames.contains(name),
             let command = shellCommand(arguments: parsedArguments, payload: payload) {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: command), seq: seq)
             kind = .terminal(ChatTerminalCapture(command: command, isRunning: true))
         } else {
             kind = genericToolUseKind(
@@ -228,6 +366,27 @@ public struct CodexTranscriptParser: Sendable {
         )
     }
 
+    /// Maps a `request_user_input` arguments object into tappable questions.
+    /// Mirrors the Claude parser's question shape: `questions[].question` with
+    /// `options[].label` and an optional `options[].description` detail.
+    private static func codexQuestions(from arguments: TranscriptJSONValue?) -> [ChatQuestion] {
+        let questions = arguments?["questions"]?.array ?? []
+        return questions.compactMap { question -> ChatQuestion? in
+            guard let prompt = question["question"]?.string else { return nil }
+            let options = (question["options"]?.array ?? []).compactMap { option in
+                option["label"]?.string.map {
+                    ChatQuestion.Option(label: $0, detail: option["description"]?.string)
+                }
+            }
+            guard !options.isEmpty else { return nil }
+            return ChatQuestion(
+                prompt: prompt,
+                options: options,
+                questionID: question["id"]?.string
+            )
+        }
+    }
+
     private func appendCustomToolCall(
         _ payload: TranscriptJSONValue,
         seq: Int,
@@ -238,8 +397,13 @@ public struct CodexTranscriptParser: Sendable {
         let callID = payload["call_id"]?.string
         let input = payload["input"]?.string ?? ""
         var summary = name
-        if name == "apply_patch", let path = firstPatchedFile(in: input) {
-            summary = "\(name) \(budget.summaryArgument(path))"
+        var patchReferencedPaths: [String]?
+        if Self.isApplyPatchTool(name) {
+            let paths = patchedFiles(in: input)
+            if let path = paths.first {
+                summary = "\(name) \(budget.summaryArgument(path))"
+            }
+            patchReferencedPaths = paths.isEmpty ? nil : paths
         }
         assembler.append(
             ChatMessage(
@@ -251,7 +415,8 @@ public struct CodexTranscriptParser: Sendable {
                     ChatToolUse(
                         toolName: name,
                         summary: summary,
-                        inputDetail: input.isEmpty ? nil : budget.inputDetail(input)
+                        inputDetail: input.isEmpty ? nil : budget.inputDetail(input),
+                        referencedPaths: patchReferencedPaths
                     )
                 )
             ),
@@ -301,90 +466,26 @@ public struct CodexTranscriptParser: Sendable {
         let detail = rawArguments.flatMap { raw -> String? in
             raw.isEmpty || raw == "{}" ? nil : budget.inputDetail(raw)
         }
+        let structuredPaths = referencedPaths.referencedPaths(in: arguments) ?? []
+        let patchPaths: [String]
+        if Self.isApplyPatchTool(toolName) {
+            let patch = arguments?["patch"]?.string
+                ?? arguments?["input"]?.string
+                ?? arguments?["patch_text"]?.string
+                ?? ""
+            patchPaths = patchedFiles(in: patch)
+        } else {
+            patchPaths = []
+        }
+        let allPaths = deduplicatedPaths(structuredPaths + patchPaths)
         return .toolUse(
-            ChatToolUse(toolName: toolName, summary: summary, inputDetail: detail)
-        )
-    }
-
-    /// Extracts the human-meaningful command line from a shell-style call.
-    ///
-    /// Handles `{"cmd": "..."}` (current `exec_command`), `{"command":
-    /// "..."}`, and `{"command": ["bash", "-lc", "actual"]}` (older
-    /// `shell`), plus the `local_shell_call` `action.command` array.
-    private func shellCommand(
-        arguments: TranscriptJSONValue?,
-        payload: TranscriptJSONValue
-    ) -> String? {
-        if let cmd = arguments?["cmd"]?.string { return cmd }
-        if let cmd = arguments?["command"]?.string { return cmd }
-        let parts = arguments?["command"]?.array ?? payload["action"]?["command"]?.array
-        guard let parts else { return nil }
-        let strings = parts.compactMap(\.string)
-        guard !strings.isEmpty else { return nil }
-        if strings.count >= 3,
-            let binary = strings[0].split(separator: "/").last,
-            Self.shellWrapperBinaries.contains(String(binary)),
-            strings[1] == "-lc" || strings[1] == "-c" {
-            return strings[2...].joined(separator: " ")
-        }
-        return strings.joined(separator: " ")
-    }
-
-    private func firstPatchedFile(in patch: String) -> String? {
-        guard
-            let match = patch.firstMatch(
-                of: /\*\*\* (?:Update|Add|Delete) File: (.+)/
+            ChatToolUse(
+                toolName: toolName,
+                summary: summary,
+                inputDetail: detail,
+                referencedPaths: allPaths.isEmpty ? nil : allPaths
             )
-        else { return nil }
-        return String(match.1)
-    }
-
-    // MARK: - Tool outputs
-
-    private func resolveOutput(
-        _ payload: TranscriptJSONValue,
-        into assembler: inout TranscriptBatchAssembler
-    ) {
-        guard let callID = payload["call_id"]?.string else { return }
-        assembler.resolve(key: callID, completion: completion(from: payload["output"]))
-    }
-
-    /// Builds a completion from an output payload, which is a plain string,
-    /// a JSON-encoded `{"output": ..., "metadata": {"exit_code": ...}}`
-    /// string, or that object inline; exit code and wall time also appear
-    /// as text headers (`Process exited with code N`, `Exit code: N`,
-    /// `Wall time: S seconds`).
-    private func completion(from value: TranscriptJSONValue?) -> TranscriptToolCompletion {
-        var text = value?.string
-        var exitCode = value?["metadata"]?["exit_code"]?.int
-        var duration = value?["metadata"]?["duration_seconds"]?.double
-        if text == nil, value?.object != nil {
-            text = value?["output"]?.string
-        }
-        if let raw = text,
-            let nested = TranscriptJSONValue(jsonLine: raw),
-            let inner = nested["output"]?.string {
-            text = inner
-            exitCode = nested["metadata"]?["exit_code"]?.int ?? exitCode
-            duration = nested["metadata"]?["duration_seconds"]?.double ?? duration
-        }
-        if exitCode == nil, let text {
-            let head = text.prefix(400)
-            if let match = head.firstMatch(
-                of: /(?:Process exited with code|Exit code:?|exited with code) (-?\d+)/
-            ) {
-                exitCode = Int(match.1)
-            }
-        }
-        if duration == nil, let text,
-            let match = text.prefix(400).firstMatch(of: /Wall time: ([0-9.]+) seconds/) {
-            duration = Double(match.1)
-        }
-        return TranscriptToolCompletion(
-            output: text,
-            isError: (exitCode ?? 0) != 0,
-            exitCode: exitCode,
-            durationSeconds: duration
         )
     }
+
 }

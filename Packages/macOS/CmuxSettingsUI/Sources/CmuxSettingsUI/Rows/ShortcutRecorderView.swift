@@ -115,6 +115,12 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         }
         nsView.refreshTitle()
     }
+
+    /// Deterministic teardown — stops any active recording when SwiftUI removes this view,
+    /// rather than relying on deinit timing. Required for safe cell reuse (Task 5).
+    public static func dismantleNSView(_ nsView: RecorderHostButton, coordinator: Void) {
+        nsView.cancelRecordingIfActive()
+    }
 }
 
 /// Focusable AppKit `NSButton` host for ``ShortcutRecorderView``.
@@ -177,8 +183,29 @@ public final class RecorderHostButton: NSButton {
     public var onStroke: ((ShortcutStroke) -> Void)?
     public var onChord: ((StoredShortcut) -> Void)?
     public var onBareKeyRejected: (() -> Void)?
+    /// Decides per first stroke whether to wait for a chord's second stroke.
+    ///
+    /// `nil` keeps the fixed ``chordsEnabled`` behavior. The shortcut detector
+    /// sets it so a stroke waits only when some binding starts a chord with it.
+    public var awaitsSecondStroke: ((ShortcutStroke) -> Bool)?
+    /// Called with the first stroke when the recorder starts waiting for a
+    /// chord's second stroke.
+    public var onFirstStroke: ((ShortcutStroke) -> Void)?
+    /// Title shown while armed, or `nil` for the localized "Press shortcut…".
+    public var recordingPrompt: String?
+    /// Leading symbol while idle; `nil` keeps the plain text button.
+    public var restingImage: NSImage?
+    /// Leading symbol while armed; falls back to ``restingImage``.
+    public var recordingImage: NSImage?
+    /// Title and symbol tint while armed; `nil` keeps the default color.
+    public var recordingTintColor: NSColor?
+    /// Whether gaining keyboard focus arms the recorder. The detector turns
+    /// this off so tabbing onto it does not swallow the next Tab.
+    public var startsRecordingOnFocus = true
 
-    private var isRecording = false
+    // Read access is `internal` so the test target can observe recording
+    // state via `@testable import`; writes stay `private` to this view.
+    private(set) var isRecording = false
     private var pendingFirst: ShortcutStroke?
     private var hasPendingRejection = false
     // `deinit` is nonisolated and must remove the local event monitor; the
@@ -233,6 +260,17 @@ public final class RecorderHostButton: NSButton {
         }
         target = self
         action = #selector(buttonClicked)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: nil
+        )
+    }
+
+    @objc private func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        stopRecording()
     }
 
     private func applyFont() {
@@ -243,7 +281,7 @@ public final class RecorderHostButton: NSButton {
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became {
+        if became, startsRecordingOnFocus {
             startRecording()
         }
         return became
@@ -268,10 +306,13 @@ public final class RecorderHostButton: NSButton {
             startRecording()
         } else {
             window?.makeFirstResponder(self)
+            if !startsRecordingOnFocus, window?.firstResponder === self {
+                startRecording()
+            }
         }
     }
 
-    private func startRecording() {
+    func startRecording() {
         guard !isRecording else { return }
         // Stop any other recorder before claiming the active slot so
         // only one button is consuming keystrokes at a time. Matches
@@ -289,7 +330,7 @@ public final class RecorderHostButton: NSButton {
         Self.postActiveRecordingDidChange()
     }
 
-    private func stopRecording() {
+    func stopRecording() {
         guard isRecording else { return }
         isRecording = false
         if Self.activeRecorder === self {
@@ -299,6 +340,16 @@ public final class RecorderHostButton: NSButton {
         removeEventMonitor()
         refreshTitle()
         Self.postActiveRecordingDidChange()
+    }
+
+    /// Stops an active recording session idempotently. Safe to call on any recorder
+    /// regardless of whether it is currently recording — used by ``dismantleNSView``
+    /// so that a cell being torn down (or recycled for a different action in Task 5)
+    /// does not leave an armed recorder pointed at the wrong action.
+    public func cancelRecordingIfActive() {
+        guard isRecording else { return }
+        pendingFirst = nil  // explicit for clarity; stopRecording() nils it too
+        stopRecording()
     }
 
     private static func postActiveRecordingDidChange() {
@@ -330,7 +381,10 @@ public final class RecorderHostButton: NSButton {
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .systemDefined]) { [weak self] event in
-            guard let self, self.isRecording, self.window?.firstResponder === self else { return event }
+            guard let self,
+                  self.isRecording,
+                  event.window === self.window,
+                  self.window?.firstResponder === self else { return event }
             self.handleRecordingEvent(event)
             return nil
         }
@@ -343,7 +397,7 @@ public final class RecorderHostButton: NSButton {
         }
     }
 
-    private func handleRecordingEvent(_ event: NSEvent) {
+    func handleRecordingEvent(_ event: NSEvent) {
         // Escape aborts a chord-in-progress without committing.
         if event.keyCode == 53 /* Escape */ {
             pendingFirst = nil
@@ -351,7 +405,10 @@ public final class RecorderHostButton: NSButton {
             return
         }
 
-        guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return }
+        guard let key = recordedShortcutKey(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        ) else { return }
 
         let hasModifier = event.modifierFlags.contains(.command)
             || event.modifierFlags.contains(.option)
@@ -359,7 +416,7 @@ public final class RecorderHostButton: NSButton {
             || event.modifierFlags.contains(.shift)
 
         let stroke = ShortcutStroke(
-            key: chars.lowercased(),
+            key: key,
             command: event.modifierFlags.contains(.command),
             shift: event.modifierFlags.contains(.shift),
             option: event.modifierFlags.contains(.option),
@@ -378,7 +435,7 @@ public final class RecorderHostButton: NSButton {
             return
         }
 
-        if chordsEnabled, let first = pendingFirst {
+        if let first = pendingFirst {
             pendingFirst = nil
             hasPendingRejection = false
             let chord = StoredShortcut(first: first, second: stroke)
@@ -387,10 +444,11 @@ public final class RecorderHostButton: NSButton {
             return
         }
 
-        if chordsEnabled, pendingFirst == nil {
+        if awaitsSecondStroke?(stroke) ?? chordsEnabled {
             pendingFirst = stroke
             hasPendingRejection = false
             refreshTitle()
+            onFirstStroke?(stroke)
             return
         }
 
@@ -419,33 +477,25 @@ public final class RecorderHostButton: NSButton {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
                 title = String.localizedStringWithFormat(format, shortcutStrokeDisplayString(pendingFirst))
             } else {
-                title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
+                title = recordingPrompt
+                    ?? String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }
         } else if hasPendingRejection {
             title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
         } else {
             title = placeholder
         }
+        if restingImage != nil || recordingImage != nil {
+            image = isRecording ? (recordingImage ?? restingImage) : restingImage
+            imagePosition = .imageLeading
+            // Center symbol and title together instead of pinning the symbol
+            // to the leading edge.
+            imageHugsTitle = true
+        }
+        if let recordingTintColor {
+            contentTintColor = isRecording ? recordingTintColor : nil
+        }
+        setAccessibilityValue(title)
     }
 
 }
-
-#if DEBUG
-extension RecorderHostButton {
-    var debugIsRecording: Bool {
-        isRecording
-    }
-
-    func debugStartRecording() {
-        startRecording()
-    }
-
-    func debugStopRecording() {
-        stopRecording()
-    }
-
-    func debugHandleRecordingEvent(_ event: NSEvent) {
-        handleRecordingEvent(event)
-    }
-}
-#endif

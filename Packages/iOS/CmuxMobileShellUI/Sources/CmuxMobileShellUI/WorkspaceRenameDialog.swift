@@ -2,7 +2,7 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// Rename-workspace dialog (an alert with an inline text field) shared by the
-/// workspace detail view's terminal-icon menu across the terminal / chat /
+/// workspace detail view's title menu across the terminal / chat /
 /// browser panes. Reuses the same strings as the workspace list's rename sheet so
 /// both entrypoints read identically.
 extension View {

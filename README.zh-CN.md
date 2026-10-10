@@ -367,15 +367,15 @@ cmux 免费且开源，并将一直如此。如果您想支持开发并提前体
 
 ### 我有功能请求或发现了 bug？
 
-我们很想听到。请在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [给我们发邮件](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+我们很想听到。请在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [给我们发邮件](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,11 +391,17 @@ cmux 免费且开源，并将一直如此。如果您想支持开发并提前体
 ## 社区
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat：</strong>扫描二维码加入社区。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
+</p>
 
 ## Founder's Edition
 
@@ -412,6 +418,6 @@ cmux 免费、开源，并将一直如此。如果您想支持开发并提前体
 
 ## 许可证
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 开源。
+cmux 以 [GPL-3.0-or-later](LICENSE) 开源。cmux 服务器软件（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中继服务）改用 [Business Source License 1.1](web/LICENSE)：您可以出于非生产目的阅读、修改和运行它，生产使用或自托管需要商业许可证。
 
-如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@manaflow.com](mailto:founders@manaflow.com)。
+如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@cmux.com](mailto:founders@cmux.com)。

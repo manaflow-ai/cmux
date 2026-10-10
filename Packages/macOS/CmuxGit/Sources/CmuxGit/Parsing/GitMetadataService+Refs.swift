@@ -9,8 +9,8 @@ extension GitMetadataService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// The current branch name from `HEAD` (`ref: refs/heads/<name>`), or `nil`
-    /// for a detached HEAD or unreadable `HEAD`.
+    /// The current branch name from a file-backed `HEAD`
+    /// (`ref: refs/heads/<name>`), or `nil` for a detached or unreadable `HEAD`.
     nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -25,8 +25,39 @@ extension GitMetadataService {
         return branch.isEmpty ? nil : branch
     }
 
-    /// A signature of `HEAD` plus the commit it resolves to: the symbolic ref
-    /// text and the resolved ref value joined, or the detached SHA directly.
+    /// Classifies a file-backed `HEAD` into a ``GitCheckedOutBranch``, keeping a
+    /// legitimate non-branch checkout distinct from malformed metadata.
+    nonisolated static func gitCheckedOutBranch(repository: ResolvedGitRepository) -> GitCheckedOutBranch {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return .unreadable
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchPrefix = "ref: refs/heads/"
+        if trimmed.hasPrefix(branchPrefix) {
+            guard let branch = normalizedBranchName(String(trimmed.dropFirst(branchPrefix.count))) else {
+                return .unreadable
+            }
+            return .branch(branch)
+        }
+        if trimmed.hasPrefix("ref: ") {
+            return .detached
+        }
+        if isLikelyCommitSHA(trimmed) {
+            return .detached
+        }
+        return .unreadable
+    }
+
+    /// Whether `value` looks like a full git object id (40-hex SHA-1 or
+    /// 64-hex SHA-256).
+    private nonisolated static func isLikelyCommitSHA(_ value: String) -> Bool {
+        guard value.count == 40 || value.count == 64 else { return false }
+        return value.allSatisfy(\.isHexDigit)
+    }
+
+    /// A signature of file-backed `HEAD` plus the commit it resolves to: the
+    /// symbolic ref text and resolved ref value, or the detached SHA directly.
     nonisolated static func gitHeadSignature(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -44,8 +75,8 @@ extension GitMetadataService {
         return "\(trimmed)\n\(refValue)"
     }
 
-    /// Resolves a ref name to its value, checking the loose ref under the git
-    /// and common directories, then `packed-refs`. A ref name is repo-controlled
+    /// Resolves a file-backed ref name by checking loose refs under the git and
+    /// common directories, then `packed-refs`. A ref name is repo-controlled
     /// input from `HEAD`; names whose standardized path escapes the directory
     /// they are joined to (e.g. `../../outside`) are ignored rather than read.
     nonisolated static func gitRefValue(repository: ResolvedGitRepository, refName: String) -> String? {
@@ -80,33 +111,5 @@ extension GitMetadataService {
             return String(parts[0])
         }
         return nil
-    }
-
-    /// The current commit SHA the repository's `HEAD` resolves to (40 lowercase
-    /// hex chars), or `nil` if it cannot be resolved to a commit.
-    nonisolated static func gitCurrentCommit(repository: ResolvedGitRepository) -> String? {
-        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
-        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
-            return nil
-        }
-        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-        let refPrefix = "ref: "
-        let value: String
-        if trimmed.hasPrefix(refPrefix) {
-            let refName = String(trimmed.dropFirst(refPrefix.count))
-            guard !refName.isEmpty, let refValue = gitRefValue(repository: repository, refName: refName) else {
-                return nil
-            }
-            value = refValue
-        } else {
-            value = trimmed
-        }
-
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard normalized.count == 40,
-              normalized.allSatisfy({ $0.isHexDigit }) else {
-            return nil
-        }
-        return normalized
     }
 }

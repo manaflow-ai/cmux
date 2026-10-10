@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxUpdaterTests",
-            dependencies: ["CmuxUpdater"],
+            dependencies: [
+                "CmuxUpdater",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

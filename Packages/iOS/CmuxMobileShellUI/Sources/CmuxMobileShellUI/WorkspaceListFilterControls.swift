@@ -8,11 +8,16 @@ import SwiftUI
 /// — so you can express e.g. "unread on Mac X and Mac Y". The machine section
 /// only appears when more than one machine is present, so single-Mac users see
 /// exactly the old All / Unread control.
-struct WorkspaceListFilterMenu: View {
-    @Binding var filter: MobileWorkspaceListFilter
+struct WorkspaceListFilterMenu: View, Equatable {
+    let filter: MobileWorkspaceListFilter
     /// Machines available to filter by. When fewer than two, the machine section
     /// is hidden (nothing to disambiguate).
-    var machines: [WorkspaceFilterMachine] = []
+    let machines: [WorkspaceFilterMachine]
+    let actions: WorkspaceListFilterMenuActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.filter == rhs.filter && lhs.machines == rhs.machines
+    }
 
     private var showsMachineSection: Bool { machines.count > 1 }
 
@@ -20,7 +25,7 @@ struct WorkspaceListFilterMenu: View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.filter.readState", defaultValue: "Show"),
-                selection: $filter.readState
+                selection: Binding(get: { filter.readState }, set: { actions.setReadState($0) })
             ) {
                 ForEach(MobileWorkspaceReadStateFilter.allCases, id: \.self) { state in
                     Text(state.displayName).tag(state)
@@ -30,7 +35,7 @@ struct WorkspaceListFilterMenu: View {
             if showsMachineSection {
                 Section(L10n.string("mobile.workspaces.filter.machines", defaultValue: "Machines")) {
                     Button {
-                        filter.machines.removeAll()
+                        actions.clearMachines()
                     } label: {
                         Label(
                             L10n.string("mobile.workspaces.filter.allMachines", defaultValue: "All Machines"),
@@ -39,7 +44,7 @@ struct WorkspaceListFilterMenu: View {
                     }
                     ForEach(machines) { machine in
                         Button {
-                            filter.toggleMachine(machine.id)
+                            actions.toggleMachine(machine.id)
                         } label: {
                             Label(
                                 machine.name,
@@ -73,7 +78,48 @@ extension MobileWorkspaceReadStateFilter {
     }
 }
 
+extension MobileWorkspaceSortMode {
+    /// The localized menu title for this All Computers sort mode. The
+    /// `.automatic` case reads "Last Opened": the connected computer counts as
+    /// opened now, the rest order by when this device last used them. The raw
+    /// value (and persistence) keeps the `automatic` spelling.
+    var displayName: String {
+        switch self {
+        case .automatic:
+            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Last Opened")
+        case .computerPriority:
+            return L10n.string("mobile.workspaces.sort.connectionOrder", defaultValue: "Custom Order")
+        case .recentActivity:
+            return L10n.string("mobile.workspaces.sort.recentActivity", defaultValue: "Recent Activity")
+        }
+    }
+}
+
 extension MobileWorkspaceListFilter {
+    /// Keep the menu-owned machine selection visible and recoverable. The
+    /// machine section hides below two present machines, so any selected machine
+    /// must be cleared before it becomes hidden state.
+    @discardableResult
+    mutating func pruneMachinesForFilterMenu(presentMachineIDs: [String]) -> Bool {
+        let presentMachineIDSet = Set(presentMachineIDs)
+        guard presentMachineIDSet.count > 1 else {
+            guard !machines.isEmpty else { return false }
+            machines.removeAll()
+            return true
+        }
+        return pruneMachines(notIn: Array(presentMachineIDSet))
+    }
+
+    /// The Mac title picker owns the machine dimension when it is scoped to one
+    /// Mac, so filter-menu machine selections would be hidden no-ops.
+    @discardableResult
+    mutating func pruneMachinesForFilterMenu(visibleMacSelection: WorkspaceMacSelection) -> Bool {
+        guard case .machine = visibleMacSelection else { return false }
+        guard !machines.isEmpty else { return false }
+        machines.removeAll()
+        return true
+    }
+
     /// The localized copy for "this filter hid every workspace". `nil` for the
     /// identity filter, which can never hide anything. Reflects whichever
     /// dimension(s) are active.

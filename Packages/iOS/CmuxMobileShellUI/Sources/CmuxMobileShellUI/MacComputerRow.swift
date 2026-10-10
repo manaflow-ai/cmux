@@ -8,10 +8,78 @@ import SwiftUI
 /// the Mac's name, a primary line for the PHONE'S connection state + workspace
 /// count, and a diagnostic line for presence + route. The trailing dot reflects
 /// the phone's connection (green = the phone is talking to this Mac now).
+///
+/// The `.reconnect` style reuses the same row on the disconnected screen, where
+/// no phone connection exists: the row becomes a tap-to-reconnect button, the
+/// primary line and dot switch to presence (green = the Mac is online and worth
+/// tapping), and the workspace count is dropped (it is stale while disconnected).
 struct MacComputerRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
+    /// How the row behaves and which status it leads with.
+    enum Style {
+        /// Computers screen: navigation to the detail view, phone-connection dot.
+        case computers
+        /// Disconnected screen: tap reconnects, presence dot.
+        case reconnect
+    }
+
     let computer: MacComputerSnapshot
+    /// Changes whether this computer appears on the current iPhone. When `nil`,
+    /// the visibility switch is omitted.
+    var setVisible: ((Bool) -> Void)? = nil
+    var isVisibilityMutating = false
+    var style: Style = .computers
+    /// Reconnect action for `.reconnect` rows; tapping the row calls this with
+    /// the device id instead of navigating.
+    var connect: ((String) -> Void)? = nil
+    /// Whether a connect attempt for this row is in flight (spinner replaces the
+    /// status dot). Re-entry is guarded by the owning list, not by disabling the
+    /// button, so the row does not flash a dimmed state.
+    var isConnecting: Bool = false
+    /// Whether the last authenticated attempt for this Mac was rejected by
+    /// the iOS minimum-version gate. This covers Macs absent from the
+    /// directory snapshot, which cannot expose a list-auth entry yet.
+    var hasVersionGateWarning: Bool = false
+
+    @State private var showListAuthInfo = false
 
     var body: some View {
+        HStack(spacing: 8) {
+            rowContainer
+            if let setVisible {
+                ComputerVisibilityToggle(
+                    computerID: computer.id,
+                    computerName: computer.title,
+                    isVisible: true,
+                    isDisabled: isVisibilityMutating,
+                    setVisible: setVisible
+                )
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
+    }
+
+    @ViewBuilder
+    private var rowContainer: some View {
+        switch style {
+        case .computers:
+            NavigationLink(value: computer.connectionRef) {
+                rowLabel
+            }
+            .accessibilityElement(children: .combine)
+        case .reconnect:
+            Button {
+                connect?(computer.id)
+            } label: {
+                rowLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var rowLabel: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
@@ -34,7 +102,10 @@ struct MacComputerRow: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if let buildLabel = computer.buildLabel {
-                        buildBadge(buildLabel)
+                        ComputerBuildBadge(label: buildLabel)
+                    }
+                    if showsListAuthWarning {
+                        listAuthWarningButton
                     }
                 }
                 Text(connectionLine)
@@ -47,56 +118,158 @@ struct MacComputerRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            caffeineIndicator
             badge
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
+    }
+
+    /// Small cup marking a Mac that cmux is keeping awake. The snapshot only
+    /// carries the state over a live connection, so a stale cup can't linger
+    /// on an unreachable Mac.
+    @ViewBuilder
+    private var caffeineIndicator: some View {
+        if computer.caffeineEnabled == true {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(L10n.string(
+                    "mobile.computers.keepAwake.active",
+                    defaultValue: "Keeping Mac awake"
+                ))
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeine-\(computer.connectionRef.automationID)"
+                )
+        }
     }
 
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
+    /// `.reconnect` rows show a spinner while their connect attempt is in flight.
     @ViewBuilder
     private var badge: some View {
-        Image(systemName: "circle.fill")
-            .font(.caption2)
-            .foregroundStyle(dotColor)
-            .accessibilityLabel(connectionPhrase)
-            .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+        if isConnecting {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel(
+                    L10n.string("mobile.deviceTree.reconnecting", defaultValue: "Reconnecting…"))
+        } else {
+            Image(systemName: "circle.fill")
+                .font(.caption2)
+                .foregroundStyle(dotColor)
+                .accessibilityLabel(primaryStatusPhrase)
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
+        }
     }
 
-    /// A small build-channel pill (e.g. "DEV · teams", "Nightly"). DEV/RC/Staging
-    /// are tinted orange (pre-release), Nightly blue, Stable secondary, so a glance
-    /// tells you what kind of build a host runs.
-    private func buildBadge(_ label: String) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(buildBadgeTint(label).opacity(0.18), in: Capsule())
-            .foregroundStyle(buildBadgeTint(label))
-            .accessibilityLabel(
-                "\(L10n.string("mobile.computers.buildLabelPrefix", defaultValue: "Build:")) \(label)")
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac. A row with no remembered version warns until its first hello
+    /// records the build version in the durable overlay.
+    private var listAuthEntry: MobileMacListAuthState.Entry {
+        listAuthState?.compatibilityEntry(
+            pairingID: computer.id,
+            routes: computer.routes
+        ) ?? .init(status: "unknown", revoked: false, isFresh: false)
     }
 
-    private func buildBadgeTint(_ label: String) -> Color {
-        if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
-        if label == "Nightly" { return .blue }
-        return .secondary
+    private var showsListAuthWarning: Bool {
+        hasVersionGateWarning
+            || ((listAuthState?.hasSnapshot == true) && listAuthEntry.isOutdated)
+    }
+
+    /// Outdated rows carry a compact warning triangle beside the name; the
+    /// explanation lives in a popover so the row itself stays one avatar tall.
+    /// Borderless keeps the tap target separate from the row's navigation.
+    private var listAuthWarningButton: some View {
+        Button {
+            showListAuthInfo = true
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(listAuthWarningTitle)
+        .accessibilityIdentifier(
+            "MobileComputerListAuthWarning-\(computer.connectionRef.automationID)"
+        )
+        .popover(isPresented: $showListAuthInfo, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(listAuthWarningTitle)
+                        .font(.subheadline.weight(.semibold))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                Text(listAuthWarningMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+            .frame(idealWidth: 300, maxWidth: 340)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var listAuthWarningTitle: String {
+        return L10n.string(
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
+        )
+    }
+
+    private var listAuthWarningMessage: String {
+        if listAuthEntry.isOutdated, let required = listAuthEntry.requiredVersionDisplay {
+            let requirement = "cmux \(required) or later"
+            return String(
+                format: L10n.string(
+                    "mobile.macUpdate.requiredOnMacFormat",
+                    defaultValue: "Requires %@ on your Mac."
+                ),
+                requirement
+            )
+        }
+        guard showsListAuthWarning else { return "" }
+        return L10n.string(
+            "mobile.pairing.guidance.macUpdateRequired",
+            defaultValue: "Update cmux on this Mac to connect securely."
+        )
     }
 
     private var dotColor: Color {
-        switch computer.connectionStatus {
-        case .connected: return .green
-        case .reconnecting: return .orange
-        case .unavailable, nil: return .secondary.opacity(0.5)
+        switch style {
+        case .computers:
+            switch computer.connectionStatus {
+            case .connected: return .green
+            case .reconnecting: return .orange
+            case .unavailable, nil: return .secondary.opacity(0.5)
+            }
+        case .reconnect:
+            // Disconnected screen: the phone talks to no Mac, so the phone
+            // connection is uniformly grey and carries no signal. Presence is
+            // the signal that matters — green marks the Macs worth tapping.
+            return computer.presence == .online ? .green : .secondary.opacity(0.5)
         }
     }
 
     private var isConnected: Bool { computer.connectionStatus == .connected }
+
+    /// The dot's automation suffix, derived from the same signal as its color so
+    /// UI tests and debugging never disagree with the visible state: phone
+    /// connection on the Computers screen, presence on the reconnect list.
+    private var statusIdentifierSuffix: String {
+        switch style {
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
+        case .reconnect: return computer.presence == .online ? "online" : "offline"
+        }
+    }
 
     private var avatarGradient: LinearGradient {
         MachineAvatarColors.gradient(
@@ -114,10 +287,40 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Primary line: the phone's connection to this Mac + workspace count.
+    /// Primary line. `.computers`: the phone's connection to this Mac + workspace
+    /// count. `.reconnect`: presence ("Online" / "Last seen …") — the phone is
+    /// connected to nothing and the cached workspace count is stale, so neither
+    /// carries information there.
     private var connectionLine: String {
-        let count = L10n.terminalCountWorkspaces(computer.workspaceCount)
-        return "\(connectionPhrase) · \(count)"
+        switch style {
+        case .computers:
+            let count = L10n.terminalCountWorkspaces(computer.workspaceCount)
+            return "\(connectionPhrase) · \(count)"
+        case .reconnect:
+            return reconnectStatusPhrase
+        }
+    }
+
+    /// What the status dot means, for accessibility: the phone connection on the
+    /// Computers screen, presence on the disconnected screen.
+    private var primaryStatusPhrase: String {
+        switch style {
+        case .computers: return connectionPhrase
+        case .reconnect: return reconnectStatusPhrase
+        }
+    }
+
+    /// Presence with a last-seen fallback from the paired store, so a
+    /// `.reconnect` row always shows something more useful than "unknown".
+    private var reconnectStatusPhrase: String {
+        switch computer.presence {
+        case .online:
+            return L10n.string("mobile.deviceTree.online", defaultValue: "Online")
+        case .offline(let lastSeenAt):
+            return lastSeenLine(max(lastSeenAt, computer.lastSeenAt))
+        case nil:
+            return lastSeenLine(computer.lastSeenAt)
+        }
     }
 
     private var connectionPhrase: String {
@@ -141,13 +344,23 @@ struct MacComputerRow: View {
     /// seen) still shows, and the full presence state is always in the detail sheet.
     private var diagnosticLine: String {
         let route = computer.routeDescription ?? L10n.string("mobile.computers.noRoute", defaultValue: "no route")
-        if isConnected, computer.presence == nil {
-            return route
+        var line: String
+        // `.reconnect` rows lead with presence on the primary line, so repeating
+        // it here would be noise — the diagnostic line is just the route.
+        if style == .reconnect || (isConnected && computer.presence == nil) {
+            line = route
+        } else {
+            line = String(
+                format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
+                presencePhrase, route
+            )
         }
-        return String(
-            format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
-            presencePhrase, route
-        )
+        // A stale same-named record (usually an old dev-build pairing) says so,
+        // so several identically named rows stop looking interchangeable.
+        if computer.isOlderDuplicate {
+            line = "\(L10n.string("mobile.computers.olderPairing", defaultValue: "Older pairing")) · \(line)"
+        }
+        return line
     }
 
     private var presencePhrase: String {

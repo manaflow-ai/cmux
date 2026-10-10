@@ -6,12 +6,38 @@
 /// read the individual settings stores, so each spawn observes the same live
 /// values in the same order.
 public struct TerminalSurfaceSpawnPolicy: Sendable {
+    /// Protected authentication values exported into the spawned terminal.
+    public var socketAuthenticationEnvironment: [String: String]
+
     /// Whether Claude Code hooks are enabled (`CMUX_CLAUDE_HOOKS_DISABLED`).
     public var claudeHooksEnabled: Bool
+
+    /// Whether Codex hooks (the `codex` wrapper) are enabled
+    /// (`CMUX_CODEX_HOOKS_DISABLED`).
+    public var codexHooksEnabled: Bool
+
+    /// Whether Pi hooks (the `pi` wrapper and bundled extension) are enabled
+    /// (`CMUX_PI_HOOKS_DISABLED`).
+    public var piHooksEnabled: Bool
 
     /// The user's custom `claude` executable path
     /// (`CMUX_CUSTOM_CLAUDE_PATH`), if set.
     public var customClaudePath: String?
+
+    /// Agent command shims enabled for this spawn.
+    ///
+    /// Claude's integration toggle controls command interception entirely;
+    /// the other wrappers keep their existing launch behavior.
+    public var enabledAgentCommandShims: Set<TerminalSurfaceAgentCommand> {
+        var commands = Set(TerminalSurfaceAgentCommand.allCases)
+        if !claudeHooksEnabled {
+            commands.remove(.claude)
+        }
+        if !piHooksEnabled {
+            commands.remove(.pi)
+        }
+        return commands
+    }
 
     /// The environment key carrying the subagent-notification suppression
     /// flag.
@@ -47,9 +73,14 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether sidebar pull-request watching is enabled (`CMUX_NO_PR_WATCH`).
     public var showPullRequestsEnabled: Bool
 
+    /// Whether supported agent sessions may attach the local computer-use MCP server.
+    public var computerUseEnabled: Bool
+
     /// Creates a spawn policy snapshot.
     public init(
+        socketAuthenticationEnvironment: [String: String] = [:],
         claudeHooksEnabled: Bool,
+        codexHooksEnabled: Bool = true,
         customClaudePath: String?,
         subagentNotificationEnvironmentKey: String,
         suppressSubagentNotifications: Bool,
@@ -60,9 +91,14 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         ampHooksEnabled: Bool,
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
-        showPullRequestsEnabled: Bool
+        showPullRequestsEnabled: Bool,
+        computerUseEnabled: Bool = true,
+        piHooksEnabled: Bool = true
     ) {
+        self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
+        self.codexHooksEnabled = codexHooksEnabled
+        self.piHooksEnabled = piHooksEnabled
         self.customClaudePath = customClaudePath
         self.subagentNotificationEnvironmentKey = subagentNotificationEnvironmentKey
         self.suppressSubagentNotifications = suppressSubagentNotifications
@@ -74,5 +110,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.shellIntegrationEnabled = shellIntegrationEnabled
         self.watchGitStatusEnabled = watchGitStatusEnabled
         self.showPullRequestsEnabled = showPullRequestsEnabled
+        self.computerUseEnabled = computerUseEnabled
     }
 }

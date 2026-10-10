@@ -9,6 +9,22 @@ export const POSTHOG_PROJECT_KEY =
 /** The PostHog capture host (no trailing slash). */
 export const POSTHOG_HOST = (process.env.POSTHOG_HOST ?? "https://r.cmux.com").replace(/\/$/, "");
 
+/**
+ * Test runners must never use the production PostHog transport by default.
+ * The explicit marker is set by the web test preload; NODE_ENV and VITEST
+ * also cover direct module tests that do not load that preload.
+ */
+export function isAnalyticsTestRun(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return (
+    env.CMUX_ANALYTICS_TEST_MODE === "1" ||
+    env.NODE_ENV === "test" ||
+    env.VITEST === "true" ||
+    env.VITEST === "1"
+  );
+}
+
 /** Max request size for an analytics batch. */
 export const MAX_ANALYTICS_REQUEST_BYTES = 64 * 1024;
 
@@ -23,6 +39,14 @@ export const MAX_ANALYTICS_EVENT_PROPERTIES = 64;
 // sync with the P0/P1/P2 catalog as new events ship.
 const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "$identify",
+  // In-app purchase funnel (CmuxMobileBilling)
+  "ios_paywall_viewed",
+  "ios_purchase_started",
+  "ios_purchase_cancelled",
+  "ios_purchase_failed",
+  "ios_purchase_pending",
+  "ios_restore_started",
+  "ios_restore_completed",
   // App lifecycle + session
   "ios_app_first_launch",
   "ios_app_launched",
@@ -35,6 +59,8 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_sign_in_completed",
   "ios_sign_in_failed",
   "ios_sign_in_cancelled",
+  "ios_billing_recovery_attempted",
+  "ios_billing_recovery_failed",
   // Pairing
   "ios_pairing_screen_viewed",
   "ios_pairing_started",
@@ -44,6 +70,7 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_connection_lost",
   "ios_connection_recovered",
   "ios_connection_recovery_failed",
+  "ios_initial_connection",
   // Workspace + terminal
   "ios_workspace_opened",
   "ios_first_frame_latency",

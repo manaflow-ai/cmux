@@ -367,15 +367,15 @@ cmux безкоштовний та з відкритим кодом, і завж
 
 ### У мене є запит на функцію або я знайшов помилку?
 
-Ми хочемо про це почути. Відкрийте [issue](https://github.com/manaflow-ai/cmux/issues) або [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, або [напишіть нам](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Ми хочемо про це почути. Відкрийте [issue](https://github.com/manaflow-ai/cmux/issues) або [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, або [напишіть нам](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Історія зірок
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Діаграма історії зірок" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Діаграма історії зірок" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,11 +391,17 @@ cmux безкоштовний та з відкритим кодом, і завж
 ## Спільнота
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> відскануйте QR-код, щоб приєднатися до спільноти.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для приєднання до спільноти cmux" width="240" />
+</p>
 
 ## Founder's Edition
 
@@ -412,6 +418,6 @@ cmux є безкоштовним, з відкритим кодом і завжд
 
 ## Ліцензія
 
-cmux є відкритим програмним забезпеченням під ліцензією [GPL-3.0-or-later](LICENSE).
+cmux є відкритим програмним забезпеченням під ліцензією [GPL-3.0-or-later](LICENSE). Серверне програмне забезпечення cmux (`web/`, воркери Cloudflare та relay-сервіси, перелічені в [LICENSE](LICENSE)) натомість розповсюджується за [Business Source License 1.1](web/LICENSE): його можна читати, змінювати й запускати для невиробничого використання, а виробниче використання чи власний хостинг потребують комерційної ліцензії.
 
-Якщо ваша організація не може дотримуватися GPL, доступна комерційна ліцензія. Зв'яжіться з [founders@manaflow.com](mailto:founders@manaflow.com) для деталей.
+Якщо ваша організація не може дотримуватися GPL, доступна комерційна ліцензія. Зв'яжіться з [founders@cmux.com](mailto:founders@cmux.com) для деталей.

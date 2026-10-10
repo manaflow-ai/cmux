@@ -3,9 +3,9 @@ import Foundation
 import CoreGraphics
 
 final class MultiWindowNotificationsUITests: XCTestCase {
-    private var dataPath = ""
-    private var socketPath = ""
-    private var launchTag = ""
+    var dataPath = ""
+    var socketPath = ""
+    var launchTag = ""
 
     override func setUp() {
         super.setUp()
@@ -23,8 +23,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         super.tearDown()
     }
 
+    func testNotificationsPopoverShowsWorkspaceAsHeadline() {
+        runNotificationsPopoverShowsWorkspaceAsHeadline()
+    }
+
     func testNotificationsRouteToCorrectWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -115,7 +119,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverCanCloseViaShortcutAndEscape() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -156,7 +160,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverJumpToLatestButtonShowsShortcut() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -184,8 +188,44 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
     }
 
+    func testNotificationsPopoverOpensPhoneForwardingControls() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        launchAllowingHeadlessBackgroundActivation(app)
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for phone-forwarding discoverability test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
+
+        app.typeKey("i", modifierFlags: [.command])
+        let phoneForwardingButton = app.buttons["notificationsPopover.phoneForwarding"]
+        XCTAssertTrue(
+            phoneForwardingButton.waitForExistence(timeout: 6.0),
+            "Expected a discoverable phone-forwarding entrypoint in the notifications popover"
+        )
+
+        let forwardingToggle = app.descendants(matching: .any)["notificationsPage.forwardToPhone"]
+        phoneForwardingButton.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).click()
+        XCTAssertTrue(
+            forwardingToggle.waitForExistence(timeout: 9.0),
+            "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
+        )
+        let notificationsTab = app.buttons["Notifications"]
+        XCTAssertTrue(
+            notificationsTab.waitForExistence(timeout: 3.0) && notificationsTab.isHittable,
+            "Expected Notifications to open as a selectable pane tab"
+        )
+    }
+
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -238,7 +278,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -398,7 +438,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testOpenNotificationCLISelectsWorkspaceSurfaceAndMarksRowRead() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -518,7 +558,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNewWorkspaceCLIWindowFlagTargetsSpecificWindow() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let title = "window-route-\(UUID().uuidString.prefix(8))"
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
@@ -654,13 +694,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return waitForFocusChange(from: token, timeout: max(0.0, timeout - firstDeadline))
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            app.windows.count >= count
-        }
-    }
-
-    private func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
+    func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
@@ -668,13 +702,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             app.state == .runningForeground || app.state == .runningBackground
         }
     }
 
-    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.state == .runningForeground {
             return true
         }
@@ -705,7 +739,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
+    func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             guard let data = self.loadData() else { return false }
             return keys.allSatisfy { (data[$0] ?? "").isEmpty == false }
@@ -878,7 +912,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
     }
 
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if predicate() { return true }
@@ -973,7 +1007,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
     }
 
-    private func runCmuxCommand(
+    func runCmuxCommand(
         socketPath: String,
         arguments: [String],
         responseTimeoutSeconds: Double = 3.0,
@@ -1030,7 +1064,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return lastPermissionFailure ?? fallbackResult
     }
 
-    private enum CmuxCLIStrategy: Equatable {
+    enum CmuxCLIStrategy: Equatable {
         case any
         case bundledOnly
     }
@@ -1491,7 +1525,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return String(data: data, encoding: .utf8)
     }
 
-    private func loadData() -> [String: String]? {
+    func loadData() -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
             return nil
         }

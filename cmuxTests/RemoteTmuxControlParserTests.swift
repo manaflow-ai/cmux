@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -146,6 +147,16 @@ import Testing
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
     }
 
+    @Test func clientDetachedPreservesClientName() {
+        let messages = parse("%client-detached /dev/pts/22\r\n")
+        #expect(messages == [.clientDetached(client: "/dev/pts/22")])
+    }
+
+    @Test func bareClientDetachedIsUnparsed() {
+        let messages = parse("%client-detached\r\n")
+        #expect(messages == [.unparsed("%client-detached")])
+    }
+
     @Test func sessionRenamedParsesToDistinctMessage() {
         // tmux emits %session-renamed (NOT %session-changed) for `rename-session`;
         // cmux must parse it so a remote rename re-titles the mirror workspace.
@@ -173,10 +184,6 @@ import Testing
         #expect(messages == [.sessionRenamed(sessionId: 1, name: "$1 dev", idBearingName: "dev")])
     }
 
-    @Test func layoutChangeCarriesRawLayoutString() {
-        let messages = parse("%layout-change @4 f92f,80x24,0,0,1 @4 1\r\n")
-        #expect(messages == [.layoutChange(windowId: 4, layout: "f92f,80x24,0,0,1")])
-    }
 
     // MARK: - Pane state seeding (cursor / region / origin ordering)
 
@@ -283,60 +290,6 @@ import Testing
         )
     }
 
-    // MARK: - Session-end action (disconnect handling)
-
-    @Test func sessionEndClosesDedicatedWindowWhenAnotherWindowRemains() {
-        let windowId = UUID()
-        // Dedicated host-owned window lost its last session and another window is
-        // open → close the whole window (the disconnect UX).
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 1
-            ) == .closeDedicatedWindow(windowId)
-        )
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 3
-            ) == .closeDedicatedWindow(windowId)
-        )
-    }
-
-    @Test func sessionEndKeepsSoleDedicatedWindowOpen() {
-        // Dedicated window but it is the ONLY window → don't close it (never leave
-        // the user with zero windows); fall back to closing just the workspace.
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 0
-            ) == .closeWorkspace
-        )
-    }
-
-    @Test func sessionEndKeepsDedicatedWindowWithUnrelatedWorkspace() {
-        // The user moved a local workspace — or another host's mirror — into the
-        // dedicated window → closing the whole window would discard it. Close only
-        // the dead workspace instead.
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 2
-            ) == .closeWorkspace
-        )
-    }
-
-    @Test func sessionEndClosesWorkspaceWhenNotDedicated() {
-        // No dedicated window (host still has other sessions, or a shared/socket
-        // mirror) → only the dead workspace closes, regardless of window count.
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 0
-            ) == .closeWorkspace
-        )
-        #expect(
-            RemoteTmuxController.sessionEndAction(
-                dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 5
-            ) == .closeWorkspace
-        )
-    }
-
     // MARK: - Mirror tab reorder (out-of-band tmux window reorder)
 
     @Test func mirrorTabReorderFollowsRemoteWindowOrder() {
@@ -361,24 +314,6 @@ import Testing
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
     }
 
-    @Test func singlePaneDisplaySeedsOnlySinglePaneWindows() throws {
-        let singlePane = RemoteTmuxWindow(
-            id: 1,
-            width: 80,
-            height: 24,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1"))
-        )
-        let multiPane = RemoteTmuxWindow(
-            id: 2,
-            width: 120,
-            height: 40,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
-        )
-
-        #expect(RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: singlePane))
-        #expect(!RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: multiPane))
-    }
-
     // MARK: - Reconnect: session-gone classification
 
     @Test func stderrSessionGoneIsDetected() {
@@ -386,6 +321,8 @@ import Testing
         // genuine end (stop retrying, close).
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("can't find session: work"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no sessions"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("warning\n  no sessions  \n"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("lost server"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
     }
@@ -397,8 +334,29 @@ import Testing
             "ssh: connect to host example.com port 22: Operation timed out"))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
             "ssh: connect to host x port 22: No route to host"))
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
+            "Login banner: no sessions are restored automatically"))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("Connection to host closed."))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(""))
+    }
+
+    @Test func reconnectPTYSessionGoneOutputSurvivesControlStreamParsing() {
+        for terminalLine in ["no server running on /private/tmp/tmux-501/default", "no sessions"] {
+            var parser = RemoteTmuxControlStreamParser()
+            let messages = parser.feed(Data("\(terminalLine)\r\n".utf8))
+            let unparsed = messages.compactMap { message -> String? in
+                guard case let .unparsed(line) = message else { return nil }
+                return line
+            }
+
+            #expect(unparsed == [terminalLine])
+            #expect(RemoteTmuxControlMessageDecoding().controlOutputIndicatesSessionGone(
+                unparsed.joined(separator: "\n")
+            ))
+        }
+        #expect(!RemoteTmuxControlMessageDecoding().controlOutputIndicatesSessionGone(
+            "Login banner: no sessions are restored automatically"
+        ))
     }
 
     // MARK: - Raw layout parser
@@ -448,11 +406,49 @@ import Testing
         #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
     }
 
+    @Test func rejectsDuplicatePaneIDs() {
+        #expect(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,4}") == nil)
+    }
+
     @Test func rejectsGarbageLayout() {
         #expect(RemoteTmuxRawLayoutParser.parse("not-a-layout") == nil)
         #expect(RemoteTmuxRawLayoutParser.parse("") == nil)
         // Trailing junk after a valid node fails (cursor must reach the end).
         #expect(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1xyz") == nil)
+    }
+
+    /// The enter DCS is recognised partway through a line, because a transport that types the
+    /// command into a login shell (et) leaves that shell's echo and OSC title sequences ahead of
+    /// it with no newline between. Requiring offset 0 meant `.enter` never fired on a real et
+    /// stream, and commands are withheld until `.enter`.
+    @Test func enterIsFoundWhenShellEchoPrecedesTheDCS() {
+        let messages = parse("\u{1B}]0;ejc3@host\u{07}exec tmux -CC attach\u{1B}P1000p%begin 1 1 0\r\n")
+        #expect(messages.contains { if case .enter = $0 { return true }; return false })
+    }
+
+    /// But only before control mode is entered, and never inside a command block: block content is
+    /// raw pane bytes from `capture-pane -e`, which can contain this DCS legitimately. Treating
+    /// that as a second enter would also cut the captured pane apart at the match.
+    @Test func aDCSInsideBlockContentIsNotASecondEnter() {
+        let enter = "\u{1b}P1000p"
+        let messages = parse(
+            enter + "%begin 1700000000 1 0\r\n"
+            + "ok\r\n"
+            + "%end 1700000000 1 0\r\n"
+            + "%begin 1700000000 2 0\r\n"
+            + "pane painted \u{1b}P1000p still the same pane\r\n"
+            + "%end 1700000000 2 0\r\n"
+        )
+        let enters = messages.filter { if case .enter = $0 { return true }; return false }
+        #expect(enters.count == 1, "expected exactly one .enter, saw \(enters.count)")
+        // The captured pane's bytes survive whole rather than being cut at the embedded DCS.
+        #expect(messages.contains(
+            .commandResult(
+                commandNumber: 2,
+                lines: ["pane painted \u{1b}P1000p still the same pane"],
+                isError: false
+            )
+        ))
     }
 }
 
@@ -534,6 +530,16 @@ import Testing
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
         )
     }
+
+    /// The host-wide session digest names no pane. A pane target reports only while that pane
+    /// exists, and on a server that has been up for a while pane 0 is long gone: measured on
+    /// tmux 3.7b, a `%0` subscription there stays silent when a session is created or renamed.
+    @Test @MainActor func sessionDigestSubscribesOnTheAttachedSessionNotAPane() {
+        #expect(
+            RemoteTmuxControlConnection.sessionDigestSubscriptionCommand
+                == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name},}'"
+        )
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as
@@ -587,56 +593,5 @@ import Testing
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
     }
-}
 
-/// Naming the kill-window confirmation dialog from the live foreground
-/// classification (`RemoteTmuxController.mirrorTabActivity`) so it can't lag the
-/// tab's own tmux automatic-rename.
-@Suite struct RemoteTmuxMirrorTabActivityTests {
-    private typealias State = RemoteTmuxControlConnection.PaneForegroundState
-
-    @Test @MainActor func namesTheActivePaneCommand() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: nil
-        )
-        #expect(activity.hasActiveCommand)
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func prefersTheFocusedPaneWhenSeveralAreActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|vim"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: 2
-        )
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func namesAnActiveBackgroundPaneWhenTheFocusedOneIsIdle() {
-        // Focused pane idle, another pane active → fall past the focused pane to
-        // the active one in layout order (the deduped second half of the scan).
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: 1
-        )
-        #expect(activity.hasActiveCommand)
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func idleWindowHasNoNameAndIsNotActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|zsh")],
-            paneOrder: [1, 2], activePaneId: 1
-        )
-        #expect(!activity.hasActiveCommand)
-        #expect(activity.activeCommandName == nil)
-    }
-
-    @Test @MainActor func unclassifiedWindowIsIdle() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [:], paneOrder: [1, 2], activePaneId: nil
-        )
-        #expect(!activity.hasActiveCommand)
-        #expect(activity.activeCommandName == nil)
-    }
 }

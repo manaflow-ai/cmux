@@ -246,10 +246,11 @@ export async function tombstoneRecord(
   collection: string,
   id: string,
   nowMs: number,
+  options?: { createIfMissing?: boolean },
 ): Promise<SyncWriteResult<Record<string, never>>> {
   const head = await readHead(storage, collection);
   const stored = await readRecord(storage, collection, id);
-  if (stored === undefined || stored.deleted) {
+  if ((stored === undefined && options?.createIfMissing !== true) || stored?.deleted) {
     // Nothing to delete, or already a tombstone: idempotent no-op.
     return { delta: null, head };
   }
@@ -261,6 +262,7 @@ export async function tombstoneRecord(
     [recordKey(collection, id)]: tomb,
     [headKey(collection)]: rev,
     [tombKey(collection, rev)]: id,
+    ...(await firstWriteEpochEntry(storage, collection, head, nowMs)),
   });
   return { delta: buildDelta(collection, rev, [tomb]), head: rev };
 }

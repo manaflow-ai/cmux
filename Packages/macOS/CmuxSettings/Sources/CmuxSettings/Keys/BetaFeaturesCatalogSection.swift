@@ -1,10 +1,9 @@
 import Foundation
 
 /// Beta-feature toggles. Each key here gates an experimental code path
-/// in the running app. The id prefix is `rightSidebar.beta.*` for the
-/// existing right-sidebar Dock toggle; new betas should follow the
-/// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
-/// groups them sensibly.
+/// in the running app. New beta keys should follow the pattern
+/// `<feature-domain>.beta.<flag-name>` so the cmux.json view groups them
+/// sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
@@ -16,13 +15,12 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
     )
 
-    /// Right-sidebar Dock: an experimental terminal-controls dock that
-    /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults off; flagged as unstable in the Settings UI.
-    public let rightSidebarDock = DefaultsKey<Bool>(
-        id: "rightSidebar.beta.dock.enabled",
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
@@ -47,6 +45,37 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
+    /// Workspace todo controls: the experimental UI that lets users add
+    /// checklist items and set workspace completion/status lanes. Defaults off
+    /// so the todo summary remains read-only unless the user opts in or the
+    /// remote rollout flag enables it.
+    public let workspaceTodoControls = DefaultsKey<Bool>(
+        id: "sidebar.beta.workspaceTodos.controls.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled"
+    )
+
+    /// How a workspace row's checklist opens from its summary line while the
+    /// workspace-todos feature is on: an anchored popover (default) or the
+    /// round-1 inline expansion.
+    public let workspaceTodosChecklistStyle = DefaultsKey<WorkspaceTodoChecklistStyle>(
+        id: "sidebar.beta.workspaceTodos.checklistStyle",
+        defaultValue: .popover,
+        userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
+    )
+
+    /// Cloud Machines' persisted first-use activation marker. The row moved out
+    /// of Beta Features when Cloud graduated; this storage key remains stable
+    /// so installed users keep their activation and existing configuration
+    /// domains migrate without a destructive reset.
+    public let cloudMachines = DefaultsKey<Bool>(
+        id: "cloud.beta.machines.enabled",
+        defaultValue: Self.cloudMachinesDefault,
+        userDefaultsKey: "cloud.beta.machines.enabled"
+    )
+
+    private static let cloudMachinesDefault = false
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
@@ -58,6 +87,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "remoteTmux.beta.enabled"
+    )
+
+    /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
+    /// (required for hosts that permit a single concurrent SSH connection) instead of
+    /// one connection per session. The workspace model is identical either way.
+    /// Defaults off; while off, the per-session GA transport is used.
+    public let remoteTmuxMultiplexer = DefaultsKey<Bool>(
+        id: "remoteTmux.multiplexer.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.multiplexer.beta.enabled"
     )
 
     public init() {}

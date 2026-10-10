@@ -153,7 +153,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
-    func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
+    func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let sourcePanelId = workspace.focusedPanelId else {
@@ -162,6 +162,8 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         }
 
         let requestedDirectory = "/tmp/cmux-split-startup-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         let startupCommand = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "node /opt/oh-my-codex/dist/omx.js hud --watch"
         let initialDividerPosition = 0.875
@@ -239,6 +241,8 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let placeholderCommand = "/bin/sh -c 'printf placeholder; while :; do sleep 86400; done'"
         let attachCommand = "/bin/sh -c 'opencode attach http://127.0.0.1:4096 --session subagent --dir /tmp/omo'"
         let requestedDirectory = "/tmp/cmux-respawn-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         let startupEnvironment = [
             "CMUX_OMO_SUBAGENT": "1",
             "OMO_SUBAGENT_DESC": "test"
@@ -292,7 +296,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let requestedDirectory = "/tmp/cmux-hud-restore-\(UUID().uuidString)"
+        let requestedDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hud-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: requestedDirectoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: requestedDirectoryURL) }
+        let requestedDirectory = requestedDirectoryURL.path
         let originalStartupScript = "/tmp/cmux-tmux-command-\(UUID().uuidString).sh"
         let tmuxStartCommand = "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch"
         let hudPanel = try XCTUnwrap(workspace.newTerminalSplit(
@@ -324,7 +332,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             originalStartupScript,
             "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
         )
-        XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
+        XCTAssertTrue(restoredStartupScript.contains("/cmux-r/"))
         XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
     }
 

@@ -67,6 +67,12 @@ struct RemoteTmuxSessionRenameTitleTests {
             backing: .buffered,
             defer: false
         )
+        // A programmatically created NSWindow is released-when-closed by default, so the `close()`
+        // below would drop a reference ARC still owns; the freed object is then over-released when the
+        // main actor's autorelease pool drains, killing the whole test host and every verdict still
+        // pending in it. Measured: 8 of 8 host deaths in this file landed on the two tests here that
+        // create a window.
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -79,6 +85,25 @@ struct RemoteTmuxSessionRenameTitleTests {
         mirror.applySessionNameToWorkspaceTitle("dev")
 
         #expect(window.title == "dev")
+    }
+
+    @Test func remoteRenamePostsWorkspaceTitleDidChange() {
+        let (mirror, workspace, manager) = makeMirror(sessionName: "old", title: "old")
+        var notifications: [Notification] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            notifications.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        mirror.applySessionNameToWorkspaceTitle("dev")
+
+        #expect(notifications.count == 1)
+        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id)
+        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.surfaceId] == nil)
     }
 
     @Test func remoteRenameUsesCurrentManagerAfterWorkspaceMove() throws {
@@ -96,6 +121,12 @@ struct RemoteTmuxSessionRenameTitleTests {
             backing: .buffered,
             defer: false
         )
+        // A programmatically created NSWindow is released-when-closed by default, so the `close()`
+        // below would drop a reference ARC still owns; the freed object is then over-released when the
+        // main actor's autorelease pool drains, killing the whole test host and every verdict still
+        // pending in it. Measured: 8 of 8 host deaths in this file landed on the two tests here that
+        // create a window.
+        window.isReleasedWhenClosed = false
         destinationManager.window = window
         defer {
             destinationManager.window = nil
@@ -110,5 +141,66 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.title == "dev")
         #expect(workspace.customTitle == "dev")
         #expect(window.title == "dev")
+    }
+
+    @Test func tmuxWindowNameRemainsAuthoritativeOverTerminalTitle() throws {
+        let (_, workspace, _) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+        let changed = workspace.updatePanelTitle(
+            panelId: panelId,
+            title: "/Users/austinwang"
+        )
+
+        #expect(!changed)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+    }
+
+    @Test func tmuxTitlesRemainAuthoritativeOverTerminalTitleIngress() throws {
+        let (_, workspace, manager) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+        let surface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        manager.selectedTabId = workspace.id
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+
+        let postTerminalTitle: (String) -> Void = { title in
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: surface,
+                userInfo: GhosttyTitleChange(
+                    tabId: workspace.id,
+                    surfaceId: panelId,
+                    title: title
+                ).userInfo
+            )
+            manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
+
+        postTerminalTitle("codex")
+
+        #expect(workspace.bonsplitController.tab(tabId)?.icon == "terminal.fill")
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
+        postTerminalTitle("/Users/austinwang")
+
+        #expect(workspace.bonsplitController.tab(tabId)?.icon == "terminal.fill")
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
+        manager.focusedSurfaceTitleDidChange(tabId: workspace.id)
+
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
     }
 }

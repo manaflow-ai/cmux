@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import UniformTypeIdentifiers
 import WebKit
 
@@ -7,16 +8,20 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     var webView: AgentSessionWebView?
     private var panelId = UUID()
     private var workspaceId = UUID()
+    private weak var attachedHost: AgentSessionWebHostView?
+    private var hasAttachedHost = false
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
     private var theme: AgentSessionWebTheme = .resolve(
-        appearance: .fromConfig(GhosttyConfig.load())
+        appearance: .fromConfig(GhosttyConfig.loadForCmux())
     )
     private var loadedRendererKind: AgentSessionRendererKind?
     private var trustedShellURL: URL?
     private var hasFinishedNavigation = false
     private var hasCompletedVisiblePaintFlush = false
+    private var isVisiblePaintFlushInFlight = false
+    private(set) var visiblePaintGeneration: UInt64 = 0
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
@@ -29,6 +34,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+    var onRunCommand: ((String) throws -> [String: Any])?
 
     func bind(
         panelId: UUID,
@@ -40,12 +46,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         isFocused: Bool
     ) {
         self.panelId = panelId
+        let workspaceChanged = self.workspaceId != workspaceId
         self.workspaceId = workspaceId
         if self.rendererKind != rendererKind {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
-            hasCompletedVisiblePaintFlush = false
+            resetVisiblePaintState()
+        } else if workspaceChanged {
+            resetVisiblePaintState()
         }
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
@@ -62,6 +71,16 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         processStore.activeProviderSink = { [weak self] hasActiveProvider in
             self?.onHasActiveProviderChanged?(hasActiveProvider)
         }
+    }
+
+    /// Records the host currently displaying this retained renderer session.
+    func attach(to host: AgentSessionWebHostView) {
+        guard attachedHost !== host else { return }
+        attachedHost = host
+        if hasAttachedHost {
+            invalidateVisiblePaintAfterReattachment()
+        }
+        hasAttachedHost = true
     }
 
     func ensureWebView(onPointerDown: @escaping () -> Void) -> AgentSessionWebView {
@@ -120,7 +139,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        resetVisiblePaintState()
     }
 
     func focus() {
@@ -155,7 +174,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        attachedHost = nil
+        hasAttachedHost = false
+        resetVisiblePaintState()
     }
 
     func userContentController(
@@ -217,6 +238,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "AgentSessionWebRendererCoordinator.navigationAction"
+        ).closure
+
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
@@ -259,14 +286,31 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func flushVisiblePaintIfReady() {
         guard hasFinishedNavigation,
               !hasCompletedVisiblePaintFlush,
+              !isVisiblePaintFlushInFlight,
               let webView,
               webView.window != nil,
               !webView.bounds.isEmpty else {
             return
         }
+        let generation = visiblePaintGeneration
+        isVisiblePaintFlushInFlight = true
         flushInitialPaint(for: webView) { [weak self] in
-            self?.hasCompletedVisiblePaintFlush = true
+            guard let self, self.visiblePaintGeneration == generation else { return }
+            self.isVisiblePaintFlushInFlight = false
+            self.hasCompletedVisiblePaintFlush = true
         }
+    }
+
+    /// Reopens the visible paint gate after Bonsplit moves a retained web host.
+    func invalidateVisiblePaintAfterReattachment() {
+        resetVisiblePaintState()
+        flushVisiblePaintIfReady()
+    }
+
+    private func resetVisiblePaintState() {
+        visiblePaintGeneration &+= 1
+        isVisiblePaintFlushInFlight = false
+        hasCompletedVisiblePaintFlush = false
     }
 
     private func flushInitialPaint(for webView: WKWebView, completion: (() -> Void)? = nil) {
@@ -612,9 +656,24 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "provider.stop":
             try processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
+        case "terminal.runCommand":
+            return try runTerminalCommandRequest(
+                try request.requiredString("command")
+            )
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
+    }
+
+    /// Runs one terminal command only while this renderer still owns a live panel.
+    func runTerminalCommandRequest(_ command: String) throws -> [String: Any] {
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        guard let onRunCommand else {
+            throw AgentSessionBridgeError.providerNotReady("terminal")
+        }
+        return try onRunCommand(command)
     }
 
     private func pickLocalFiles() async -> [String: Any] {

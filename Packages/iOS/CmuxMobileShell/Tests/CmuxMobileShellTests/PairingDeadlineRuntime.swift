@@ -10,7 +10,7 @@ struct PairingDeadlineRuntime: MobileSyncRuntime {
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
     var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     var now: @Sendable () -> Date = { Date() }
-    var supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale]
+    var supportedRouteKinds: [CmxAttachTransportKind] = [.debugLoopback]
     var pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     var pairingAttemptTimeoutNanoseconds: UInt64 = 1_000_000
     var supportsServerPushEvents: Bool = false

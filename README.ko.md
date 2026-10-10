@@ -367,15 +367,15 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
-꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star History
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,11 +391,17 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 ## 커뮤니티
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> QR 코드를 스캔해 커뮤니티에 참여하세요.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux 커뮤니티에 참여하기 위한 WeChat QR 코드" width="240" />
+</p>
 
 ## Founder's Edition
 
@@ -412,6 +418,6 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ## 라이선스
 
-cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요.
+cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 비프로덕션 용도로 읽고, 수정하고, 실행할 수 있지만 프로덕션 사용이나 셀프 호스팅에는 상용 라이선스가 필요해요.
 
-GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@manaflow.com](mailto:founders@manaflow.com)으로 문의해주세요.
+GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@cmux.com](mailto:founders@cmux.com)으로 문의해주세요.

@@ -45,6 +45,8 @@ public struct SettingsSearchIndex: Sendable {
         let normalizedSearchWords: [String]
         /// Unique token set cached so exact token matches stay O(1) per query token.
         let normalizedSearchWordSet: Set<String>
+        /// Folded ``title``, cached so ranking does not re-fold it per query.
+        let normalizedTitle: String
         /// Anchor id posted to the settings content scroll view when the result is selected.
         public let anchorID: String
 
@@ -72,6 +74,7 @@ public struct SettingsSearchIndex: Sendable {
             self.normalizedSearchText = normalizedSearchText
             self.normalizedSearchWords = SettingsSearchMatcher().tokens(in: normalizedSearchText)
             self.normalizedSearchWordSet = Set(normalizedSearchWords)
+            self.normalizedTitle = SettingsSearchMatcher().normalize(title)
             self.anchorID = anchorID
         }
     }
@@ -99,15 +102,18 @@ public struct SettingsSearchIndex: Sendable {
     ///     by every persisted catalog key, because some catalog keys are
     ///     hidden/internal state with no visible row to scroll to.
     ///   - curatedEntries: One entry per searchable setting row, with a
-    ///     localized title + synonyms. Defaults to
-    ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
-    ///     with. Tests pass an empty array or a focused subset; hosts
-    ///     can append their own entries to expose additional rows.
+    ///     localized title + synonyms. Tests can pass an empty array or a
+    ///     focused subset; hosts can append their own entries to expose
+    ///     additional rows.
+    /// Builds the shipped search index from the catalog-backed default entry table.
+    public init(catalog: SettingCatalog) {
+        self.init(catalog: catalog, curatedEntries: .cmuxDefault(catalog: catalog))
+    }
+
     public init(
         catalog: SettingCatalog,
-        curatedEntries: [CuratedSettingEntry] = .cmuxDefault
+        curatedEntries: [CuratedSettingEntry]
     ) {
-        _ = catalog
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 
