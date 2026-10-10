@@ -83,6 +83,9 @@ impl HostedReader {
     /// Thread body: stream from the host until it ends, then exit, resync or
     /// reconnect.
     pub(super) fn run(mut self, surface: Arc<Surface>, mut reader: UnixStream) {
+        // Declared first so it drops last: input waiting out a reconnect
+        // (surface/input.rs) wakes after the completion below is recorded.
+        let _wake_waiting_input = WakeInputOnReaderEnd(surface.clone());
         let _reader_completion = ReaderCompletionGuard(
             surface.as_pty().expect("host reader owns a PTY surface").reader_completion.clone(),
         );
@@ -260,7 +263,7 @@ impl HostedReader {
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.
-            *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
+            *pty.exit.lock().unwrap() = Some(TerminalEnd::from_host_exit(exit));
             mark_hosted_runtime_exited(pty, &identity);
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -302,5 +305,18 @@ impl HostedReader {
             return None;
         }
         self.reconnect(surface, pty, identity)
+    }
+}
+
+/// Wakes input that waits out a lost host connection (surface/input.rs)
+/// when the hosted reader ends, so the input fails at once instead of at
+/// its deadline (cx-6so.49).
+struct WakeInputOnReaderEnd(Arc<Surface>);
+
+impl Drop for WakeInputOnReaderEnd {
+    fn drop(&mut self) {
+        if let Some(pty) = self.0.as_pty() {
+            pty.stream_progress.notify();
+        }
     }
 }

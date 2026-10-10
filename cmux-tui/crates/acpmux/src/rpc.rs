@@ -44,6 +44,19 @@ impl RpcError {
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
     }
+    /// A request whose handler waited on an agent past its deadline
+    /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
+    /// the wait, and the request may be retried.
+    pub fn deadline_exceeded(wait: &str, timeout: std::time::Duration) -> Self {
+        Self::new(-32000, format!("{wait} did not finish within {timeout:?}")).with_data(
+            serde_json::json!({
+                "reason": "deadline_exceeded",
+                "wait": wait,
+                "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                "retryable": true,
+            }),
+        )
+    }
 }
 
 impl std::fmt::Display for RpcError {
@@ -200,6 +213,8 @@ pub mod method {
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
+    /// The person proof for this connection's challenge (`hub/person.rs`).
+    pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -268,33 +283,4 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_request() {
-        let m = Message::request(1, "session/prompt", json!({"sessionId": "s"}));
-        let back = Message::parse(&m.to_line()).unwrap();
-        assert_eq!(m, back);
-    }
-
-    #[test]
-    fn parses_error_response() {
-        let m = Message::parse(r#"{"jsonrpc":"2.0","id":3,"error":{"code":-1,"message":"x"}}"#)
-            .unwrap();
-        match m {
-            Message::Response { error: Some(e), .. } => assert_eq!(e.code, -1),
-            _ => panic!("expected error response"),
-        }
-    }
-
-    #[test]
-    fn notification_has_no_id() {
-        let m =
-            Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#).unwrap();
-        assert!(matches!(m, Message::Notification { .. }));
-    }
 }

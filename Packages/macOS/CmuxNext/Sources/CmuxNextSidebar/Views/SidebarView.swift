@@ -1,6 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
+import CmuxNextCompat
+import CmuxNextIcons
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -51,7 +53,7 @@ public final class SidebarView: NSView {
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
-    let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// The pointer over the sidebar now (cx-3wu5).
@@ -205,7 +207,7 @@ public final class SidebarView: NSView {
             NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
             NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
         ]
-        scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
+        spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()
@@ -325,7 +327,7 @@ public final class SidebarView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await state in Observations({
+            for await state in ObservationStream({
                 RenderState(
                     sections: model.sections,
                     selection: model.selection,

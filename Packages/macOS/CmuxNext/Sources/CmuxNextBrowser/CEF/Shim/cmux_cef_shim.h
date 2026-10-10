@@ -456,6 +456,12 @@ CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
 // Deletes the host and domain cookies of url named name (every name when
 // name is NULL or ""). REPLY with `reply` follows, a = deleted count.
 CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name);
+// Downloads the favicon at url through the browser's own request context
+// (CefBrowserHost::DownloadImage as a favicon: the tab's cookies and
+// profile), at most max_size pixels square. REPLY with `reply` follows:
+// a = HTTP status (0 when the fetch failed), s1 = base64 PNG at 1x, or "".
+// Returns 0 when the browser is gone, url is empty or max_size <= 0.
+CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size);
 // Browser import: writes cookies into the request context of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // creating the context when no tab opened it yet. json = [{"url","name",

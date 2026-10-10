@@ -37,8 +37,12 @@ final class PaneHeaderView: NSView {
         pillBacking.wantsLayer = true
         addSubview(pillBacking)
         // HeaderBar's pill, as configured there.
-        pill.bezelStyle = .glass
-        pill.borderShape = .capsule
+        if #available(macOS 26, *) {
+            pill.bezelStyle = .glass
+            pill.borderShape = .capsule
+        } else {
+            pill.bezelStyle = .push
+        }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?

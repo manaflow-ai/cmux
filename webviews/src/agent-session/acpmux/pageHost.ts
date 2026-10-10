@@ -8,6 +8,7 @@ import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
 import { setDeviceChats } from "./newtab/deviceChats";
+import { setRecentlyClosed } from "./newtab/recentlyClosed";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -84,6 +85,8 @@ export function applyHostEvent(event: HostEvent): void {
     case "deviceChats":
       // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
       return setDeviceChats(event.value);
+    case "recentlyClosed":
+      return setRecentlyClosed(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "dictation":

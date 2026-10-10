@@ -51,8 +51,11 @@ pub const MAX_TASKS: usize = 8;
 /// Most subagents at work at once; a spawn over it queues the rest, which
 /// start as others finish.
 pub const MAX_LIVE: usize = 16;
-/// Longest `spawn` waits for the view to settle (section 6).
-pub const SETTLE_LIMIT: Duration = Duration::from_secs(240);
+/// Longest `spawn` waits for the view to settle (section 6), as a turn does
+/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction):
+/// then the subagent gets the view with the lines still building as the
+/// placeholder.
+pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
 /// Prompt ids of the host's own prompts to a subagent start with this; any
 /// other prompt in its session is the user's (typed into its chat).
 pub const PROMPT_PREFIX: &str = "optchat-";
@@ -231,6 +234,13 @@ impl Spawner {
         self
     }
 
+    /// The running turn's view (`Input::TurnView`); None outside a turn.
+    fn turn_view(&self) -> Option<String> {
+        let (reply, answer) = channel();
+        self.send(Input::TurnView { reply }).ok()?;
+        answer.recv().ok().flatten()
+    }
+
     fn send(&self, input: Input) -> Result<(), String> {
         self.tx
             .lock()
@@ -360,12 +370,9 @@ impl Spawner {
                     "subagent.workspace",
                     json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
                 );
-                // The deeplink the app opens (Home renders it as a link; a click shows this
-                // subagent's workspace and tab), when the tag names the Chief home.
-                let link = crate::workspaces::subagent_link(&s.parent, id, &session)
-                    .map(|l| format!("; its link {l}"))
-                    .unwrap_or_default();
-                let note = format!("workspace \"{name}\" in {place}{link}");
+                // No link here: the posted reply links every mention (link_subagents), so
+                // the memory keeps the plain id, not a 70-character URL per mention.
+                let note = format!("workspace \"{name}\" in {place}");
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
@@ -483,6 +490,25 @@ impl Spawner {
         tx
     }
 
+    /// Waits for the view to settle, at most SETTLE_LIMIT; then the view is
+    /// used as it is (the lines still building read as the placeholder).
+    /// Err only when the memory stopped (shut down or a failed write).
+    fn settle_view(&self) -> Result<(), String> {
+        if self.chat.settle(None, Some(SETTLE_LIMIT)) {
+            return Ok(());
+        }
+        let status = self.chat.status();
+        if status.closed || status.fatal.is_some() {
+            return Err("the memory stopped, so no subagent started".into());
+        }
+        (self.log)(&format!(
+            "spawn goes on without {} view line summaries after {}s (still building)",
+            status.unbuilt,
+            SETTLE_LIMIT.as_secs()
+        ));
+        Ok(())
+    }
+
     fn start_waiting(&self, id: &str) {
         let waiting = self
             .waiting
@@ -498,8 +524,8 @@ impl Spawner {
         let Some(w) = waiting else {
             return fail("the Chief host restarted while it waited for a free slot");
         };
-        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
-            return fail("the memory was still summarizing when its slot freed");
+        if let Err(e) = self.settle_view() {
+            return fail(&e);
         }
         let view = self.chat.render_view().text;
         match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
@@ -624,13 +650,17 @@ impl Orchestrator for Spawner {
             ));
         }
         let began = Instant::now();
-        // Section 9: the view at spawn time, after settle.
-        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
-            return Err(
-                "the memory is still summarizing, so no subagent started; call spawn again".into(),
-            );
-        }
-        let view = self.chat.render_view().text;
+        // Section 9: the view at spawn time. In a turn, the turn's own view
+        // and new messages, at once (parity timing 2026-10-09: the settle
+        // waited about 7 s for the compactor to summarize the turn's spawn
+        // call); outside a turn, the view after settle (settle_view).
+        let view = match self.turn_view() {
+            Some(view) => view,
+            None => {
+                self.settle_view()?;
+                self.chat.render_view().text
+            }
+        };
         let (reply, answer) = channel();
         self.send(Input::SpawnRegister {
             tasks: tasks.clone(),
@@ -716,7 +746,7 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When you name a subagent to the user, write its link from these lines (for example [a1](...)), so a click opens its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             lines.join("\n")
         ))
     }

@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// The install consent sheet (section 5.4): tier badge, publisher, scopes
@@ -11,7 +12,7 @@ struct ConsentSheetView: View {
         VStack(alignment: .leading, spacing: 12) {
             AppHeader(listing: model.listing)
             if model.listing.tier == .unverified {
-                Label(AppPermissionsStrings.unverifiedWarning, systemImage: "exclamationmark.triangle")
+                Label { Text(AppPermissionsStrings.unverifiedWarning) } icon: { Icon(.securityInsecure, size: 13) }
                     .font(colors.caption)
                     .foregroundStyle(colors.warning)
             }
@@ -76,7 +77,7 @@ struct FirstUsePromptView: View {
                 Text(AppPermissionsStrings.promptTitle(app: prompt.listing.name))
                     .font(colors.caption).foregroundStyle(colors.secondary).lineLimit(1)
                 Spacer(minLength: 4)
-                Label(AppPermissionsStrings.promptSource, systemImage: "lock.shield")
+                Label { Text(AppPermissionsStrings.promptSource) } icon: { Icon(.trustSource, size: 12) }
                     .font(colors.caption).foregroundStyle(colors.tertiary).labelStyle(.titleAndIcon).lineLimit(1)
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {

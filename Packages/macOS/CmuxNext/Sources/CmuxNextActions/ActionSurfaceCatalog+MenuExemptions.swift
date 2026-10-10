@@ -8,6 +8,11 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
+            // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
+            // setting-driven New Tab stays in the File menu and the palette.
+            "newTab.default",
+            // The pane's menu offers Show Tab Bar, and the bar's + adds a tab once it shows.
+            "newTab.horizontal",
         ],
         .secondaryEngine: [
             "openBrowser.webkit",
@@ -46,7 +51,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
-            "palette.welcomeChecklist", "onboarding.continueSetup", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
+            "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
             "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -127,7 +132,7 @@ nonisolated extension ActionSurfaceCatalog {
             "commandPaletteNext", "commandPalettePrevious",
         ],
         .devOnly: [
-            "openDebugSettings", "palette.onboardingGallery",
+            "openDebugSettings",
         ],
     ]
 }

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -42,6 +43,11 @@ public final class LayoutRootView: NSView {
     /// The pane the current drag empties, as the last preview decided the
     /// split room with it: the drop decides with the same pane (cx-ohle).
     var tabDragRemoving: PaneID?
+    /// The pane edge the drag is over and since when; it splits once held for the dwell.
+    var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
+    /// When the edge under a held pointer arms (a new split); nil when none is pending. The
+    /// drag session hit-tests again then, so a still pointer sees the split preview.
+    public internal(set) var tabDragDwellDeadline: CFTimeInterval?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -151,7 +157,7 @@ public final class LayoutRootView: NSView {
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,

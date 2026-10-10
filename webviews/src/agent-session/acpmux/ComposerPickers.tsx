@@ -161,10 +161,9 @@ export function ComposerPickers({
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
     : snapshot.catalog;
-  // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
-  const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
-    isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
-  );
+  // An agent's own default remains an internal sentinel. The picker omits it
+  // instead of exposing a separate "Default" row.
+  const models: Choice[] = sessionModels(snapshot.catalog, summary);
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
@@ -318,7 +317,7 @@ export function ComposerPickers({
     if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
-  // harness's default last resolved to, else "Default".
+  // harness's default last resolved to, else the model placeholder.
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
   const resolvedNow = switching ? undefined : resolvedModel(summary);
@@ -329,7 +328,7 @@ export function ComposerPickers({
   const resolvedName =
     resolvedId &&
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
+  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -554,7 +553,19 @@ export function ContextRing({
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
   const radius = 6.5;
   const circumference = 2 * Math.PI * radius;
-  useEffect(() => registerPicker(t("context.title"), () => setOpen(true)), [t]);
+  useEffect(() => {
+    // Keep the automation path truthful too: before the first usage report the ring is
+    // intentionally inert, so opening it by label must not reveal an empty 0% popover.
+    const unregister = registerPicker(t("context.title"), () => {
+      if (known) setOpen(true);
+    });
+    return unregister;
+  }, [known, t]);
+  useEffect(() => {
+    // Usage can disappear when a session resets. Do not leave an already-open details
+    // surface showing a stale zeroed reading.
+    if (!known) setOpen(false);
+  }, [known]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
@@ -793,7 +804,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div ref={menu} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (
@@ -984,7 +995,7 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 
 /// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
 /// running model supports when its catalog row says (Ultracode needs Extra High; Ultrathink needs
-/// any level), with the model's own level badged Default in place of a bare "Default" row.
+/// any level). The agent-owned default sentinel is intentionally omitted.
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
   model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
@@ -992,7 +1003,7 @@ export function reasoningChoices(
 ): Choice[] {
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
-    if (option.value === "default") return !model?.defaultEffort;
+    if (option.value === "default") return false;
     if (!levels) return true;
     if (option.value === "ultracode") return levels.has("xhigh");
     if (option.value === "ultrathink") return true;
@@ -1001,9 +1012,7 @@ export function reasoningChoices(
   return offered.map((option) => {
     const key = LEVEL_KEYS[option.value];
     const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
-    if (isDefaultChoice(base)) return { ...base, name: t("picker.default") };
     if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
-    if (model?.defaultEffort === option.value) base.hint = t("picker.default");
     return base;
   });
 }
@@ -1020,7 +1029,7 @@ function speedSection(
     ? {
         title: t("picker.serviceTier"),
         choices: [
-          { id: fast.offValue, name: t("picker.tierStandard"), hint: t("picker.default") },
+          { id: fast.offValue, name: t("picker.tierStandard") },
           { id: fast.onValue, name: t("picker.tierFast"), description: on.description },
         ],
         current: fast.currentValue,

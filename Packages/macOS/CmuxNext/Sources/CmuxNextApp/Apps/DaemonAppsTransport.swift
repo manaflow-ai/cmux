@@ -1,4 +1,5 @@
 import CmuxNextApps
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -55,7 +56,7 @@ final class DaemonAppsTransport: AppsTransport {
         update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
         // task-owner: the transport (lives as long as the app); event-driven (Observation)
         following = Task { [weak self] in
-            for await (state, epoch) in Observations({ (daemon.store.connectionState, daemon.store.connectionEpoch) }) {
+            for await (state, epoch) in ObservationStream({ (daemon.store.connectionState, daemon.store.connectionEpoch) }) {
                 self?.update(state, storeEpoch: epoch)
             }
         }

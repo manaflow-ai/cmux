@@ -49,6 +49,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.down.right.magnifyingglass", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "pane toggle-zoom"
             ),
+            // Show Tab Bar (cx-soza): the pane's own choice over `tabs.tabBar.<kind>`; checked while shown.
+            ActionDescriptor(
+                id: "pane.toggleTabBar",
+                title: String(localized: "action.pane.toggleTabBar", defaultValue: "Show Tab Bar", bundle: .module),
+                keywords: ["tab bar", "tabs", "strip", "horizontal", "hide", "show", "pane"],
+                category: .pane, symbol: "menubar.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.pane], cliName: "pane toggle-tab-bar"
+            ),
             ActionDescriptor(
                 id: "equalizeSplits",
                 title: String(localized: "action.equalizeSplits", defaultValue: "Equalize Splits", bundle: .module),

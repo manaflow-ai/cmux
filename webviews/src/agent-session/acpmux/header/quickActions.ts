@@ -16,8 +16,12 @@ import { useSyncExternalStore } from "react";
 /// The page decides nothing about a split: Terminal and Browser send their mode with the app action
 /// (`pane.action {id, mode}`), and the App opens the split or closes the one this button opened
 /// (CmuxNextApp AgentChatSplitToggles). The last turn's changes live in the Sources popover, not here.
+///
+/// `newTab` is ChatGPT's [+] New tab: it opens a New Tab page in a column right of the chat, and the
+/// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
+/// closing nothing) and shows them again. It always toggles; its mode is ignored.
 
-export type QuickActionId = "terminal" | "browser";
+export type QuickActionId = "terminal" | "browser" | "newTab";
 /// `toggle`: a second click closes the split the first one opened. `open`: every click opens another.
 export type QuickActionMode = "toggle" | "open";
 export interface QuickAction {
@@ -25,7 +29,7 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["terminal", "browser"];
+const ids: readonly QuickActionId[] = ["terminal", "browser", "newTab"];
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 

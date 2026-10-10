@@ -58,6 +58,14 @@
       "title" : "Show Context Usage",
       "type" : "boolean"
     },
+    "agentPane.zoom" : {
+      "default" : 1,
+      "description" : "The display size for agent chat. Cmd-0 resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -165,21 +173,34 @@
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
     },
     "appearance.background" : {
       "default" : "none",
-      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "description" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137",
+        "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613",
+        "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
         "met-woman-man-casement-436896",
         "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "met-sunflowers-436524",
+        "desktop"
       ],
       "title" : "Background",
       "type" : "string"
@@ -689,6 +710,16 @@
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
+    },
+    "computerUse.driver" : {
+      "default" : "legacy",
+      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+      "enum" : [
+        "legacy",
+        "upstream"
+      ],
+      "title" : "Computer Use Driver",
+      "type" : "string"
     },
     "computerUse.enabled" : {
       "default" : false,
@@ -2046,6 +2077,16 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabPosition" : {
+      "default" : "end",
+      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "enum" : [
+        "end",
+        "afterCurrent"
+      ],
+      "title" : "New Tab Position",
+      "type" : "string"
+    },
     "tabs.newTabTemplate" : {
       "default" : "default",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
@@ -2068,6 +2109,45 @@
         "always"
       ],
       "title" : "New Tab Button",
+      "type" : "string"
+    },
+    "tabs.swapCmdTAndCmdN" : {
+      "default" : false,
+      "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
+      "title" : "Swap Cmd-T and Cmd-N",
+      "type" : "boolean"
+    },
+    "tabs.tabBar.agent" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Agent Chats",
+      "type" : "string"
+    },
+    "tabs.tabBar.browser" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Browser Panes",
+      "type" : "string"
+    },
+    "tabs.tabBar.terminal" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
     },
     "tasks.layout" : {

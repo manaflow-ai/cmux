@@ -1,0 +1,6 @@
+/* Agent history (cx-zlnl): the All chats list on a page of its own, as wide as the New Tab screen. */
+.nt-history{flex:1;min-height:0;display:flex;flex-direction:column;padding:28px max(16px,calc((100% - 720px)/2)) 16px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased}
+.nt-history-title{flex:none;margin:0 0 0 10px;color:var(--agent-text);font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
+.nt-history .nt-all{margin-top:8px}
+.nt-all-row[data-selected]{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
+.nt-all-row[data-selected] .nt-all-glyph{filter:none;opacity:1}

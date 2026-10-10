@@ -337,6 +337,7 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
     [],
   );
   host.delayMs = 0;
+  if (state.route) history.replaceState(null, "", state.route);
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
   await import("../../pages/changelog/main");

@@ -209,7 +209,7 @@ the CLI requests that came with the merge, with the decision taken.
 | 17dee8d2801 | Lawrence Chen | Open Terminal on Machine Here | ported: `remote open-terminal-here` (`cli: true`) |
 | 63ae925e97f | Lawrence Chen | history queries | ported: `history list|search [--kind] [--range] [--limit]` (`history.list`); `history back|forward|last|locations|closed|show|search-in-palette|resume|reopen|clear` and `layout undo` run as app actions (`cli: true` for show, resume, reopen, clear, layout undo) |
 | 6ed2890368a | Lawrence Chen | terminal command history (`set-terminal-command-history`) | deferred: no CLI verb yet (app setting `history.terminalCommands`) |
-| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.sameKind`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
+| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.default`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
 | quit flags | Lawrence Chen | `app quit --keep-sessions|--end-sessions|--end-everything` | ported: `quit` is `cli: true`; a bare flag is true and flags map to camelCase arguments |
 | 43478eb63bd | docked-column lead | `column make-dock|make-dock-left|unstick|toggle-dock-overlay`, `settings toggle-column-scrollbar` | ported: app actions with `cli: true`; `column` reaches the app fallback and `settings <verb>` other than get/set/unset falls through to actions; `sticky-columns-v1` stays awaiting the pin |
 | ca831d42829, fa5e63276d5, 61128c6ca92, 7ba97404a02 | Lawrence Chen, Leo, Austin Wang | compile fix, test timing, SSH/Mosh launcher, pool VMs | not needed: Swift CLI internals and verbs outside the curated surface |

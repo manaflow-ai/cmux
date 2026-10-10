@@ -83,6 +83,8 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
     case capsule
     /// Clear glass, light theme background tint 12%, radius 10, soft shadow.
     case clear
+    /// The knobs below the picker (`OmnibarGlassKnobs`), changed live.
+    case custom
 
     public var tunableTitle: String {
         switch self {
@@ -90,6 +92,7 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
         case .glass: "Glass (regular, radius 8)"
         case .capsule: "Capsule (regular, shadow)"
         case .clear: "Clear (clear glass, shadow)"
+        case .custom: "Custom (the knobs below)"
         }
     }
 
@@ -99,11 +102,128 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
         case .glass: .standard
         case .capsule: OmnibarGlassLook(material: .regular, tint: .background, tintStrength: 0.2, cornerRadius: 999, shadow: true)
         case .clear: OmnibarGlassLook(material: .clear, tint: .background, tintStrength: 0.12, cornerRadius: 10, shadow: true)
+        case .custom: OmnibarGlassKnobs.look
         }
     }
 
     public static let tunable = Tunable<OmnibarGlassDesign>.choice(
         "browser.omnibar.glassDesign", .glass, "Omnibar glass design",
-        help: "TEMPORARY (cx-gkz5 vote): Flat, Glass, Capsule or Clear.",
+        help: "TEMPORARY (cx-gkz5 vote): Flat, Glass, Capsule or Clear, or Custom to set each knob below live.",
         default: .glass, code: "OmnibarGlassDesign.tunable")
+}
+
+// MARK: Debug knobs (cx-gkz5, Lawrence 2026-10-10: "add to debug settings so i can vary it")
+
+nonisolated extension OmnibarGlassLook.Material: TunableChoice {
+    public var tunableTitle: String {
+        switch self {
+        case .regular: "Regular glass"
+        case .clear: "Clear glass"
+        case .off: "Off (flat theme fill)"
+        }
+    }
+}
+
+nonisolated extension OmnibarGlassLook.Tint: TunableChoice {
+    public var tunableTitle: String {
+        switch self {
+        case .background: "Theme background"
+        case .accent: "Theme accent (gray when the theme has none)"
+        case .none: "None"
+        }
+    }
+}
+
+/// How the Custom design rounds the bar.
+public nonisolated enum OmnibarGlassRadiusMode: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The theme's bar radius (8 pt).
+    case theme
+    /// Fully round ends.
+    case capsule
+    /// The Corner radius knob.
+    case points
+
+    public var tunableTitle: String {
+        switch self {
+        case .theme: "Match theme (8 pt)"
+        case .capsule: "Capsule"
+        case .points: "Corner radius knob"
+        }
+    }
+}
+
+/// What the bar shows behind its glass while comparing looks. The toolbar is
+/// one flat theme color, so glass over it looks nearly flat; a backdrop
+/// gives the glass something to refract.
+public nonisolated enum OmnibarGlassBackdrop: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The toolbar as it is.
+    case none
+    /// A gradient of the theme's ANSI colors.
+    case gradient
+    /// Diagonal stripes of the theme's ANSI colors and its text color.
+    case stripes
+
+    public var tunableTitle: String {
+        switch self {
+        case .none: "None (the toolbar)"
+        case .gradient: "Theme color gradient"
+        case .stripes: "Theme color stripes"
+        }
+    }
+}
+
+/// The live knobs of the Custom omnibar design, in Debug Settings > Glass
+/// and Overlays next to the design picker. Plain tunables (data in the
+/// tunable registry), so every Debug Settings front end lists them.
+nonisolated enum OmnibarGlassKnobs {
+    static let style = Tunable<OmnibarGlassLook.Material>.choice(
+        "browser.omnibar.glass.style", .glass, "Omnibar glass: style",
+        help: "Custom design only. Regular or clear Liquid Glass (a blur before macOS 26), or off.",
+        default: .regular, code: "OmnibarGlassKnobs.style")
+    static let tint = Tunable<OmnibarGlassLook.Tint>.choice(
+        "browser.omnibar.glass.tint", .glass, "Omnibar glass: tint",
+        help: "Custom design only. The color over the glass, from the terminal theme.",
+        default: .background, code: "OmnibarGlassKnobs.tint")
+    static let tintStrength = Tunable<Double>.number(
+        "browser.omnibar.glass.tintStrength", .glass, "Omnibar glass: tint strength",
+        help: "Custom design only. Tint opacity.", default: 0.35, range: 0...1, step: 0.05, unit: .fraction,
+        code: "OmnibarGlassKnobs.tintStrength")
+    static let radiusMode = Tunable<OmnibarGlassRadiusMode>.choice(
+        "browser.omnibar.glass.radiusMode", .glass, "Omnibar glass: corners",
+        help: "Custom design only. Match theme, capsule, or the Corner radius knob.",
+        default: .theme, code: "OmnibarGlassKnobs.radiusMode")
+    static let radius = Tunable<Double>.number(
+        "browser.omnibar.glass.radius", .glass, "Omnibar glass: corner radius",
+        help: "Custom design with corners set to the knob. Points.", default: 8, range: 0...16, step: 1, unit: .points,
+        code: "OmnibarGlassKnobs.radius")
+    static let shadow = Tunable<Bool>.toggle(
+        "browser.omnibar.glass.shadow", .glass, "Omnibar glass: shadow",
+        help: "Custom design only. A soft shadow under the bar.", default: false, code: "OmnibarGlassKnobs.shadow")
+    static let backdrop = Tunable<OmnibarGlassBackdrop>.choice(
+        "browser.omnibar.glass.backdrop", .glass, "Omnibar glass: backdrop",
+        help: "Any design. Draws theme colors behind the bar so the glass has something to refract; the toolbar alone is one flat color.",
+        default: .none, code: "OmnibarGlassKnobs.backdrop")
+
+    /// The Custom design's look from the knobs.
+    static var look: OmnibarGlassLook {
+        let radius: Double? = switch radiusMode.value {
+        case .theme: nil
+        case .capsule: 999
+        case .points: self.radius.value
+        }
+        return OmnibarGlassLook(material: style.value, tint: tint.value, tintStrength: tintStrength.value,
+                                cornerRadius: radius, shadow: shadow.value)
+    }
+
+    /// The picker and every knob, in Debug Settings order.
+    static var descriptors: [TunableDescriptor] {
+        [OmnibarGlassDesign.tunable.descriptor, style.descriptor, tint.descriptor, tintStrength.descriptor,
+         radiusMode.descriptor, radius.descriptor, shadow.descriptor, backdrop.descriptor]
+    }
+}
+
+extension OmnibarGlassDesign {
+    /// The design picker and the Custom design's knobs, for the tunable
+    /// registry (Debug Settings > Glass and Overlays).
+    public static var debugDescriptors: [TunableDescriptor] { OmnibarGlassKnobs.descriptors }
 }

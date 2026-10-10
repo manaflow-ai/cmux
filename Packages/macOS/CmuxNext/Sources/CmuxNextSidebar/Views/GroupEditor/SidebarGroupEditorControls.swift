@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// One color dot in the group editor: the theme's palette color, or for
@@ -100,8 +101,7 @@ final class SidebarGroupEditorRow: NSView {
         shortcut.font = Typography.body
         shortcut.stringValue = item.shortcut ?? ""
         shortcut.alignment = .right
-        icon.image = item.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Typography.body.pointSize, weight: .regular)
+        icon.image = item.icon.map { NSImage.icon($0, size: .iconRowSize(forLabelPointSize: Typography.body.pointSize)) }
         for view in [icon, label, shortcut] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -169,6 +169,8 @@ enum GroupEditorStrings {
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }
     static var expand: String { String(localized: "sidebar.group.expand", defaultValue: "Expand group", bundle: .module) }
+    static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
+    static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
 
     /// A dot's spoken name: none, or its slot in the theme's palette (the
     /// color itself follows the theme, so no fixed color word is used).

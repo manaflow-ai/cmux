@@ -3,8 +3,9 @@
 cmux-next build.
 
 With Show Tabs Under Workspaces on, a tab row's right-click opens the tab's menu, not its
-workspace's, and dragging a tab row onto the sidebar gap after its workspace moves that tab into
-a new workspace. The script attaches to an app already running (a capture slot's
+workspace's, dragging a tab row onto the top edge of another tab row moves it before that tab,
+and dragging a tab row onto the sidebar gap after its workspace moves that tab into a new
+workspace. The script attaches to an app already running (a capture slot's
 `capture-host launch`, or a tagged build) through its debug socket, makes a workspace with two
 tabs, reads both rows' menus (`debug.sidebar_rows` `menu_x`/`menu_y`, the list's own menu path,
 never shown), drags the second tab row with `debug.mouse` and reads the rows again. It never
@@ -128,6 +129,18 @@ def main():
     tab_menu, workspace_menu = menu_at(tabs[-1]), workspace and menu_at(workspace)
     row("tab row right-click opens the tab's menu", "a menu unlike the workspace row's",
         f"tab={tab_menu} workspace={workspace_menu}", bool(tab_menu) and tab_menu != workspace_menu)
+
+    # Reorder: the second tab row dropped on the first row's top edge goes before it.
+    first, second = tab_of(tabs[0]), tab_of(tabs[1])
+    x, y = center(tabs[1])
+    top = tabs[0]["window_frame"]["y"] + tabs[0]["window_frame"]["height"] * 0.12
+    print("reorder drag:", rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": top, "steps": 16}), flush=True)
+    order = lambda: [tab_of(r) for r in rows("tab") if workspace_of(r) == shown]
+    reordered = wait(lambda: order()[:2] == [second, first], 15)
+    row("dragging a tab row onto another tab row's top edge moves it before that tab", f"{[second, first]} under {shown}",
+        f"{order()}; tab {second} under {next((workspace_of(r) for r in rows('tab') if tab_of(r) == second), None)}", bool(reordered))
+    time.sleep(1)  # test harness: the list settles
+    tabs = [r for r in rows("tab") if workspace_of(r) == shown]
 
     dragged = tab_of(tabs[-1])
     before = {workspace_of(r) for r in rows("workspace")}

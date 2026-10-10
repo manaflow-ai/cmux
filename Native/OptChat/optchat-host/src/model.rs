@@ -41,7 +41,15 @@ pub struct ModelError {
     pub refused: bool,
     /// How long the server asked to wait before the next try (`retry-after`).
     pub retry_after: Option<std::time::Duration>,
+    /// The compactor cannot start at all here (its acpmux preset is missing,
+    /// its harness is refused, it has no route): no retry soon changes that,
+    /// so the node is stuck on this first failure and no turn waits for it
+    /// (chief 2026-10-10: a user turn never waits more than 10 s on compaction).
+    pub setup: bool,
 }
+
+/// How a setup error's message starts in the status failures and reports.
+pub const SETUP_ERROR: &str = "setup error: ";
 
 impl ModelError {
     pub fn new(message: impl Into<String>) -> ModelError {
@@ -49,6 +57,7 @@ impl ModelError {
             message: message.into(),
             refused: false,
             retry_after: None,
+            setup: false,
         }
     }
 
@@ -57,6 +66,17 @@ impl ModelError {
             message: message.into(),
             refused: true,
             retry_after: None,
+            setup: false,
+        }
+    }
+
+    /// A setup error (`setup`): the compactor cannot start here.
+    pub fn setup(message: impl Into<String>) -> ModelError {
+        ModelError {
+            message: message.into(),
+            refused: false,
+            retry_after: None,
+            setup: true,
         }
     }
 }

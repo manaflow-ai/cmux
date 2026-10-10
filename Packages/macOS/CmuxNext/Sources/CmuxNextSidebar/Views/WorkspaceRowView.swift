@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -21,12 +22,14 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
-    /// A single colored segment connects grouped workspace rows.
-    private let groupRail = CALayer()
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
+    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
+    /// under the button. Shows on hover and on the selected row.
+    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
+                                       label: Strings.workspaceMenu)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
-    let disclosureButton = SidebarIconButton(symbol: "chevron.right", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .semibold,
+    let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                              label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     private let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -43,22 +46,20 @@ final class WorkspaceRowView: SidebarRowView {
     private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
-    /// The group band's frame (`GroupLabelBandTests`).
-    var groupBandFrame: NSRect { groupRail.frame }
-    var isGroupBandHidden: Bool { groupRail.isHidden }
-    private var groupColor: GroupColor?
-    private var lastInGroup = false
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
+    var onMore: (() -> Void)?
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
+    /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
+    private var isPlaceholderRow = false
     /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
     /// home row shows no close button.
     private(set) var isClosable = true
@@ -76,7 +77,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -87,16 +88,16 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
-        layer?.addSublayer(groupRail)
         closeButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
         placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
+        moreButton.onPress = { [weak self] in self?.onMore?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, disclosureButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, disclosureButton] }
 
     /// Reads the agent mark setting and redraws the row once when it changes (no polling).
     private func observedAgentMarkVariant() -> SidebarAgentMarkVariant {
@@ -115,6 +116,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isDropTarget = false
         onClose = nil
+        onMore = nil
         onSelect = nil
         onToggleTabs = nil
         title.stopMarquee()
@@ -123,8 +125,6 @@ final class WorkspaceRowView: SidebarRowView {
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
-        var groupColor: GroupColor?
-        var lastInGroup: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant
@@ -135,16 +135,16 @@ final class WorkspaceRowView: SidebarRowView {
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         lastConfiguration = (ws, row)
         let content = Content(
-            ws: ws, group: row.group, groupColor: row.groupColor, lastInGroup: row.isLastInGroup,
+            ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: observedAgentMarkVariant(),
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
-        groupColor = row.groupColor
-        lastInGroup = row.isLastInGroup
-        isShowingPlaceholder = ws.rowState == .placeholder
+        // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
+        isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
+        isPlaceholderRow = ws.rowState == .placeholder
         isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
@@ -166,13 +166,12 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
-        let config = NSImage.SymbolConfiguration(pointSize: SidebarStyle.indicatorSize - Metrics.space1, weight: .regular)
         mutedMark.image = ws.muted && !isShowingPlaceholder
-            ? NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)?.withSymbolConfiguration(config) : nil
+            ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
         disclosure = row.tabDisclosure
         count = row.tabCount
-        disclosureButton.symbol = row.tabDisclosure == .expanded ? "chevron.down" : "chevron.right"
+        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.stringValue = row.tabCount.map(String.init) ?? ""
@@ -228,7 +227,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func hoverChanged() {
         super.hoverChanged()
         needsLayout = true
-        guard isHovered, !renaming, !isShowingPlaceholder else {
+        guard isHovered, !renaming, !isPlaceholderRow else {
             title.stopMarquee()
             return
         }
@@ -251,7 +250,7 @@ final class WorkspaceRowView: SidebarRowView {
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
+                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -264,21 +263,9 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        // The members' bar (cx-rcby, the Chrome tab group line): one thin
-        // line in the group's theme color under the chip's rounded start,
-        // through every member row (full height, so rows join) and rounded
-        // off under the last member; a neutral line for a group without a color.
+        // Members indent under their group header; the members' line is
+        // one layer per group under the rows (SidebarListView+GroupLines).
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
-        let barWidth = SidebarStyle.groupBarWidth
-        let barBottom = lastInGroup ? Metrics.space2 : 0
-        let gapAbove = Metrics.space1 // up through the row spacing above: one unbroken bar (cx-qno.17)
-        groupRail.frame = NSRect(x: SidebarStyle.groupBarX, y: -gapAbove, width: barWidth, height: max(0, b.height - barBottom + gapAbove))
-        groupRail.isHidden = !grouped
-        performWithTheme {
-            groupRail.backgroundColor = (groupColor ?? .grey).headerFill.cgColor
-            groupRail.cornerRadius = lastInGroup ? barWidth / 2 : 0
-            groupRail.maskedCorners = isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        }
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
@@ -330,6 +317,13 @@ final class WorkspaceRowView: SidebarRowView {
             closeButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
         }
         if slot > 0 { trailing -= slot + Metrics.space2 }
+        // The menu button sits left of the close-or-badge slot; hidden (not only clear) when it does not show.
+        let showMore = (isHovered || isSelected) && !isPlaceholderRow && onMore != nil
+        moreButton.isHidden = !showMore
+        if showMore {
+            moreButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus

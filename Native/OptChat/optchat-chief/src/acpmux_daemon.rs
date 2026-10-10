@@ -97,6 +97,22 @@ static SEEN_UP: AtomicBool = AtomicBool::new(false);
 /// the callers' own link loops retry after that.
 const SUPERVISED_WAIT: Duration = Duration::from_secs(30);
 
+/// How long a host waits for the next daemon after its daemon went away. A
+/// handoff stops a daemon without ending its sessions (`_acpmux/shutdown`
+/// without `endAgents`): its hosted agents detach, and the client that handed
+/// it off starts the next daemon, which adopts them. An app build from before
+/// cx-ebm.54 still does so from a subagent tab (its version and person-key
+/// handoffs wait up to 15 s for the old daemon's exit, then start their own);
+/// a supervisor restarts its daemon the same way. A daemon that is not back
+/// by then was ended.
+pub const HANDOFF_WAIT: Duration = Duration::from_secs(20);
+
+/// Whether a daemon answers on `socket` within `wait`; never starts one
+/// (the next daemon of a handoff is its starter's, cx-ebm.54).
+pub fn await_next(socket: &Path, wait: Duration) -> bool {
+    await_socket(socket, wait).is_ok()
+}
+
 /// [`ensure_with`] in this process's mode (`OPTCHAT_ACPMUX_SUPERVISED`).
 pub fn ensure(socket: &Path, log: &dyn Fn(&str)) -> Result<Option<u32>, String> {
     let bin = env("ACPMUX_BIN");

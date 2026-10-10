@@ -70,6 +70,32 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+.cv-user__context {
+  box-sizing: border-box;
+  max-width: 70%;
+  margin-bottom: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__context > summary {
+  cursor: pointer;
+  text-align: right;
+  list-style-position: inside;
+}
+.cv-user__context-text {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -1101,7 +1127,9 @@ pre.cv-math-source {
 .acpmux-image-viewer {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-modal);
+  width: auto;
+  margin-inline: 0;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
@@ -1113,7 +1141,7 @@ pre.cv-math-source {
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-overlay);
 }
 .acpmux-image-viewer-body {
   position: relative;
@@ -1489,7 +1517,7 @@ pre.cv-math-source {
   background: var(--acpmux-base, var(--agent-page-bg));
   box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
   font-family: var(--cv-font);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .acpmux-find__field {
   width: 180px;
@@ -1514,7 +1542,7 @@ pre.cv-math-source {
   min-width: 0;
   padding-right: 4px;
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

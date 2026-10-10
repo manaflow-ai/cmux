@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Whether the omnibar shows the bookmark star, and filled or hollow
 /// (plans/cmux-next/bookmarks.md section 3).
@@ -24,8 +25,7 @@ final class BookmarkStarButton: NSView {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage(systemSymbolName: state == .on ? "star.fill" : "star", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
+            image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             toolTip = label
             setAccessibilityLabel(label)

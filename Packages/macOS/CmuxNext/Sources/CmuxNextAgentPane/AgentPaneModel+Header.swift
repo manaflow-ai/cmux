@@ -10,15 +10,20 @@ public struct AgentPaneHeaderHooks {
     public var tabState: @MainActor () -> [String: Any]
     /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
     public var openSide: @MainActor (String) -> Void
+    /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
+    /// after it, nil when it could not run.
+    public var sideTabs: @MainActor () -> Bool?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> [String: Any],
-                openSide: @escaping @MainActor (String) -> Void = { _ in }) {
+                openSide: @escaping @MainActor (String) -> Void = { _ in },
+                sideTabs: @escaping @MainActor () -> Bool? = { nil }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.sideTabs = sideTabs
     }
 }
 
@@ -30,10 +35,18 @@ extension AgentPaneModel {
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
+    /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
+    static let sideTabsAction = "sideTabs"
+
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
     /// reads the tab's pin; `chat.archive` tags the pane's session and, archiving, closes its tab.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
+        case .paneAction(Self.sideTabsAction, _, _):
+            guard newTab == nil, let shown = header?.sideTabs() else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action sideTabs")
+            }
+            return AgentPaneReply.success(["shown": shown])
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")

@@ -18,7 +18,8 @@ export function Avatar({ participant, size = 32 }: { participant?: HomeParticipa
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      {initials(participant?.name ?? "?")}
+      {/* A rail-size tile has room for one letter only. */}
+      {initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)}
     </span>
   );
 }

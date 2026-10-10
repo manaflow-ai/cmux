@@ -17,6 +17,12 @@ environment, without the SwiftPM process, so parallel suites never contend for
 build.db. It skips a phase that matches no test: SwiftPM would run it with no
 test (the helper then exits 69).
 
+SwiftPM 6.3 links every test target into one bundle (<Package>PackageTests.xctest).
+SwiftPM 6.4 (Xcode 27) builds one bundle per test target, named after it
+(CmuxNextActionsTests.xctest). Pass every bundle with --bundle; with more than
+one, each selected test runs from the bundle named after its module (the part
+of `Module.Suite/test` before the first dot), one phase pair per bundle.
+
 Exit status follows `swift test`: 0 when every phase passed, 1 when a phase
 failed or crashed ("Exited with unexpected signal code N", as SwiftPM prints),
 1 when the filter matches no test.
@@ -69,7 +75,12 @@ def run_phase(command: list[str], env: dict[str, str], cwd: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument("--bundle", required=True, help="the .xctest bundle")
+    parser.add_argument(
+        "--bundle",
+        required=True,
+        action="append",
+        help="a built .xctest bundle (repeat for one bundle per test target)",
+    )
     parser.add_argument("--xctest", required=True, help="path of xctest (xcrun --find xctest)")
     parser.add_argument("--helper", required=True, help="path of swiftpm-testing-helper")
     parser.add_argument("--platform", required=True, help="xcrun --sdk macosx --show-sdk-platform-path")
@@ -93,30 +104,48 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: no test matches --filter {args.filter}", flush=True)
         return 1
 
-    bundle = Path(args.bundle)
-    binary = bundle / "Contents" / "MacOS" / bundle.stem
+    bundles = [Path(path) for path in args.bundle]
+    by_module = {bundle.stem: bundle for bundle in bundles}
+
+    def bundle_for(name: str) -> Path | None:
+        if len(bundles) == 1:
+            return bundles[0]
+        return by_module.get(name.split(".", 1)[0])
+
+    # Bundle order follows --bundle, so the phases run in a stable order.
+    groups: dict[Path, tuple[list[str], list[str]]] = {bundle: ([], []) for bundle in bundles}
+    for kind, names in ((0, xctest_selected), (1, swift_selected)):
+        for name in names:
+            bundle = bundle_for(name)
+            if bundle is None:
+                print(f"error: no built .xctest bundle for test {name}", flush=True)
+                return 1
+            groups[bundle][kind].append(name)
+
     status = 0
-    if xctest_selected:
-        status |= run_phase(
-            [args.xctest, "-XCTest", ",".join(xctest_selected), str(bundle)],
-            phase_environment(args, xctest=True),
-            args.cwd,
-        )
-    if swift_selected:
-        status |= run_phase(
-            [
-                args.helper,
-                "--test-bundle-path",
-                str(binary),
-                "--filter",
-                args.filter,
-                str(binary),
-                "--testing-library",
-                "swift-testing",
-            ],
-            phase_environment(args, xctest=False),
-            args.cwd,
-        )
+    for bundle, (xctests, swift_tests) in groups.items():
+        binary = bundle / "Contents" / "MacOS" / bundle.stem
+        if xctests:
+            status |= run_phase(
+                [args.xctest, "-XCTest", ",".join(xctests), str(bundle)],
+                phase_environment(args, xctest=True),
+                args.cwd,
+            )
+        if swift_tests:
+            status |= run_phase(
+                [
+                    args.helper,
+                    "--test-bundle-path",
+                    str(binary),
+                    "--filter",
+                    args.filter,
+                    str(binary),
+                    "--testing-library",
+                    "swift-testing",
+                ],
+                phase_environment(args, xctest=False),
+                args.cwd,
+            )
     return status
 
 

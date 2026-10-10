@@ -12,7 +12,7 @@ final class SectionHeaderRowView: SidebarRowView {
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
     private let chevron = NSImageView()
-    let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
+    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
     private enum StatusTone { case success, attention, quiet, danger }
     private var statusTone: StatusTone?
@@ -163,13 +163,17 @@ final class SectionHeaderRowView: SidebarRowView {
         let nameX = SidebarStyle.horizontalInset
         var trailing = b.width - Metrics.space2
         // The add button keeps its slot, so the name never re-truncates on hover.
-        addButton.isHidden = !(isHovered && allowsAdd)
+        // Section actions stay available at rest. Hiding them until hover made
+        // the bottom of the sidebar flash as the pointer crossed a header.
+        addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
             addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
-        chevron.isHidden = !((isHovered && !isEmpty) || collapsed)
+        // The disclosure is a section control too; keep it stable instead of
+        // making the header reflow when the pointer arrives.
+        chevron.isHidden = isEmpty
         let chevronSide = Metrics.smallIconSize
         chevron.frame = NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         trailing -= chevronSide + Metrics.space2

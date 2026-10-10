@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextFeed
 import Foundation
 
@@ -54,7 +55,7 @@ final class FeedService {
         // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
         accountWatch = Task { [weak self] in
             await auth.awaitRestored()
-            for await signedIn in Observations({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
+            for await signedIn in ObservationStream({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
                 self?.accountChanged(signedIn)
             }
         }

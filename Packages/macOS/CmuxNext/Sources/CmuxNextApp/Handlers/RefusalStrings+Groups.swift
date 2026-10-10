@@ -51,4 +51,7 @@ nonisolated extension RefusalStrings {
         format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
     }
     static var groupRequired: String { text("handlers.refusal.groupRequired", "group is required") }
+    static var groupOnAnotherMachine: String {
+        text("handlers.refusal.groupOnAnotherMachine", "a group holds workspaces of one machine; this workspace is on another machine")
+    }
 }

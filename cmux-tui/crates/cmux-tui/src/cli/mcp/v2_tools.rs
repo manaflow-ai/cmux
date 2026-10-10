@@ -48,7 +48,27 @@ const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP cli
 /// agent-bound connection); an MCP client is an agent acting as the user.
 const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
 
+/// Launch credentials (identity.md section 2) are the session host's and the
+/// owner's; an MCP client is an agent and never mints, rotates or checks one.
+const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
+
+/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
+/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
+/// policy decision cx-ncc.32.
+const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("settings.schema", SETTINGS_REASON),
+    ("settings.list", SETTINGS_REASON),
+    ("settings.get", SETTINGS_REASON),
+    ("settings.snapshot", SETTINGS_REASON),
+    ("settings.set", SETTINGS_REASON),
+    ("settings.reset", SETTINGS_REASON),
+    ("settings.reset_all", SETTINGS_REASON),
+    ("credential.verify", CREDENTIAL_REASON),
+    ("credential.mint", CREDENTIAL_REASON),
+    ("credential.rotate", CREDENTIAL_REASON),
     ("conversation.list", CONVERSATION_REASON),
     ("conversation.get", CONVERSATION_REASON),
     ("conversation.history", CONVERSATION_REASON),
@@ -112,7 +132,19 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("agent.message.list", AGENT_MESSAGE_REASON),
+    ("agent.message.mark", AGENT_MESSAGE_REASON),
+    ("agent.message.send", AGENT_MESSAGE_REASON),
 ];
+
+/// `cmux agent message` and `cmux agent inbox` (agent_message.rs) send
+/// several requests per command: the daemon stores a message, then the CLI
+/// delivers it to each acpmux recipient and marks it. A tool for one of the
+/// three operations alone would store a message nobody delivers, or change
+/// another agent's delivery state.
+const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
+     agent inbox`, which store, deliver and mark in one command; one operation alone would \
+     store a message without delivering it or change another agent's delivery state.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =

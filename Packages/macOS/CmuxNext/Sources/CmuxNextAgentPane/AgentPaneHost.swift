@@ -33,6 +33,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// Nothing listens on the socket and this handshake may not start a
     /// daemon (``AgentPaneHostProviding/reconnectHandshake(sessionId:)``).
     case daemonStopped
+    /// Nothing listens on the Chief home's socket: only the Chief host starts
+    /// that daemon, never a tab (cx-ebm.54).
+    case chiefStopped
     case timedOut
 }
 
@@ -46,22 +49,35 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
+    /// Called with the daemon socket after each successful find or start, so
+    /// the Computer Use helper v2 can register this daemon.
+    private let daemonReady: @Sendable (String) async -> Void
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    /// False for a daemon this app does not own (the Chief home's, which the
+    /// Chief host starts): every handshake then only looks, as a reconnect
+    /// does. It never stops, hands off or starts that daemon, so a subagent
+    /// tab never ends the Chief's acpmux under its host (cx-ebm.54).
+    private let startsDaemons: Bool
 
-    public init(environment: AcpmuxEnvironment?) {
+    public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
+        self.daemonReady = { _ in }
+        self.startsDaemons = startsDaemons
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
-                computerUse: @escaping @Sendable () -> [String: String] = { [:] }) {
+                computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+                daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
+        self.daemonReady = daemonReady ?? { _ in }
+        self.startsDaemons = true
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -75,14 +91,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
     /// actor (it changes at every launch, so it is read at every handshake and reconnect).
     private func connection(_ endpoint: AcpmuxWebEndpoint) -> AcpmuxConnection {
-        AcpmuxConnection(endpoint: endpoint, home: environment?.home, socketPath: environment?.socketPath)
+        AcpmuxConnection(endpoint: endpoint, home: environment?.home, socketPath: environment?.socketPath,
+                         executable: environment?.executable)
     }
 
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
     }
 
-    private func endpoint(startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
+    private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+        let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
@@ -93,15 +111,19 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.acpmuxNotFound
         }
         environment.computerUse = computerUse()
+        let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }
+        let owned = startsDaemons
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
-        return try await task.value
+        let endpoint = try await task.value
+        await daemonReady(daemonSocket)
+        return endpoint
     }
 
-    private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
+    private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool) async throws -> AcpmuxWebEndpoint {
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // After an update the daemon may be the previous build's: hand it
@@ -122,7 +144,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
             // the user stopped it.
-            guard startsDaemon else { throw AgentPaneHostError.daemonStopped }
+            guard startsDaemon else { throw owned ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)

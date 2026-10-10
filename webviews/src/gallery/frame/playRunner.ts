@@ -101,6 +101,8 @@ function synthetic(element: Element, kind: string): void {
 function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
+  // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
+  const eventKey = name === "Space" ? " " : name;
   const modifiers = {
     metaKey: parts.includes("Meta"),
     ctrlKey: parts.includes("Control"),
@@ -111,7 +113,7 @@ function syntheticKey(key: string): void {
   let target: Element = document.activeElement ?? document.body;
   while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
   const keydown = new KeyboardEvent("keydown", {
-    key: name,
+    key: eventKey,
     bubbles: true,
     cancelable: true,
     composed: true,
@@ -119,14 +121,22 @@ function syntheticKey(key: string): void {
   });
   target.dispatchEvent(keydown);
   target.dispatchEvent(
-    new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
+    new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
   // KeyboardEvent dispatch does not run the browser's default button activation.
   // Reproduce it for the shell runner so a native button behaves like the trusted
   // Playwright path used by the matrix runner.
-  if (!keydown.defaultPrevented && (name === "Enter" || name === " ") && target instanceof HTMLElement) {
+  if (!keydown.defaultPrevented && (eventKey === "Enter" || eventKey === " ") && target instanceof HTMLElement) {
     const role = target.getAttribute("role");
-    if (target instanceof HTMLButtonElement || role === "button") target.click();
+    if (
+      target instanceof HTMLButtonElement ||
+      role === "button" ||
+      (eventKey === " " &&
+        target instanceof HTMLInputElement &&
+        (target.type === "checkbox" || target.type === "radio")) ||
+      (eventKey === " " && (role === "checkbox" || role === "radio" || role === "switch"))
+    )
+      target.click();
   }
 }
 

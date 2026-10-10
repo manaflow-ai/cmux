@@ -11,10 +11,11 @@ struct AgentChatTabActions {
     let tab: @MainActor () -> String
     let registry: @MainActor () -> ActionRegistry?
 
-    /// A header action, with the folder it names when it names one.
-    func run(_ id: String, cwd: String?) {
+    /// A header action, with the folder it names when it names one, on the chat's tab or on tab
+    /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
+    func run(_ id: String, cwd: String?, on target: String? = nil) {
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: arguments, origin: .user)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 

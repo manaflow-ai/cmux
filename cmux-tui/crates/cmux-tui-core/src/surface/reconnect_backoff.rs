@@ -36,6 +36,8 @@ impl TerminalHostReconnectBackoff {
             if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
                 host.disconnect();
             }
+            // Input waiting out the reconnect (surface/input.rs) fails now.
+            pty.stream_progress.notify();
             return false;
         };
         #[cfg(test)]

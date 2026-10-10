@@ -94,6 +94,8 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           onLoadOlder={() => void store.loadOlder()}
           onOpenThread={(root) => store.openThread(root)}
           onReact={(message, value) => void store.react(message, value)}
+          onEdit={(message, text) => store.edit(message, text)}
+          onRetract={(message) => void store.retract(message)}
         />
         <div className="hc-typing" aria-live="polite">
           {typingNames.length === 1
@@ -120,10 +122,12 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           people={people}
           me={me}
           strings={strings}
-          canSend={false}
+          canSend={online}
           onClose={() => store.openThread(undefined)}
           onSend={(text) => store.send(text, snap.thread)}
           onReact={(message, value) => void store.react(message, value)}
+          onEdit={(message, text) => store.edit(message, text)}
+          onRetract={(message) => void store.retract(message)}
         />
       )}
       {switcher && (

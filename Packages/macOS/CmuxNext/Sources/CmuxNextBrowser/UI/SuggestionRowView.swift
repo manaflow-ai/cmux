@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
 /// detail dimmed ("query - Engine Search"). The one highlighted row
@@ -33,17 +34,16 @@ final class SuggestionRowView: NSView {
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         layer?.cornerCurve = .continuous
 
-        let symbol = switch suggestion.kind {
-        case .navigate: "globe"
-        case .search: "magnifyingglass"
-        case .history: "clock"
-        case .bookmark: "star"
-        case .keyword: "puzzlepiece.extension"
-        case .switchToTab: "rectangle.on.rectangle"
-        case .answer: "equal.circle"
+        let kind: IconName = switch suggestion.kind {
+        case .navigate: .browser
+        case .search: .search
+        case .history: .history
+        case .bookmark: .bookmark
+        case .keyword: .extension
+        case .switchToTab: .omnibarSwitchtab
+        case .answer: .omnibarAnswer
         }
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
+        icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
         icon.imageScaling = .scaleNone
         label.lineBreakMode = .byTruncatingTail
         label.cell?.truncatesLastVisibleLine = true

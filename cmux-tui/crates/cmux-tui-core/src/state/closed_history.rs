@@ -23,6 +23,7 @@ use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::state::prelude::*;
+use crate::state::remote_terminal_tabs_store::RemoteTerminalRecord;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::user_settings::NewWorkspacePlacement;
 
@@ -326,6 +327,11 @@ impl Mux {
                     .context("the closed conversation tab has no valid record")?;
                 let target = ConversationTabTarget::Pane(Some(pane));
                 self.new_conversation_tab_as(actor, target, record, None, None)?.surface.id
+            }
+            Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
+                let record = RemoteTerminalRecord::from_wire(&tab["remote"])
+                    .context("the closed remote-terminal tab has no valid record")?;
+                self.new_remote_terminal_tab_as(actor, Some(pane), record, None)?.id
             }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();

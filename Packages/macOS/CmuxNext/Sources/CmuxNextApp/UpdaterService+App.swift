@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -14,8 +15,16 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        // The click: the windows leave the screen at once (S1); a failed
+        // install brings them back.
+        let handoff = UpdateWindowHandoff()
+        willInstallStaged = { _ = handoff.hide() }
+        installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        // "See What's New" on the Updated card: the React changelog page
+        // for the releases this update crossed (`#/?from=&to=`).
+        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         runAllowListedAction = { [weak services] id in
@@ -23,6 +32,9 @@ extension UpdaterService {
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         attachTips(registry: services.registry)
+        #if DEBUG
+        UpdateHarnessProbe.install(updater: self)
+        #endif
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog
@@ -67,7 +79,7 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips) in Observations({
+            for await (updates, announcements, tips) in ObservationStream({
                 (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
                 self?.apply(updates)

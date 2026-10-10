@@ -11,7 +11,7 @@ public import Foundation
 public nonisolated struct AcpmuxConnection: Sendable, Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.url == rhs.url && lhs.dashboardToken == rhs.dashboardToken && lhs.localAppToken == rhs.localAppToken
-            && lhs.socketPath == rhs.socketPath && lhs.remote === rhs.remote
+            && lhs.socketPath == rhs.socketPath && lhs.executable == rhs.executable && lhs.remote === rhs.remote
     }
 
     /// The origin the daemon accepts for the bundled pane (`server/local_app.rs`).
@@ -25,6 +25,9 @@ public nonisolated struct AcpmuxConnection: Sendable, Equatable {
     public var socketPath: String?
     /// Set for a chat on another machine: the socket is this route's wire, not ``url``.
     public var remote: AgentPaneRemoteRoute?
+    /// The acpmux this app runs: the only process the pane's WebSocket may reach (cx-fcaq,
+    /// ``AcpmuxServerPeer/verifyListener(port:executable:)``). Nil: no check (tests, a mock host).
+    public var executable: URL?
 
     public init(url: URL, dashboardToken: String, localAppToken: String?, socketPath: String? = nil) {
         self.url = url
@@ -34,9 +37,10 @@ public nonisolated struct AcpmuxConnection: Sendable, Equatable {
     }
 
     /// The daemon's endpoint and this launch's LocalApp token, read now from `home`.
-    public init(endpoint: AcpmuxWebEndpoint, home: URL?, socketPath: String? = nil) {
+    public init(endpoint: AcpmuxWebEndpoint, home: URL?, socketPath: String? = nil, executable: URL? = nil) {
         self.init(url: endpoint.url, dashboardToken: endpoint.token,
                   localAppToken: home.flatMap(AcpmuxLocalAppToken.read(home:)), socketPath: socketPath)
+        self.executable = executable
     }
 
     /// The upgrade request: bearer token and the pane's Origin.

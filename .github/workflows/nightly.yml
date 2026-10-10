@@ -258,6 +258,9 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
+          # `1` holds nightly-next: no build and no publish until it is cleared (2026-10-10: the
+          # feat-cmux-next tip app trapped at launch). Clear: gh variable delete NIGHTLY_NEXT_HOLD.
+          NIGHTLY_NEXT_HOLD: ${{ vars.NIGHTLY_NEXT_HOLD || '' }}
           # `1` stops EVERY nightly-next notary submission, including builds
           # without the import and notary tests, while Apple's queue for the
           # team is stuck (2026-10-09: all submissions In Progress since
@@ -592,7 +595,11 @@ jobs:
 
             const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !buildOnly && !fastBuild;
             const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
-            core.setOutput('should_build', shouldBuild && !pushThrottled ? 'true' : 'false');
+            const nextHold = track === 'nightly-next' && process.env.NIGHTLY_NEXT_HOLD === '1';
+            if (nextHold) {
+              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): no build, nothing published. Clear it with: gh variable delete NIGHTLY_NEXT_HOLD --repo manaflow-ai/cmux');
+            }
+            core.setOutput('should_build', shouldBuild && !pushThrottled && !nextHold ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('force', forceBuild ? 'true' : 'false');
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -2626,9 +2633,24 @@ jobs:
           set -euo pipefail
           # Catch macOS policy failures before the Apple ticket wait and DMG
           # work. Direct execution is isolated from the runner's Dock state.
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
+          # 2026-10-10: a feat-cmux-next app trapped (SIGTRAP) about 1 s after launch. nightly-next
+          # holds the app 15 s and fails on any crash report the launch wrote (a failed smoke stops
+          # this job, so nothing is notarized or published).
+          stable=5
+          [[ "$TRACK" != nightly-next ]] || stable=15
+          marker="$RUNNER_TEMP/smoke-start"; : >"$marker"
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 CMUX_SMOKE_STABLE_SECONDS="$stable" \
             ./scripts/smoke-launch-macos-app.sh \
             "$CHANNEL_APP_PATH"
+          if [[ "$TRACK" == nightly-next ]]; then
+            app_exec="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$CHANNEL_APP_PATH/Contents/Info.plist")"
+            crashes="$(find "$HOME/Library/Logs/DiagnosticReports" -newer "$marker" \( -name "${app_exec}*.ips" -o -name "${app_exec}*.crash" \) 2>/dev/null || true)"
+            if [[ -n "$crashes" ]]; then
+              echo "::error title=nightly-next launch smoke::the app wrote a crash report during the launch smoke; nothing is published"
+              for c in $crashes; do echo "== $c"; head -c 4000 "$c"; echo; done
+              exit 1
+            fi
+          fi
 
       - name: Smoke bundled CLI against the signed app
         run: |

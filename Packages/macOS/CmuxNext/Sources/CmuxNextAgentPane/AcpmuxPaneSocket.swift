@@ -3,6 +3,12 @@ import CmuxNextCompat
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
+/// A daemon's per-connection person challenge (acpmux `hub/person.rs`, cx-fcaq).
+nonisolated struct AcpmuxPersonChallenge: Sendable, Equatable {
+    var nonce: String
+    var connection: String
+}
+
 nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate, Sendable {
     struct Batch {
         var frames: [String]
@@ -28,6 +34,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var closeDelivered = false
         /// Told the queue's length after each enqueue (tests wait on it instead of a clock).
         var onQueued: (@Sendable (Int) -> Void)?
+        /// The daemon's person challenge from the `initialize` reply (cx-fcaq): unread, read
+        /// (nil when the reply had none), and who waits for it.
+        var challengeRead = false
+        var challenge: AcpmuxPersonChallenge?
+        var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
     }
 
     private let request: URLRequest
@@ -147,6 +158,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
                 case .page(let fresh, let object, let method):
+                    if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
                     // The observers read the same parse the page gets.
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
@@ -156,6 +168,42 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             }
             enqueue(page)
             batch = takeRaw()
+        }
+    }
+
+    /// The `initialize` reply's `_meta.acpmux.personChallenge`, for the host's proof.
+    private func readChallenge(_ object: [String: Any]) {
+        let challenge = (((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"]
+            .flatMap { $0 as? [String: Any] }
+            .flatMap { c -> AcpmuxPersonChallenge? in
+                guard let nonce = c["nonce"] as? String, let connection = c["connection"] as? String else { return nil }
+                return AcpmuxPersonChallenge(nonce: nonce, connection: connection)
+            }
+        resolveChallenge(challenge)
+    }
+
+    private func resolveChallenge(_ challenge: AcpmuxPersonChallenge?) {
+        let waiters = state.withLock { state -> [CheckedContinuation<AcpmuxPersonChallenge?, Never>] in
+            guard !state.challengeRead else { return [] }
+            state.challengeRead = true
+            state.challenge = challenge
+            defer { state.challengeWaiters = [] }
+            return state.challengeWaiters
+        }
+        for waiter in waiters { waiter.resume(returning: challenge) }
+    }
+
+    /// The person challenge of this connection, once the `initialize` reply arrived; nil when it
+    /// had none or the socket closed first. Only the local WebSocket has one (not a remote wire).
+    func personChallenge() async -> AcpmuxPersonChallenge? {
+        guard wire == nil else { return nil }
+        return await withCheckedContinuation { waiter in
+            let now = state.withLock { state -> (Bool, AcpmuxPersonChallenge?) in
+                if state.challengeRead || state.closed != nil { return (true, state.challenge) }
+                state.challengeWaiters.append(waiter)
+                return (false, nil)
+            }
+            if now.0 { waiter.resume(returning: now.1) }
         }
     }
 
@@ -292,6 +340,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         task?.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure, reason: Data(reason.utf8))
         session?.finishTasksAndInvalidate()
         if first, let wire { wire.cancel(code: code, reason: reason) }
+        resolveChallenge(nil)
         if wake { signal() }
     }
 
@@ -314,6 +363,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
         opening?.resume(throwing: AgentPaneTransportError.connectFailed)
         session?.finishTasksAndInvalidate()
+        resolveChallenge(nil)
         if wake { signal() }
     }
 

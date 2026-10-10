@@ -205,6 +205,8 @@ mod windows_stubs {
 
         pub(crate) fn on_service_manager_stop(_terminate: Box<dyn Fn() + Send + Sync>) {}
 
+        pub(crate) fn on_orphan_check(_orphaned: Box<dyn Fn() -> bool + Send + Sync>) {}
+
         pub(crate) fn set_breadcrumb_path(
             _path: PathBuf,
             _terminal_id: String,

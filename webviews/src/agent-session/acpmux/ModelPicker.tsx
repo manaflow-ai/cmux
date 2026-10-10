@@ -61,8 +61,9 @@ type ModelChoice = {
   fast?: boolean;
 };
 
-/// A harness's models, each once, newest first: the default and each family's newest models
-/// (`latest`), then every older version (`older`, folded in the list). A catalog model names
+/// A harness's models, each once, newest first: each family's newest models (`latest`), then
+/// every older version (`older`, folded in the list). The agent-owned default sentinel is not a
+/// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
@@ -72,12 +73,13 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   if (cached) return cached;
   const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
+    if (isDefaultChoice(model)) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: isDefaultChoice(model) ? "Default" : model.shortName || model.name || model.id,
+        name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
         efforts: model.efforts,
@@ -336,6 +338,14 @@ export function ModelPicker(props: ModelPickerProps) {
     // until the positioned menu is visible, even though JSDOM accepts that early focus.
     if (open && menuStyle.visibility === "visible") search.current?.focus({ preventScroll: true });
   }, [open, menuStyle.visibility]);
+  // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
+  // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
+  // viewport, so a pointer hover (always over a visible row) never scrolls.
+  const activeRowId = visible[active] ? modelRowId(visible[active].id) : undefined;
+  useLayoutEffect(() => {
+    if (!open || !activeRowId) return;
+    menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, activeRowId]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -554,7 +564,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] bg-menu text-control text-fg shadow-menu"
+          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           style={menuStyle}

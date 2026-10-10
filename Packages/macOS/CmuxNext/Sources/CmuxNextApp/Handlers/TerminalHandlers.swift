@@ -97,7 +97,7 @@ enum TerminalHandlers {
     /// only logged: it goes to the crash telemetry as a non-fatal failure, which
     /// keeps a silent no-op Cmd-K visible (cx-6so.55).
     private static func clear(on daemon: DaemonService, _ ctx: AppActionContext,
-                              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                              _ body: @escaping DaemonCommandBody) {
         guard daemon.connection != nil else { return ctx.refuse(MiscHandlerStrings.daemonOffline) }
         let reporter = ctx.services.crashReporting.reporter
         daemon.send("clear-history", onFailure: { failure in

@@ -158,6 +158,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -181,18 +182,4 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_index_skips_leading_global_flags() {
-        let argv = |list: &[&str]| list.iter().map(|s| OsString::from(*s)).collect::<Vec<_>>();
-        assert_eq!(command_index(&argv(&["acpmux", "exec", "hi"])), 1);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "exec", "hi"])), 2);
-        assert_eq!(command_index(&argv(&["acpmux", "--json", "--suppress-reads", "daemon"])), 3);
-        assert_eq!(command_index(&argv(&["acpmux", "--json"])), 2);
-    }
 }

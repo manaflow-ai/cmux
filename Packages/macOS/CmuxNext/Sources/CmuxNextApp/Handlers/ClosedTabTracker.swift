@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -43,7 +44,7 @@ final class ClosedTabTracker {
         undoToasts = CloseUndoToasts(services: services)
         let machines = services.machines
         observation = Task { [weak self] in
-            for await structure in Observations({ Self.structure(of: machines.daemons) }) {
+            for await structure in ObservationStream({ Self.structure(of: machines.daemons) }) {
                 self?.apply(structure)
             }
         }
@@ -134,6 +135,8 @@ final class ClosedTabTracker {
 
     /// Closed tabs, oldest first (history lists).
     var records: [ClosedTabHistory.Record] { history.closed }
+    /// Whether the tab `tabID` closed in an incognito window.
+    func isIncognito(_ tabID: String) -> Bool { incognitoRecords.contains(tabID) }
 
     /// Takes one record out to reopen it.
     func take(_ tabID: String) -> ClosedTabHistory.Record? {

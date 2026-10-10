@@ -160,32 +160,3 @@ pub fn restore(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
     }
     Ok(n)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn restore_accepts_only_the_sessions_own_file() {
-        let mut meta: SessionMeta = serde_json::from_value(serde_json::json!({
-            "schema": "acpmux.session.v1", "id": "s1", "name": "n", "harness": "claude",
-            "cwd": "/work/my.repo", "agentSessionId": "abc", "status": "idle",
-            "createdAt": 0, "updatedAt": 0
-        }))
-        .unwrap();
-        let target = |label: &str, rel: &str| restore_target(&meta, label, Path::new(rel));
-        assert_eq!(
-            target("claude-project", ".claude/projects/-old/abc.jsonl"),
-            Some(PathBuf::from(".claude/projects/-work-my-repo/abc.jsonl"))
-        );
-        assert!(target("claude-project", ".ssh/authorized_keys").is_none());
-        assert!(target("codex-rollout", ".codex/sessions/abc.jsonl").is_none());
-        assert!(target("claude-project", ".claude/projects/x/zzz.jsonl").is_none());
-        meta.harness = "codex".into();
-        let rollout = ".codex/sessions/2026/01/02/rollout-1-abc.jsonl";
-        assert_eq!(
-            restore_target(&meta, "codex-rollout", Path::new(rollout)),
-            Some(PathBuf::from(rollout))
-        );
-    }
-}

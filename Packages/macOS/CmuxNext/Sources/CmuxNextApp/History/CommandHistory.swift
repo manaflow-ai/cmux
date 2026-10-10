@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
@@ -32,7 +33,7 @@ final class CommandHistory {
     func start(settings: SettingsController) {
         let machines = services.machines
         observation = Task { [weak self] in
-            for await state in Observations({ Self.state(settings: settings, daemons: machines.daemons) }) {
+            for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
                 self?.sync(state)
             }
         }

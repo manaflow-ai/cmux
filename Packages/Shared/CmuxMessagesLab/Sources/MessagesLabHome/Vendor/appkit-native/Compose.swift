@@ -303,6 +303,7 @@ final class ComposeView: UIView {
     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
     static let font = Fixture.bodyFont
     static let maxLines = 8
+    @available(macOS 15, *) // cmux: macOS 14
     static let writingTools: NSWritingToolsBehavior = {
         let a = ProcessInfo.processInfo.arguments
         switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
@@ -410,7 +411,7 @@ final class ComposeView: UIView {
         tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
         tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
-        tv.writingToolsBehavior = ComposeView.writingTools
+        if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
         tv.setAccessibilityLabel(Strings.placeholder)
 
         caret.backgroundColor = Fixture.caret.cgColor

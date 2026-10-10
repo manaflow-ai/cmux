@@ -106,6 +106,25 @@ public final class CrashReporter: Sendable {
         }
     }
 
+    /// Sends a handled, non-fatal error event (a guard that caught a
+    /// problem before it crashed the app). One issue per `fingerprint`.
+    /// Does nothing while Sentry is off (consent, debug build).
+    public func captureNonFatal(_ message: String, type: String, fingerprint: [String], tags: [String: String] = [:],
+                                extra: [String: String] = [:]) {
+        guard isStarted else { return }
+        let event = Event(level: .error)
+        let exception = Exception(value: message, type: type)
+        let mechanism = Mechanism(type: "cmux_guard")
+        mechanism.handled = true
+        exception.mechanism = mechanism
+        event.exceptions = [exception]
+        event.message = SentryMessage(formatted: message)
+        event.fingerprint = fingerprint
+        event.tags = tags
+        event.extra = extra
+        SentrySDK.capture(event: event)
+    }
+
     /// Tags the current scope so a crash this process causes on purpose
     /// (`debug.crash.app`, `debug.crash.exception`) can be filtered out.
     public func markDeliberateCrash(_ name: String) {

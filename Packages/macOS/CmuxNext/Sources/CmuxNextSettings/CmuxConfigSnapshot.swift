@@ -132,6 +132,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
+    public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
+    /// `tabs.tabBar.<kind>`; Automatic when unset or invalid.
+    public var paneTabBars = PaneTabBarDefaults()
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -276,13 +280,19 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
-        if let newTabTemplateDiagnostic = NewTabTemplate.parse(root).1 { snapshot.diagnostics.append(newTabTemplateDiagnostic) }
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
+        snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
+        if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
+        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
+        snapshot.paneTabBars = paneTabBars
+        snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics

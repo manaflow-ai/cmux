@@ -16,6 +16,8 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             fadesNextFill = false
             needsDisplay = true
+            // Rows show controls on the selected row too (the menu button, cx-a9h6).
+            needsLayout = true
         }
     }
 
@@ -61,7 +63,9 @@ class SidebarRowView: NSView {
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
-        layer?.removeAnimation(forKey: "backgroundColor")
+        // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
+        layer?.removeAllAnimations()
+        clipsToBounds = false
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
@@ -92,6 +96,14 @@ class SidebarRowView: NSView {
         ChromeHover.paint(layer, color, animated: fadesNextFill)
         fadesNextFill = false
     }
+
+    /// Counts the times this row started opening its slot (clipped): an
+    /// earlier open's completion, run early when a later update reopens the
+    /// row, leaves the later open's clip alone (cx-ai79).
+    var opens = 0
+
+    /// The frame as drawn now: the presentation mid-animation (debug).
+    var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.

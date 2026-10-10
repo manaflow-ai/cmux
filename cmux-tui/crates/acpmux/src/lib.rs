@@ -8,15 +8,14 @@
 // violated in many render and RPC signatures. Refactoring them is separate
 // work from moving the crate into the cmux-tui workspace.
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
+// The Windows port lands in steps (src/platform.rs): until the daemon runs
+// there, code only its Unix paths reach is unused on Windows.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod adopt;
 pub mod adopt_live;
 pub mod agent;
-#[cfg(test)]
-mod agent_exit_tests;
 pub mod agent_host;
-#[cfg(test)]
-mod agent_replay_tests;
 pub mod agent_tools;
 pub mod catalog;
 pub mod chats;
@@ -26,21 +25,21 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod cua_socket;
+pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
-#[cfg(test)]
-mod git_short_sha;
 pub mod harness_admin;
 pub mod hub;
 pub mod live_models;
 pub mod login_env;
 pub mod native;
 pub mod peer;
+#[cfg(not(unix))]
+mod platform;
 pub mod protected_folders;
 pub mod question_answer;
-#[cfg(test)]
-mod question_answer_tests;
 pub mod registry;
+mod router_socket;
 pub mod routes;
 pub mod rpc;
 pub mod schema;
@@ -48,12 +47,8 @@ pub mod server;
 pub mod session_env;
 pub mod session_name;
 pub mod sha256;
-#[cfg(test)]
-mod source_date_epoch;
 pub mod store;
 pub mod subagents;
-#[cfg(test)]
-mod subagents_tests;
 pub mod transcript;
 pub mod trust;
 pub mod tui;

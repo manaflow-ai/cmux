@@ -38,7 +38,12 @@ enum WorkspaceGroupHandlers {
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
-            try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
+            let sidebar = try context.sidebar(), ids = [SidebarWorkspaceID(workspace.id)]
+            // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
+            guard SidebarEdits.canMove(ids, toGroup: sidebarID(group), in: sidebar.model.sections) else {
+                throw ActionFailure(message: RefusalStrings.groupOnAnotherMachine)
+            }
+            sidebar.handle(.move(ids, toGroup: sidebarID(group)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
@@ -57,14 +62,15 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.collapse", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(true, invocation, context) })
         registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(false, invocation, context) })
         registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
+            // A palette token or a custom `#RRGGBB` (cx-25az), the group editor's two kinds.
+            guard let raw = invocation["color"]?.stringValue, let color = GroupTint(wire: raw) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf((GroupColor.allCases.map(\.rawValue) + ["#RRGGBB"]).joined(separator: ", ")))
             }
             try edit(invocation, context) { .setGroupColor($0, color) }
         })
         for color in GroupColor.allCases {
             registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-                try edit(invocation, context) { .setGroupColor($0, color) }
+                try edit(invocation, context) { .setGroupColor($0, .palette(color)) }
             })
         }
         registry.bind("workspaceGroup.rename", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in

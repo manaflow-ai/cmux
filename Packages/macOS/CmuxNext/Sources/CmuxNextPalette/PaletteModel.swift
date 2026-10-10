@@ -61,6 +61,10 @@ public final class PaletteModel {
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
     public internal(set) var isLoading = false
+    /// The shown page's rows stand in for an off-main rank that has not
+    /// landed: the view shows no "No results" state for an empty stand-in
+    /// (a Recent-only page on its first open, cx-9c8m).
+    var awaitsRank: Bool { shownLevelID.flatMap { pages[$0] }?.awaitsRank ?? false }
     /// Increments when keyboard navigation moves the selection, so the view
     /// scrolls it into view (mouse hover never scrolls).
     public internal(set) var scrollRequest = 0

@@ -543,7 +543,10 @@ fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
     }
 }
 
-fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+pub(super) fn surface_placement(
+    mux: &Mux,
+    surface: SurfaceId,
+) -> (Option<WorkspaceId>, Option<PaneId>) {
     mux.with_state(|state| {
         let pane = state.pane_of(surface);
         let workspace = pane

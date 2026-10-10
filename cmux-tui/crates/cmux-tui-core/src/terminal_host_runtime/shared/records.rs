@@ -166,6 +166,17 @@ pub fn terminal_host_record_liveness(
     })
 }
 
+/// Serializes stale-record removals (record, proof, endpoint) in this
+/// process, so a respawn never launches a new host for the same terminal
+/// while another thread is still between removing the old record and its
+/// endpoint (cx-6so.49). A leaf lock: nothing else is locked while held.
+static RECORD_REMOVAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Wait until no stale-record removal of this process is in progress.
+pub(crate) fn wait_for_terminal_host_record_removals() {
+    drop(RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+}
+
 /// Remove a discovery record only after the process-lifetime proof says
 /// the exact recorded host is dead. A live or ambiguous record is always
 /// retained for a later adoption attempt.
@@ -173,6 +184,7 @@ pub fn remove_stale_terminal_host_record(
     record_path: &Path,
     expected: &TerminalHostRecord,
 ) -> anyhow::Result<bool> {
+    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
         return Ok(false);
     }

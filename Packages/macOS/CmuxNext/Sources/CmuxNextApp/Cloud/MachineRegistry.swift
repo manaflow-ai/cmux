@@ -26,6 +26,10 @@ final class MachineRegistry {
     /// a Cloud machine is not reachable with `cloud` off, an SSH machine
     /// not with `remoteHosts` off, so no path opens work on it.
     @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+    /// A machine left the registry (forgotten, deleted, unpaired): its
+    /// connections that live outside its session close (cx-2cob slice 2:
+    /// the forwarding connection and the browser runtimes on it).
+    @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
     init(local: DaemonService) {
         self.local = local
@@ -83,9 +87,15 @@ final class MachineRegistry {
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
+    /// `terminal-reaper-active-v1` says how a daemon was started (with a
+    /// reap grace), not what its build serves: a remote daemon that the SSH
+    /// bootstrap starts never has it, and tab close handles both cases, so
+    /// its absence is not "update this machine" (cx-z0uk: a daemon installed
+    /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
         var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
+        notNeeded.insert(DaemonCapabilities.shared.terminalReaperActive)
         if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
@@ -137,7 +147,9 @@ final class MachineRegistry {
 
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return cloud.remove(at: index)
+        let removed = cloud.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: SSH sessions (SSHService only)
@@ -149,7 +161,9 @@ final class MachineRegistry {
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return ssh.remove(at: index)
+        let removed = ssh.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: Servers (ServerReachService only)
@@ -161,6 +175,8 @@ final class MachineRegistry {
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {
         guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return servers.remove(at: index)
+        let removed = servers.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 }

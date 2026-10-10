@@ -126,6 +126,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setContentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let visitCookies: @convention(c) (Int32, Int32) -> Int32
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
+    let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     /// Browser import: saved passwords into a profile's password store
@@ -296,6 +298,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
+        downloadFavicon = try r("cmux_shim_download_favicon")
         importCookies = try r("cmux_shim_import_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
         passwordEntrySize = try r("cmux_shim_password_entry_size")

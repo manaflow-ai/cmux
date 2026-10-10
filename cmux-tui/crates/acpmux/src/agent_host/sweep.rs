@@ -66,6 +66,7 @@ pub fn running_hosts(hosts: &Path) -> Vec<OwnedHost> {
 /// harness group on SIGTERM), wait up to `grace` on `clock`, then SIGKILL
 /// the harness group and the host of each one whose lock is still held, and
 /// wait up to `grace` again. Returns the hosts not proven dead after that.
+#[cfg(unix)]
 pub async fn end_hosts(
     clock: &dyn Clock,
     hosts: Vec<OwnedHost>,
@@ -80,9 +81,20 @@ pub async fn end_hosts(
     }
     wait_all(clock, left, grace).await
 }
+/// Windows port: hosts are signalled through their job objects there (a
+/// later landing); until then they are only waited for.
+#[cfg(not(unix))]
+pub async fn end_hosts(
+    clock: &dyn Clock,
+    hosts: Vec<OwnedHost>,
+    grace: Duration,
+) -> Vec<OwnedHost> {
+    wait_all(clock, hosts, grace).await
+}
 
 /// Signal the host (and, for SIGKILL, first its harness group, which a
 /// killed host can no longer end) only while its lock proves the pid.
+#[cfg(unix)]
 fn signal_if_live(h: &OwnedHost, signal: i32) {
     if h.liveness() != Liveness::Live {
         return;

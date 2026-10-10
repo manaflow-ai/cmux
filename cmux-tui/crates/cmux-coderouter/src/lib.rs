@@ -193,13 +193,18 @@ pub struct KeyScope {
 pub enum ApiFamily {
     AnthropicMessages,
     OpenAiResponses,
+    /// OpenAI chat/completions (the hosted cmux model router's OpenAI shape).
+    OpenAiChat,
 }
 impl ApiFamily {
-    fn for_path(path: &str) -> Option<Self> {
+    /// The families that may call `path`. Chat completions also takes an
+    /// OpenAI Responses key: both are the OpenAI side of one harness.
+    fn for_path(path: &str) -> &'static [Self] {
         match path {
-            "/v1/messages" => Some(Self::AnthropicMessages),
-            "/v1/responses" => Some(Self::OpenAiResponses),
-            _ => None,
+            "/v1/messages" | "/v1/messages/count_tokens" => &[Self::AnthropicMessages],
+            "/v1/responses" => &[Self::OpenAiResponses],
+            "/v1/chat/completions" => &[Self::OpenAiChat, Self::OpenAiResponses],
+            _ => &[],
         }
     }
 }
@@ -231,7 +236,9 @@ impl KeyRing {
         let key_id = key_id.into();
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret)?;
-        let digest = self.digest(&secret);
+        // No install secret, no key: a digest is never computed without one.
+        let digest =
+            self.digest(&secret).ok_or_else(|| anyhow::anyhow!("install secret unavailable"))?;
         self.keys.insert(key_id.clone(), KeyRecord { digest, scope });
         let encoded = hex::encode(secret);
         Ok(Secret::new(format!("crl_{}_{}_{}", self.store.install_id(), key_id, encoded)))
@@ -244,15 +251,13 @@ impl KeyRing {
     pub fn list(&self) -> Vec<(String, KeyScope)> {
         self.keys.iter().map(|(id, record)| (id.clone(), record.scope.clone())).collect()
     }
-    fn digest(&self, secret: &[u8]) -> [u8; 32] {
-        let Ok(install_secret) = self.store.load() else {
-            return [0; 32];
-        };
-        let Ok(mut mac) = HmacSha256::new_from_slice(install_secret.expose()) else {
-            return [0; 32];
-        };
+    /// HMAC of `secret` under the install secret; None (fail closed) when the
+    /// install secret cannot be read, so no key ever matches a fixed digest.
+    fn digest(&self, secret: &[u8]) -> Option<[u8; 32]> {
+        let install_secret = self.store.load().ok()?;
+        let mut mac = HmacSha256::new_from_slice(install_secret.expose()).ok()?;
         mac.update(secret);
-        mac.finalize().into_bytes().into()
+        Some(mac.finalize().into_bytes().into())
     }
     fn validate(&self, value: &str) -> Option<&KeyScope> {
         let mut parts = value.split('_');
@@ -265,19 +270,73 @@ impl KeyRing {
             return None;
         }
         let record = self.keys.get(key_id)?;
+        // expires_at: unix seconds; 0 = until revoked or the router stops.
+        if record.scope.expires_at != 0 && record.scope.expires_at <= unix_now() {
+            return None;
+        }
         let Ok(bytes) = hex::decode(secret) else { return None };
         if bytes.len() != 32 {
             return None;
         }
-        tokens_match(&hex::encode(self.digest(&bytes)), &hex::encode(record.digest))
-            .then_some(&record.scope)
+        let digest = self.digest(&bytes)?;
+        tokens_match(&hex::encode(digest), &hex::encode(record.digest)).then_some(&record.scope)
     }
 }
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The hosted cmux model router the relay forwards to, with the bearer the app
+/// pushes (`set_upstream`). The bearer never leaves this process except toward
+/// `origin`; harnesses hold only their crl_ key.
+pub struct Upstream {
+    origin: String,
+    bearer: Secret<String>,
+    /// Unix seconds; the relay refuses to forward after it (the app renews before).
+    expires_at: u64,
+}
+impl Upstream {
+    /// `origin` must be an https origin: the bearer is sent there.
+    pub fn new(origin: &str, bearer: String, expires_at: u64) -> anyhow::Result<Self> {
+        let url = url::Url::parse(origin)?;
+        // https only: any local user can listen on a loopback port, so plain
+        // http would hand the bearer to whoever holds that port.
+        if url.scheme() != "https"
+            || url.path() != "/"
+            || url.query().is_some()
+            || !url.username().is_empty()
+        {
+            anyhow::bail!("upstream origin must be an https origin");
+        }
+        if bearer.is_empty() || bearer.len() > 8192 || bearer.contains(['\r', '\n']) {
+            anyhow::bail!("upstream bearer is invalid");
+        }
+        Ok(Self {
+            origin: origin.trim_end_matches('/').to_owned(),
+            bearer: Secret::new(bearer),
+            expires_at,
+        })
+    }
+    fn live(&self) -> bool {
+        self.expires_at == 0 || self.expires_at > unix_now()
+    }
+    fn view(&self) -> serde_json::Value {
+        serde_json::json!({"origin": self.origin, "expires_at": self.expires_at, "live": self.live()})
+    }
+}
+
+pub type SharedUpstream = Arc<tokio::sync::RwLock<Option<Upstream>>>;
 
 #[derive(Clone)]
 struct AppState {
     port: u16,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
+    http: reqwest::Client,
 }
 
 /// Install a panic hook that reports only source location, never a payload.
@@ -302,6 +361,8 @@ fn disable_core_dumps() {
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     install_panic_hook();
     disable_core_dumps();
+    // reqwest is built without a default TLS provider; the relay's upstream calls need one.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let router_dir = home.as_ref().join("router");
     tokio::fs::create_dir_all(&router_dir).await?;
     #[cfg(unix)]
@@ -309,6 +370,21 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         tokio::fs::set_permissions(&router_dir, std::fs::Permissions::from_mode(0o700)).await?;
     }
+    // One router per home: a second one waits here until the first exits
+    // (`shutdown`, from a daemon of a newer build), so it never takes the
+    // socket from a router that still holds a bearer.
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(router_dir.join("router.lock"))?;
+    // Bounded: a router that never lets go (hung) must not collect waiters.
+    let lock = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::task::spawn_blocking(move || fs4::FileExt::lock(&lock).map(|()| lock)),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
@@ -319,29 +395,58 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     }
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
-    let store = Arc::new(KeychainInstallSecretStore::new("default"));
+    // Keys live in memory for one router run. macOS keeps the install secret in
+    // the Keychain; elsewhere a fresh random secret per run is equivalent.
+    #[cfg(target_os = "macos")]
+    let store: Arc<dyn InstallSecretStore> = Arc::new(KeychainInstallSecretStore::new("default"));
+    #[cfg(not(target_os = "macos"))]
+    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let port = listener.local_addr()?.port();
-    let data = data_server(listener, keys.clone());
-    tokio::select! { _ = data => (), result = admin_loop(admin, keys, port) => result? }
+    let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
+    let data = data_server(listener, keys.clone(), upstream.clone());
+    let stop = Arc::new(tokio::sync::Notify::new());
+    tokio::select! {
+        _ = data => (),
+        result = admin_loop(admin, keys, upstream, port, stop.clone()) => result?,
+        _ = stop.notified() => (),
+    }
+    drop(lock);
     Ok(())
 }
 
 /// Start the real loopback data plane for integration tests and composition.
 pub async fn spawn_data_plane(
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
 ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener =
         TcpListener::bind(LoopbackAddr::try_from("127.0.0.1:0".parse::<SocketAddr>()?)?.address())
             .await?;
     let address = listener.local_addr()?;
-    let task = tokio::spawn(data_server(listener, keys));
+    let task = tokio::spawn(data_server(listener, keys, upstream));
     Ok((address, task))
 }
 
-async fn data_server(listener: TcpListener, keys: Arc<tokio::sync::RwLock<KeyRing>>) {
-    let state =
-        AppState { port: listener.local_addr().map(|address| address.port()).unwrap_or(0), keys };
+async fn data_server(
+    listener: TcpListener,
+    keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
+) {
+    let http = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        // Per read, not per request: a long stream keeps going while bytes
+        // arrive; an upstream that stops sending ends the request.
+        .read_timeout(std::time::Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default();
+    let state = AppState {
+        port: listener.local_addr().map(|address| address.port()).unwrap_or(0),
+        keys,
+        upstream,
+        http,
+    };
     let app = Router::new()
         .fallback(any(data_request))
         .layer(RequestBodyLimitLayer::new(BODY_LIMIT))
@@ -356,15 +461,25 @@ pub async fn serve(_home: impl AsRef<Path>) -> anyhow::Result<()> {
 async fn admin_loop(
     listener: UnixListener,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
     port: u16,
+    stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         let keys = keys.clone();
+        let upstream = upstream.clone();
+        let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys, port).await;
+            let _ = admin_connection(stream, keys, upstream, port, stop).await;
         });
     }
+}
+
+/// The build of the acpmux that started this router (`CMUX_ROUTER_BUILD`):
+/// a daemon of another build replaces it (`shutdown`, then a new router).
+fn router_build() -> String {
+    std::env::var("CMUX_ROUTER_BUILD").unwrap_or_default()
 }
 #[cfg(unix)]
 #[derive(Deserialize)]
@@ -378,19 +493,47 @@ enum AdminRequest {
     Revoke {
         key_id: String,
     },
-    /// The loopback data-plane port (acpmux `local-coderouter` routes read it).
+    /// The loopback data-plane port (acpmux `local-coderouter` routes read it),
+    /// plus the upstream state (never the bearer).
     Status,
+    /// A per-session key with a router-chosen id: `{id, key}` (the route store
+    /// mints one at spawn and revokes it at session end).
+    MintKey {
+        scope: KeyScope,
+    },
+    RevokeKey {
+        id: String,
+    },
+    /// The hosted model router and the bearer the app renews before `expires_at`.
+    SetUpstream {
+        origin: String,
+        bearer: String,
+        expires_at: u64,
+    },
+    ClearUpstream,
+    /// Exit after the reply (a daemon of a newer build starts its own router).
+    Shutdown,
 }
 #[cfg(unix)]
 async fn admin_connection(
     stream: UnixStream,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
     port: u16,
+    stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let request: AdminRequest = serde_json::from_str(&line)?;
+        let request: AdminRequest = match serde_json::from_str(&line) {
+            Ok(request) => request,
+            Err(_) => {
+                // A fixed message: a parse error can quote the request's values.
+                let reply = serde_json::json!({"error": "bad request"});
+                write.write_all(format!("{reply}\n").as_bytes()).await?;
+                continue;
+            }
+        };
         let response = match request {
             AdminRequest::Mint { key_id, scope } => {
                 let mut guard = keys.write().await;
@@ -401,7 +544,38 @@ async fn admin_connection(
             AdminRequest::Revoke { key_id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&key_id)})
             }
-            AdminRequest::Status => serde_json::json!({"port": port}),
+            AdminRequest::Status => {
+                let up = upstream.read().await;
+                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view)})
+            }
+            AdminRequest::MintKey { scope } => {
+                let id = format!("s{}", uuid::Uuid::new_v4().simple());
+                let key = keys.write().await.mint(id.clone(), scope)?;
+                serde_json::json!({"id": id, "key": key.expose()})
+            }
+            AdminRequest::RevokeKey { id } => {
+                serde_json::json!({"revoked": keys.write().await.revoke(&id)})
+            }
+            AdminRequest::SetUpstream { origin, bearer, expires_at } => {
+                match Upstream::new(&origin, bearer, expires_at) {
+                    Ok(next) => {
+                        let view = next.view();
+                        *upstream.write().await = Some(next);
+                        serde_json::json!({"upstream": view})
+                    }
+                    Err(error) => serde_json::json!({"error": error.to_string()}),
+                }
+            }
+            AdminRequest::ClearUpstream => {
+                *upstream.write().await = None;
+                serde_json::json!({"upstream": null})
+            }
+            AdminRequest::Shutdown => {
+                *upstream.write().await = None;
+                write.write_all(b"{\"stopping\":true}\n").await?;
+                stop.notify_one();
+                return Ok(());
+            }
         };
         write.write_all(serde_json::to_string(&response)?.as_bytes()).await?;
         write.write_all(b"\n").await?;
@@ -409,28 +583,101 @@ async fn admin_connection(
     Ok(())
 }
 
+/// Local paths the relay forwards, and their hosted router paths.
+fn upstream_path(method: &Method, path: &str) -> Option<&'static str> {
+    match (method, path) {
+        (&Method::GET, "/v1/models") => Some("/v1/inference/models"),
+        (&Method::POST, "/v1/chat/completions") => Some("/v1/inference/chat/completions"),
+        (&Method::POST, "/v1/messages") => Some("/v1/inference/v1/messages"),
+        (&Method::POST, "/v1/messages/count_tokens") => {
+            Some("/v1/inference/v1/messages/count_tokens")
+        }
+        _ => None,
+    }
+}
+
+fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
+    let body = serde_json::json!({"error": {"code": code, "message": message}}).to_string();
+    Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::from(body))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
+/// Request headers passed upstream; everything else (the client's auth, cookies,
+/// host) stays here.
+const FORWARD_REQUEST_HEADERS: &[&str] = &["content-type", "accept", "anthropic-version"];
+const FORWARD_RESPONSE_HEADERS: &[&str] =
+    &["content-type", "cache-control", "retry-after", "x-cmux-request-id"];
+
 #[axum::debug_handler]
 async fn data_request(State(state): State<AppState>, request: Request<Body>) -> Response<Body> {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let _ = request_id;
     let method = request.method().clone();
     let uri = request.uri().path().to_owned();
     let headers = request.headers().clone();
-    let status = authorize(method.clone(), uri.as_str(), headers, state.port, &state.keys).await;
+    let status =
+        authorize(method.clone(), uri.as_str(), headers.clone(), state.port, &state.keys).await;
     if let Err(status) = status {
         return Response::builder()
             .status(status)
             .body(Body::empty())
             .unwrap_or_else(|_| Response::new(Body::empty()));
     }
-    let status = match (method, uri.as_str()) {
-        (Method::GET, "/v1/models") => StatusCode::OK,
-        (Method::POST, "/v1/messages" | "/v1/responses") => StatusCode::NOT_IMPLEMENTED,
-        _ => StatusCode::NOT_FOUND,
+    let Some(path) = upstream_path(&method, uri.as_str()) else {
+        let status = match (&method, uri.as_str()) {
+            (&Method::POST, "/v1/responses") => StatusCode::NOT_IMPLEMENTED,
+            _ => StatusCode::NOT_FOUND,
+        };
+        return Response::builder()
+            .status(status)
+            .body(Body::empty())
+            .unwrap_or_else(|_| Response::new(Body::empty()));
     };
-    Response::builder()
-        .status(status)
-        .body(Body::empty())
+    let (url, bearer) = {
+        let up = state.upstream.read().await;
+        match up.as_ref() {
+            Some(up) if up.live() => (format!("{}{path}", up.origin), up.bearer.expose().clone()),
+            Some(_) => {
+                return json_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "router.upstream_expired",
+                    "the cmux model router sign-in expired; open cmux to renew it",
+                );
+            }
+            None => {
+                return json_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "router.no_upstream",
+                    "the cmux model router is not connected; open cmux",
+                );
+            }
+        }
+    };
+    let mut forward = state.http.request(method, &url).bearer_auth(bearer);
+    for name in FORWARD_REQUEST_HEADERS {
+        if let Some(value) = headers.get(*name) {
+            forward = forward.header(*name, value);
+        }
+    }
+    let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
+    let answer = match forward.body(body).send().await {
+        Ok(answer) => answer,
+        Err(_) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                "router.unreachable",
+                "the cmux model router did not answer",
+            );
+        }
+    };
+    let mut out = Response::builder().status(answer.status().as_u16());
+    for name in FORWARD_RESPONSE_HEADERS {
+        if let Some(value) = answer.headers().get(*name) {
+            out = out.header(*name, value.as_bytes());
+        }
+    }
+    out.body(Body::from_stream(answer.bytes_stream()))
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
 async fn authorize(
@@ -461,10 +708,13 @@ async fn authorize(
     {
         return Err(StatusCode::MISDIRECTED_REQUEST);
     }
-    let Some(auth) = headers.get("authorization").and_then(|value| value.to_str().ok()) else {
-        return Err(StatusCode::UNAUTHORIZED);
-    };
-    let Some(token) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")) else {
+    // Bearer, or x-api-key (Messages API clients send the key there).
+    let bearer = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")));
+    let api_key = headers.get("x-api-key").and_then(|value| value.to_str().ok());
+    let Some(token) = bearer.or(api_key) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
     let scope = {
@@ -474,9 +724,8 @@ async fn authorize(
     let Some(scope) = scope else {
         return Err(StatusCode::UNAUTHORIZED);
     };
-    if let Some(family) = ApiFamily::for_path(path)
-        && !scope.families.contains(&family)
-    {
+    let allowed = ApiFamily::for_path(path);
+    if !allowed.is_empty() && !allowed.iter().any(|family| scope.families.contains(family)) {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())

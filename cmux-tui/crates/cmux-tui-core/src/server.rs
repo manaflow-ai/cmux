@@ -129,7 +129,9 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
-use command_args::{parse_direction, parse_split_dir, parse_zoom_mode, workspace_mutation};
+use command_args::{
+    parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
+};
 mod origin_gate;
 mod orphan_shutdown;
 pub use orphan_shutdown::stop_orphaned_owner;
@@ -148,6 +150,7 @@ mod resource_trust;
 use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
+mod detached_terminals;
 mod feed_local;
 mod frontend_browser_history;
 mod history_search;
@@ -159,6 +162,7 @@ mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
 mod remote_relay;
+mod remote_terminal_tabs_wire;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod cmd_attach;
@@ -177,6 +181,7 @@ mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
+use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod responses;
 mod rows;
@@ -1009,6 +1014,10 @@ enum Command {
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
+    /// Remote-terminal tabs (`remote-terminal-tabs-v1`).
+    NewRemoteTerminalTab(remote_terminal_tabs_wire::NewParams),
+    UpdateRemoteTerminalTab(remote_terminal_tabs_wire::UpdateParams),
+    RemoteTerminalSnapshot(remote_terminal_tabs_wire::SnapshotParams),
     NewBrowserTab {
         url: String,
         #[serde(default)]
@@ -1169,6 +1178,9 @@ enum Command {
         /// Mark the new terminal `keep` so it survives with no tab.
         #[serde(default)]
         keep: bool,
+        /// `detached-terminals-v1`: a kept terminal with no tab.
+        #[serde(default)]
+        detached: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2184,16 +2196,6 @@ fn column_anchor(
     }
 }
 
-/// Deserialize a field whose absence and `null` mean different things:
-/// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
-fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct MutationRequest {
     #[serde(default)]
@@ -3180,6 +3182,9 @@ fn handle_command_with_cancellation(
         }
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
+        Command::NewRemoteTerminalTab(p) => remote_terminal_tabs_wire::create(mux, &actor, p),
+        Command::UpdateRemoteTerminalTab(p) => remote_terminal_tabs_wire::update(mux, p),
+        Command::RemoteTerminalSnapshot(p) => remote_terminal_tabs_wire::snapshot(mux, p),
         Command::NewBrowserTab { url, pane, cols, rows } => {
             cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
@@ -3223,6 +3228,7 @@ fn handle_command_with_cancellation(
             terminal_id,
             env,
             keep,
+            detached,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -3240,6 +3246,7 @@ fn handle_command_with_cancellation(
             terminal_id,
             env,
             keep,
+            detached,
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
@@ -3761,33 +3768,6 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     workspaces["generation"] = json!(generation);
     workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
     Ok(workspaces)
-}
-
-/// The reply of a placement command: the new view and the terminal it
-/// shows, after applying `keep`.
-fn placed_terminal_result(
-    mux: &Mux,
-    surface: &crate::Surface,
-    keep: bool,
-) -> anyhow::Result<Value> {
-    let identity = mux.resource_terminal_host_identity(surface);
-    if keep {
-        keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
-    }
-    Ok(json!({
-        "surface": surface.id,
-        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-    }))
-}
-
-/// Apply `keep: true` from a creating command. A terminal without a durable
-/// host (an in-process test surface) has nothing to reap.
-fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
-    match terminal_id {
-        Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
-        None => Ok(()),
-    }
 }
 
 /// Remove the socket file (call on clean shutdown).

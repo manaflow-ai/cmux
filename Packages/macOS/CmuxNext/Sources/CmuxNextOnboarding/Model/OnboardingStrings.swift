@@ -3,35 +3,9 @@ import Foundation
 
 /// User-facing onboarding text (Localizable.xcstrings in this module).
 enum OnboardingStrings {
-    static var windowTitle: String { String(localized: "onboarding.window.title", defaultValue: "Welcome to cmux", bundle: .module) }
-    static var continueButton: String { String(localized: "onboarding.button.continue", defaultValue: "Continue", bundle: .module) }
     static var importButton: String { String(localized: "onboarding.button.import", defaultValue: "Import", bundle: .module) }
     static var skip: String { String(localized: "onboarding.button.skip", defaultValue: "Skip", bundle: .module) }
     static var done: String { String(localized: "onboarding.button.done", defaultValue: "Done", bundle: .module) }
-    static func stepCounter(_ index: Int, _ count: Int) -> String {
-        String(format: String(localized: "onboarding.step.of", defaultValue: "%1$lld of %2$lld", bundle: .module), index, count)
-    }
-
-    static func stepCounter(_ index: Int, _ count: Int, step: OnboardingModel.Step) -> String {
-        let counter = stepCounter(index, count)
-        guard step == .importData else { return counter }
-        return String(format: String(localized: "onboarding.step.importOf", defaultValue: "Import · %@", bundle: .module), counter)
-    }
-
-    // Default browser
-    static var browserTitle: String { String(localized: "onboarding.browser.title2", defaultValue: "Default Browser", bundle: .module) }
-    static var browserSubtitle: String {
-        String(localized: "onboarding.browser.subtitle2", defaultValue: "Open links from other apps in cmux.", bundle: .module)
-    }
-    static func currentBrowser(_ name: String) -> String {
-        String(format: String(localized: "onboarding.browser.current", defaultValue: "Current default: %@", bundle: .module), name)
-    }
-    static var isDefaultBrowser: String { String(localized: "onboarding.browser.isDefault", defaultValue: "cmux is your default browser.", bundle: .module) }
-    static var makeDefaultBrowser: String { String(localized: "onboarding.browser.make", defaultValue: "Make Default Browser", bundle: .module) }
-    static var waiting: String { String(localized: "onboarding.browser.waiting", defaultValue: "Waiting for macOS…", bundle: .module) }
-    static func systemRefused(_ reason: String) -> String {
-        String(format: String(localized: "onboarding.system.refused", defaultValue: "macOS did not make the change: %@", bundle: .module), reason)
-    }
 
     // Import
     static var importTitle: String { String(localized: "onboarding.import.title2", defaultValue: "Import from Browsers", bundle: .module) }
@@ -40,13 +14,8 @@ enum OnboardingStrings {
     /// Where the browser list goes before Find Browsers ran (as short as "Looking for browsers…").
     static var notSearched: String { String(localized: "onboarding.import.notSearched", defaultValue: "Not looked for yet.", bundle: .module) }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
-    static func importing(_ profile: String) -> String {
-        String(format: String(localized: "onboarding.import.progress", defaultValue: "Importing %@…", bundle: .module), profile)
-    }
-    static var fullDiskAccessTitle: String { String(localized: "onboarding.import.fda.title", defaultValue: "Safari needs Full Disk Access", bundle: .module) }
     static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .module) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }
-    static var checkAgain: String { String(localized: "onboarding.import.fda.recheck", defaultValue: "Check Again", bundle: .module) }
 
     static var importWaiting: String { String(localized: "onboarding.import.waiting", defaultValue: "Waiting", bundle: .module) }
     static var importRowFailed: String { String(localized: "onboarding.import.rowFailed", defaultValue: "Couldn’t read", bundle: .module) }
@@ -145,20 +114,4 @@ enum OnboardingStrings {
         profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
     }
-
-    // Theme
-    static var themeTitle: String { String(localized: "onboarding.theme.title", defaultValue: "Theme", bundle: .module) }
-    static var themeSubtitle: String {
-        String(localized: "onboarding.theme.subtitle", defaultValue: "A Ghostty theme for cmux. Your Ghostty config does not change.", bundle: .module)
-    }
-    static var ghosttyTheme: String { String(localized: "onboarding.welcome.ghosttyTheme", defaultValue: "Your Ghostty Theme", bundle: .module) }
-    static var appleSystemTheme: String {
-        String(localized: "onboarding.theme.appleSystem", defaultValue: "Apple System (follows appearance)", bundle: .module)
-    }
-    /// The name a theme choice shows.
-    static func themeName(_ choice: ThemeChoice) -> String { choice.label ?? choice.name ?? ghosttyTheme }
-    static var previewLabel: String { String(localized: "onboarding.preview.label", defaultValue: "Preview of cmux with your choices", bundle: .module) }
-
-    // Accounts
-    static var accountsTitle: String { String(localized: "onboarding.accounts.title2", defaultValue: "Accounts", bundle: .module) }
 }

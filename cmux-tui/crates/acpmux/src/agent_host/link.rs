@@ -4,6 +4,7 @@
 use super::*;
 use std::ffi::OsString;
 use std::sync::Arc;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
@@ -29,6 +30,7 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
 }
 
 /// [`spawn`] with the bootstrap deadline given by the caller.
+#[cfg(unix)]
 pub async fn spawn_within(
     launcher: &HostLauncher,
     spec: &SpawnSpec,
@@ -75,6 +77,16 @@ pub async fn spawn_within(
         Some(BootstrapReply::SpawnFailed { message }) => Err(anyhow!(message)),
         None => Err(anyhow!("agent host exited before it was ready")),
     }
+}
+/// Windows port: agent hosts start through CreateProcess there (a later
+/// landing).
+#[cfg(not(unix))]
+pub async fn spawn_within(
+    _launcher: &HostLauncher,
+    _spec: &SpawnSpec,
+    _budget: std::time::Duration,
+) -> Result<HostRecord> {
+    Err(crate::platform::unsupported("agent hosts"))
 }
 
 /// What the host said when it was adopted.
@@ -133,6 +145,7 @@ pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
         .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
 }
 
+#[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
     let stream = UnixStream::connect(&record.socket)
         .await
@@ -247,6 +260,12 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         adopted,
     ))
 }
+/// Windows port: the host socket is `cmux::local_socket` there (a later
+/// landing).
+#[cfg(not(unix))]
+async fn connect_inner(_record: HostRecord, _resume_after: u64) -> Result<Connect> {
+    Err(crate::platform::unsupported("agent hosts"))
+}
 
 impl Link {
     async fn send(&self, frame: ControllerFrame) -> Result<()> {
@@ -318,44 +337,5 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
-    }
-}
-
-/// A link with no host behind it, for tests: the test reads the frames the
-/// link writes and feeds it host entries.
-#[cfg(test)]
-pub(crate) struct TestWire {
-    frames: mpsc::Receiver<(ControllerFrame, Option<oneshot::Sender<()>>)>,
-    pub entries: mpsc::Sender<(u64, Entry)>,
-}
-
-#[cfg(test)]
-impl TestWire {
-    /// The link and its wire. Nothing is written until `write_all`.
-    pub(crate) fn link(record: HostRecord) -> (Link, TestWire) {
-        let (tx, frames) = mpsc::channel(1024);
-        let (entries, entries_rx) = mpsc::channel(4096);
-        let link = Link {
-            tx,
-            queries: Arc::default(),
-            next_query: std::sync::atomic::AtomicU64::new(1),
-            record,
-            entries: Mutex::new(entries_rx),
-            detach_ack: Mutex::new(None),
-            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        };
-        (link, TestWire { frames, entries })
-    }
-
-    /// Write every frame queued so far; returns them.
-    pub(crate) fn write_all(&mut self) -> Vec<ControllerFrame> {
-        let mut out = Vec::new();
-        while let Ok((frame, written)) = self.frames.try_recv() {
-            if let Some(written) = written {
-                let _ = written.send(());
-            }
-            out.push(frame);
-        }
-        out
     }
 }

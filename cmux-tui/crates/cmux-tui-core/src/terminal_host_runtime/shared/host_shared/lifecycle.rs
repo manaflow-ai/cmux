@@ -95,6 +95,7 @@ impl HostShared {
         }
     }
 
+    #[cfg(not(unix))]
     pub(crate) fn finish_group_escalation(&self) {
         self.publish_child_wait_predicate(&self.group_escalation_complete);
     }
@@ -181,12 +182,12 @@ impl HostShared {
                             terminal_id: self.terminal_id.to_hex(),
                             incarnation: self.incarnation.to_hex(),
                         },
-                        exit.clone(),
+                        owner_gone_exit(exit.clone()),
                     ),
                 )
             },
         )?;
-        if let Some(exit) = exit {
+        if let Some(exit) = exit.map(owner_gone_exit) {
             let _source_order = self.source_order_lock.lock().unwrap();
             // Snapshot capture keeps `term` held from the dead check
             // through smart subscription. Publish Exit under that same

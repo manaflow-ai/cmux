@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentCursor
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -117,7 +118,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func observeRoom() {
         let state = state
         roomObservation = Task { [weak self] in
-            for await _ in Observations({ state.profileID }) {
+            for await _ in ObservationStream({ state.profileID }) {
                 guard let self else { return }
                 services.themes.windowDidChange(self)
             }
@@ -133,7 +134,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
                 [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
                     + windows.registry.members(of: state.id)
@@ -185,7 +186,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard startupObservation == nil else { return }
         let daemon = services.daemon
         startupObservation = Task { [weak self, weak view] in
-            for await startup in Observations({ daemon.startup }) {
+            for await startup in ObservationStream({ daemon.startup }) {
                 view?.apply(startup)
                 if self?.content != nil { return }
             }
@@ -225,7 +226,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         connectingView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
-            for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
+            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and,
         // now that the content is installed, re-applies it.
@@ -373,6 +374,42 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
+    /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
+    /// Work that crosses windows (the overlay panel's planes, Chromium page
+    /// windows, divider catcher panels) runs after the pass, never inside a
+    /// view's `layout()`: changing another window or the child window order
+    /// from inside layout re-marks this window and can loop until AppKit
+    /// throws (2026-10-09 nightly crash). The overlay planes also re-read
+    /// their home's place here, so a pane ring follows a pane that moved
+    /// because an ancestor moved (sidebar width), not only its own layout.
+    override func layoutIfNeeded() {
+        overlayLayer.windowWillLayout()
+        super.layoutIfNeeded()
+        // The outermost pass only, and before the overlay layer's own
+        // after-pass work, so an occluder change it causes joins that work.
+        if overlayLayer.layoutDepth == 1 {
+            (contentView as? WindowRootView)?.windowDidLayout()
+            let blocks = pendingAfterLayout
+            pendingAfterLayout.removeAll()
+            for block in blocks { block() }
+        }
+        overlayLayer.windowDidLayout()
+    }
+
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
+    /// The overlay layer's depth resets itself on the next event cycle if an
+    /// exception AppKit caught skipped the end of a pass.
+    var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
+
+    private var pendingAfterLayout: [() -> Void] = []
+
+    /// Runs `block` after the window's current layout pass, or now when no
+    /// pass runs: for a view that must ask an ancestor for another layout
+    /// from inside its own `layout()`.
+    func afterLayoutPass(_ block: @escaping () -> Void) {
+        if isInLayoutPass { pendingAfterLayout.append(block) } else { block() }
     }
 
     // MARK: OverlayPlaneHosting

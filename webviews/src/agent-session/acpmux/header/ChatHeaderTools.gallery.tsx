@@ -20,12 +20,14 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
   {
     key: "pin",
-    label: "Pin tab",
+    label: "Pin",
     icon: "action.pin",
     shortcutAction: "palette.toggleTabPin",
     onSelect: () => undefined,
   },
   "separator",
+  { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
   {
     key: "continue",
     label: "Continue in",
@@ -35,11 +37,23 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "claude", label: "Claude Code", onSelect: () => undefined },
     ],
   },
-  { key: "copy-link", label: "Copy link", icon: "link", onSelect: () => undefined },
   "separator",
-  { key: "move-right", label: "Move to pane right", icon: "pane.split.right", onSelect: () => undefined },
+  {
+    key: "copy",
+    label: "Copy",
+    icon: "action.copy",
+    children: [
+      { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
+      { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
+      { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+    ],
+  },
+  "separator",
+  { key: "move-right", label: "Move to right pane", icon: "pane.split.right", onSelect: () => undefined },
   { key: "new-workspace", label: "Move to new workspace", icon: "workspace.new", onSelect: () => undefined },
+  { key: "new-window", label: "Open in new window", icon: "app.open.external", onSelect: () => undefined },
   "separator",
+  { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
   // The tab-owned close action stays the last row, like Chrome's tab actions.
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
