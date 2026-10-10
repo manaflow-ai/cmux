@@ -57,7 +57,7 @@ import Foundation
 
     /// `node` with the leaf `target` replaced by a split of `target` and `new`, or nil when the
     /// leaf is not in it (or sits in a stack, which `split` turns into its own layout).
-    static func split(_ node: LayoutNode, _ target: PaneID, _ direction: SplitDirection, _ ratio: Double,
+    private static func split(_ node: LayoutNode, _ target: PaneID, _ direction: SplitDirection, _ ratio: Double,
                               _ new: PaneID) -> LayoutNode? {
         switch node {
         case .leaf(let pane) where pane == target:

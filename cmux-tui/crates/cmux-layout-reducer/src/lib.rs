@@ -158,11 +158,6 @@ pub enum LayoutOpKind {
         new_pane: PaneId,
         respawn: Option<NewTab>,
     },
-    /// Split `pane` with a new pane `new_pane` holding the new tab `new_tab`
-    /// (Cmd+D: `split` / `new-pane`). The new pane goes after `pane` in its
-    /// column, before it for a left or top `edge`. The client computes its
-    /// optimistic layout with this op (plans/cmux-next/remote-state-ownership.md S3).
-    SplitNew { pane: PaneId, edge: Edge, new_pane: PaneId, new_tab: NewTab },
     /// Move `tab` into a new column `new_column` (holding `new_pane`) on
     /// `anchor`'s screen, after `after_column` (default: the last column),
     /// `width_permille` thousandths of the viewport wide. A screen without
@@ -261,9 +256,7 @@ impl LayoutOpKind {
         match self {
             Self::MoveTabToSplit { respawn: Some(respawn), .. }
             | Self::MoveTabToRow { respawn: Some(respawn), .. } => BTreeSet::from([respawn.tab]),
-            Self::InsertRow { new_tab, .. } | Self::SplitNew { new_tab, .. } => {
-                BTreeSet::from([new_tab.tab])
-            }
+            Self::InsertRow { new_tab, .. } => BTreeSet::from([new_tab.tab]),
             _ => BTreeSet::new(),
         }
     }
@@ -806,20 +799,6 @@ fn apply_kind(
             state.insert_pane(*new_pane);
             events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
             state.move_tab(*tab, source, *new_pane, 0, events)?;
-        }
-        LayoutOpKind::SplitNew { pane, edge, new_pane, new_tab } => {
-            let slot = state.require_pane(*pane)?;
-            state.ensure_fresh(&[*new_pane, new_tab.tab])?;
-            let screen = state.screen_mut(slot);
-            let at = if edge.before() { slot.pane } else { slot.pane + 1 };
-            screen.columns[slot.column].note_inserted(slot.pane);
-            screen.columns[slot.column].panes.insert(at, *new_pane);
-            let screen_id = screen.id;
-            state.insert_pane(*new_pane);
-            events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
-            state.tabs.insert(new_tab.tab, new_tab.content.clone());
-            state.panes.get_mut(new_pane).ok_or(Reject::UnknownPane(*new_pane))?.push(new_tab.tab);
-            events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: *new_pane });
         }
         LayoutOpKind::MoveTabToColumn {
             tab,

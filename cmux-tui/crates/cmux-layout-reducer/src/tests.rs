@@ -90,43 +90,6 @@ fn move_tab_reorders_moves_and_collapses_the_emptied_pane() {
     );
 }
 
-/// Cmd+D (S3): a new pane with a new tab beside the target, in the target's
-/// column; the other tabs and panes do not move.
-#[test]
-fn a_split_new_puts_a_new_pane_with_a_new_tab_beside_the_target() {
-    let (state, next_id) = build(&[vec![vec![vec![2, 1]]]]);
-    let fresh = NewTab {
-        tab: next_id + 1,
-        content: TabContent { runtime: 999, terminal: None, dead: false },
-    };
-    let split = LayoutOpKind::SplitNew {
-        pane: 3,
-        edge: Edge::Right,
-        new_pane: next_id,
-        new_tab: fresh.clone(),
-    };
-    let (next, events) = apply(&state, &op("cmd-d", split.clone())).unwrap();
-    assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![3, next_id, 6]);
-    assert_eq!(tabs_of(&next, next_id), vec![next_id + 1]);
-    assert_eq!(tabs_of(&next, 3), tabs_of(&state, 3));
-    assert_eq!(tabs_of(&next, 6), tabs_of(&state, 6));
-    assert_eq!(next.tabs[&(next_id + 1)], fresh.content);
-    assert!(events.contains(&LayoutEvent::PaneCreated { pane: next_id, screen: 2 }));
-    assert!(events.contains(&LayoutEvent::TabCreated { tab: next_id + 1, pane: next_id }));
-    assert_eq!(split.created_tabs(), BTreeSet::from([next_id + 1]));
-    let left = LayoutOpKind::SplitNew {
-        pane: 3,
-        edge: Edge::Left,
-        new_pane: next_id,
-        new_tab: fresh.clone(),
-    };
-    let (next, _) = apply(&state, &op("cmd-d-left", left)).unwrap();
-    assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![next_id, 3, 6]);
-    // A reused id is refused and nothing changes.
-    let reused = LayoutOpKind::SplitNew { pane: 3, edge: Edge::Right, new_pane: 6, new_tab: fresh };
-    assert!(apply(&state, &op("reused", reused)).is_err());
-}
-
 /// User requirement 2026-10-02: a pane's only tab dropped on one of its own
 /// pane's edges splits the pane, and a fresh tab of the same kind takes its
 /// place (the respawn, created by the same op).
@@ -419,11 +382,6 @@ enum Step {
         edge: Edge,
         respawn: bool,
     },
-    /// Cmd+D: a new pane with a new tab.
-    SplitNew {
-        pane: usize,
-        edge: Edge,
-    },
     Column {
         tab: usize,
         pane: usize,
@@ -463,7 +421,6 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(tab, pane, index)| Step::MoveTab { tab, pane, index }),
         3 => (pick.clone(), pick.clone(), edge(), any::<bool>())
             .prop_map(|(tab, pane, edge, respawn)| Step::Split { tab, pane, edge, respawn }),
-        2 => (pick.clone(), edge()).prop_map(|(pane, edge)| Step::SplitNew { pane, edge }),
         2 => (pick.clone(), pick.clone(), prop::option::of(pick.clone()))
             .prop_map(|(tab, pane, after)| Step::Column { tab, pane, after }),
         1 => (pick.clone(), prop::option::of(0..4usize))
@@ -525,16 +482,6 @@ fn concrete(
                 }
             });
             LayoutOpKind::MoveTabToSplit { tab, pane, edge: *edge, new_pane, respawn }
-        }
-        Step::SplitNew { pane: p, edge } => {
-            let pane = pane(*p)?;
-            let new_pane = fresh();
-            let id = fresh();
-            let new_tab = NewTab {
-                tab: id,
-                content: TabContent { runtime: id * 10, terminal: None, dead: false },
-            };
-            LayoutOpKind::SplitNew { pane, edge: *edge, new_pane, new_tab }
         }
         Step::Column { tab: t, pane: p, after } => {
             let anchor = pane(*p)?;
@@ -665,54 +612,4 @@ proptest! {
             }
         }
     }
-}
-
-/// The vectors the app's optimistic split (Swift `ProvisionalSplit`) must
-/// match (rule L4, plans/cmux-next/layer-ownership.md; S3 of
-/// remote-state-ownership.md): for each column and target, the column's pane
-/// order after `SplitNew` with a right or bottom edge. Regenerate with
-/// `CMUX_UPDATE_SPLIT_VECTORS=1 cargo test -p cmux-layout-reducer split_new_vectors`.
-#[test]
-fn split_new_vectors_match_the_fixture() {
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/split_new_vectors.json");
-    let mut cases = Vec::new();
-    for layout in
-        [vec![vec![vec![1]]], vec![vec![vec![1, 2, 1]]], vec![vec![vec![2, 1], vec![1, 1, 1]]]]
-    {
-        let (state, next_id) = build(&[layout]);
-        for column in &state.workspaces[0].screens[0].columns {
-            for (index, &pane) in column.panes.iter().enumerate() {
-                for edge in [Edge::Right, Edge::Bottom] {
-                    let new_tab = NewTab {
-                        tab: next_id + 1,
-                        content: TabContent { runtime: 1, terminal: None, dead: false },
-                    };
-                    let kind = LayoutOpKind::SplitNew { pane, edge, new_pane: next_id, new_tab };
-                    let (after, _) = apply(&state, &op(&format!("v{index}"), kind)).unwrap();
-                    let result = after.workspaces[0].screens[0]
-                        .columns
-                        .iter()
-                        .find(|candidate| candidate.panes.contains(&next_id))
-                        .map(|candidate| candidate.panes.clone())
-                        .unwrap();
-                    cases.push(serde_json::json!({
-                        "column": column.panes,
-                        "target": pane,
-                        "direction": if edge == Edge::Right { "right" } else { "down" },
-                        "new_pane": next_id,
-                        "expected": result,
-                    }));
-                }
-            }
-        }
-    }
-    let generated =
-        serde_json::to_string_pretty(&serde_json::json!({ "cases": cases })).unwrap() + "\n";
-    if std::env::var_os("CMUX_UPDATE_SPLIT_VECTORS").is_some() {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &generated).unwrap();
-    }
-    let stored = std::fs::read_to_string(&path).unwrap_or_default();
-    assert_eq!(stored, generated, "split vectors drifted: regenerate {}", path.display());
 }

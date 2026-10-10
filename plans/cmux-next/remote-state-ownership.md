@@ -328,6 +328,17 @@ sidecar's pid. Options: (a) the sidecar stamps the authenticated device id on ea
 (LINK + CORE change) and the namespace tag is derived from it; (b) global uniqueness + fingerprint
 only, and the namespace rule applies only to verified connections.
 
+### 3.1c S3 verification under the NO UNIT TESTS rule (Lawrence via the chief, 2026-10-09)
+
+The unit tests first written for S3 (store intent, Swift/Rust split parity, terminal gate,
+typeahead, layout mapping) are removed, and so is the reducer op `SplitNew` they existed for.
+Proof of S3 is behavior at the product boundary: a tagged app driven through its debug socket
+(Cmd+D through `debug.key`, `debug.timings` / signposts for key-to-pane time, `read-screen` for
+keys typed before the PTY is ready, a screenshot of the new pane before the reply against a
+daemon that answers late), plus the S1 socket test for the daemon half. Rule L4 (a Swift copy of a
+reducer only behind a parity test) conflicts with the new rule; the chief decides whether the
+provisional split stays a Swift overlay without a parity test or moves to the reducer FFI.
+
 ### 3.2 Terminal attach channel
 
 One long-lived attach channel per daemon connection (multiplexed attaches on the control link, or a
