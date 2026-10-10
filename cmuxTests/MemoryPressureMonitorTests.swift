@@ -789,6 +789,45 @@ struct MemoryPressureMonitorTests {
         #expect(monitor.aggregateMemoryPressure?.isActionable == false)
     }
 
+    @Test func lowerBoundAggregateMetricsNeverDispatchHibernation() async {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 1,
+            scope: .aggregate
+        )
+        registry.register(responder)
+        let sample = MemoryPressureAggregateSample(
+            source: .descendantProcessTree,
+            aggregateBytes: 5_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 4,
+            missingProcessCount: 1,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10,
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 15))
+
+        #expect(monitor.aggregateMemoryPressure?.coverage == .lowerBound)
+        #expect(monitor.aggregateMemoryPressure?.severity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+        #expect(responder.calls.isEmpty)
+    }
+
     @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() async {
         let sample = MemoryPressureAggregateSample(
             source: .coalition,
