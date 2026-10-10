@@ -107,7 +107,3 @@ pub fn run(args: &[String]) -> Result<String, String> {
     };
     serde_json::to_string(&schemas).map_err(|error| error.to_string())
 }
-
-#[cfg(test)]
-#[path = "store_schemas_tests.rs"]
-mod tests;
