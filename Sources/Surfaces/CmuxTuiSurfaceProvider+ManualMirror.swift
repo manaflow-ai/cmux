@@ -20,11 +20,17 @@ extension CmuxTuiSurfaceProvider {
         adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         try catalog.validateOwnership(of: [resource.id], at: destination)
+        let allowPlacementRepair = reservation?.attachmentPlacement.map { expected in
+            remoteTabID == nil || remoteTabID == expected.remoteTabID
+        } ?? false
         let savedPlacement = try reservation?.validatedAttachmentPlacement(
-            resourceID: resource.id, remoteTabID: remoteTabID, catalog: catalog
+            resourceID: resource.id, remoteTabID: remoteTabID, catalog: catalog,
+            allowPlacementRepair: allowPlacementRepair
         )
-        let requiresExistingView = remoteTabID != nil || savedPlacement != nil
-        let preferredWorkspaceID = savedPlacement?.workspaceID ?? resource.remoteWorkspace?.id
+        let requiresExistingView = !allowPlacementRepair && (remoteTabID != nil || savedPlacement != nil)
+        let preferredWorkspaceID = savedPlacement?.workspaceID
+            ?? reservation?.attachmentPlacement?.remoteWorkspaceID
+            ?? resource.remoteWorkspace?.id
             ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(forLocalWorkspace: destination.workspaceID, on: machine)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
@@ -57,8 +63,14 @@ extension CmuxTuiSurfaceProvider {
         }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
-            materializedPlacement: resolved.placement, catalog: catalog
+            materializedPlacement: resolved.placement, catalog: catalog,
+            allowPlacementRepair: allowPlacementRepair
         ) ?? resolved.placement ?? knownPlacement
+        if allowPlacementRepair, resource.creationAttachment == nil, confirmedPlacement == nil {
+            // A restored pane without a confirmed replacement would attach to a
+            // live numeric surface while losing its remote tab identity.
+            throw CloudDiagnosticFailure.placement
+        }
         try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
@@ -345,7 +357,10 @@ extension CmuxTuiSurfaceProvider {
                     do {
                         _ = try reservation.validatedAttachmentPlacement(
                             resourceID: resource.id, remoteTabID: remoteTabID,
-                            materializedPlacement: materialized.remotePlacement, catalog: self.catalog
+                            materializedPlacement: materialized.remotePlacement, catalog: self.catalog,
+                            allowPlacementRepair: reservation.attachmentPlacement.map { expected in
+                                remoteTabID == nil || remoteTabID == expected.remoteTabID
+                            } ?? false
                         )
                     } catch {
                         self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
