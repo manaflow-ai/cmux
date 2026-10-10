@@ -217,6 +217,12 @@ describe("plan status for an explicit team", () => {
     expect(await response.json()).toEqual({
       authenticated: true,
       billingAvailable: true,
+      planId: "free",
+      subscriptionPlanId: "free",
+      isPro: false,
+      billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       teamId: "team-a",
       teamPlanId: "team",
       teamBillingManagement: "stripe",

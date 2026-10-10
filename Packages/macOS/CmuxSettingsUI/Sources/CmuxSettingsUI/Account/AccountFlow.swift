@@ -1,5 +1,14 @@
 import Foundation
 
+/// The account plan state shown by the Settings account row.
+public enum AccountPlanStatus: Equatable, Sendable {
+    case checking
+    case unavailable
+    case free
+    case pro
+    case managedPro
+}
+
 /// Host-supplied dependency the package's ``AccountSection`` uses to
 /// render and drive the sign-in / sign-out flow.
 ///
@@ -23,6 +32,10 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Identifier of the currently selected team, or `nil` if none.
     var selectedTeamID: String? { get }
 
+    /// Team confirmed by the auth service and used for billing requests.
+    /// Unlike the picker selection, this excludes an in-flight optimistic choice.
+    var confirmedTeamID: String? { get }
+
     /// Selects a team through the host's shared auth mutation path.
     /// - Parameter id: A member team id, or `nil` to clear the explicit choice.
     func selectTeam(id: String?) async throws
@@ -31,6 +44,9 @@ public protocol AccountFlow: AccountTeamManagement {
     /// sign-out network round trip. The UI disables interaction while
     /// this is `true`.
     var isWorkingOnAuth: Bool { get }
+
+    /// Whether the host has completed authentication for the current account.
+    var isAuthenticated: Bool { get }
 
     /// Whether an in-flight sign-in has been waiting on the system sign-in
     /// window long enough to offer a fallback. On macOS that window is always
@@ -71,6 +87,9 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Re-fetches the billing plan state used by the Pro account row.
     func refreshBillingPlan() async
 
+    /// Retries a failed billing lookup through the host-owned plan coordinator.
+    func retryBillingPlan() async
+
     /// Opens the hosted Stripe customer portal in the user's default browser.
     func openBillingPortal()
 
@@ -82,11 +101,49 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
 
+    /// Whether ``isProActive`` has been resolved for the current account.
+    ///
+    /// A host may briefly know the signed-in identity from its local session
+    /// cache while its auth tokens are still being restored. Settings should
+    /// keep the plan action in a loading state during that gap instead of
+    /// presenting a false upgrade prompt.
+    var isProStatusKnown: Bool { get }
+
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+
+    /// Immutable presentation state for the account plan row. The host owns
+    /// its refresh, scope, foreground, and failure transitions.
+    var accountPlanStatus: AccountPlanStatus { get }
 }
 
 extension AccountFlow {
+    /// Hosts without optimistic team selection use their selected team directly.
+    public var confirmedTeamID: String? { selectedTeamID }
+
     public func prefetchProUpgrade() {}
+
+    public func retryBillingPlan() async {
+        await refreshBillingPlan()
+    }
+
+    /// Package-only hosts can use the identity and auth activity as their
+    /// authentication answer because they do not own a separate coordinator.
+    public var isAuthenticated: Bool {
+        currentIdentity != nil && !isWorkingOnAuth
+    }
+
+    /// Package-only hosts do not have a remote billing source, so their
+    /// existing behavior remains the immediately available upgrade action.
+    public var isProStatusKnown: Bool { true }
+
+    /// Package-only hosts have no remote plan phase to expose.
+    public var accountPlanStatus: AccountPlanStatus {
+        if isWorkingOnAuth { return .checking }
+        guard currentIdentity != nil else { return .free }
+        guard isProStatusKnown else { return .checking }
+        if isProActive { return canManageBilling ? .managedPro : .pro }
+        return .free
+    }
 }
