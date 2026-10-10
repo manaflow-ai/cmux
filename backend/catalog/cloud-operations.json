@@ -3313,26 +3313,35 @@
             "title": {
               "required": false,
               "type": {
-                "kind": "primitive",
-                "name": "string",
-                "min_length": 1,
-                "max_length": 600
+                "kind": "nullable",
+                "inner": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "min_length": 1,
+                  "max_length": 600
+                }
               }
             },
             "site": {
               "required": false,
               "type": {
-                "kind": "primitive",
-                "name": "string",
-                "min_length": 1,
-                "max_length": 506
+                "kind": "nullable",
+                "inner": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "min_length": 1,
+                  "max_length": 506
+                }
               }
             },
             "image": {
               "required": false,
               "type": {
-                "kind": "ref",
-                "name": "HomeLinkPreviewImage"
+                "kind": "nullable",
+                "inner": {
+                  "kind": "ref",
+                  "name": "HomeLinkPreviewImage"
+                }
               }
             }
           }
@@ -21701,17 +21710,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -22542,17 +22572,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -23824,17 +23875,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -24747,17 +24819,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -42227,17 +42320,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -42819,17 +42933,38 @@
                     "maxLength": 2048
                   },
                   "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 600
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "site": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 506
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "image": {
-                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [

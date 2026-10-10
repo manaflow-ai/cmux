@@ -554,9 +554,9 @@ export type HomePart = {
 } | {
   readonly type: "link_preview"
   readonly url: string
-  readonly title?: string
-  readonly site?: string
-  readonly image?: HomeLinkPreviewImage
+  readonly title?: string | null
+  readonly site?: string | null
+  readonly image?: HomeLinkPreviewImage | null
 }
 
 export type HomeParticipant = {
