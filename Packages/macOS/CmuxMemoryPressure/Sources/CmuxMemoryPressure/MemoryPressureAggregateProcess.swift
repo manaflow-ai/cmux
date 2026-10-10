@@ -48,6 +48,9 @@ public struct MemoryPressureAggregateAccountingResult: Equatable, Sendable {
 
 /// Sums process footprints once per PID, even when roots overlap.
 public struct MemoryPressureAggregateAccounting: Sendable {
+    /// Creates an empty deduplicating reducer.
+    public init() {}
+
     /// Reduces readable process records into a saturating, deduplicated total.
     ///
     /// - Parameter processes: Readable process contributions in encounter order.

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxFoundation
 import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
@@ -103,7 +104,7 @@ private struct MemoryPressureAggregateProcessFixture {
     }
 
     static func snapshot(
-        includeUnreadableLogin: Bool,
+        includeUnreadableLogin: Bool = false,
         includeUnreadableChild: Bool = false,
         enumerationMissingProcessCount: Int = 0,
         reusedPIDBelongsToUnrelatedParent: Bool = false
@@ -360,7 +361,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.coverage == .lowerBound)
         #expect(sample.aggregateBytes == 4_200)
         #expect(sample.missingProcessCount == 2)
-        #expect(sample.missingReason == .processExitRace)
+        #expect(sample.missingReason == .incompleteEnumeration)
         #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
     }
 
