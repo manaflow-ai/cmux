@@ -10,6 +10,7 @@
 //! secret reaches any socket. A private file of this user connects, the
 //! peer uid (this test's own) passes, and the secret is sent.
 //! The other-user socket case needs a second account (bead cx-8coo).
+#![cfg(unix)]
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};

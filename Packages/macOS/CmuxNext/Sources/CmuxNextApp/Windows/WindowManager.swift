@@ -186,9 +186,7 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
-            services.onboarding.freshWorkspaceID = await createWorkspace(newTabPage: true)
-        }
+        let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -216,7 +214,7 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
-        services.onboarding.landOnFirstWorkspace() // the workspace made above, on its New Tab page, not Home
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and

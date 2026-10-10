@@ -11,7 +11,6 @@ public nonisolated enum WindowKind: String, CaseIterable, Sendable {
     case debugSettings
     case appStore
     case onboarding
-    case onboardingGallery
     case browserPopup
     case devTools
     case pageInfo
@@ -25,7 +24,7 @@ public nonisolated enum WindowKind: String, CaseIterable, Sendable {
             WindowKindTraits(isMain: true, close: .contentFirst, surface: .content, hidesMinimizeAndZoom: false)
         case .onboarding, .browserPopup:
             WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: true)
-        case .settings, .debugSettings, .appStore, .onboardingGallery, .devTools, .pageInfo, .terminalDebug, .browserDebug:
+        case .settings, .debugSettings, .appStore, .devTools, .pageInfo, .terminalDebug, .browserDebug:
             WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: false)
         }
     }
