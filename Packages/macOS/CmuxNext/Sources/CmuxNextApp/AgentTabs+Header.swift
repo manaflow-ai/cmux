@@ -3,25 +3,30 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// The chat header and right-click menu (``AgentChatTabActions``), its toggling quick actions
-/// (``AgentChatSplitToggles``), the tab state the header menu's labels read, and New side chat's
-/// split.
+/// (``AgentChatSplitToggles``), the header's state, pushed when it changes (``AgentChatHeaderWatch``),
+/// and New side chat's split.
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
                                           registry: { [weak self] in self?.actionRegistry })
         let toggles = AgentChatSplitToggles()
+        let watch = AgentChatHeaderWatch(state: { [weak self] in
+            guard let self else { return AgentPaneHeaderState() }
+            let chat = resolve(provisional)
+            return toggles.headerState(chat: chat, store: lookup(chat)?.store)
+        }, push: { [weak self] state in
+            guard let view = self?.existingView(provisional) else { return }
+            AgentPaneHeaderState.push(state, to: view)
+        })
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
             toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
             toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
-        }, tabState: { [weak self] in
-            guard let self else { return [:] }
-            let key = resolve(provisional)
-            let store = lookup(key)?.store
-            return ["pinned": store?.tab(id: key)?.pinned ?? false,
-                    "sideTabs": store.flatMap { AgentChatSplitToggles.sideTabs(of: key, in: $0) } == .shown]
+        }, tabState: {
+            // The page reads the state when a chat opens; from then on its changes are pushed.
+            watch.read()
         }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)

@@ -70,6 +70,13 @@ const openMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
+// The App reports Terminal's and Browser's splits open and panes beside the chat (its headerState push).
+const panelsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight"], sideTabs: true });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+};
+
 const keyboardMenu: Play = async (ctx) => {
   await openMenu(ctx);
   await ctx.press("ArrowDown");
@@ -138,6 +145,11 @@ export default componentEntry<HeaderToolsProps>({
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
+    },
+    "panels-open": {
+      note: "Terminal, Browser and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: base,
+      play: panelsOpen,
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",
