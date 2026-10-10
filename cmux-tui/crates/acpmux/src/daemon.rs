@@ -529,9 +529,7 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
 
 fn random_token() -> String {
     let mut bytes = [0u8; 24];
-    let mut f = std::fs::File::open("/dev/urandom").expect("urandom");
-    use std::io::Read;
-    f.read_exact(&mut bytes).expect("urandom read");
+    getrandom::fill(&mut bytes).expect("the OS random generator");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -550,10 +548,25 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     }
     Ok(file)
 }
-/// Windows port: the daemon lock is `LockFileEx` there (a later landing).
-#[cfg(not(unix))]
-fn acquire_lock(_path: &PathBuf) -> Result<std::fs::File> {
-    Err(crate::platform::unsupported("the acpmux daemon"))
+/// Windows: an exclusive `LockFileEx` lock (std's `File::try_lock`), held
+/// while the file stays open; the system releases it when the daemon exits.
+#[cfg(windows)]
+fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            Err(anyhow!("another acpmux daemon holds {}", path.display()))
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
+        }
+    }
 }
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
@@ -605,10 +618,25 @@ async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
-/// Windows port: no daemon runs there yet, so no lock is held.
-#[cfg(not(unix))]
-async fn wait_for_lock_release(_lock: PathBuf, _budget: Duration) -> bool {
-    true
+/// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
+/// the Unix arm polls `flock`.
+#[cfg(windows)]
+async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+        return true;
+    };
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return true,
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(_)) => return false,
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -626,14 +654,13 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
-#[cfg(unix)]
-pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
+pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     let path = socket_path();
-    if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
+    if let Ok(stream) = crate::local_stream::connect(&path).await {
         return Ok(stream);
     }
     let ready = start_daemon().await?;
-    tokio::net::UnixStream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
+    crate::local_stream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its

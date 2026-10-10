@@ -33,10 +33,9 @@ impl Defaults {
     }
 }
 
-#[cfg(unix)]
 pub async fn run(defaults: Defaults) -> Result<()> {
     let stream = crate::daemon::connect_stream().await?;
-    let (daemon_read, mut daemon_write) = stream.into_split();
+    let (daemon_read, mut daemon_write) = crate::local_stream::split(stream);
     // Requests the editor sent that the daemon has not answered. When stdin
     // ends, the relay still delivers these answers, then stops.
     let pending = std::sync::Mutex::new(std::collections::HashSet::<String>::new());
@@ -80,12 +79,6 @@ pub async fn run(defaults: Defaults) -> Result<()> {
         result = to_daemon => result,
         result = to_editor => result,
     }
-}
-/// Windows port: the daemon socket is `cmux::local_socket` there (a later
-/// landing).
-#[cfg(not(unix))]
-pub async fn run(_defaults: Defaults) -> Result<()> {
-    Err(crate::platform::unsupported("acpmux stdio"))
 }
 
 /// The id of a JSON-RPC request (a message with `method` and `id`).

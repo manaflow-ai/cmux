@@ -101,10 +101,8 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
     }
     let mut bytes = [0u8; 32];
-    {
-        use std::io::Read;
-        std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    }
+    getrandom::fill(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("the OS random generator for {}: {e}", path.display()))?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let mut f = std::fs::OpenOptions::new()
         .write(true)

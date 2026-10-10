@@ -286,10 +286,8 @@ pub fn ensure_private_dir(_dir: &Path) -> Result<()> {
 
 /// Random lowercase hex.
 pub fn random_hex(bytes: usize) -> String {
-    use std::io::Read;
     let mut buf = vec![0u8; bytes];
-    let mut f = std::fs::File::open("/dev/urandom").expect("urandom");
-    f.read_exact(&mut buf).expect("urandom read");
+    getrandom::fill(&mut buf).expect("the OS random generator");
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 

@@ -26,8 +26,8 @@ pub fn home() -> PathBuf {
 
 /// Unix socket path. macOS limits socket paths to about 100 bytes, so a
 /// long home directory falls back to a short path in a private per-user
-/// directory under /tmp, derived from the home path so daemon and clients
-/// agree.
+/// directory under /tmp (on Windows, in the user's temp folder), derived
+/// from the home path so daemon and clients agree.
 pub fn socket_path() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
         return PathBuf::from(v);
@@ -36,19 +36,27 @@ pub fn socket_path() -> PathBuf {
     if preferred.as_os_str().len() < 96 {
         return preferred;
     }
-    // Windows port: the socket path rule there is `cmux::local_socket`'s (a
-    // later landing).
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in home().to_string_lossy().bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
     #[cfg(unix)]
     {
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in home().to_string_lossy().bytes() {
-            hash ^= b as u64;
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
         let uid = unsafe { libc::getuid() };
         let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
         if private_dir(&dir, uid) {
             return dir.join(format!("{hash:016x}.sock"));
+        }
+    }
+    // Windows: AF_UNIX paths are limited to 108 bytes too. The short path is
+    // in an owner-only folder in this user's temp folder.
+    #[cfg(windows)]
+    {
+        let dir = std::env::temp_dir().join("acpmux");
+        let path = dir.join(format!("{hash:016x}.sock"));
+        if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
+            return path;
         }
     }
     // Another user owns or can write the shared directory: never trust a

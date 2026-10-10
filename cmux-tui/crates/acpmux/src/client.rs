@@ -9,8 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(unix)]
-use tokio::net::UnixStream;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 pub struct Client {
@@ -25,12 +23,11 @@ pub struct Client {
 }
 
 impl Client {
-    #[cfg(unix)]
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
-        let stream = UnixStream::connect(path)
+        let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
-        let (rd, mut wr) = stream.into_split();
+        let (rd, mut wr) = crate::local_stream::split(stream);
         let (out, mut out_rx) = mpsc::channel::<String>(1024);
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
@@ -103,12 +100,6 @@ impl Client {
         *client.daemon_build.lock().unwrap() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         Ok(client)
-    }
-    /// Windows port: the daemon socket is `cmux::local_socket` there (a later
-    /// landing).
-    #[cfg(not(unix))]
-    pub async fn connect(_path: &Path) -> Result<Arc<Self>> {
-        Err(crate::platform::unsupported("the acpmux daemon socket"))
     }
 
     /// The daemon's build id, as reported at initialize.

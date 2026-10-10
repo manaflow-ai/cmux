@@ -18,11 +18,11 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-/// Windows port: the daemon socket is `cmux::local_socket` there (a later
-/// landing); until then no listener exists, so none is ever bound.
-#[cfg(not(unix))]
-pub enum UnixListener {}
 use tokio::sync::{broadcast, mpsc};
+/// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
+/// same-user checks), in `windows_socket.rs`.
+#[cfg(windows)]
+pub use windows_socket::{UnixListener, bind_unix, serve_unix};
 
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]
@@ -136,10 +136,6 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
-#[cfg(not(unix))]
-pub async fn bind_unix(_path: &std::path::Path) -> Result<UnixListener> {
-    Err(crate::platform::unsupported("the acpmux daemon socket"))
-}
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
@@ -158,31 +154,36 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            let (rd, mut wr) = stream.into_split();
-            let (in_tx, in_rx) = mpsc::channel::<String>(256);
-            let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if in_tx.send(line).await.is_err() {
-                        break;
-                    }
-                }
-            });
-            tokio::spawn(async move {
-                while let Some(line) = out_rx.recv().await {
-                    if wr.write_all(line.as_bytes()).await.is_err() {
-                        break;
-                    }
-                }
-            });
-            serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
+            serve_stream(hub, stream, peer).await;
         });
     }
 }
-#[cfg(not(unix))]
-pub async fn serve_unix(_hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
-    match listener {}
+
+/// One daemon socket connection: newline-delimited JSON-RPC both ways.
+async fn serve_stream(
+    hub: Arc<Hub>,
+    stream: crate::local_stream::Stream,
+    peer: Option<cmux_link::app_caller::PeerToken>,
+) {
+    let (rd, mut wr) = crate::local_stream::split(stream);
+    let (in_tx, in_rx) = mpsc::channel::<String>(256);
+    let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(rd).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if in_tx.send(line).await.is_err() {
+                break;
+            }
+        }
+    });
+    tokio::spawn(async move {
+        while let Some(line) = out_rx.recv().await {
+            if wr.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+    serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
 }
 
 const INDEX_HTML: &str = include_str!("../../web/index.html");
@@ -953,6 +954,8 @@ mod requests;
 mod routes;
 pub(crate) mod trust_gate;
 mod wait;
+#[cfg(windows)]
+mod windows_socket;
 use requests::handle_notification;
 
 #[cfg(test)]

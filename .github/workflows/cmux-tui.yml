@@ -1030,10 +1030,13 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
-          # acpmux builds for Windows (the port lands in steps; the daemon's
-          # socket, lock and start are stubs until then): every target,
-          # tests included, so no Unix-only code comes back ungated.
+          # acpmux builds for Windows (the port lands in steps): every
+          # target, tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
+          # acpmux on Windows through its CLI and socket: daemon run, status,
+          # the start lock, the saved token, shutdown.
+          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+            --test windows_daemon -- --test-threads=1
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through
@@ -1079,6 +1082,52 @@ jobs:
         run: |
           Unregister-ScheduledTask -TaskName 'cmux-local-socket-peer' -Confirm:$false -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force 'C:\cls-peer' -ErrorAction SilentlyContinue
+
+      # The acpmux daemon refuses a peer of another user, and its CLI refuses
+      # a socket another user owns. The peer runs as LocalService through a
+      # scheduled task, as in the step above; the next step deletes the task.
+      - name: Refuse an acpmux peer of another user (LocalService)
+        working-directory: cmux-tui
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\amx-peer'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /grant '*S-1-1-0:(OI)(CI)F' | Out-Null
+          $exe = cargo test --locked --target x86_64-pc-windows-gnu -p acpmux `
+              --test windows_daemon --no-run --message-format=json |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'windows_daemon' } |
+            Select-Object -Last 1 -ExpandProperty executable
+          if (-not $exe) { throw 'no windows_daemon test executable' }
+          Copy-Item $exe "$dir\peer.exe"
+          $parent = Start-Process -PassThru -NoNewWindow -FilePath $exe `
+            -ArgumentList '--ignored','--exact','other_user_peer_is_refused','--nocapture','--test-threads','1' `
+            -RedirectStandardOutput "$dir\parent.out" -RedirectStandardError "$dir\parent.err"
+          # Read the handle now, or ExitCode can stay empty after the exit.
+          $null = $parent.Handle
+          $deadline = (Get-Date).AddSeconds(120)
+          while (-not (Test-Path "$dir\ready")) {
+            if ($parent.HasExited) { Get-Content "$dir\parent.out", "$dir\parent.err" -ErrorAction SilentlyContinue; throw 'the daemon test ended before it was ready' }
+            if ((Get-Date) -gt $deadline) { throw 'the acpmux daemon never got ready' }
+            Start-Sleep -Milliseconds 200
+          }
+          $action = New-ScheduledTaskAction -Execute "$dir\peer.exe" -Argument '--ignored --exact other_user_child --test-threads 1'
+          $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\LOCAL SERVICE' -LogonType ServiceAccount
+          Register-ScheduledTask -TaskName 'acpmux-peer' -Action $action -Principal $principal | Out-Null
+          Start-ScheduledTask -TaskName 'acpmux-peer'
+          if (-not $parent.WaitForExit(180000)) { $parent.Kill(); throw 'the acpmux peer test timed out' }
+          Get-Content "$dir\parent.out", "$dir\parent.err", "$dir\child-done" -ErrorAction SilentlyContinue
+          if (-not ((Get-Content "$dir\child-done" -ErrorAction SilentlyContinue) -match '^user: S-1-5-19$')) { throw 'the peer did not run as LocalService' }
+          if ($parent.ExitCode -ne 0) { throw "other_user_peer_is_refused failed ($($parent.ExitCode))" }
+
+      - name: Delete the acpmux LocalService peer task
+        if: always()
+        shell: pwsh
+        run: |
+          Unregister-ScheduledTask -TaskName 'acpmux-peer' -Confirm:$false -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE 'C:\\amx-peer\\%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Remove-Item -Recurse -Force 'C:\amx-peer' -ErrorAction SilentlyContinue
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})
