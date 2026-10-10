@@ -64,10 +64,13 @@ export function newSessionParams(
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
     _meta: {
-      acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) },
-      // Do not work in a project: the host starts the chat in its agent-home folder, not the
-      // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
-      ...(noProject ? { cmux: { noProject: true } } : {}),
+      acpmux: {
+        harness,
+        ...(host.peer ? { peer: host.peer } : {}),
+        // Do not work in a project: the host starts the chat in its agent-home folder, not the
+        // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
+        ...(noProject ? { noProject: true } : {}),
+      },
     },
   };
 }

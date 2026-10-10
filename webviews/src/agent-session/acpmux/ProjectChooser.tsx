@@ -23,7 +23,7 @@ const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${pro
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
 /// we build in <project>?", cx-9g0w), and `onNoProject` adds Do not work in a project, checked while
-/// no project is current.
+/// `noProject`.
 export function ProjectChooser({
   projects,
   current,
@@ -33,6 +33,7 @@ export function ProjectChooser({
   onPick,
   onBrowse,
   onNoProject,
+  noProject = false,
   projectHost,
   side = "top",
   inline = false,
@@ -46,6 +47,8 @@ export function ProjectChooser({
   onPick(cwd: string, peer?: string): void;
   onBrowse?(): void;
   onNoProject?(): void;
+  /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
+  noProject?: boolean;
   projectHost?: ProjectDirectoryHost;
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
@@ -85,7 +88,7 @@ export function ProjectChooser({
 
   const show = () => {
     setQuery("");
-    setActive(currentKey ?? (onNoProject ? NO_PROJECT_KEY : undefined));
+    setActive(currentKey ?? (onNoProject && noProject ? NO_PROJECT_KEY : undefined));
     setOpen(true);
   };
   const close = (refocus: boolean) => {
@@ -95,9 +98,9 @@ export function ProjectChooser({
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (row: Row | undefined) => {
     if (row && !row.project) {
-      // Do not work in a project: a change only when a project is current.
-      close(!current);
-      if (current) onNoProject?.();
+      // Do not work in a project: a change unless the chat is in no project already.
+      close(noProject);
+      if (!noProject) onNoProject?.();
       return;
     }
     const cwd = row?.project?.cwd ?? typedPath;
@@ -192,7 +195,7 @@ export function ProjectChooser({
           >
             {rows.map((row, index) => {
               const project = row.project;
-              const checked = project ? row.key === currentKey : !current;
+              const checked = project ? row.key === currentKey : noProject;
               const name = project ? project.label : t("project.noProject");
               return (
                 <div

@@ -2730,12 +2730,17 @@ function AcpmuxPane() {
       const project = { cwd: session.cwd, label: projectLabel(session.cwd), peer, host: session.host ?? peer };
       remote.set(`${peer}\u0000${session.cwd}`, project);
     }
-    const cwd = composerSnapshot.summary?.cwd;
-    const peer = composerSnapshot.summary?.peer;
+    const summary = composerSnapshot.summary;
+    const cwd = summary?.cwd;
+    // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
+    const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
       projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
+      // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
+      // with no folder yet may still start in the workspace's root, so nothing is checked then.
+      noProject: cwd ? isAgentHome(cwd) : chooseFolder,
       onPick: chooseProject,
       onBrowse: () => {
         void callNative<{ cwd?: string }>("project.browse")
@@ -2745,12 +2750,14 @@ function AcpmuxPane() {
           .catch(() => undefined);
       },
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
+      // A refused start keeps the folder picked before.
       onNoProject: () => {
-        setProjectDraft(undefined);
-        void callNative("chat.new", { noProject: true }).catch(() => undefined);
+        void callNative("chat.new", { noProject: true })
+          .then(() => setProjectDraft(undefined))
+          .catch(() => undefined);
       },
     };
-  }, [freshChat, quick, composerSnapshot.sessions, composerSnapshot.summary, newTabProjects, chooseProject]);
+  }, [freshChat, quick, composerSnapshot.sessions, composerSnapshot.summary, newTabProjects, chooseProject, chooseFolder]);
   const transcript = (
     <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>

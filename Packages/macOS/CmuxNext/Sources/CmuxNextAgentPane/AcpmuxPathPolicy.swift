@@ -100,14 +100,16 @@ nonisolated enum AcpmuxPathPolicy {
         var params = object["params"]
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
-        // Do not work in a project (`_meta.cmux.noProject`, the new chat's project picker,
-        // cx-9g0w) skips the root: the chat starts in the agent-home folder. The pane's own
-        // `_meta.cmux` never reaches acpmux.
+        // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
+        // cx-9g0w) skips the root: the chat starts in the agent-home folder. The key is the
+        // pane's own and never reaches acpmux.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
             var meta = fields["_meta"] as? [String: Any]
-            let noProject = (meta?["cmux"] as? [String: Any])?["noProject"] as? Bool == true
-            if meta?.removeValue(forKey: "cmux") != nil {
+            var acpmux = meta?["acpmux"] as? [String: Any]
+            let noProject = acpmux?["noProject"] as? Bool == true
+            if acpmux?.removeValue(forKey: "noProject") != nil {
+                meta?["acpmux"] = acpmux
                 fields["_meta"] = meta
                 context.changed = true
             }

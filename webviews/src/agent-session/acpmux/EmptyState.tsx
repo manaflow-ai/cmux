@@ -41,6 +41,8 @@ export type EmptyStateProjects = {
   /// The chat's project folder; none in no project (the agent-home folder).
   current?: string;
   currentPeer?: string;
+  /// The chat is in no project (its agent-home folder): Do not work in a project is checked.
+  noProject?: boolean;
   onPick(cwd: string, peer?: string): void;
   onBrowse?(): void;
   onNoProject?(): void;
@@ -57,6 +59,7 @@ export function EmptyState({ project, picker }: { project?: string; picker?: Emp
       projects={picker.projects}
       current={picker.current}
       currentPeer={picker.currentPeer}
+      noProject={picker.noProject}
       {...(project ? { currentLabel: project } : {})}
       icon={<FolderIcon />}
       onPick={picker.onPick}

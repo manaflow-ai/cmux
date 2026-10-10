@@ -16,7 +16,7 @@ const projects: Project[] = [
 
 const picker = (current?: string): EmptyStateProjects => ({
   projects,
-  ...(current ? { current } : {}),
+  ...(current ? { current } : { noProject: true }),
   onPick: () => undefined,
   onBrowse: () => undefined,
   onNoProject: () => undefined,
