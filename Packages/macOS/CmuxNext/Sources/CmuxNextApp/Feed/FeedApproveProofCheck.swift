@@ -101,15 +101,16 @@ enum FeedApproveProofCheck {
                       context: Context, keys: [String: Key], now: Date) -> Result<Void, Failure> {
         guard let proof = decision.proof else { return .failure(.noProof) }
         guard proof.install == by else { return .failure(.otherInstall) }
+        // The time first: it needs no key, so a stale proof is named as such.
+        let signed = Date(timeIntervalSince1970: Double(proof.timestampMs) / 1000)
+        guard signed <= now.addingTimeInterval(maxSkew), now.timeIntervalSince(signed) <= maxAge else {
+            return .failure(.stale)
+        }
         guard let key = keys[proof.install] else { return .failure(.noKey) }
         guard key.platform == "ios" else { return .failure(.notPhone) }
         guard key.attested else { return .failure(.notAttested) }
         guard !key.revoked, key.installActive else { return .failure(.revoked) }
         if let usableFrom = key.usableFrom, usableFrom > now { return .failure(.coolingDown) }
-        let signed = Date(timeIntervalSince1970: Double(proof.timestampMs) / 1000)
-        guard signed <= now.addingTimeInterval(maxSkew), now.timeIntervalSince(signed) <= maxAge else {
-            return .failure(.stale)
-        }
         guard let publicKey = try? P256.Signing.PublicKey(x963Representation: key.publicKey) else {
             return .failure(.badKey)
         }
