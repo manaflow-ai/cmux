@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(windows)]
+mod windows;
+
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
@@ -45,6 +48,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
+    }
+    #[cfg(windows)]
+    if let Some(fd) = opts.ready_fd {
+        windows::keep_from_children(fd);
     }
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
@@ -452,12 +459,10 @@ fn read_person_key(fd: i32) -> Option<String> {
     }
 }
 
-/// Windows: no inherited descriptors yet (the CreateProcess handle list
-/// lands with the daemon start); no person key is read.
-#[cfg(not(unix))]
+/// Windows: an inherited handle (`daemon/windows.rs`).
+#[cfg(windows)]
 fn read_person_key(fd: i32) -> Option<String> {
-    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
-    None
+    windows::read_person_key(fd)
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
@@ -480,11 +485,10 @@ fn write_ready(fd: i32, ready: &Value) {
         std::mem::forget(f);
     }
 }
-/// Windows port: the readiness pipe is an inherited handle there (a later
-/// landing, with the CreateProcess handle list); nothing is written yet.
-#[cfg(not(unix))]
-fn write_ready(fd: i32, _ready: &Value) {
-    tracing::warn!("--ready-fd {fd}: {}", crate::platform::unsupported("--ready-fd"));
+/// Windows: an inherited handle (`daemon/windows.rs`).
+#[cfg(windows)]
+fn write_ready(fd: i32, ready: &Value) {
+    windows::write_ready(fd, ready)
 }
 
 /// Whether `--allow-dev-origin` may take effect: in a debug build, or with
@@ -711,11 +715,35 @@ async fn start_daemon() -> Result<String> {
         )),
     }
 }
-/// Windows port: the daemon starts through CreateProcess with a handle list
-/// there (a later landing).
-#[cfg(not(unix))]
+/// Windows: CreateProcessW with a handle list (`daemon/windows.rs`). An
+/// anonymous pipe has no async read there, so a plain thread reads the
+/// line: on a timeout it is left behind and never holds up runtime
+/// teardown (a blocking-pool task would).
+#[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    Err(crate::platform::unsupported("starting the acpmux daemon"))
+    let path = socket_path();
+    let reader = windows::spawn_detached(
+        &home(),
+        DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default(),
+    )?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("acpmux-daemon-ready".into())
+        .spawn(move || {
+            use std::io::BufRead;
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(reader).read_line(&mut line);
+            let _ = tx.send(line);
+        })
+        .context("wait for acpmux daemon")?;
+    match tokio::time::timeout(START_BUDGET, rx).await {
+        Ok(line) => Ok(line.unwrap_or_default()),
+        Err(_) => Err(anyhow!(
+            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+            path.display(),
+            home().join("daemon.log").display()
+        )),
+    }
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {

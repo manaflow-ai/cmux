@@ -811,7 +811,7 @@ pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// The keys `scrub_nested_claude_env` removes, from the daemon's environment
 /// and the imported login environment.
-fn nested_claude_keys() -> Vec<std::ffi::OsString> {
+pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }
