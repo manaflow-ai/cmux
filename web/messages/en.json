@@ -7284,5 +7284,38 @@
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
+  },
+  "whatsNew": {
+    "title": "What's New",
+    "metaTitle": "What's New in cmux",
+    "metaDescription": "The highlights of every cmux release: new features, improvements and fixes, with screenshots and links to try them.",
+    "intro": "The highlights of every cmux release, newest first. The app shows the same page after it updates.",
+    "empty": "No releases yet.",
+    "versionTitle": "cmux {version} · What's New",
+    "allReleases": "All releases",
+    "releaseNavLabel": "Releases near cmux {version}",
+    "openInCmux": "Open in cmux",
+    "learnMore": "Learn more",
+    "categories": {
+      "new": "New",
+      "improved": "Improved",
+      "fixed": "Fixed",
+      "security": "Security"
+    },
+    "channels": {
+      "stable": "Stable",
+      "rc": "Release candidate",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "For teams",
+      "enterprise": "For enterprise"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Nightly builds",
+    "releasesSection": "Releases",
+    "feed": "Subscribe (Atom feed)"
   }
 }

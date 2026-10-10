@@ -5462,5 +5462,38 @@
     "invalidTitle": "Ova pozivnica više nije važeća",
     "invalidBody": "Istekla je, opozvana je ili je već iskorištena. Zamolite administratora tima za novu.",
     "goToTeams": "Idi na svoje timove"
+  },
+  "whatsNew": {
+    "title": "Šta je novo",
+    "metaTitle": "Šta je novo u cmuxu",
+    "metaDescription": "Najvažnije u svakom izdanju cmuxa: nove funkcije, poboljšanja i ispravke, sa snimcima ekrana i linkovima da ih isprobate.",
+    "intro": "Najvažnije u svakom izdanju cmuxa, od najnovijeg. Aplikacija prikazuje istu stranicu nakon ažuriranja.",
+    "empty": "Još nema izdanja.",
+    "versionTitle": "cmux {version} · Šta je novo",
+    "allReleases": "Sva izdanja",
+    "releaseNavLabel": "Izdanja oko cmux {version}",
+    "openInCmux": "Otvori u cmuxu",
+    "learnMore": "Saznaj više",
+    "categories": {
+      "new": "Novo",
+      "improved": "Poboljšano",
+      "fixed": "Ispravljeno",
+      "security": "Sigurnost"
+    },
+    "channels": {
+      "stable": "Stabilno",
+      "rc": "Kandidat za izdanje",
+      "nightly": "Noćno"
+    },
+    "audiences": {
+      "teams": "Za timove",
+      "enterprise": "Za preduzeća"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Noćne verzije",
+    "releasesSection": "Izdanja",
+    "feed": "Pretplati se (Atom feed)"
   }
 }

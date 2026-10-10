@@ -317,7 +317,12 @@ function handleAssetRoutes(pathname: string): NextResponse | undefined {
 
   const isChangelogVersionPath =
     /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(pathname);
-  if (pathname.includes(".") && !isChangelogVersionPath) {
+  // /whats-new/<version> is a localized page whose version has dots; the raw
+  // /whats-new/<version>.json and /whats-new/media/... files stay static.
+  const isWhatsNewVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/whats-new\/\d[^/]*\/?$/.test(pathname) &&
+    !pathname.endsWith(".json");
+  if (pathname.includes(".") && !isChangelogVersionPath && !isWhatsNewVersionPath) {
     return NextResponse.next();
   }
   return undefined;

@@ -5459,5 +5459,38 @@
     "invalidTitle": "이 초대는 더 이상 유효하지 않습니다",
     "invalidBody": "만료되었거나, 취소되었거나, 이미 사용되었습니다. 팀 관리자에게 새 초대를 요청하세요.",
     "goToTeams": "내 팀으로 이동"
+  },
+  "whatsNew": {
+    "title": "새로운 기능",
+    "metaTitle": "cmux의 새로운 기능",
+    "metaDescription": "cmux 각 릴리스의 주요 신기능, 개선 사항, 수정 사항을 스크린샷과 체험 링크와 함께 소개합니다.",
+    "intro": "cmux 각 릴리스의 주요 변경 사항을 최신순으로 보여 줍니다. 앱도 업데이트 후 같은 페이지를 보여 줍니다.",
+    "empty": "아직 릴리스가 없습니다.",
+    "versionTitle": "cmux {version} · 새로운 기능",
+    "allReleases": "모든 릴리스",
+    "releaseNavLabel": "cmux {version} 전후 릴리스",
+    "openInCmux": "cmux에서 열기",
+    "learnMore": "자세히 알아보기",
+    "categories": {
+      "new": "새로운 기능",
+      "improved": "개선",
+      "fixed": "수정",
+      "security": "보안"
+    },
+    "channels": {
+      "stable": "안정 버전",
+      "rc": "릴리스 후보",
+      "nightly": "나이틀리"
+    },
+    "audiences": {
+      "teams": "팀용",
+      "enterprise": "엔터프라이즈용"
+    },
+    "platforms": {
+      "web": "웹"
+    },
+    "nightlySection": "나이틀리 빌드",
+    "releasesSection": "릴리스",
+    "feed": "구독(Atom 피드)"
   }
 }

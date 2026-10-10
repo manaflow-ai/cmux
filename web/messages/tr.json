@@ -5460,5 +5460,38 @@
     "invalidTitle": "Bu davet artık geçerli değil",
     "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
     "goToTeams": "Ekiplerinize git"
+  },
+  "whatsNew": {
+    "title": "Yenilikler",
+    "metaTitle": "cmux'taki yenilikler",
+    "metaDescription": "Her cmux sürümünün öne çıkanları: yeni özellikler, iyileştirmeler ve düzeltmeler; ekran görüntüleri ve denemek için bağlantılarla.",
+    "intro": "Her cmux sürümünün öne çıkanları, en yenisi önce. Uygulama güncellemeden sonra aynı sayfayı gösterir.",
+    "empty": "Henüz sürüm yok.",
+    "versionTitle": "cmux {version} · Yenilikler",
+    "allReleases": "Tüm sürümler",
+    "releaseNavLabel": "cmux {version} çevresindeki sürümler",
+    "openInCmux": "cmux'ta aç",
+    "learnMore": "Daha fazla bilgi",
+    "categories": {
+      "new": "Yeni",
+      "improved": "İyileştirmeler",
+      "fixed": "Düzeltmeler",
+      "security": "Güvenlik"
+    },
+    "channels": {
+      "stable": "Kararlı",
+      "rc": "Sürüm adayı",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Ekipler için",
+      "enterprise": "Kurumlar için"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Nightly sürümler",
+    "releasesSection": "Sürümler",
+    "feed": "Abone ol (Atom akışı)"
   }
 }

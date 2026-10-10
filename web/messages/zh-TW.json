@@ -5461,5 +5461,38 @@
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
     "goToTeams": "前往你的團隊"
+  },
+  "whatsNew": {
+    "title": "新功能",
+    "metaTitle": "cmux 新功能",
+    "metaDescription": "每個 cmux 版本的重點：新功能、改進與修正，附上截圖和試用連結。",
+    "intro": "每個 cmux 版本的重點，最新的在前。App 更新後也會顯示同樣的頁面。",
+    "empty": "尚無版本。",
+    "versionTitle": "cmux {version} · 新功能",
+    "allReleases": "所有版本",
+    "releaseNavLabel": "cmux {version} 前後的版本",
+    "openInCmux": "在 cmux 中開啟",
+    "learnMore": "進一步瞭解",
+    "categories": {
+      "new": "新增",
+      "improved": "改進",
+      "fixed": "修正",
+      "security": "安全性"
+    },
+    "channels": {
+      "stable": "穩定版",
+      "rc": "候選版",
+      "nightly": "每夜版"
+    },
+    "audiences": {
+      "teams": "團隊版",
+      "enterprise": "企業版"
+    },
+    "platforms": {
+      "web": "網頁"
+    },
+    "nightlySection": "每夜建置",
+    "releasesSection": "正式版本",
+    "feed": "訂閱（Atom 摘要）"
   }
 }

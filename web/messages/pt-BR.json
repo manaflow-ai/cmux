@@ -5462,5 +5462,38 @@
     "invalidTitle": "Este convite não é mais válido",
     "invalidBody": "Ele expirou, foi revogado ou já foi usado. Peça um novo a um administrador da equipe.",
     "goToTeams": "Ir para suas equipes"
+  },
+  "whatsNew": {
+    "title": "Novidades",
+    "metaTitle": "Novidades do cmux",
+    "metaDescription": "Os destaques de cada versão do cmux: novos recursos, melhorias e correções, com capturas de tela e links para experimentar.",
+    "intro": "Os destaques de cada versão do cmux, da mais recente para a mais antiga. O app mostra a mesma página depois de atualizar.",
+    "empty": "Ainda não há versões.",
+    "versionTitle": "cmux {version} · Novidades",
+    "allReleases": "Todas as versões",
+    "releaseNavLabel": "Versões próximas ao cmux {version}",
+    "openInCmux": "Abrir no cmux",
+    "learnMore": "Saiba mais",
+    "categories": {
+      "new": "Novo",
+      "improved": "Melhorias",
+      "fixed": "Correções",
+      "security": "Segurança"
+    },
+    "channels": {
+      "stable": "Estável",
+      "rc": "Versão candidata",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Para equipes",
+      "enterprise": "Para empresas"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Versões nightly",
+    "releasesSection": "Versões",
+    "feed": "Assinar (feed Atom)"
   }
 }

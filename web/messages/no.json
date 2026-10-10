@@ -5459,5 +5459,38 @@
     "invalidTitle": "Denne invitasjonen er ikke lenger gyldig",
     "invalidBody": "Den er utløpt, tilbakekalt eller allerede brukt. Be en teamadministrator om en ny.",
     "goToTeams": "Gå til teamene dine"
+  },
+  "whatsNew": {
+    "title": "Nyheter",
+    "metaTitle": "Nyheter i cmux",
+    "metaDescription": "Høydepunktene i hver cmux-versjon: nye funksjoner, forbedringer og rettelser, med skjermbilder og lenker så du kan prøve dem.",
+    "intro": "Høydepunktene i hver cmux-versjon, nyeste først. Appen viser den samme siden etter en oppdatering.",
+    "empty": "Ingen versjoner ennå.",
+    "versionTitle": "cmux {version} · Nyheter",
+    "allReleases": "Alle versjoner",
+    "releaseNavLabel": "Versjoner rundt cmux {version}",
+    "openInCmux": "Åpne i cmux",
+    "learnMore": "Finn ut mer",
+    "categories": {
+      "new": "Nytt",
+      "improved": "Forbedret",
+      "fixed": "Rettet",
+      "security": "Sikkerhet"
+    },
+    "channels": {
+      "stable": "Stabil",
+      "rc": "Release candidate",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "For team",
+      "enterprise": "For bedrifter"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Nightly-bygg",
+    "releasesSection": "Versjoner",
+    "feed": "Abonner (Atom-feed)"
   }
 }

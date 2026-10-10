@@ -5462,5 +5462,38 @@
     "invalidTitle": "Diese Einladung ist nicht mehr gültig",
     "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
     "goToTeams": "Zu deinen Teams"
+  },
+  "whatsNew": {
+    "title": "Neuigkeiten",
+    "metaTitle": "Neuigkeiten in cmux",
+    "metaDescription": "Die Highlights jeder cmux-Version: neue Funktionen, Verbesserungen und Fehlerbehebungen, mit Screenshots und Links zum Ausprobieren.",
+    "intro": "Die Highlights jeder cmux-Version, die neueste zuerst. Die App zeigt nach einem Update dieselbe Seite.",
+    "empty": "Noch keine Versionen.",
+    "versionTitle": "cmux {version} · Neuigkeiten",
+    "allReleases": "Alle Versionen",
+    "releaseNavLabel": "Versionen um cmux {version}",
+    "openInCmux": "In cmux öffnen",
+    "learnMore": "Mehr erfahren",
+    "categories": {
+      "new": "Neu",
+      "improved": "Verbessert",
+      "fixed": "Behoben",
+      "security": "Sicherheit"
+    },
+    "channels": {
+      "stable": "Stabil",
+      "rc": "Release Candidate",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Für Teams",
+      "enterprise": "Für Unternehmen"
+    },
+    "platforms": {
+      "web": "Web"
+    },
+    "nightlySection": "Nightly-Builds",
+    "releasesSection": "Versionen",
+    "feed": "Abonnieren (Atom-Feed)"
   }
 }
