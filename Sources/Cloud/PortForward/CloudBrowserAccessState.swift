@@ -468,6 +468,11 @@ final class CloudBrowserAccessState {
             }
             return true
         }
+        if model?.route == .loopback {
+            guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return false }
+            return navigationURL.map { Self.sameService(url, $0) } == true
+        }
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
     }
 

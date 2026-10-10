@@ -50,7 +50,12 @@ extension CmuxTuiSurfaceProvider {
         _ pending: PendingRemoteCreation,
         in state: CloudVMState
     ) -> Bool {
-        guard state.lookupIndex.terminal(id: pending.resource.id.key) != nil else { return false }
+        let resourceVisible: Bool = switch pending.resource.kind {
+        case .terminal: state.lookupIndex.terminal(id: pending.resource.id.key) != nil
+        case .browser: state.lookupIndex.browser(id: pending.resource.id.key) != nil
+        case .display: false
+        }
+        guard resourceVisible else { return false }
         guard let tabID = pending.tabID else { return true }
         return state.lookupIndex.tab(id: tabID) != nil
     }
@@ -95,7 +100,7 @@ extension CmuxTuiSurfaceProvider {
     func pendingMutationMetadata() -> [CloudVMPendingMutation] {
         var writes = pendingRemoteCreations.map { resourceID, pending in
             CloudVMPendingMutation(
-                kind: .terminalCreate,
+                kind: pending.resource.kind == .browser ? .browserCreate : .terminalCreate,
                 resource: resourceID,
                 remoteWorkspaceID: pending.resource.remoteWorkspace?.id,
                 remoteTabID: pending.tabID,

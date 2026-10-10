@@ -127,6 +127,24 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("Cloud loopback browsers keep the machine-local origin across forwarding")
+    func cloudLoopbackBrowserKeepsOrigin() async throws {
+        let model = makeModel(forward: { _ in 46_902 }, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let remote = try #require(URL(string: "http://localhost:4312/health?check=1"))
+        state.configure(model: model, url: remote)
+        model.connect()
+        #expect(await wait { model.phase == .forwarded(46_902) })
+        let local = try #require(state.nextURL())
+        #expect(local.host == "127.0.0.1")
+        #expect(local.port == 46_902)
+        state.didCommit(url: local)
+        state.didFinish(url: local)
+        #expect(state.owns(local))
+        #expect(state.sessionURL(currentURL: local) == remote)
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {

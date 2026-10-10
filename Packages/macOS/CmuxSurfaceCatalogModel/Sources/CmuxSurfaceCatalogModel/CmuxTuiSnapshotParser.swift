@@ -1739,18 +1739,18 @@ public struct CmuxTuiSnapshotParser: Sendable {
 
     public struct CreatedBrowserPath: Equatable, Sendable {
         public let browserID: String
-        public let workspaceID: String?
-        public let screenID: String?
-        public let paneID: String?
-        public let tabID: String?
+        public let workspaceID: String
+        public let screenID: String
+        public let paneID: String
+        public let tabID: String
         public let cursor: CloudVMCursor?
 
         public init(
             browserID: String,
-            workspaceID: String?,
-            screenID: String?,
-            paneID: String?,
-            tabID: String?,
+            workspaceID: String,
+            screenID: String,
+            paneID: String,
+            tabID: String,
             cursor: CloudVMCursor?
         ) {
             self.browserID = browserID
@@ -1789,16 +1789,20 @@ public struct CmuxTuiSnapshotParser: Sendable {
     /// The exact path a `tab.create_browser` mutation created.
     public static func createdBrowser(fromCreateResult result: [String: Any]) -> CreatedBrowserPath? {
         let path = (result["value"] as? [String: Any]) ?? result
-        func optionalID(_ key: String) -> String? {
+        func requiredID(_ key: String) -> String? {
             (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
-        guard let browserID = optionalID("browser_id") else { return nil }
+        guard let browserID = requiredID("browser_id"),
+              let workspaceID = requiredID("workspace_id"),
+              let screenID = requiredID("screen_id"),
+              let paneID = requiredID("pane_id"),
+              let tabID = requiredID("tab_id") else { return nil }
         return CreatedBrowserPath(
             browserID: browserID,
-            workspaceID: optionalID("workspace_id"),
-            screenID: optionalID("screen_id"),
-            paneID: optionalID("pane_id"),
-            tabID: optionalID("tab_id"),
+            workspaceID: workspaceID,
+            screenID: screenID,
+            paneID: paneID,
+            tabID: tabID,
             cursor: mutationCursor(fromResult: result)
         )
     }

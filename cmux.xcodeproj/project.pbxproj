@@ -1610,6 +1610,7 @@
 		A012B052BF6F5FCBA400CFE6 /* CmuxTuiRemoteTreeRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */; };
 		3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */; };
 		81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */; };
+		A231D3A2E0B696508D83D508 /* CmuxTuiSurfaceProvider+BrowserCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 159681C6000B37BC68623383 /* CmuxTuiSurfaceProvider+BrowserCreation.swift */; };
 		5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */; };
 		C10DC1000000000000000015 /* CmuxTuiSurfaceProvider+CloudDiagnosticFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DC1000000000000000016 /* CmuxTuiSurfaceProvider+CloudDiagnosticFailure.swift */; };
 		C462743B6AB963C09DE86933 /* CmuxTuiSurfaceProvider+CloudDisplayMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905C49B3C3B96FE5AE1D9D0F /* CmuxTuiSurfaceProvider+CloudDisplayMembership.swift */; };
@@ -4283,6 +4284,7 @@
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */; };
 		D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */; };
+		90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */; };
 		E6F61F31711B4439A8C4C4A8 /* Workspace+CloudDisplayOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F78AF3938A4C58A82EA25C /* Workspace+CloudDisplayOwnership.swift */; };
 		C13304000000000000000003 /* Workspace+CloudDragSplitRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13304000000000000000004 /* Workspace+CloudDragSplitRouting.swift */; };
 		4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */; };
@@ -6102,6 +6104,7 @@
 		C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteTreeRendering.swift; sourceTree = "<group>"; };
 		E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AgentNaming.swift"; sourceTree = "<group>"; };
 		4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AttachmentRecovery.swift"; sourceTree = "<group>"; };
+		159681C6000B37BC68623383 /* CmuxTuiSurfaceProvider+BrowserCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+BrowserCreation.swift"; sourceTree = "<group>"; };
 		E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CloseTerminal.swift"; sourceTree = "<group>"; };
 		C10DC1000000000000000016 /* CmuxTuiSurfaceProvider+CloudDiagnosticFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CloudDiagnosticFailure.swift"; sourceTree = "<group>"; };
 		905C49B3C3B96FE5AE1D9D0F /* CmuxTuiSurfaceProvider+CloudDisplayMembership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CloudDisplayMembership.swift"; sourceTree = "<group>"; };
@@ -8734,6 +8737,7 @@
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeBackgroundSessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelLayoutRestore.swift"; sourceTree = "<group>"; };
+		A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudBrowserCreation.swift"; sourceTree = "<group>"; };
 		14F78AF3938A4C58A82EA25C /* Workspace+CloudDisplayOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudDisplayOwnership.swift"; sourceTree = "<group>"; };
 		C13304000000000000000004 /* Workspace+CloudDragSplitRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudDragSplitRouting.swift"; sourceTree = "<group>"; };
 		085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudLayoutProjection.swift"; sourceTree = "<group>"; };
@@ -9623,6 +9627,8 @@
 				56434762F98EC43868C86D56 /* SurfaceCatalog+CloudDisplayProjection.swift */,
 				C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */,
 				E920133D404D2712BFC3E5F3 /* CmuxTuiSurfaceProviderRegistry+Activation.swift */,
+				159681C6000B37BC68623383 /* CmuxTuiSurfaceProvider+BrowserCreation.swift */,
+				A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -15144,6 +15150,7 @@
 				A012B052BF6F5FCBA400CFE6 /* CmuxTuiRemoteTreeRendering.swift in Sources */,
 				3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */,
 				81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */,
+				A231D3A2E0B696508D83D508 /* CmuxTuiSurfaceProvider+BrowserCreation.swift in Sources */,
 				5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */,
 				C10DC1000000000000000015 /* CmuxTuiSurfaceProvider+CloudDiagnosticFailure.swift in Sources */,
 				C462743B6AB963C09DE86933 /* CmuxTuiSurfaceProvider+CloudDisplayMembership.swift in Sources */,
@@ -16930,6 +16937,7 @@
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */,
 				D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */,
+				90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */,
 				E6F61F31711B4439A8C4C4A8 /* Workspace+CloudDisplayOwnership.swift in Sources */,
 				C13304000000000000000003 /* Workspace+CloudDragSplitRouting.swift in Sources */,
 				4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */,
