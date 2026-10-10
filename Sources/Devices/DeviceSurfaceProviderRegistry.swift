@@ -55,6 +55,7 @@ final class DeviceSurfaceProviderRegistry {
     private let allowsAutomaticConnections: @MainActor () -> Bool
     private let retainsAcrossTeamChanges: @MainActor () -> Bool
     private var activeAutomaticConnections = false
+    private var activeAccountDirectory = false
 
     init(
         preferences: DevicesPreferencesModel? = nil,
@@ -151,7 +152,9 @@ final class DeviceSurfaceProviderRegistry {
         let (identity, teamID) = sessionScope(auth)
         let shouldRun = isFeatureEnabled() && identity != nil
         let automatic = allowsAutomaticConnections()
+        let accountDirectoryEnabled = AccountMacDirectoryFeature.isEnabled()
         let scopeChanged = identity != self.identity || automatic != activeAutomaticConnections
+            || accountDirectoryEnabled != activeAccountDirectory
             || (!retainsAcrossTeamChanges() && teamID != self.teamID)
         if directory != nil, !shouldRun || scopeChanged {
             if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
@@ -171,14 +174,18 @@ final class DeviceSurfaceProviderRegistry {
             if !shouldRun {
                 self.identity = nil
                 self.teamID = nil
+                self.activeAccountDirectory = false
             }
             return
         }
         self.identity = identity
         self.teamID = teamID
         activeAutomaticConnections = automatic
+        activeAccountDirectory = accountDirectoryEnabled
         runtime = DeviceLinkRuntime(
-            tokens: HiveAccountTokenSource(accountScopedAuth: auth, identity: identity),
+            tokens: accountDirectoryEnabled
+                ? HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
+                : HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID),
             automaticClient: automatic ? makeAutomaticClient(identity, teamID) : nil
         )
         let directory = makeDirectory(auth, identity, teamID, authorization, runtime?.automaticClient)

@@ -107,11 +107,18 @@ final class DeviceDirectory {
         self.teamID = teamID
         self.pairing = pairing
         self.automaticClient = automaticClient
-        let tokens = HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
+        let accountDirectoryEnabled = AccountMacDirectoryFeature.isEnabled()
+        let tokens = accountDirectoryEnabled
+            ? HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
+            : HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID)
         self.tokens = tokens
         self.registryClient = registryClient ?? DeviceRegistryDirectoryClient(
             session: { try await tokens.session() },
-            teamID: teamID
+            // The account directory has no selected-team partition. The
+            // registry is enrichment only, so do not pin it to the team that
+            // happened to be selected when this account-scoped directory was
+            // created. The rollback path keeps the team header.
+            teamID: accountDirectoryEnabled ? nil : teamID
         )
         self.serviceURL = serviceURL
         self.makeSubscriber = makeSubscriber
@@ -269,13 +276,14 @@ final class DeviceDirectory {
                 presenceState = .connecting
                 notifyChanged()
                 let tokens = self.tokens
+                let presenceTeamID = AccountMacDirectoryFeature.isEnabled() ? nil : self.teamID
                 let subscriber = makeSubscriber(url) {
                     let session = try await tokens.session()
-                    // The account presence stream is deliberately independent
-                    // of the selected team. Sending the team header here
-                    // would select a team room and make another signed-in Mac
-                    // disappear when it changes teams.
-                    return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: nil)
+                    // The account stream is deliberately independent of the
+                    // selected team. The rollback path uses the team stream
+                    // and therefore carries its captured team header.
+                    return DevicePresenceSubscriber.Credentials(
+                        accessToken: session.accessToken, teamID: presenceTeamID)
                 }
                 let frames = try await subscriber.subscribe()
                 for try await frame in frames {

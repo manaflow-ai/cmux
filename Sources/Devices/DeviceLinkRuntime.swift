@@ -8,10 +8,10 @@ import Foundation
 
 /// The Mac's `MobileSyncRuntime`: what the shared RPC client needs from the
 /// app to dial another Mac. Tokens come through ``HiveAccountTokenSource`` and
-/// are bound to the signed-in account generation. A selected-team change is
-/// independent of an account-owned device link, while a sign-out or account
-/// switch still makes every token call fail instead of carrying the next
-/// account's token.
+/// are bound to the signed-in account generation. When the account Mac
+/// directory is enabled, a selected-team change is independent of an
+/// account-owned device link; the feature flag's rollback path uses the
+/// selected team as before.
 /// Transports come from the shared Network.framework factory the iOS app uses,
 /// restricted to the route kinds ``DeviceRouteSelector`` admits.
 struct DeviceLinkRuntime: MobileSyncRuntime {
