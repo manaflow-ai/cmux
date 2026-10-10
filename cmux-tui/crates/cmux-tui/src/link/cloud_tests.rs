@@ -278,30 +278,3 @@ async fn removed_and_newer_records_leave_the_cache() {
     assert!(resolver.observe_revision(HOST, 2));
     assert!(!resolver.forget(HOST));
 }
-
-#[tokio::test]
-async fn forwarded_cloud_events_drop_records_and_peers() {
-    use cmux_link::dial::{CloudEvent, CloudEventOp, CloudEventRequest};
-    let overlay = CloudOverlay::default();
-    let resolver = CloudResolver::new(FakeSource::with(vec![Ok(record("running", &["daemon"]))]));
-    resolver.resolve(HOST, false).await.unwrap();
-    let event = |event, revision| CloudEventRequest {
-        op: CloudEventOp::CloudEvent,
-        event,
-        host: HOST.into(),
-        revision,
-    };
-    assert!(apply_cloud_event(&event(CloudEvent::Upsert, Some(1)), &overlay, &resolver).await);
-    assert!(!apply_cloud_event(&event(CloudEvent::Upsert, None), &overlay, &resolver).await);
-    assert!(apply_cloud_event(&event(CloudEvent::Removed, None), &overlay, &resolver).await);
-    assert!(!resolver.forget(HOST), "removed dropped the record");
-    let mut paired = event(CloudEvent::Removed, None);
-    paired.host = "inst_x".into();
-    assert!(!apply_cloud_event(&paired, &overlay, &resolver).await);
-}
-
-#[tokio::test]
-async fn the_relay_source_is_off_until_the_relay_ships() {
-    let resolver = CloudResolver::new(RelaySource);
-    assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
-}

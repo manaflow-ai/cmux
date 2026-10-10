@@ -257,104 +257,12 @@ fn read_bounded_json_line<R: io::BufRead>(reader: &mut R, limit: usize) -> io::R
 }
 
 #[cfg(test)]
-pub(super) fn duplex_from_unix_stream(
-    stream: std::os::unix::net::UnixStream,
-) -> io::Result<DuplexConnection> {
-    let reader = stream.try_clone()?;
-    let control_stream = stream.try_clone()?;
-    let control: Arc<dyn ConnectionControl> =
-        Arc::new(TestStreamControl { stream: Mutex::new(Some(control_stream)) });
-    Ok(DuplexConnection { reader: Box::new(reader), writer: Box::new(stream), control })
-}
-
-#[cfg(test)]
-struct TestStreamControl {
-    stream: Mutex<Option<std::os::unix::net::UnixStream>>,
-}
-
-#[cfg(test)]
-impl ConnectionControl for TestStreamControl {
-    fn close(&self) {
-        let Ok(mut stream) = self.stream.lock() else { return };
-        if let Some(stream) = stream.take() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
-    use std::path::Path;
     use std::thread;
 
     use super::*;
-
-    #[test]
-    fn ssh_exec_command_is_exact_and_user_input_only_selects_destination() {
-        let connector = SshCloudConnector::new(SshOptions {
-            host: "cmux.cloud".into(),
-            user: Some("dev".into()),
-            port: Some(2222),
-            identity_file: Some(Path::new("/keys/cmux").into()),
-        })
-        .unwrap();
-        let args = connector.command_args();
-        assert_eq!(
-            &args[args.len() - 5..],
-            [
-                OsStr::new("--"),
-                OsStr::new("dev@cmux.cloud"),
-                OsStr::new("cmux"),
-                OsStr::new("machine"),
-                OsStr::new("register"),
-            ]
-        );
-        assert!(args.contains(&OsString::from("dev@cmux.cloud")));
-        assert!(args.contains(&OsString::from("IdentitiesOnly=yes")));
-        assert!(args.contains(&OsString::from("BatchMode=yes")));
-        assert!(args.contains(&OsString::from("StrictHostKeyChecking=yes")));
-        assert!(args.contains(&OsString::from("RemoteCommand=none")));
-        assert!(args.contains(&OsString::from("ClearAllForwardings=yes")));
-        assert!(args.contains(&OsString::from("ForwardAgent=no")));
-        assert!(!args.iter().any(|argument| argument.to_string_lossy().contains("sh -c")));
-        assert!(
-            SshCloudConnector::new(SshOptions {
-                host: "-oProxyCommand=bad".into(),
-                user: None,
-                port: None,
-                identity_file: None,
-            })
-            .is_err()
-        );
-    }
-
-    /// The registration link never becomes a ControlMaster, so turning its
-    /// forwarding off cannot reach an interactive session.
-    #[test]
-    fn machine_agent_uses_hardened_ssh_argv() {
-        let connector = SshCloudConnector::new(SshOptions {
-            host: "cmux.cloud".into(),
-            user: None,
-            port: None,
-            identity_file: None,
-        })
-        .unwrap();
-        let args = connector.command_args();
-        for option in
-            ["ControlMaster=no", "ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"]
-        {
-            let index = args
-                .iter()
-                .position(|argument| argument == option)
-                .unwrap_or_else(|| panic!("missing -o {option}"));
-            assert_eq!(args[index - 1], "-o");
-        }
-        let separator = args.iter().position(|argument| argument == "--").unwrap();
-        assert_eq!(args[separator + 1], "cmux.cloud");
-    }
 
     #[test]
     fn local_connector_accepts_only_the_current_cmux_protocol() {

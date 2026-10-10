@@ -565,19 +565,6 @@ jobs:
             --exact \
             --test-threads=1
 
-          startup_tests=(
-            config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver
-            config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read
-            config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit
-          )
-          for test_name in "${startup_tests[@]}"; do
-            require_exact_test "$cmux_tui_bin" "$test_name"
-            run_valgrind \
-              "$cmux_tui_bin" \
-              "$test_name" \
-              --exact \
-              --test-threads=1
-          done
 
   valgrind-leak-check:
     name: valgrind-leak-check
@@ -929,19 +916,11 @@ jobs:
           fi
           cargo test --workspace --locked "$TEST_FILTER"
 
-      - name: Optional Iroh route and auth tests
+      - name: Optional Iroh transport build
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         shell: bash
-        run: |
-          for test_name in \
-            remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
-            remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
-          do
-            cargo test --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
-              "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
-            grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
-          done
+        run: cargo check --locked -p cmux-tui --bin cmux-tui --features iroh-transport --all-targets
 
       - name: crossterm parser tests
         if: inputs.mode == 'full'

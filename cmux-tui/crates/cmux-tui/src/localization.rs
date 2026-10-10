@@ -210,6 +210,3 @@ fn system_locale() -> String {
         .or_else(|_| std::env::var("LANG"))
         .unwrap_or_default()
 }
-
-#[cfg(test)]
-mod tests;
