@@ -78,14 +78,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
     }
 
-    /// The person proof for one challenge of this daemon on a unix socket connection (acpmux
-    /// `hub/person.rs`, cx-fcaq), for the app's own connections outside a pane (the agent
-    /// permission feed bridge, cx-aocz). Nil when this app holds no key for this daemon. The key
-    /// itself never leaves this process.
-    public func unixPersonProof(nonce: String, connection: String) -> String? {
-        AcpmuxPersonKey.proof(socketPath: socketPath, transport: .unix, nonce: nonce, connection: connection)
-    }
-
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).

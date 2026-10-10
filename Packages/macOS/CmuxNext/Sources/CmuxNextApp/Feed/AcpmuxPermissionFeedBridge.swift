@@ -133,7 +133,7 @@ final class AcpmuxPermissionFeedBridge {
     private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
-           let proof = environment.unixPersonProof(nonce: nonce, connection: id) {
+           let proof = line.personProof(nonce: nonce, connection: id) {
             line.send(Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
@@ -241,11 +241,14 @@ final class AcpmuxPermissionFeedBridge {
         let title = visible(FeedSecretScrubber.scrub(call["title"] as? String ?? ""))
         let kind = visible(call["kind"] as? String ?? "")
         let input = call["rawInput"] as? [String: Any] ?? [:]
-        let command = shownCommand(input["command"]).map { visible(FeedSecretScrubber.scrub($0)) }
+        let rawCommand = shownCommand(input["command"])
+        let command = rawCommand.map { visible(FeedSecretScrubber.scrub($0)) }
         let summary = inputSummary(input)
-        // Anything cut or dropped: the phone shows it shortened and never allows it (cx-aocz).
+        // Anything cut, dropped or redacted: the phone shows it shortened and never allows it
+        // (cx-aocz): a redaction must never hide what the person signs.
+        let redacted = rawCommand.map { FeedSecretScrubber.scrub($0) != $0 } ?? false
         let truncated = (command?.count ?? 0) > 8000 || title.count > 500 || kind.count > 200
-            || (summary?.truncated ?? false)
+            || redacted || (summary?.truncated ?? false)
         var action: [String: Any] = [
             "type": kind == "execute" ? "command" : kind == "edit" || kind == "delete" || kind == "move" ? "edit" : "tool",
             "summary": cut(title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title, 500),
@@ -318,10 +321,16 @@ final class AcpmuxPermissionFeedBridge {
             .sorted { ($0.key == "cwd" ? 0 : 1, $0.key) < ($1.key == "cwd" ? 0 : 1, $1.key) }
         if shown.count > 8 { truncated = true }
         for (key, value) in shown.prefix(8) {
-            let text = visible(FeedSecretScrubber.scrub(value as? String ?? compactJSON(value)))
+            let raw = value as? String ?? compactJSON(value)
+            let scrubbed = FeedSecretScrubber.scrub(raw)
+            // A redaction must never hide what the person signs.
+            if scrubbed != raw { truncated = true }
+            let text = visible(scrubbed)
             if key.count > 40 || text.count > 200 { truncated = true }
             out[cut(visible(key), 40)] = cut(text, 200)
         }
+        // Two shown names that read the same after the cut collide: one value is not shown.
+        if out.count < min(shown.count, 8) { truncated = true }
         return out.isEmpty && !truncated ? nil : (out, truncated)
     }
 

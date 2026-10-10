@@ -42,6 +42,17 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable {
         }
     }
 
+    /// The person proof for this connection's challenge (acpmux `hub/person.rs`, transport unix),
+    /// made only here so a proof exists only for a connection whose server peer was checked.
+    /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
+    /// never leaves this process.
+    public func personProof(nonce: String, connection: String) -> String? {
+        let checked = queue.sync { descriptor >= 0 && !closed }
+        guard checked else { return nil }
+        return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
+                                     connection: connection)
+    }
+
     /// Sends another request on the live connection.
     public func send(_ data: Data) {
         queue.async { [self] in write(data) }
