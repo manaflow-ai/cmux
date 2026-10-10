@@ -18,7 +18,7 @@ extension CmuxTuiSurfaceProvider {
         let lifecycle = lifecycleGeneration
         try validateTerminalMutationLifecycle(lifecycle)
         return try await terminalMutationQueue.run {
-            try validateTerminalMutationLifecycle(lifecycle)
+            try self.validateTerminalMutationLifecycle(lifecycle)
             let connected = try await self.links.connected(machineID: self.machineID)
             try self.validateTerminalMutationLifecycle(lifecycle)
             guard let link = await self.links.link(machineID: self.machineID) else {
