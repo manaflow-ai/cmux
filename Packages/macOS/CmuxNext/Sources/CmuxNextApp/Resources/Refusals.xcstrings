@@ -3145,6 +3145,137 @@
         }
       }
     },
+    "handlers.refusal.groupOnAnotherMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a group holds workspaces of one machine; this workspace is on another machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループには 1 台のマシンのワークスペースだけが入ります。このワークスペースは別のマシンにあります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضم المجموعة مساحات عمل جهاز واحد؛ مساحة العمل هذه على جهاز آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grupa sadrži radne prostore jedne mašine; ovaj radni prostor je na drugoj mašini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en gruppe rummer arbejdsområder fra én maskine; dette arbejdsområde er på en anden maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "eine Gruppe enthält Workspaces eines Rechners; dieser Workspace ist auf einem anderen Rechner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un grupo contiene espacios de trabajo de una sola máquina; este espacio de trabajo está en otra máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un groupe contient les espaces de travail d'une seule machine ; cet espace de travail est sur une autre machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un gruppo contiene gli spazi di lavoro di una sola macchina; questo spazio di lavoro è su un'altra macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមមួយផ្ទុកកន្លែងធ្វើការរបស់ម៉ាស៊ីនតែមួយ; កន្លែងធ្វើការនេះនៅលើម៉ាស៊ីនផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹에는 한 머신의 워크스페이스만 들어갑니다. 이 워크스페이스는 다른 머신에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en gruppe inneholder arbeidsområder fra én maskin; dette arbeidsområdet er på en annen maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "grupa zawiera obszary robocze jednej maszyny; ten obszar roboczy jest na innej maszynie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "um grupo contém espaços de trabalho de uma só máquina; este espaço de trabalho está em outra máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "группа содержит рабочие пространства одной машины; это рабочее пространство на другой машине"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มหนึ่งเก็บเวิร์กสเปซของเครื่องเดียว เวิร์กสเปซนี้อยู่บนเครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bir grup tek bir makinenin çalışma alanlarını içerir; bu çalışma alanı başka bir makinede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "група містить робочі простори однієї машини; цей робочий простір на іншій машині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "một nhóm chứa không gian làm việc của một máy; không gian làm việc này ở máy khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个分组只包含一台机器的工作区；此工作区在另一台机器上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個群組只包含一台機器的工作區；此工作區在另一台機器上"
+          }
+        }
+      }
+    },
     "handlers.refusal.indexRequired": {
       "extractionState": "manual",
       "localizations": {
