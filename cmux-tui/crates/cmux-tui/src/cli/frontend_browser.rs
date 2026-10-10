@@ -66,28 +66,12 @@ fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
     super::app::connect(&socket).ok()
 }
 
-#[cfg(target_os = "macos")]
+/// Whether `daemon_socket` is the own daemon of the app this `cmux`
+/// belongs to (app.rs `app_owns_daemon`).
 fn app_daemon_is(daemon_socket: &Path) -> bool {
     let exe = std::env::current_exe().ok();
-    let Some(identity) =
-        crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
-    else {
-        return false;
-    };
-    crate::app_identity::app_daemon_socket(&identity)
-        .is_some_and(|app_socket| same_path(&app_socket, daemon_socket))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn app_daemon_is(_daemon_socket: &Path) -> bool {
-    false
-}
-
-/// Two spellings of one socket (`/var` is `/private/var` on macOS).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn same_path(a: &Path, b: &Path) -> bool {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    a == b || canonical(a) == canonical(b)
+    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
+        .is_some_and(|identity| super::app::app_owns_daemon(&identity, daemon_socket))
 }
 
 /// Runs a browser creation through the app when `plan` is one and an app

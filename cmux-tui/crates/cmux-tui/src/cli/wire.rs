@@ -49,6 +49,15 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 
     let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
+        Err(error) if error.is::<socket::AppSocketOnly>() => {
+            let error = json!({
+                "code": "socket.no_daemon",
+                "message": error.to_string(),
+                "details": {},
+                "retryable": false,
+            });
+            return print_local_error(&error, global.output, 2);
+        }
         Err(_) => {
             eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
@@ -57,8 +66,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("{}", connect_failure(&socket, &error));
-            return 3;
+            // Only this socket was tried; nothing falls back to another one.
+            let error = json!({
+                "code": "socket.unreachable",
+                "message": connect_failure(&socket, &error),
+                "details": {"socket": socket.display().to_string()},
+                "retryable": false,
+            });
+            return print_local_error(&error, global.output, 3);
         }
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
