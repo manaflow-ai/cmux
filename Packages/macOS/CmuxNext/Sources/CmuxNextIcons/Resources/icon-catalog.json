@@ -133,6 +133,12 @@
    "family": "action"
   },
   {
+   "name": "action.share",
+   "meaning": "Share (a link, the app)",
+   "sf": "square.and.arrow.up",
+   "family": "action"
+  },
+  {
    "name": "action.show",
    "meaning": "Show / watch / focus mode",
    "sf": "eye",
@@ -705,6 +711,12 @@
    "family": "group"
   },
   {
+   "name": "group.ungroup",
+   "meaning": "Ungroup workspaces",
+   "sf": "square.stack.3d.up.slash",
+   "family": "group"
+  },
+  {
    "name": "history",
    "meaning": "History",
    "sf": "clock",
@@ -962,6 +974,12 @@
    "sf": "questionmark.square.dashed",
    "family": "profile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "remote.display",
+   "meaning": "Remote desktop / a machine's display (Remote View)",
+   "sf": "display",
+   "family": "remote"
   },
   {
    "name": "search",
@@ -1641,6 +1659,12 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "window.new",
+   "meaning": "Move to a new window / new window",
+   "sf": "macwindow.badge.plus",
+   "family": "window"
   },
   {
    "name": "workspace",

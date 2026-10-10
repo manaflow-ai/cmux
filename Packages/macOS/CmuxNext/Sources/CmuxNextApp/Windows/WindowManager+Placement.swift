@@ -16,7 +16,7 @@ struct PendingPlacement {
     var run: ActionRunScope? = ActionRunScope.current
 }
 
-// Placing new workspaces (New Workspace Above/Below/at Top/in This Group, a
+// Placing new workspaces (New Workspace Above/Below/at Top/Like This, a
 // double-click in a group, and `workspaces.newPlacement` for every other new
 // workspace): the slot is resolved against the window's sidebar only once
 // the daemon reports the workspace, because the reorder plan needs it in the

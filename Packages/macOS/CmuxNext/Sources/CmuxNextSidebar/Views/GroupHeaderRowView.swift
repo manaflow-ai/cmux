@@ -3,16 +3,16 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// Group header as the Chrome tab group header bar (cx-rcby, Lawrence
-/// 2026-10-08: "make sure for groups we pixel match this", "but with our
-/// smaller height"): one full-width rounded bar filled with the group's
-/// color (the theme's palette color, cx-q5jw) with the name in black or
-/// white type, a + and a more (…) button on hover and the collapse chevron
-/// at the right edge. Radius, padding, type and glyphs scale with the row
-/// height (the sidebar density setting). No member count: a collapsed group
-/// shows its members' activity and unread total in the bar. The name opens
-/// the group editor; the more button and a right-click show the group's
-/// full menu (cx-a9h6); the chevron and the rest of the bar collapse.
+/// Group header (cx-25az, Leo 2026-10-10: no full pastel fill; was the
+/// Chrome bar of cx-rcby): the group's color is a dot on its line, which
+/// runs from the dot to the last member (Edge style); the name is in the
+/// sidebar's text color and lines up with the members' titles. A + and a more
+/// button on hover and the collapse chevron at the right edge; hover and drop fills
+/// like a row's, right of the line. Type and glyphs scale with the row height
+/// (the sidebar density setting). No member count: a collapsed group shows
+/// its members' activity and unread total. The name opens the group editor;
+/// the more button and a right-click show the group's full menu (cx-a9h6);
+/// the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
@@ -22,12 +22,15 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
-    /// The more button (…): the group's full menu, as a right-click (cx-a9h6). Shows on hover and while the editor is open.
-    let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
+    /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
+    /// pastel fill): the line starts under it and runs to the last member.
+    private let dot = CALayer()
+    /// The more button (the pack's three-dot action.more): the group's full menu, as a right-click (cx-a9h6). Shows on hover and while the editor is open.
+    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
-    let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
+    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
     private var hasIcon = false
@@ -53,7 +56,9 @@ final class GroupHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(pill)
+        layer?.addSublayer(dot)
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
+        dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         glyph.drawsUncoloredSymbolAsText = true
         [glyph, name, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
         moreButton.onPress = { [weak self] in self?.onMore?() }
@@ -107,9 +112,8 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     private static func chevronImage(collapsed: Bool) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold)
-        return NSImage(systemSymbolName: collapsed ? "chevron.down" : "chevron.up", accessibilityDescription: nil)?
-            .withSymbolConfiguration(config)
+        NSImage.icon(collapsed ? .disclosureExpanded : .navPreviousMatch,
+                     size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
     }
 
     override var titleFrame: NSRect { name.frame }
@@ -140,19 +144,14 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            // Black or white text and glyphs, whichever reads better on the group's color.
-            let ink = tint.headerInk
-            name.textColor = ink
-            pin.contentTintColor = ink.withAlphaComponent(0.7)
-            chevron.contentTintColor = ink
-            moreButton.tintOverride = ink
-            addButton.tintOverride = ink
-            var fill = tint.headerFill
-            if isHovered || isEditing { fill = fill.blended(withFraction: 0.08, of: .black) ?? fill }
-            if isDropTarget { fill = fill.blended(withFraction: 0.16, of: .black) ?? fill }
-            pill.backgroundColor = fill.cgColor
-            pill.borderWidth = isDropTarget ? Metrics.dividerThickness * 1.5 : 0
-            pill.borderColor = ink.withAlphaComponent(0.5).cgColor
+            // The name in the sidebar's own text colors; the group's color is the dot and its line.
+            name.textColor = Palette.textPrimary
+            pin.contentTintColor = Palette.textTertiary
+            chevron.contentTintColor = Palette.textSecondary
+            dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
+            // Hover and drop fills like a row's, right of the line.
+            pill.backgroundColor = isDropTarget ? Palette.selectionFill.cgColor : isHovered || isEditing ? Palette.hoverFill.cgColor : nil
+            pill.borderWidth = 0
             // A collapsed group that holds the selected workspace paints the selection fill around its bar.
             paintFill(isSelected ? Palette.selectionFill : nil)
             CATransaction.begin()
@@ -179,9 +178,9 @@ final class GroupHeaderRowView: SidebarRowView {
         // (the sidebar density: compact 24, comfortable 32 pt).
         let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
-        // The name starts where a loose workspace's title does (cx-qno.17:
-        // less room before the name); the chevron keeps its own margin.
-        let lead = SidebarStyle.titleLeading
+        // The name lines up with its members' titles, right of the line
+        // (`SidebarStyle.groupGutter`); the chevron keeps its own margin.
+        let lead = SidebarStyle.groupGutter + SidebarStyle.horizontalInset + SidebarStyle.groupMemberIndent
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         let chevronSide = max(Metrics.smallIconSize - Metrics.space1, (barHeight * 0.46).rounded())
@@ -228,8 +227,13 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.isHidden = !pinned
         pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         pill.isHidden = renaming
-        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
-        pill.cornerRadius = (barHeight * 0.23).rounded()
+        pill.frame = NSRect(x: SidebarStyle.groupGutter, y: 0, width: max(0, b.width - SidebarStyle.groupGutter), height: b.height)
+        pill.cornerRadius = SidebarStyle.rowCornerRadius
+        // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
+        let dotSide = SidebarStyle.groupDotSize
+        dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
+                           width: dotSide, height: dotSide)
+        dot.cornerRadius = dotSide / 2
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
@@ -240,8 +244,8 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// A new group's chip arrives once: it fades and scales up from the
-    /// chip's leading edge (Reduce Motion: no scale, the row's fade only).
+    /// A new group's dot arrives once: it fades and scales up (Reduce
+    /// Motion: no scale, the row's fade only).
     func playAppear() {
         guard Motion.animatesMovement else { return }
         let scale = CABasicAnimation(keyPath: "transform.scale")
@@ -249,6 +253,6 @@ final class GroupHeaderRowView: SidebarRowView {
         scale.toValue = 1
         scale.duration = Motion.duration(MotionSpring.appear)
         scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        pill.add(scale, forKey: "cmux.groupAppear")
+        dot.add(scale, forKey: "cmux.groupAppear")
     }
 }

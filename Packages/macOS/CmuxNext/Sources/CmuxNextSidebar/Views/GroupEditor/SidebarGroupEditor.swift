@@ -136,7 +136,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private(set) var swatches: [SidebarGroupSwatchView] = []
     /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
     let customSwatch = SidebarGroupCustomSwatchView()
-    let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize }, weight: .regular,
+    let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize },
                                         label: GroupEditorStrings.emoji)
     private let stack = NSStackView()
     private var name = ""

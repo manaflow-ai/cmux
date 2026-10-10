@@ -81,7 +81,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
     /// actor (it changes at every launch, so it is read at every handshake and reconnect).
     private func connection(_ endpoint: AcpmuxWebEndpoint) -> AcpmuxConnection {
-        AcpmuxConnection(endpoint: endpoint, home: environment?.home, socketPath: environment?.socketPath)
+        AcpmuxConnection(endpoint: endpoint, home: environment?.home, socketPath: environment?.socketPath,
+                         executable: environment?.executable)
     }
 
     public func prewarm() async throws {

@@ -1835,137 +1835,6 @@
         }
       }
     },
-    "action.workspace.newInGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Workspace in This Group"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مساحة عمل جديدة في هذه المجموعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi radni prostor u ovoj grupi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nyt arbejdsområde i denne gruppe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neuer Arbeitsbereich in dieser Gruppe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuevo espacio de trabajo en este grupo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvel espace de travail dans ce groupe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuovo spazio di lavoro in questo gruppo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このグループに新規ワークスペース"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កន្លែងធ្វើការថ្មីក្នុងក្រុមនេះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 그룹에 새 작업 공간"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nytt arbeidsområde i denne gruppen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowy obszar roboczy w tej grupie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo espaço de trabalho neste grupo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новое рабочее пространство в этой группе"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "พื้นที่ทำงานใหม่ในกลุ่มนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu grupta yeni çalışma alanı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новий робочий простір у цій групі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không gian làm việc mới trong nhóm này"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在此组中新建工作区"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在此群組中新增工作區"
-          }
-        }
-      }
-    },
     "action.workspace.newInNewGroup": {
       "extractionState": "manual",
       "localizations": {
@@ -2097,133 +1966,133 @@
         }
       }
     },
-    "action.workspace.newInSameDirectory": {
+    "action.workspace.newLikeThis": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace in Same Directory"
+            "value": "New Workspace Like This"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مساحة عمل جديدة في المجلد نفسه"
+            "value": "مساحة عمل جديدة مثل هذه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi radni prostor u istom direktoriju"
+            "value": "Novi radni prostor poput ovog"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nyt arbejdsområde i samme mappe"
+            "value": "Nyt arbejdsområde som dette"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Arbeitsbereich im selben Verzeichnis"
+            "value": "Neuer Arbeitsbereich wie dieser"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuevo espacio de trabajo en la misma carpeta"
+            "value": "Nuevo espacio de trabajo como este"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel espace de travail dans le même dossier"
+            "value": "Nouvel espace de travail comme celui-ci"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuovo spazio di lavoro nella stessa cartella"
+            "value": "Nuovo spazio di lavoro come questo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "同じディレクトリに新規ワークスペース"
+            "value": "これと同じ新規ワークスペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងធ្វើការថ្មីក្នុងថតដដែល"
+            "value": "កន្លែងធ្វើការថ្មីដូចនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "같은 디렉터리에 새 작업 공간"
+            "value": "이것과 같은 새 작업 공간"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nytt arbeidsområde i samme mappe"
+            "value": "Nytt arbeidsområde som dette"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowy obszar roboczy w tym samym katalogu"
+            "value": "Nowy obszar roboczy taki jak ten"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novo espaço de trabalho no mesmo diretório"
+            "value": "Novo espaço de trabalho como este"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новое рабочее пространство в той же папке"
+            "value": "Новое рабочее пространство как это"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "พื้นที่ทำงานใหม่ในไดเรกทอรีเดียวกัน"
+            "value": "พื้นที่ทำงานใหม่แบบนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aynı dizinde yeni çalışma alanı"
+            "value": "Bunun gibi yeni çalışma alanı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новий робочий простір у тій самій теці"
+            "value": "Новий робочий простір як цей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không gian làm việc mới trong cùng thư mục"
+            "value": "Không gian làm việc mới giống cái này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在同一目录中新建工作区"
+            "value": "新建类似的工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在同一目錄中新增工作區"
+            "value": "新增類似的工作區"
           }
         }
       }
