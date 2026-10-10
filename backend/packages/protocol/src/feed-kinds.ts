@@ -107,7 +107,13 @@ export const feedKinds: Readonly<Record<string, KindDef>> = {
       decision: Schema.Literals(["allow", "deny"]),
       scope: Schema.optionalKey(ApproveScope),
       reason: Schema.optionalKey(Text(2000)),
-      updated_input: Schema.optionalKey(Schema.Unknown)
+      updated_input: Schema.optionalKey(Schema.Unknown),
+      /**
+       * A device proof for the poster to check (cx-aocz): the answering install, the signing time
+       * (unix ms) and its presence-key signature. Stored as given; the owner never verifies it
+       * (the Mac that posted the item does) and never logs `sig`.
+       */
+      proof: Schema.optionalKey(Schema.Struct({ install: NonEmpty(128), ts: Int(0, 9_007_199_254_740_991), sig: NonEmpty(512) }))
     }),
     priority: "high",
     needsMac: false,
