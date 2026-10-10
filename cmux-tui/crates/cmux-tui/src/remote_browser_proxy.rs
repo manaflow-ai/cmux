@@ -343,7 +343,8 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
-    let route_policy = route_policy_for_host(&host, policy.allow_remote_network);
+    let route_policy =
+        route_policy_for_host(&host, &policy.allowed_hosts, policy.allow_remote_network);
     let route_host = route_host_for_policy(&host, route_policy);
     let route = match tokio::time::timeout_at(
         handshake_deadline,
@@ -505,7 +506,8 @@ async fn serve_websocket_bridge(
         return Err(anyhow!("WebSocket bridge authentication failed"));
     }
 
-    let route_policy = route_policy_for_host(&host, policy.allow_remote_network);
+    let route_policy =
+        route_policy_for_host(&host, &policy.allowed_hosts, policy.allow_remote_network);
     let route_host = route_host_for_policy(&host, route_policy);
     let route = match tokio::time::timeout_at(
         deadline,
@@ -707,6 +709,12 @@ pub(super) fn parse_connect_authority_with_options(
 
 fn normalize_remote_host(value: &str, allow_loopback: bool) -> anyhow::Result<String> {
     let value = value.trim().trim_end_matches('.');
+    if value.eq_ignore_ascii_case("localhost") {
+        if allow_loopback {
+            return Ok("127.0.0.1".into());
+        }
+        return Err(anyhow!("loopback host is not allowed"));
+    }
     if value.eq_ignore_ascii_case("cmux-loopback.localtest.me") {
         if allow_loopback {
             return Ok("127.0.0.1".into());
@@ -741,8 +749,15 @@ fn is_loopback_host(host: &str) -> bool {
     host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
-fn route_policy_for_host(host: &str, allow_remote_network: bool) -> RoutePolicy {
-    if allow_remote_network && !is_loopback_host(host) {
+fn route_policy_for_host(
+    host: &str,
+    allowed_hosts: &[String],
+    allow_remote_network: bool,
+) -> RoutePolicy {
+    if allow_remote_network
+        && !is_loopback_host(host)
+        && !allowed_hosts.iter().any(|allowed| allowed == host)
+    {
         RoutePolicy::Any
     } else {
         RoutePolicy::LoopbackOnly
@@ -807,10 +822,28 @@ mod tests {
 
     #[test]
     fn cloud_network_policy_keeps_public_hosts_on_the_guest_network() {
-        assert_eq!(route_policy_for_host("example.com", true), RoutePolicy::Any);
+        assert_eq!(route_policy_for_host("example.com", &[], true), RoutePolicy::Any);
         assert_eq!(route_host_for_policy("example.com", RoutePolicy::Any), "example.com");
-        assert_eq!(route_policy_for_host("127.0.0.1", true), RoutePolicy::LoopbackOnly);
+        assert_eq!(
+            route_policy_for_host("10.42.0.7", &["10.42.0.7".into()], true),
+            RoutePolicy::LoopbackOnly
+        );
+        assert_eq!(
+            route_host_for_policy("10.42.0.7", RoutePolicy::LoopbackOnly),
+            "127.0.0.1"
+        );
+        assert_eq!(route_policy_for_host("10.42.0.8", &[], true), RoutePolicy::Any);
+        assert_eq!(route_policy_for_host("127.0.0.1", &[], true), RoutePolicy::LoopbackOnly);
         assert_eq!(route_host_for_policy("127.0.0.1", RoutePolicy::LoopbackOnly), "127.0.0.1");
+    }
+
+    #[test]
+    fn cloud_remote_network_does_not_allow_literal_localhost_without_loopback() {
+        assert!(parse_connect_authority_with_options("localhost:3000", false, true).is_err());
+        assert_eq!(
+            parse_connect_authority_with_options("localhost:3000", true, true).unwrap(),
+            ("127.0.0.1".into(), 3000)
+        );
     }
 
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

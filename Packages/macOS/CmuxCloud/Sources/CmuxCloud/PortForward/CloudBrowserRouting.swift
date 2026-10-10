@@ -115,7 +115,9 @@ public struct CloudBrowserRouting: Sendable {
     public static func configuration(endpoint: CloudBrowserProxyEndpoint, address: String, remoteNetwork: Bool = false) -> ProxyConfiguration {
         var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: .init(endpoint.host), port: .init(rawValue: endpoint.port)!))
         proxy.applyCredential(username: endpoint.username, password: endpoint.password)
-        proxy.matchDomains = remoteNetwork ? [""] : [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
+        // An empty list means all domains. An array containing an empty string
+        // is not a wildcard and causes WebKit to bypass the proxy.
+        proxy.matchDomains = remoteNetwork ? [] : [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
         proxy.allowFailover = false
         return proxy
     }
