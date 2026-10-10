@@ -476,8 +476,8 @@ jobs:
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
           if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
             expected_ref="refs/heads/cmux-next-dev-$DEV_DAILY_SHA"
-            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next || "$GITHUB_REF" == "$expected_ref" ]] || {
-              echo "error: dev_daily must run on feat-cmux-next or its immutable snapshot ref ($expected_ref), got $GITHUB_REF" >&2
+            [[ "$GITHUB_REF" == "$expected_ref" ]] || {
+              echo "error: dev_daily must run on its immutable snapshot ref ($expected_ref), got $GITHUB_REF" >&2
               exit 1
             }
             [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
@@ -1163,6 +1163,7 @@ jobs:
           KEY: ${{ needs.path_route.outputs.tree_key }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
+          DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -1172,7 +1173,12 @@ jobs:
             for tier in ${TIERS//,/ }; do
               case "$tier" in
                 daemon) context="cmux-next daemon tests (same-tree)" ;;
-                scheme) context="cmux app scheme compile (Debug) (same-tree)" ;;
+                scheme)
+                  if [[ "$DEV_DAILY" == true ]]; then
+                    context="cmux NEXT DEV Release compile (same-tree)"
+                  else
+                    context="cmux app scheme compile (Debug) (same-tree)"
+                  fi ;;
                 *) continue ;;
               esac
               scripts_status="$(python3 -c 'import json,sys; print(json.dumps({"state": "failure", "context": sys.argv[1], "target_url": sys.argv[2], "description": "same-tree cmux-tui unavailable"}))' "$context" "$TARGET_URL")"
