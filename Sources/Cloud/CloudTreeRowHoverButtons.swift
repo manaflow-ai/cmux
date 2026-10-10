@@ -1,4 +1,6 @@
 import CmuxCloud
+import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 struct CloudTreeRowHoverButtons: View {
@@ -227,9 +229,15 @@ private struct CloudTreeDevicesMenuButton: View {
                 setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
             )
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "ellipsis", accessibilityDescription: nil),
+                size: NSSize(width: 22, height: 20),
+                tintColor: isHovered ? .labelColor : .secondaryLabelColor,
+                symbolWeight: .medium,
+                fallbackSource: .systemSymbol(name: "ellipsis", accessibilityDescription: nil),
+                symbolPointSize: 11,
+                centersVisibleContent: true
+            ))
                 .frame(width: 22, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
@@ -246,6 +254,7 @@ private struct CloudTreeDevicesMenuButton: View {
         .fixedSize()
         .onHover { isHovered = $0 }
         .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
         .accessibilityIdentifier("DevicesOptionsMenu")
     }

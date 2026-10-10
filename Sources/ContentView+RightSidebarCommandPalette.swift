@@ -24,6 +24,8 @@ extension ContentView {
             return .newBrowserWorkspace
         case ContentView.commandPaletteCloudNewMachineCommandId:
             return .newCloudMachine
+        case ContentView.commandPaletteCloudNewWorkspaceCommandId:
+            return .newCloudWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":

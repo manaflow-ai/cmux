@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxCore
 import Foundation
 
 /// A socket command's hop onto the main actor exceeded its deadline.
@@ -34,6 +35,115 @@ enum SocketCommandTaskPolicy {
 ///
 /// Both are the fix for <https://github.com/manaflow-ai/cmux/issues/13369>.
 extension TerminalController {
+    /// Resolves an agent hook's live target without doing process inspection
+    /// inside the main-actor hop. The final ownership traversal remains on
+    /// MainActor because workspace and Dock registries are UI state.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func socketAgentResolveDeliveryTargetResponseAsync(
+        _ request: ControlRequest
+    ) async throws -> String {
+        let foundationParams = request.params.mapValues(\.foundationObject)
+        let precomputedEvidence: AgentDeliveryProcessEvidence?
+        if let rawPID = foundationParams["pid"],
+           let pid = strictPositivePID(rawPID) {
+            let resolution: AgentProcessBindingResolution?
+            if let rawResolution = foundationParams["pid_resolution"] {
+                resolution = (rawResolution as? String).flatMap {
+                    AgentProcessBindingResolution(rawValue: $0)
+                }
+            } else {
+                resolution = .corroborated
+            }
+            if let resolution {
+                precomputedEvidence = await runSocketWorkerBlockingBody {
+                    agentDeliveryProcessEvidence(pid: pid, resolution: resolution)
+                }
+            } else {
+                precomputedEvidence = nil
+            }
+        } else if foundationParams["pid"] != nil {
+            // Keep invalid PID/resolution handling and the default
+            // `corroborated` behavior in the canonical MainActor validator.
+            precomputedEvidence = nil
+        } else {
+            precomputedEvidence = nil
+        }
+
+        return try await socketAgentResolveDeliveryTargetResponseAsync(
+            request,
+            precomputedProcessEvidence: precomputedEvidence
+        )
+    }
+
+    /// Completes the async delivery-target dispatch after process evidence has
+    /// been collected. Keeping the evidence as an explicit value makes the
+    /// MainActor handoff auditable and preserves stale-PID rejection.
+    nonisolated func socketAgentResolveDeliveryTargetResponseAsync(
+        _ request: ControlRequest,
+        precomputedProcessEvidence: AgentDeliveryProcessEvidence?
+    ) async throws -> String {
+        let response = try await v2MainAsync {
+            // Keep this specialized worker path in lockstep with the normal
+            // main-lane dispatch preamble. The process probes are already
+            // off-actor; known refs remain a main-actor publication step.
+            self.v2RefreshKnownRefs()
+            let result = self.v2AgentResolveDeliveryTarget(
+                params: request.params.mapValues(\.foundationObject),
+                precomputedProcessEvidence: precomputedProcessEvidence
+            )
+            let response = Self.v2Encoder.response(
+                id: request.id,
+                Self.controlCallResult(fromLegacy: result)
+            )
+            self.scheduleSocketReadSnapshotRefresh()
+            return response
+        }
+
+        // The main-actor hop can wait behind a long UI turn. Re-read the
+        // process birth-time key on the blocking worker after that wait so a
+        // reused PID cannot make the actor resolve a stale TTY or scope as if
+        // it were still live. Keep this probe off MainActor; the actor only
+        // owns workspace and surface state.
+        guard let evidence = precomputedProcessEvidence,
+              let pidValue = request.params["pid"]?.foundationObject,
+              let pid = strictPositivePID(pidValue) else {
+            return response
+        }
+        let currentIdentity = await runSocketWorkerBlockingBody {
+            agentLiveProcessIdentity(pid: pid)
+        }
+        guard let currentIdentity,
+              agentDeliveryEvidenceMatchesProcess(
+                  evidence,
+                  currentScopeCacheKey: currentIdentity.scopeCacheKey
+              ) else {
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "not_found",
+                message: String(
+                    localized: "agent.deliveryTarget.error.notFound",
+                    defaultValue: "No live delivery target"
+                )
+            )
+        }
+        return response
+    }
+
+    /// Use the canonical resolver's integer parsing so every supported PID
+    /// encoding, including numeric strings, stays on the worker probe path.
+    private nonisolated func strictPositivePID(_ value: Any) -> pid_t? {
+        guard let value = v2StrictIntAny(value),
+              value > 0,
+              let pid = pid_t(exactly: value) else {
+            return nil
+        }
+        return pid
+    }
+
     /// Deadline for one socket command's main-actor hop (queue wait plus
     /// body). Above the hang detector's 8 s stall threshold so a hang sample
     /// is captured first, below the CLI's 15 s response timeout so the client

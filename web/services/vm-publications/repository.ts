@@ -81,6 +81,10 @@ export type CloudVmPublicationAccountDeletionTarget = {
   readonly provider: ProviderId;
   readonly hostname: string;
   readonly providerTlsRuleId: string | null;
+  /** The VM the publication's rules land on; scopes hostname cleanup to it. */
+  readonly providerVmId: string | null;
+  /** Whether this row holds the hostname claim; only then may it sweep by hostname. */
+  readonly hostnameClaimed: boolean;
 };
 
 export type CloudVmPublicationVmDeletionTarget =
@@ -1523,6 +1527,8 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               provider: cloudVms.provider,
               hostname: cloudVmPublications.hostname,
               providerTlsRuleId: cloudVmPublications.providerTlsRuleId,
+              providerVmId: cloudVms.providerVmId,
+              hostnameClaimed: sql<boolean>`${cloudVmPublications.hostnameClaimedAt} is not null`,
               state: cloudVmPublications.state,
             })
             .from(cloudVmPublications)
@@ -1900,6 +1906,8 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               provider: cloudVms.provider,
               hostname: cloudVmPublications.hostname,
               providerTlsRuleId: cloudVmPublications.providerTlsRuleId,
+              providerVmId: cloudVms.providerVmId,
+              hostnameClaimed: sql<boolean>`${cloudVmPublications.hostnameClaimedAt} is not null`,
             })
             .from(cloudVmPublications)
             .leftJoin(

@@ -250,6 +250,13 @@ build() {
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
     CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
+  # Xcode's explicit-module dependency graph can survive a clean DerivedData
+  # rebuild when a reused CAS entry is incomplete. Admission recovery sets
+  # this only after seeing that diagnostic, so normal builds keep the faster
+  # explicit-module path while the recovery build avoids the broken graph.
+  if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
+    cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+  fi
   # Before Xcode 26.6 the app target has the same defect: under the cache the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
   # (identical bytes, newer mtime) on every build, so a body-only edit to one
@@ -259,6 +266,9 @@ build() {
   # with the cache on (1 task, run 36081880621), so it keeps the cache there.
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
   fi
   # Owned minis carry the fleet-cas node installed by glaeda. Its settings
   # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
@@ -290,6 +300,9 @@ build() {
         esac
       done <<< "$fleet_settings"
     fi
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    fleet_cache_setting=()
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,

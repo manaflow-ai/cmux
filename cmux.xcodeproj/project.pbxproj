@@ -1132,6 +1132,7 @@
 		4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */; };
 		775ECED002DE499C96F792E7 /* CloudWorkspaceOperationController+TerminalNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15054BF8BBFD492AAFBE5F08 /* CloudWorkspaceOperationController+TerminalNavigation.swift */; };
 		15E5F36E592C4D2894AF93CF /* CloudWorkspaceOperationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */; };
+		2308193AC290BFE903473D9B /* CloudWorkspaceOptimisticShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */; };
 		A13296000000000000000402 /* CloudWorkspacePresenceHeadsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000401 /* CloudWorkspacePresenceHeadsTests.swift */; };
 		DF2AFF34D42A4505BC7EF20A /* CloudWorkspaceProjectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A9286A232F4C3FAD571015 /* CloudWorkspaceProjectionCoordinator.swift */; };
 		D59CC3EA15344B47915B3779 /* CloudWorkspaceProjectionEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */; };
@@ -1166,6 +1167,9 @@
 		AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */; };
 		C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */; };
 		C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */; };
+		D0F6A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */; };
+		D0F6A0000000000000000004 /* CmuxAgentDeliveryCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */; };
+		D0F6A0000000000000000005 /* CmuxAgentDeliveryCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */; };
 		C1175700000000000000004E /* CmuxAgentJournal in Frameworks */ = {isa = PBXBuildFile; productRef = A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -5746,6 +5750,7 @@
 		F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceMembershipTests.swift; sourceTree = "<group>"; };
 		15054BF8BBFD492AAFBE5F08 /* CloudWorkspaceOperationController+TerminalNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController+TerminalNavigation.swift"; sourceTree = "<group>"; };
 		7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController.swift"; sourceTree = "<group>"; };
+		F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOptimisticShortcutTests.swift"; sourceTree = "<group>"; };
 		A13296000000000000000401 /* CloudWorkspacePresenceHeadsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspacePresenceHeadsTests.swift; sourceTree = "<group>"; };
 		A5A9286A232F4C3FAD571015 /* CloudWorkspaceProjectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionCoordinator.swift"; sourceTree = "<group>"; };
 		0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionEnvironment.swift"; sourceTree = "<group>"; };
@@ -9016,6 +9021,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
+				D0F6A0000000000000000004 /* CmuxAgentDeliveryCore in Frameworks */,
 				A77A0003A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				9758E0039758E0039758E003 /* CmuxAgentSessionStore in Frameworks */,
@@ -9105,6 +9111,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0F6A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */,
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */,
@@ -9141,6 +9148,7 @@
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */,
+				D0F6A0000000000000000005 /* CmuxAgentDeliveryCore in Frameworks */,
 				9758E0049758E0049758E004 /* CmuxAgentSessionStore in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
 				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
@@ -13635,6 +13643,7 @@
 				096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */,
 				74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */,
 				AF0EA0EDB1794309910E7A5B /* WorkspaceProgramStatusTests.swift */,
+				F4AF5EC38F21F0F363EBD6CB /* CloudWorkspaceOptimisticShortcutTests.swift */,
 				249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */,
 				41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */,
 			);
@@ -13764,6 +13773,7 @@
 			);
 			name = cmux;
 			packageProductDependencies = (
+				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				C10DC1000000000000000002 /* CmuxCloud */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				C1D7A0000000000000000002 /* CmuxCloudTui */,
@@ -13855,6 +13865,7 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
+				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				5CA7A1060000000000000002 /* CmuxSurfaceCatalogModel */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
@@ -13928,6 +13939,7 @@
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
@@ -14100,6 +14112,7 @@
 				D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
+				D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -17920,6 +17933,7 @@
 				341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */,
 				04EA20A26351429BA2023F92 /* CloudWorkspaceLiveProjectionTests.swift in Sources */,
 				4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */,
+				2308193AC290BFE903473D9B /* CloudWorkspaceOptimisticShortcutTests.swift in Sources */,
 				A13296000000000000000402 /* CloudWorkspacePresenceHeadsTests.swift in Sources */,
 				1DCF35C8B8C57B45635CBAE1 /* CloudWorkspaceRenameRefreshTests.swift in Sources */,
 				C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */,
@@ -19549,6 +19563,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCore;
 		};
+		D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAgentDeliveryCore;
+		};
 		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxRemoteDaemon;
@@ -19919,6 +19937,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */;
 			productName = CmuxCore;
+		};
+		D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */;
+			productName = CmuxAgentDeliveryCore;
 		};
 		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
 			isa = XCSwiftPackageProductDependency;

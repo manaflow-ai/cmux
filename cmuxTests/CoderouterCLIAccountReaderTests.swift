@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import Foundation
 import Testing
@@ -552,6 +553,119 @@ struct CoderouterAccountStateTests {
             for: Self.teamA
         )
         #expect(state.accounts.map(\.id) == ["a1"])
+    }
+
+    @Test("A stale post-removal read stays hidden until absence is confirmed")
+    func postRemovalReadDoesNotReinsertAccount() {
+        var state = loaded(Self.teamA, ["a1", "a2"])
+        let inFlightRead = state.beginRefresh(for: Self.teamA)
+        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
+        #expect(removedIndex == 1)
+        let rejectedRead = state.apply(
+            accounts: [account("a1"), account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: inFlightRead
+        )
+        #expect(!rejectedRead)
+
+        // The CLI write succeeded, but the first read can still observe its
+        // old account list. Keep the row pending until a later read omits it.
+        state.finishRemoval(accountID: "a2", for: Self.teamA)
+        #expect(state.pendingRemovalIDs == ["a2"])
+        let staleRead = state.beginRefresh(for: Self.teamA)
+        let staleReadApplied = state.apply(
+            accounts: [account("a1"), account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: staleRead
+        )
+        #expect(staleReadApplied)
+        #expect(state.accounts.map(\.id) == ["a1"])
+        #expect(state.pendingRemovalIDs == ["a2"])
+
+        let confirmedRead = state.beginRefresh(for: Self.teamA)
+        let confirmedReadApplied = state.apply(
+            accounts: [account("a1")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: confirmedRead
+        )
+        #expect(confirmedReadApplied)
+        #expect(state.accounts.map(\.id) == ["a1"])
+        #expect(state.pendingRemovalIDs.isEmpty)
+    }
+
+    @Test("A team switch keeps an unconfirmed removal scoped to that team")
+    func teamRoundTripKeepsRemovalHidden() {
+        var state = loaded(Self.teamA, ["a2"])
+        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
+        #expect(removedIndex == 0)
+        state.finishRemoval(accountID: "a2", for: Self.teamA)
+
+        state.select(Self.teamB)
+        #expect(state.pendingRemovalIDs.isEmpty)
+        state.select(Self.teamA)
+        #expect(state.pendingRemovalIDs == ["a2"])
+
+        let read = state.beginRefresh(for: Self.teamA)
+        let readApplied = state.apply(
+            accounts: [account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA,
+            startedAt: read
+        )
+        #expect(readApplied)
+        #expect(state.accounts.isEmpty)
+        #expect(state.pendingRemovalIDs == ["a2"])
+    }
+}
+
+@MainActor
+@Suite("CodeRouter sidebar store")
+struct CoderouterAccountStoreTests {
+    @Test("Scope transitions clear retained rows while Machines is unmounted")
+    func scopeTransitionClearsRetainedState() {
+        let store = CoderouterAccountStore()
+        let scope = CoderouterAccountScope(teamID: "team-a", identityID: "user-1")!
+        store.state.select(scope)
+        _ = store.state.apply(
+            accounts: [CloudTreeNode.CoderouterAccount(id: "a1", provider: .codex, label: "a1@example.com", state: "active")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: scope
+        )
+
+        store.resetForTeamScopeChange()
+
+        #expect(store.state.accounts.isEmpty)
+        #expect(store.state.scope == nil)
+        #expect(store.isRefreshing)
+        #expect(store.refreshRequest == 1)
+    }
+
+    @Test("Remounted machine panels reuse the CodeRouter state owner")
+    func remountedPanelsKeepStore() {
+        let store = CoderouterAccountStore()
+        let activationCoordinator = CloudActivationCoordinator.unconfigured()
+        let firstPanel = MachinesPanelView(
+            chromeBackgroundColor: .windowBackgroundColor,
+            activationCoordinator: activationCoordinator,
+            coderouterStore: store
+        )
+        let remountedPanel = MachinesPanelView(
+            chromeBackgroundColor: .windowBackgroundColor,
+            activationCoordinator: activationCoordinator,
+            coderouterStore: store
+        )
+
+        #expect(firstPanel.coderouterStore === remountedPanel.coderouterStore)
+        #expect(firstPanel.coderouterStore.lane === remountedPanel.coderouterStore.lane)
+        #expect(CoderouterAccountStore().lane === CoderouterAccountStore().lane)
     }
 }
 

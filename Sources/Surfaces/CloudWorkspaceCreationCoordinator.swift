@@ -7,6 +7,10 @@ import Foundation
 final class CloudWorkspaceCreationCoordinator {
     private weak var catalog: SurfaceCatalog?
     private(set) var operations: [UUID: CloudWorkspaceCreationOperation] = [:]
+    /// Reservations admitted before provider discovery. They are removed as
+    /// soon as ``create`` takes ownership, and stale entries are ignored when
+    /// predicting a title after a cancelled lookup.
+    private var preAdmissionReservations: [ObjectIdentifier: (machine: SurfaceMachineID, host: CloudWorkspaceCreationHost, reservation: CloudTerminalPaneReservation)] = [:]
     /// Tree reveals for creates their window selected, withdrawn when the create fails.
     let reveals = CloudWorkspaceCreationReveals()
     init(catalog: SurfaceCatalog) {
@@ -17,6 +21,7 @@ final class CloudWorkspaceCreationCoordinator {
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
         existingRemoteView: SurfaceRemoteView? = nil,
+        existingReservation: CloudTerminalPaneReservation? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
@@ -34,6 +39,15 @@ final class CloudWorkspaceCreationCoordinator {
         )
         operation.validateOperation = validateOperation
         operation.existingRemoteView = existingRemoteView
+        if let existingReservation {
+            guard existingReservation.machine == provider.machine,
+                  host?.isLive(existingReservation) == true else { throw CancellationError() }
+            operation.reservation = existingReservation
+            operation.wasPreAdmitted = true
+            preAdmissionReservations.removeValue(forKey: ObjectIdentifier(existingReservation))
+            let operationID = operation.id
+            existingReservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+        }
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
@@ -43,6 +57,59 @@ final class CloudWorkspaceCreationCoordinator {
             // perform's catch also owns the same idempotent cleanup on unwind.
             Task { @MainActor [weak self] in self?.cancel(operation.id) }
         }
+    }
+
+    /// Admits a local Cloud workspace before provider discovery. The returned
+    /// reservation must be handed to ``create`` or discarded by the caller.
+    func reserveLocalWorkspace(
+        machine: SurfaceMachineID,
+        title: String,
+        focus: Bool,
+        host: CloudWorkspaceCreationHost,
+        validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
+    ) throws -> CloudTerminalPaneReservation {
+        guard let catalog, host.isAvailable else { throw CancellationError() }
+        try validateOperation()
+        let reservation = try host.reserve(title: title, machine: machine, focus: focus)
+        preAdmissionReservations[ObjectIdentifier(reservation)] = (machine: machine, host: host, reservation: reservation)
+        catalog.bindCloudWorkspace(
+            localWorkspaceID: reservation.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: nil,
+            generatedTitle: title
+        )
+        catalog.notifyChange()
+        return reservation
+    }
+
+    /// Whether a pre-admitted pane has already been claimed by a creation
+    /// operation. Callers use this to avoid discarding a failed operation's
+    /// retry pane while still cleaning up validation failures before admission.
+    func ownsReservation(_ reservation: CloudTerminalPaneReservation) -> Bool {
+        operations.values.contains { $0.reservation === reservation }
+    }
+
+    /// Computes the title shown before the daemon returns its authoritative
+    /// receipt. The same prediction is used by shortcut pre-admission and the
+    /// regular coordinator path, so the first paint does not flicker through
+    /// a generic “Cloud VM” label when inventory is available.
+    func provisionalWorkspaceTitle(
+        machine: SurfaceMachineID, name: String?, catalog: SurfaceCatalog
+    ) -> String {
+        let placeholder = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        let pendingOperations = operations.values.filter {
+            $0.machine == machine && !$0.isExistingWorkspaceOpen
+                && $0.reservation != nil && $0.receipt == nil && $0.failure == nil
+        }.count
+        let pendingPreAdmissions = preAdmissionReservations.values.reduce(into: 0) { count, entry in
+            guard entry.machine == machine, entry.host.isLive(entry.reservation) else { return }
+            count += 1
+        }
+        return CloudTreeNodeBuilder.predictedDefaultWorkspaceName(
+            on: machine, snapshot: catalog.snapshot,
+            pendingCreations: pendingOperations + pendingPreAdmissions
+        ) ?? placeholder
     }
 
     /// Opens an already-authoritative Cloud workspace through the same local
@@ -309,7 +376,7 @@ final class CloudWorkspaceCreationCoordinator {
         operation.isRunning = true
         operation.failure = nil
         defer { operation.isRunning = false }
-        if let reservation = operation.reservation { operation.host?.restart(reservation) }
+        if let reservation = operation.reservation, !operation.wasPreAdmitted { operation.host?.restart(reservation) }
         do {
             return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                                  existingTerminal: existingTerminal, catalog: catalog)
@@ -351,6 +418,7 @@ final class CloudWorkspaceCreationCoordinator {
         guard let catalog, let operation = operations[id], operation.failure != nil,
               !operation.isRunning, operation.retryTask == nil else { return }
         operation.isRunning = true
+        operation.wasPreAdmitted = false
         operation.retryTask = Task { @MainActor [weak self] in
             defer { operation.retryTask = nil }
             guard let self else { return }
@@ -367,14 +435,7 @@ final class CloudWorkspaceCreationCoordinator {
     ) -> String {
         let placeholder = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
         guard !operation.isExistingWorkspaceOpen else { return placeholder }
-        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        let pendingCreations = operations.values.filter {
-            $0 !== operation && $0.machine == operation.machine && !$0.isExistingWorkspaceOpen
-                && $0.reservation != nil && $0.receipt == nil && $0.failure == nil
-        }.count
-        return CloudTreeNodeBuilder.predictedDefaultWorkspaceName(
-            on: operation.machine, snapshot: catalog.snapshot, pendingCreations: pendingCreations
-        ) ?? placeholder
+        return provisionalWorkspaceTitle(machine: operation.machine, name: name, catalog: catalog)
     }
 
     private func run(

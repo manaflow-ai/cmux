@@ -224,6 +224,22 @@ describe("Cloud VM publication persistence", () => {
     expect(kept).toMatchObject({ state: "active", routingRevision: active.publication.routingRevision });
   });
 
+  dbTest("account deletion targets report hostnameClaimed as a boolean and the VM's provider id", async () => {
+    const active = await createActivePublication({ suffix: "claimed-flag" });
+    const targets = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.hostnameClaimed).toBe(true);
+    expect(typeof targets[0]!.hostnameClaimed).toBe("boolean");
+    expect(targets[0]!.providerVmId).toBe("provider-vm-claimed-flag");
+    await requiredSql()`
+      update cloud_vm_publications
+      set hostname_claimed_at = null, state = 'provisioning', provider_tls_rule_id = null
+      where id = ${active.publication.id}
+    `;
+    const unclaimed = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
+    expect(unclaimed[0]!.hostnameClaimed).toBe(false);
+  });
+
   dbTest("keeps the pending sign-in cap under simultaneous writers", async () => {
     const repo = requiredRepository();
     const sql = requiredSql();
