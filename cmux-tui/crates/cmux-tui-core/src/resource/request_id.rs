@@ -1,5 +1,4 @@
-//! The protocol-v2 request id (moved out of resource.rs for the god-file
-//! budget).
+//! `RequestId`: the caller-chosen id of one protocol-v2 request.
 
 use serde::{Deserialize, Serialize};
 

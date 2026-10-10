@@ -198,6 +198,7 @@ const fn access(operation: Op) -> Access {
         | Op::StreamCancel
         | Op::OriginConfirmationIssue
         | Op::ClosedList
+        | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
         | Op::WindowRecordPut
