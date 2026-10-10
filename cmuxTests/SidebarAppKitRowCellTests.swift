@@ -288,6 +288,92 @@ struct SidebarAppKitRowCellTests {
         #expect(!closeButton.isAccessibilityElement())
     }
 
+    @Test
+    func workspaceRowAccessibilityPressSelectsWorkspace() throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let model = Self.makeModel(workspaceId: workspace.id)
+        let cell = Self.configuredCell(
+            model: model,
+            tab: workspace,
+            tabManager: tabManager
+        )
+
+        #expect(cell.accessibilityIdentifier() == "sidebarWorkspace.\(workspace.id.uuidString)")
+        #expect(cell.accessibilityRole() == .button)
+        #expect(cell.accessibilityLabel() == model.snapshot.accessibilityLabel(
+            index: model.index,
+            workspaceCount: model.accessibilityWorkspaceCount
+        ))
+        #expect(cell.accessibilityPerformPress())
+        #expect(tabManager.selectedTabId == workspace.id)
+    }
+
+    @Test
+    func workspaceRowAccessibilityPressDoesNotSelectDuringInlineRename() throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let model = Self.makeModel(workspaceId: workspace.id)
+        let cell = Self.configuredCell(
+            model: model,
+            tab: workspace,
+            tabManager: tabManager
+        )
+
+        cell.beginInlineRename()
+
+        #expect(cell.isEditing)
+        #expect(cell.accessibilityRole() == .group)
+        #expect(!cell.accessibilityPerformPress())
+        #expect(tabManager.selectedTabId == nil)
+    }
+
+    @Test
+    func hostedSwiftUIWorkspaceRowAccessibilityPressSelectsWorkspace() async throws {
+        let tabManager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace()
+        let identifier = "sidebarWorkspace.\(workspace.id.uuidString)"
+        let row = Text("Workspace")
+            .frame(width: 240, height: 32)
+            .modifier(SidebarRowAccessibilityModifier(
+                isEditing: false,
+                accessibilityIdentifier: identifier,
+                label: "Workspace",
+                hint: "Select workspace",
+                moveUpLabel: "Move Up",
+                moveDownLabel: "Move Down",
+                onMoveUp: {},
+                onMoveDown: {},
+                onActivate: { tabManager.selectWorkspace(workspace) }
+            ))
+            .environment(\.accessibilityEnabled, true)
+        let host = NSHostingView(rootView: row)
+        host.frame = NSRect(x: 0, y: 0, width: 240, height: 32)
+        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host) != nil
+        }
+        try #require(published, "Hosted SwiftUI workspace row must be reachable by its identifier")
+        let element = try #require(
+            CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
+        )
+
+        let legacy = NSSelectorFromString("accessibilityPerformAction:")
+        if let accessibilityElement = element as? NSAccessibilityProtocol {
+            #expect(accessibilityElement.accessibilityPerformPress())
+        } else {
+            try #require(element.responds(to: legacy), "Workspace row must expose AXPress")
+            _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
+        }
+
+        #expect(tabManager.selectedTabId == workspace.id)
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
