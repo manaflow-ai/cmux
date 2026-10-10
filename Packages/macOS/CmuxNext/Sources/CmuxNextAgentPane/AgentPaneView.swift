@@ -38,6 +38,8 @@ public final class AgentPaneView: NSView {
     }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    /// The newest recently closed items for the New Tab page's Recently Closed section.
+    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }

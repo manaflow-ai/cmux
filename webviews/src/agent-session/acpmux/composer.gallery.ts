@@ -297,7 +297,9 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.hover({ text: /^Once the retries land/ });
+        // Target the queue row itself so the pointer enters the span that owns the truncation
+        // check; a text target can resolve to the row or a parent in the gallery driver.
+        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
       },
     },
@@ -476,7 +478,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard and Fast with Codex's own line.",
+      note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -497,13 +499,6 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
-        await ctx.click({ role: "menuitemradio", name: /^Low/ });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-effort .acpmux-picker-button")?.textContent?.includes("Low") ?? false,
-        );
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
         await ctx.click({ role: "menuitemradio", name: /^Fast/ });

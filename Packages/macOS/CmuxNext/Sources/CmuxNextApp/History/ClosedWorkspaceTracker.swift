@@ -13,14 +13,15 @@ import Observation
 /// A close never touches a workspace's agent-home folder; an entry that
 /// expires (it falls off the end, or the user removes it or clears History)
 /// sends the folder to the Trash (``AgentHomeHistory``).
+@Observable
 final class ClosedWorkspaceTracker {
     typealias Record = ClosedWorkspaceLog.Record
 
     static let capacity = ClosedWorkspaceLog.capacity
     private var log = ClosedWorkspaceLog()
     var records: [Record] { log.records }
-    let agentHomes: AgentHomeHistory
-    private var observation: Task<Void, Never>?
+    @ObservationIgnored let agentHomes: AgentHomeHistory
+    @ObservationIgnored private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
         agentHomes = AgentHomeHistory()

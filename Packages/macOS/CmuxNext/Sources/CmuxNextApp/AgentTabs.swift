@@ -358,7 +358,7 @@ final class AgentTabStore {
         view.customization = customization.current
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
-        view.deviceChats = pageChats.chats
+        pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view

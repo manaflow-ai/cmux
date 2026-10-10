@@ -34,6 +34,10 @@ pub(super) struct Chat {
     /// The Chief is working (typing on).
     pub busy: bool,
     pub show_thoughts: bool,
+    /// Subagent links show as their labels and print as terminal hyperlinks (`hyperlink`).
+    pub hyperlinks: bool,
+    /// The subagent links seen so far: (label, url).
+    pub links: Vec<(String, String)>,
 }
 
 impl Default for Chat {
@@ -45,6 +49,8 @@ impl Default for Chat {
             drafts: Drafts::default(),
             busy: false,
             show_thoughts: false,
+            hyperlinks: false,
+            links: Vec::new(),
         }
     }
 }
@@ -63,7 +69,15 @@ impl Chat {
         let time = clock(message);
         let header = if time.is_empty() { name } else { format!("{name}  {time}") };
         lines.push((Style::Header, header));
-        lines.extend(self.body(&message_text(message), Style::Plain));
+        let text = message_text(message);
+        let text = if self.hyperlinks {
+            let (shown, found) = super::hyperlink::split(&text);
+            self.links.extend(found);
+            shown
+        } else {
+            text
+        };
+        lines.extend(self.body(&text, Style::Plain));
         lines
     }
 
