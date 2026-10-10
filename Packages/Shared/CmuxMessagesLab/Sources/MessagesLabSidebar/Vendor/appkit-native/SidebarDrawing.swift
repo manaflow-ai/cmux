@@ -14,6 +14,9 @@ struct SidebarRenderContext {
     /// Muted glyph (bell.slash.fill), tinted secondary and selected (rendered on main).
     var bellSecondary: CGImage?
     var bellSelected: CGImage?
+    /// Not-delivered glyph (exclamationmark.circle.fill), red and selected (rendered on main).
+    var failed: CGImage? = nil
+    var failedSelected: CGImage? = nil
     var now: Date
 }
 
@@ -258,16 +261,20 @@ enum SidebarDraw {
         let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
         // `.distantPast`: a row without a time (the host's extra search results).
         let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
-        let bell = c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil
-        let bw = bell.map { CGFloat($0.width) / ctx.scale + 4 } ?? 0
-        let size = CGSize(width: (width(tl) + bw).rounded(.up), height: SidebarMetrics.rowHeight)
+        // Glyphs before the time, right to left: the muted bell, then the not-delivered mark.
+        let glyphs = [c.failed ? (emphasized ? ctx.failedSelected : ctx.failed) : nil,
+                      c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil].compactMap { $0 }
+        let gw = glyphs.reduce(CGFloat(0)) { $0 + CGFloat($1.width) / ctx.scale + 4 }
+        let size = CGSize(width: (width(tl) + gw).rounded(.up), height: SidebarMetrics.rowHeight)
         return bitmap(size: size, ctx: ctx) { g in
             draw(tl, x: size.width - width(tl), baseline: SidebarMetrics.nameBaseline, g)
-            if let bell {
-                let w = CGFloat(bell.width) / ctx.scale, h = CGFloat(bell.height) / ctx.scale
-                let br = CGRect(x: 0, y: SidebarMetrics.nameBaseline - 4.5 - h / 2, width: w, height: h)
+            var x: CGFloat = 0
+            for img in glyphs {
+                let w = CGFloat(img.width) / ctx.scale, h = CGFloat(img.height) / ctx.scale
+                let br = CGRect(x: x, y: SidebarMetrics.nameBaseline - 4.5 - h / 2, width: w, height: h)
                 g.saveGState(); g.translateBy(x: br.minX, y: br.maxY); g.scaleBy(x: 1, y: -1)
-                g.draw(bell, in: CGRect(origin: .zero, size: br.size)); g.restoreGState()
+                g.draw(img, in: CGRect(origin: .zero, size: br.size)); g.restoreGState()
+                x += w + 4
             }
         }
     }
@@ -400,6 +407,18 @@ enum SidebarDraw {
         return (CGRect(x: ((m.tileWidth - w) / 2).rounded(), y: max(1, bottom - bh), width: w, height: bh), lines)
     }
 
+    /// A recent sender's avatar on a pinned group tile: 32 % of the avatar (to verify).
+    static func senderDiameter(avatar d: CGFloat) -> CGFloat { (d * 0.32).rounded() }
+    /// Sender `k` (0: lower left, 1: lower right, 2: upper right) centred on the avatar's edge
+    /// (flipped tile coordinates; to verify).
+    static func senderRect(_ k: Int, avatar ar: CGRect, diameter d: CGFloat) -> CGRect {
+        let angles: [CGFloat] = [135, 45, -45]   // degrees, y down: 135 = lower left
+        let a = (angles[checked: min(max(k, 0), 2)] ?? 135) * .pi / 180 // cmux: checked
+        let r = ar.width / 2
+        let c = CGPoint(x: ar.midX + cos(a) * r, y: ar.midY + sin(a) * r)
+        return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
+    }
+
     /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
     /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
     static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
@@ -412,19 +431,102 @@ enum SidebarDraw {
     }
 }
 
-/// Messages' typing bubble: a grey capsule with three dots that pulse in turn, animated on
-/// the render server (no main-thread frames).
+/// The list's motion (render-server animations only; no main-thread frames). Start values are the
+/// transcript's fits on real Messages (catalyst Springs.swift and springs.json), used here
+/// UNVERIFIED: no reference of the list in motion exists (appkit-native/SIDEBAR-PARITY.md).
+enum SidebarMotion {
+    /// Off: every change shows at once (benches; a host may turn it off).
+    static var enabled = true
+    /// Typing bubble in: a scale spring of 0.209 s and a 0.12 s fade, both 0.05 s after the change
+    /// (transcript `typing.pop`, `typing.fade`). Out: a 0.2 s fade 0.02 s after it (`typing.out`).
+    static let typingInDelay: CFTimeInterval = 0.05
+    static let typingPop: CFTimeInterval = 0.209
+    static let typingFade: CFTimeInterval = 0.12
+    static let typingOutDelay: CFTimeInterval = 0.02
+    static let typingOut: CFTimeInterval = 0.2
+    /// Rows and tiles moving to new places (a new message, pin, unpin, a tile drop): the transcript's
+    /// external-insert move (`transcript.insert`: 0.2834 s, cubic 0.4481 0.1998 0.6216 1.0).
+    static let move: CFTimeInterval = 0.2834
+    static let moveCurve = CAMediaTimingFunction(controlPoints: 0.4481, 0.1998, 0.6216, 1.0)
+    /// A row or tile that was not on screen before the change fades in over the move.
+    static let appear: CFTimeInterval = 0.2
+
+    static func typingIn(_ l: CALayer) {
+        let now = l.convertTime(CACurrentMediaTime(), from: nil)
+        let s = CASpringAnimation(perceptualDuration: typingPop, bounce: 0)
+        s.keyPath = "transform.scale"
+        s.fromValue = 0.0; s.toValue = 1.0
+        s.beginTime = now + typingInDelay; s.fillMode = .backwards
+        s.duration = s.settlingDuration
+        let f = CABasicAnimation(keyPath: "opacity")
+        f.fromValue = 0.0; f.toValue = 1.0
+        f.beginTime = now + typingInDelay; f.duration = typingFade; f.fillMode = .backwards
+        l.add(s, forKey: "typingIn.scale")
+        l.add(f, forKey: "typingIn.opacity")
+    }
+    /// Fades `l` out and removes it from its superlayer when the fade ends.
+    static func typingOutAndRemove(_ l: CALayer) {
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { l.removeFromSuperlayer() }
+        let f = CABasicAnimation(keyPath: "opacity")
+        f.fromValue = 1.0; f.toValue = 0.0
+        f.beginTime = l.convertTime(CACurrentMediaTime(), from: nil) + typingOutDelay
+        f.duration = typingOut; f.fillMode = .both; f.isRemovedOnCompletion = false
+        l.add(f, forKey: "typingOut")
+        CATransaction.commit()
+    }
+    /// What `l` shows now: its presentation while one of its animations runs, else its model
+    /// (a presentation is only updated at a commit, so right after a model change it is stale).
+    static func presented(_ l: CALayer) -> CALayer {
+        (l.animationKeys()?.isEmpty == false ? l.presentation() : nil) ?? l
+    }
+    /// An additive move from `delta` (old position minus new) to the layer's model position.
+    static func move(_ l: CALayer, by delta: CGPoint) {
+        guard abs(delta.x) > 0.25 || abs(delta.y) > 0.25 else { return }
+        let a = CABasicAnimation(keyPath: "position")
+        a.isAdditive = true
+        a.fromValue = NSValue(point: NSPoint(x: delta.x, y: delta.y))
+        a.toValue = NSValue(point: .zero)
+        a.duration = move
+        a.timingFunction = moveCurve
+        l.add(a, forKey: "move")
+    }
+    /// Animates `l` from `old` (its presented frame before the change) to its model frame, with
+    /// the move timing (an additive position and a bounds animation).
+    static func reframe(_ l: CALayer, from old: CGRect) {
+        guard old != l.frame else { return }
+        move(l, by: CGPoint(x: old.midX - l.frame.midX, y: old.midY - l.frame.midY))
+        let b = CABasicAnimation(keyPath: "bounds")
+        b.fromValue = NSValue(rect: CGRect(origin: l.bounds.origin, size: old.size))
+        b.toValue = NSValue(rect: l.bounds)
+        b.duration = move
+        b.timingFunction = moveCurve
+        l.add(b, forKey: "reframe")
+    }
+    static func appear(_ l: CALayer) {
+        let f = CABasicAnimation(keyPath: "opacity")
+        f.fromValue = 0.0; f.toValue = 1.0; f.duration = appear
+        l.add(f, forKey: "appear")
+    }
+}
+
+/// Messages' typing bubble: a grey capsule with three dots that light up in turn, animated on
+/// the render server (no main-thread frames). The dots' timing, levels and the circle tail are
+/// the transcript's typing indicator, measured on real Messages (catalyst Transcript.swift
+/// `startTypingDots`, RowDraw.drawTypingBubble); their use in the list, the bubble's size and
+/// the light levels are UNVERIFIED (appkit-native/SIDEBAR-PARITY.md).
 final class SidebarTypingLayer: CALayer {
     private let dots = (0..<3).map { _ in CALayer() }
-    /// On a pinned tile the bubble points at the avatar with the preview bubble's tail.
+    /// Each dot's lit copy; its opacity carries the pulse.
+    private let lit = (0..<3).map { _ in CALayer() }
+    /// On a pinned tile the bubble points at the avatar with the typing indicator's two circles.
     private var tail: CAShapeLayer?
     var showsTail = false {
         didSet {
             guard showsTail != oldValue else { return }
             if showsTail {
                 let t = CAShapeLayer()
-                t.path = SidebarDraw.tailPath(bubbleBottomLeft: CGPoint(x: 0, y: 0))
-                t.position = CGPoint(x: 0, y: Self.size.height)
+                t.path = Self.tailPath
                 t.fillColor = backgroundColor
                 t.actions = ["position": NSNull(), "path": NSNull(), "fillColor": NSNull()]
                 addSublayer(t)
@@ -435,15 +537,36 @@ final class SidebarTypingLayer: CALayer {
         }
     }
     static let size = CGSize(width: 34, height: 20)
+    /// The transcript bubble (44 x 27.5 pt) scaled to this height.
+    private static let k = size.height / 27.5
+    static let dotDiameter: CGFloat = 6
+    static let dotPitch: CGFloat = 8
+    /// The transcript's two tail circles (9 pt at the bubble's lower left, 5 pt below-left of it), scaled.
+    static let tailPath: CGPath = {
+        let p = CGMutablePath()
+        p.addEllipse(in: CGRect(x: 0.5 * k, y: size.height - 7 * k, width: 9 * k, height: 9 * k))
+        p.addEllipse(in: CGRect(x: -3.5 * k, y: size.height + 1 * k, width: 5 * k, height: 5 * k))
+        return p
+    }()
+    /// Measured pulse (transcript): period 1.0 s, dots 0.247 s apart, a Gaussian of width 0.22 s.
+    static let period: CFTimeInterval = 1.0
+    static let phaseStep = 0.247
+    static let pulseWidth = 0.22
+
     override init() {
         super.init()
         bounds = CGRect(origin: .zero, size: Self.size)
         cornerRadius = Self.size.height / 2
-        for (i, d) in dots.enumerated() {
-            d.bounds = CGRect(x: 0, y: 0, width: 6, height: 6)
-            d.cornerRadius = 3
-            d.position = CGPoint(x: 9 + CGFloat(i) * 8, y: Self.size.height / 2)
-            addSublayer(d)
+        let d = Self.dotDiameter
+        for (i, (dot, hi)) in zip(dots, lit).enumerated() { // cmux: no index math
+            dot.bounds = CGRect(x: 0, y: 0, width: d, height: d)
+            dot.cornerRadius = d / 2
+            dot.position = CGPoint(x: Self.size.width / 2 + CGFloat(i - 1) * Self.dotPitch, y: Self.size.height / 2)
+            hi.frame = dot.bounds
+            hi.cornerRadius = d / 2
+            hi.opacity = 0
+            dot.addSublayer(hi)
+            addSublayer(dot)
         }
         actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
     }
@@ -454,18 +577,36 @@ final class SidebarTypingLayer: CALayer {
         tail?.fillColor = p.bubble
         tail?.contentsScale = scale
         contentsScale = scale
-        for d in dots { d.backgroundColor = p.typingDot; d.contentsScale = scale }
+        for d in dots { d.backgroundColor = p.typingDotDim; d.contentsScale = scale }
+        for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
     }
-    /// (Re)starts the pulse: 1.2 s per cycle, each dot 0.2 s after the previous (to verify).
+    /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
+    var isPulsing: Bool { Self.stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
+    /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
+    static var stillPhase: Double?
+    private static func level(_ i: Int, phase t: Double) -> Double {
+        var x = t - 0.45 - Double(i) * phaseStep
+        x -= x.rounded()
+        return exp(-(x / pulseWidth) * (x / pulseWidth))
+    }
+    /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
+    /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
     func animate() {
-        for (i, d) in dots.enumerated() where d.animation(forKey: "pulse") == nil {
+        if let ph = Self.stillPhase {
+            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
+            return
+        }
+        let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
+        for (i, d) in lit.enumerated() where d.animation(forKey: "pulse") == nil {
+            let n = 60
+            var values: [NSNumber] = []
+            for s in 0...n { values.append(NSNumber(value: Self.level(i, phase: Double(s) / Double(n)))) }
             let a = CAKeyframeAnimation(keyPath: "opacity")
-            a.values = [0.35, 1, 0.35, 0.35]
-            a.keyTimes = [0, 0.25, 0.5, 1]
-            a.duration = 1.2
+            a.values = values
+            a.duration = Self.period
             a.repeatCount = .infinity
-            a.beginTime = CACurrentMediaTime() + Double(i) * 0.2
-            a.fillMode = .backwards
+            a.beginTime = begin
+            a.calculationMode = .linear
             a.isRemovedOnCompletion = false
             d.add(a, forKey: "pulse")
         }
@@ -495,7 +636,7 @@ final class SidebarTextCache {
         lock.unlock()
         let nameColor = emphasized ? p.selectedText : p.name
         let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
-        let text = (c.lastReaction.map(SidebarStrings.reaction) ?? c.preview).replacingOccurrences(of: "\n", with: " ")
+        let text = SidebarStrings.preview(c)
         let attr = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): secondary])
