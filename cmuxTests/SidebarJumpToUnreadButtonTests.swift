@@ -9,9 +9,12 @@ import Testing
 #endif
 
 @MainActor
+@Suite(.serialized)
 struct SidebarJumpToUnreadButtonTests {
     private let title = KeyboardShortcutSettings.Action.jumpToUnread.label
     private let defaultShortcut = KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
     @Test
     func hidesInMinimalModeLikeOtherFooterControls() {
@@ -61,38 +64,50 @@ struct SidebarJumpToUnreadButtonTests {
     }
 
     @Test
-    func turningTheSettingOffHidesTheButtonEvenWithUnread() throws {
-        let suiteName = "SidebarJumpToUnreadButtonTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        #expect(SidebarJumpToUnreadButtonPresentation.isEnabled(defaults: defaults))
-
-        defaults.set(false, forKey: "sidebarShowJumpToUnreadButton")
-        let isEnabled = SidebarJumpToUnreadButtonPresentation.isEnabled(defaults: defaults)
+    func turningTheSettingOffHidesTheButtonEvenWithUnread() {
         let presentation = SidebarJumpToUnreadButtonPresentation.resolve(
             unreadCount: 5,
             shortcut: defaultShortcut,
-            isEnabled: isEnabled
+            isEnabled: false
         )
 
-        #expect(!isEnabled)
         #expect(!presentation.isVisible)
     }
 
     @Test
-    func settingIsReadFromCmuxJSON() throws {
-        let mapping = try #require(
-            SidebarSettingsFileMapping.booleanSettings.first { $0.jsonKey == "showJumpToUnreadButton" }
+    func cmuxJSONTurnsTheButtonOff() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SidebarJumpToUnreadButtonPresentation.setting.userDefaultsKey
+        let keys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = keys.reduce(into: [String: Any]()) { $0[$1] = defaults.object(forKey: $1) }
+        defer {
+            for key in keys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "jump-to-unread-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{ "sidebar": { "showJumpToUnreadButton": false } }"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
         )
 
-        #expect(mapping.defaultsKey == SettingCatalog().sidebar.showJumpToUnreadButton.userDefaultsKey)
-        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("sidebar.showJumpToUnreadButton"))
-        let templateLine = try #require(
-            CmuxSettingsFileStore.defaultTemplate().split(separator: "\n").first {
-                $0.contains("\"showJumpToUnreadButton\"")
-            }
-        )
-        #expect(templateLine.contains("true"))
+        #expect(defaults.object(forKey: managedKey) as? Bool == false)
+        #expect(!UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarJumpToUnreadButtonPresentation.setting))
     }
 }
