@@ -45,6 +45,7 @@ extension SidebarListView {
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
+        if case .workspaces = payload { drag.headHeight = displayed.row(for: press.key)?.height }
         drag.lastY = press.point.y
         self.drag = drag
         suppressed.formUnion(hidden)
@@ -61,7 +62,7 @@ extension SidebarListView {
         // The lifted row follows the pointer vertically; x stays locked.
         SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         autoscroll.update(windowPoint: windowPoint)
-        let card = drag.lift.frame
+        let card = drag.probeCard
         if point.y != drag.lastY {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
