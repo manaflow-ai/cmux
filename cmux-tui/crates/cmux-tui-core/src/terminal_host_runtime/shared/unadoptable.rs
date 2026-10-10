@@ -10,6 +10,7 @@ use super::super::*;
 use super::records::{liveness_path, validate_terminal_host_record};
 // The typed refusal lives in the platform-neutral handshake; adoption code
 // reads it from here (`pub use shared::unadoptable::*`).
+#[cfg_attr(not(unix), allow(unused_imports))]
 pub use super::host_refusal::{NoCommonHostProtocol, is_no_common_host_protocol};
 
 /// A discovery record this build cannot adopt: it does not decode or does
