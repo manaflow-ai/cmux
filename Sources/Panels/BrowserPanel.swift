@@ -1394,7 +1394,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     private typealias SuggestionCandidate = BrowserHistorySuggestionCandidate
 
-    private struct ScoredSuggestion {
+    private struct ScoredSuggestion: Sendable {
         let entry: Entry
         let score: Double
     }
@@ -1557,8 +1557,64 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = suggestionEngine.tokenize(query: q)
         let now = Date()
 
-        let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
-            guard let score = suggestionEngine.score(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
+        return Self.rankSuggestions(
+            candidates: suggestionCandidates(),
+            engine: suggestionEngine,
+            query: q,
+            queryTokens: queryTokens,
+            now: now,
+            limit: limit
+        )
+    }
+
+    /// Scores a history snapshot away from the main actor for omnibar typing.
+    ///
+    /// The store remains the main-actor owner of mutable history, but URL
+    /// parsing, candidate construction, substring scoring, and ranking operate
+    /// on a detached snapshot so a large history cannot delay keyboard events.
+    /// Callers must discard the result when their query or focus state changes.
+    func suggestionsAsync(for input: String, limit: Int = 10) async -> [Entry] {
+        loadIfNeeded()
+        guard limit > 0 else { return [] }
+
+        let q = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+        let entriesSnapshot = entries
+        let engine = suggestionEngine
+        let queryTokens = engine.tokenize(query: q)
+        let now = Date()
+
+        let task = Task.detached(priority: .userInitiated) {
+            guard !Task.isCancelled else { return [Entry]() }
+            let candidates = entriesSnapshot.map(engine.candidate(for:))
+            guard !Task.isCancelled else { return [Entry]() }
+            return Self.rankSuggestions(
+                candidates: candidates,
+                engine: engine,
+                query: q,
+                queryTokens: queryTokens,
+                now: now,
+                limit: limit
+            )
+        }
+        return await withTaskCancellationHandler {
+            let result = await task.value
+            return Task.isCancelled ? [] : result
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private nonisolated static func rankSuggestions(
+        candidates: [SuggestionCandidate],
+        engine: BrowserHistorySuggestionEngine,
+        query: String,
+        queryTokens: [String],
+        now: Date,
+        limit: Int
+    ) -> [Entry] {
+        let matched = candidates.compactMap { candidate -> ScoredSuggestion? in
+            guard let score = engine.score(candidate: candidate, query: query, queryTokens: queryTokens, now: now) else {
                 return nil
             }
             return ScoredSuggestion(entry: candidate.entry, score: score)

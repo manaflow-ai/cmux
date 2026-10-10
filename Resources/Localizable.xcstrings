@@ -645390,55 +645390,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents and terminals keep running after you close your laptop."
+            "value": "Agents and terminals keep running after you close your laptop. Use the cmux CLI to connect local agents to your Cloud machines."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten und Terminals laufen weiter, nachdem du deinen Laptop geschlossen hast."
+            "value": "Agenten und Terminals laufen weiter, nachdem du deinen Laptop geschlossen hast. Mit der cmux-CLI kannst du deine lokalen Agenten mit deinen Cloud-Maschinen verbinden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents et les terminaux continuent de fonctionner après la fermeture de votre ordinateur portable."
+            "value": "Les agents et les terminaux continuent de fonctionner après la fermeture de votre ordinateur portable. Utilisez la CLI cmux pour connecter vos agents locaux à vos machines Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تستمر الوكلاء والطرفيات في العمل بعد إغلاق حاسوبك المحمول."
+            "value": "تستمر الوكلاء والطرفيات في العمل بعد إغلاق حاسوبك المحمول. استخدم cmux CLI لتوصيل وكلائك المحليين بأجهزتك السحابية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes y terminales siguen funcionando después de cerrar el portátil."
+            "value": "Los agentes y terminales siguen funcionando después de cerrar el portátil. Usa la CLI de cmux para conectar tus agentes locales a tus máquinas Cloud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉筆電後，代理程式和終端機仍會持續執行。"
+            "value": "關閉筆電後，代理程式和終端機仍會持續執行。使用 cmux CLI，將你的本機代理程式連接到 Cloud 機器。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "合上笔记本电脑后，代理和终端仍会继续运行。"
+            "value": "合上笔记本电脑后，代理和终端仍会继续运行。使用 cmux CLI，将您的本地代理连接到 Cloud 机器。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트북을 닫아도 에이전트와 터미널이 계속 실행됩니다."
+            "value": "노트북을 닫아도 에이전트와 터미널이 계속 실행됩니다. cmux CLI로 로컬 에이전트를 Cloud 머신에 연결할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ノートパソコンを閉じてもエージェントとターミナルは動き続けます。"
+            "value": "ノートパソコンを閉じてもエージェントとターミナルは動き続けます。cmux CLI でローカルエージェントを Cloud マシンに接続できます。"
           }
         }
       }
