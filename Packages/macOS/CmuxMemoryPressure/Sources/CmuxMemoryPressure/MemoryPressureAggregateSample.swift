@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Raw metrics collected before aggregate-pressure policy is applied.
 public struct MemoryPressureAggregateSample: Equatable, Sendable {

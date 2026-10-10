@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Aggregate policy output attached to a central memory-pressure snapshot.
 public struct MemoryPressureAggregateSnapshot: Equatable, Sendable {

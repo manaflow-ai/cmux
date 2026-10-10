@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Supplies a timestamped aggregate process-memory sample.
 public protocol MemoryPressureAggregateSampling: Sendable {
