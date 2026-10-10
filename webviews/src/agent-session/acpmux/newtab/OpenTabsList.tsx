@@ -3,13 +3,7 @@
 import type { OmnibarContext } from "../omnibar";
 import { useNt } from "./strings";
 
-export function OpenTabsList({
-  tabs,
-  onMoveHere,
-}: {
-  tabs: OmnibarContext["tabs"];
-  onMoveHere(id: string): void;
-}) {
+export function OpenTabsList({ tabs, onMoveHere }: { tabs: OmnibarContext["tabs"]; onMoveHere(id: string): void }) {
   const nt = useNt();
   if (tabs.length === 0) return null;
   return (
