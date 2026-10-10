@@ -15,9 +15,11 @@ import CmuxNextSettings
 ///   (default: the newest visible one).
 @MainActor
 enum DebugDialog {
-    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER) and the Enable
-    /// harness sheet (a folder's program would run with the user's rights).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier]
+    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable
+    /// harness sheet (a folder's program would run with the user's rights) and the Cloud
+    /// machine create confirmation (a spend the person approves, cx-t2rz).
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier,
+                                        CloudPresenter.createConfirmIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared

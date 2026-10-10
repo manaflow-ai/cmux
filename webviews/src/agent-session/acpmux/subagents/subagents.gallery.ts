@@ -77,8 +77,16 @@ const DONE = chat([
 
 /** Opens the first group and waits for its `count` subagent lines. */
 const openGroup = (count: number) => async (ctx: PlayContext) => {
-  await ctx.click({ selector: ".cv-subagents" });
+  await ctx.focus({ selector: ".cv-subagents" });
+  await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === count);
+  const disclosure = ctx.find({ selector: ".cv-subagents" });
+  const controls = disclosure.getAttribute("aria-controls")?.split(" ").filter(Boolean) ?? [];
+  if (controls.length !== count)
+    throw new Error(`subagent disclosure controls ${controls.length} rows, expected ${count}`);
+  if (controls.some((id) => !ctx.document.getElementById(id)))
+    throw new Error("subagent disclosure controls a row that is not rendered");
+  if (ctx.document.activeElement !== disclosure) throw new Error("subagent disclosure lost focus while opening");
 };
 
 export default agentPaneEntry({

@@ -5,7 +5,16 @@
 // component keeps its own copy of a value: components read the cache (useSettingsState).
 import { QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
-import type { AccountsState, Diagnostic, Domains, HostLists, ListRow, ManagedInfo, SnapshotResult } from "./ops";
+import type {
+  AccountsState,
+  Diagnostic,
+  Domains,
+  HarnessesState,
+  HostLists,
+  ListRow,
+  ManagedInfo,
+  SnapshotResult,
+} from "./ops";
 import { revisionNumber } from "./ops";
 import { rowsByKey } from "./schema";
 import type { ScopeRead, SettingsScope } from "./transport";
@@ -15,6 +24,7 @@ export const settingsKeys = {
   scope: (scope: SettingsScope) => ["settings", "scope", scope] as const,
   host: ["settings", "host"] as const,
   accounts: ["settings", "accounts"] as const,
+  harnesses: ["settings", "harnesses"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };
@@ -32,6 +42,7 @@ export type ScopeData = {
 
 export type HostData = HostLists;
 export type AccountsData = AccountsState;
+export type HarnessesData = HarnessesState;
 export type ThemeColorsData = ReadonlyMap<string, GhosttyTheme>;
 
 export function createSettingsQueryClient(): QueryClient {

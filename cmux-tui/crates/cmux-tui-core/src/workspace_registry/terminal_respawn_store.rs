@@ -59,7 +59,8 @@ impl WorkspaceRegistry {
         terminal_id: &str,
         old_incarnation: &str,
     ) -> anyhow::Result<Option<u64>> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
         if terminal.lifecycle != TerminalLifecycle::Exited
             || terminal.incarnation.as_deref() != Some(old_incarnation)
@@ -72,7 +73,7 @@ impl WorkspaceRegistry {
         }
         let (revision, sqlite_revision) =
             next_revision(transaction_terminal_revision(&tx)?, "terminal")?;
-        let mutation = WorkspaceMutation::local(RESPAWN_ORIGIN);
+        let mutation = WorkspaceMutation::daemon_local(RESPAWN_ORIGIN);
         let result = json!({
             "terminal_id": terminal_id,
             "workspace_key": &terminal.workspace_key,
@@ -111,7 +112,8 @@ impl WorkspaceRegistry {
         incarnation: &str,
         terminal_snapshot: Value,
     ) -> anyhow::Result<Option<(u64, u64)>> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
         if terminal.lifecycle != TerminalLifecycle::Launching || terminal.incarnation.is_some() {
             return Ok(None);
@@ -133,7 +135,7 @@ impl WorkspaceRegistry {
         let (revision, sqlite_revision) =
             next_revision(transaction_terminal_revision(&tx)?, "terminal")?;
         let (next_resource, sqlite_resource) = next_revision(resource_revision, "resource")?;
-        let mutation = WorkspaceMutation::local(RESPAWN_ORIGIN);
+        let mutation = WorkspaceMutation::daemon_local(RESPAWN_ORIGIN);
         let result = json!({
             "terminal_id": terminal_id,
             "workspace_key": &terminal.workspace_key,
@@ -208,7 +210,8 @@ impl WorkspaceRegistry {
         &self,
         terminal_public_id: &str,
     ) -> anyhow::Result<Option<TerminalReplay>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT content_refs_json FROM journal_checkpoints
              ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 16",
         )?;
@@ -226,6 +229,7 @@ impl WorkspaceRegistry {
         let Some(content_id) = content_id else { return Ok(None) };
         let row = self
             .connection
+            .get()
             .query_row(
                 "SELECT codec, content, uncompressed_bytes, sha256
                  FROM journal_content_blobs WHERE content_id = ?1",
@@ -285,12 +289,9 @@ fn record_terminal_event(
         "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
         [revision.to_string()],
     )?;
-    tx.execute(
-        "INSERT INTO terminal_mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![&mutation.origin, &mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = super::mutation_ledger::KeyedLedger::Terminal;
+    let row = (fingerprint, result_json, sqlite_revision);
+    super::mutation_ledger::insert_keyed_mutation(tx, ledger, mutation, row.0, row.1, row.2)?;
     tx.execute(
         "INSERT INTO terminal_events(
            revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json

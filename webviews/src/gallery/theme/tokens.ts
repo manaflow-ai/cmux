@@ -1,8 +1,7 @@
 // The app's chrome tokens, derived from a Ghostty theme exactly as the Swift side derives them:
 // a line-for-line port of Packages/Shared/CmuxTheme (ThemeRGB.swift, ThemeInput.swift,
 // ThemeTokens.swift). The gallery paints every web page with these, so a theme here looks as it
-// does in the app. test/gallery-theme.test.ts replays fixed vectors; a Swift-side vector export
-// (gallery design, package G7) will make the parity check two-sided.
+// does in the app.
 
 export type ThemeRGB = { red: number; green: number; blue: number; alpha: number };
 

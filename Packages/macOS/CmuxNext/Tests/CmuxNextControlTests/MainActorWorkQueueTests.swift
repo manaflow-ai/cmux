@@ -4,10 +4,14 @@ import Synchronization
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct MainActorWorkQueueTests {
+    /// A full queue answers busy at once instead of waiting for room. No
+    /// frame fires before the third call, so a queue that waited would answer
+    /// a timeout at the deadline; the bound is far below it. A 100 ms bound
+    /// measured 289 ms on a loaded runner (#17611).
     @Test func failsFastWithBusyBeyondTheLimit() async throws {
         let frames = ManualFrameSource()
         let queue = MainActorWorkQueue(limits: .init(maxPending: 2), frameSource: frames)
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         async let first: Int = queue.run(connection: ControlConnectionID(rawValue: 1), method: "a", deadline: deadline) { 1 }
         async let second: Int = queue.run(connection: ControlConnectionID(rawValue: 2), method: "b", deadline: deadline) { 2 }
         while queue.stats.pending < 2 { await Task.yield() }
@@ -15,7 +19,7 @@ import Testing
         await #expect(throws: ControlError.busy(pending: 2, limit: 2)) {
             _ = try await queue.run(connection: ControlConnectionID(rawValue: 3), method: "c", deadline: deadline) { 3 }
         }
-        #expect(ContinuousClock.now - started < .milliseconds(100))
+        #expect(ContinuousClock.now - started < .seconds(10))
         #expect(queue.stats.rejectedBusy == 1)
         await frames.fire()
         #expect(try await first + second == 3)
@@ -36,6 +40,51 @@ import Testing
         let didRun = ran.withLock { $0 }
         #expect(!didRun)
         #expect(queue.stats.executed == 0)
+    }
+
+    /// cx-asb1 tab switch timeline: a control request waited for the next
+    /// display frame even on an idle queue (request to run about 6.5 ms of a
+    /// 13 ms tab switch). The first request after idle runs on the next main
+    /// run loop turn (`scheduleSoon`); work left after a drain still waits
+    /// for frames, so a flood stays frame-budgeted.
+    @MainActor @Test func aRequestOnAnIdleQueueRunsWithoutWaitingForAFrame() {
+        let frames = SoonFrameSource()
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let reply = Shared<Int?>(nil)
+        Task.detached {
+            let value = try await queue.run(method: "tab.focus", deadline: .now + .seconds(5)) { 7 }
+            reply.withLock { $0 = value }
+        }
+        // Main run loop turns only; no frame fires.
+        let end = ContinuousClock.now + .seconds(3)
+        while reply.withLock({ $0 }) == nil, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(reply.withLock { $0 } == 7, "ran on a main run loop turn without a frame")
+        #expect(frames.frameRequests == 0)
+    }
+
+    @MainActor @Test func workLeftAfterADrainWaitsForAFrame() {
+        let frames = SoonFrameSource()
+        // A zero budget runs exactly one item per drain.
+        let queue = MainActorWorkQueue(limits: .init(frameBudget: .zero), frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(10)
+        for index in 0..<3 {
+            Task.detached { _ = try await queue.run(connection: ControlConnectionID(rawValue: 1), method: "w\(index)", deadline: deadline) { index } }
+        }
+        let end = ContinuousClock.now + .seconds(3)
+        // All three are queued before the main run loop turns.
+        while queue.stats.pending < 3, ContinuousClock.now < end { usleep(1_000) }
+        while queue.stats.executed < 1, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(queue.stats.executed == 1, "the first item ran without a frame")
+        #expect(queue.stats.pending == 2, "the rest waits for frames")
+        while queue.stats.pending > 0, ContinuousClock.now < end {
+            frames.fire()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(queue.stats.executed == 3)
     }
 
     @Test func connectionsAreServedRoundRobin() async throws {

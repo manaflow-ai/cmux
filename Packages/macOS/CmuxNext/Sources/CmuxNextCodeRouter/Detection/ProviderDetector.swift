@@ -50,13 +50,17 @@ public struct ProviderDetector: Sendable {
     // MARK: Local servers
 
     func detectOllama() async -> ProviderDetection {
-        let host = environment.value("OLLAMA_HOST").map(Self.ollamaBase) ?? URL(string: "http://127.0.0.1:11434")!
+        let host = environment.value("OLLAMA_HOST").map(Self.ollamaBase) ?? Self.ollamaDefault
         return await probe(.ollama, base: host, path: "api/tags")
     }
 
     func detectLMStudio() async -> ProviderDetection {
-        await probe(.lmStudio, base: URL(string: "http://127.0.0.1:1234")!, path: "v1/models")
+        await probe(.lmStudio, base: Self.lmStudioDefault, path: "v1/models")
     }
+
+    // Literals a test parses; /dev/null stands in rather than a trap.
+    static let ollamaDefault = URL(string: "http://127.0.0.1:11434") ?? URL(fileURLWithPath: "/dev/null")
+    static let lmStudioDefault = URL(string: "http://127.0.0.1:1234") ?? URL(fileURLWithPath: "/dev/null")
 
     private func probe(_ provider: AIProvider, base: URL, path: String) async -> ProviderDetection {
         let address = [base.host, base.port.map(String.init)].compactMap { $0 }.joined(separator: ":")
@@ -75,11 +79,11 @@ public struct ProviderDetector: Sendable {
     static func ollamaBase(_ raw: String) -> URL {
         let withScheme = raw.contains("://") ? raw : "http://" + raw
         guard var components = URLComponents(string: withScheme), components.host?.isEmpty == false else {
-            return URL(string: "http://127.0.0.1:11434")!
+            return ollamaDefault
         }
         if components.host == "0.0.0.0" { components.host = "127.0.0.1" }
         if components.port == nil { components.port = 11434 }
         components.path = ""
-        return components.url ?? URL(string: "http://127.0.0.1:11434")!
+        return components.url ?? ollamaDefault
     }
 }

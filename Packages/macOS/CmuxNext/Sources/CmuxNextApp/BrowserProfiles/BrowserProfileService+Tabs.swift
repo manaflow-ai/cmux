@@ -24,12 +24,11 @@ extension BrowserProfileService {
             return
         }
         // The pane is not on screen: create the tab there directly.
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine) else { return }
-        let handle = pane.handle
         services.registry.track(Task {
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: url, profile: profile, notice: notice)
+                let surface = try await browserTabs.open(choice, in: pane, url: url, profile: profile, notice: notice)
                 close(surface)
                 return nil
             } catch {

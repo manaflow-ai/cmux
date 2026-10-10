@@ -1,7 +1,9 @@
 #!/bin/sh
 # Rebuilds the generated files that are still committed and stages them, after
-# merging feat-cmux-next (or main) into a branch: the strings tables
-# (webviews/src/**/generated/strings.json, from the xcstrings catalogs).
+# merging feat-cmux-next (or main) into a branch, or after editing their inputs:
+# the strings tables (webviews/src/**/generated/, from the xcstrings catalogs)
+# and the optchat memory inspector page. Build paths only check them
+# (build-web-bundles.sh fails on a stale copy and never writes one).
 #
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output since cx-vn5 and gitignored; every build path runs
@@ -19,7 +21,7 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
-PAGE_STRINGS="webviews/src/**/generated/strings.json"
+INSPECTOR="Native/OptChat/optchat-chief/inspector/index.html"
 # The build outputs that were committed before cx-vn5. Only their placeholders
 # (GENERATED.md) stay in the index.
 FORMER="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane
@@ -42,5 +44,6 @@ cd "$ROOT/webviews"
 bun install --frozen-lockfile
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
-git add -A -- ":(glob)$PAGE_STRINGS"
-git status --short -- ":(glob)$PAGE_STRINGS"
+"$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh"
+git add -A -- ":(glob)webviews/src/**/generated/**" "$INSPECTOR"
+git status --short -- ":(glob)webviews/src/**/generated/**" "$INSPECTOR"

@@ -17,10 +17,11 @@ public nonisolated struct PickerPrivacy {
 
     /// The protected area `path` is (or is inside), else nil.
     public static func area(of path: String, home: String = NSHomeDirectory()) -> Area? {
-        let roots: [(String, Area)] = [
-            (home + "/Desktop", .desktop), (home + "/Documents", .documents), (home + "/Downloads", .downloads),
-            (home + "/Library/Mobile Documents", .iCloudDrive), ("/Volumes", .volumes),
-        ]
+        // The picker explains these five kinds; the paths come from the one
+        // protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
+        let entries = ProtectedFolderEntry.inHome.map { (home + "/" + $0.path, $0.kind) }
+            + ProtectedFolderEntry.roots.map { ($0.path, $0.kind) }
+        let roots: [(String, Area)] = entries.compactMap { path, kind in Area(rawValue: kind).map { (path, $0) } }
         for (root, area) in roots where path == root || path.hasPrefix(root + "/") {
             // `/Volumes` itself only lists mounts; a volume inside it asks.
             if area == .volumes, path == root { return nil }

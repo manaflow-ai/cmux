@@ -9,7 +9,8 @@ Linux beside the Mac build and replaces nothing. This script is its verdict:
 
 Checks: architectures, deployment target (LC_BUILD_VERSION platform and minos,
 or LC_VERSION_MIN_MACOSX), linked dylibs, imported (undefined) symbols,
-exported (global defined) symbols, unexpected load commands, and an ad-hoc
+exported (global defined) symbols (an executable: its C-named ones, see
+interface()), unexpected load commands, and an ad-hoc
 signature on arm64 executables. Accepted differences are listed below with
 their reason; anything else fails.
 
@@ -110,6 +111,16 @@ def _deployment(versions: list[str]) -> list[str]:
     return [re.sub(r" sdk=\S+", "", v) for v in versions]
 
 
+def interface(info: dict) -> list[str]:
+    """The exports another image can bind to. For an executable (LC_MAIN) that
+    is its C-named symbols: which of two identical Rust functions keeps its
+    global name is a linker choice (ld64 and ld64.lld choose differently), and
+    nothing binds to an executable's Rust symbols. Archives keep every export."""
+    if "LC_MAIN" not in info["load_commands"]:
+        return info["exported"]
+    return [s for s in info["exported"] if not s.startswith(("__ZN", "__R"))]
+
+
 def evaluate(name: str, mac: dict, linux: dict) -> dict:
     load_commands = _diff(mac["load_commands"], linux["load_commands"])
     unexpected_lc = (set(mac["load_commands"]) ^ set(linux["load_commands"])) - ACCEPTED_LOAD_COMMAND_DIFFS
@@ -120,7 +131,7 @@ def evaluate(name: str, mac: dict, linux: dict) -> dict:
         "dylibs": mac["dylibs"] == linux["dylibs"],
         "undefined_symbols": not (linux_imports - mac_imports)
         and not ((mac_imports - linux_imports) - ACCEPTED_MAC_ONLY_IMPORTS),
-        "exported_symbols": mac["exported"] == linux["exported"],
+        "exported_symbols": interface(mac) == interface(linux),
         "load_commands_unexpected": not unexpected_lc,
         # ld64 signs arm64 executables ad hoc; the Linux link must too.
         "code_signature_if_arm64_exe": not ("LC_MAIN" in mac["load_commands"]

@@ -14,6 +14,11 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// The last turn failed (`lastTurn.status` = `failed`). A disconnect
     /// alone is not a failure: the next prompt respawns the agent.
     case failed
+    /// The last turn (`turn`, its acpmux turn id) completed: done until the
+    /// user looks at the chat (client seen state, `ProgramStatusSeenStore`),
+    /// like an OSC 7501 done. acpmux `unread` is not enough: an open chat tab
+    /// stays attached in a background workspace.
+    case done(turn: String)
 
     /// The state of one `_acpmux/watch` / `session_changed` session summary;
     /// nil when no turn runs and the last turn did not fail, and always for
@@ -24,7 +29,13 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
         if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
         if status == "running" { return .working }
         let lastTurn = summary["lastTurn"] as? [String: Any]
-        return lastTurn?["status"] as? String == "failed" ? .failed : nil
+        switch lastTurn?["status"] as? String {
+        case "failed"?: return .failed
+        case "completed"?, "ok"?:
+            let turn = lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? ""
+            return .done(turn: turn)
+        default: return nil
+        }
     }
 }
 
@@ -48,6 +59,18 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
             states[id] = nil
         } else if let summary = params["session"] as? [String: Any] {
             upsert(summary)
+        }
+    }
+
+    /// The completed turns of a watch result that a client watched as they
+    /// ended (acpmux `unread` false): the app starts them seen, so a
+    /// (re)connect does not light up every old chat; a turn that ended
+    /// unwatched stays done until the chat is opened.
+    public static func settledTurns(_ result: [String: Any]) -> [(session: String, turn: String)] {
+        (result["sessions"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.compactMap { summary in
+            guard let session = summary["sessionId"] as? String, (summary["unread"] as? Bool) != true,
+                  case .done(let turn)? = AgentTurnState.of(summary: summary) else { return nil }
+            return (session, turn)
         }
     }
 

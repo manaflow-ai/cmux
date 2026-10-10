@@ -21,7 +21,7 @@ enum SidebarSectionHandlers {
                     let title = registry.action(for: id)?.targetTitle?(invocation) ?? registry.descriptor(for: id)?.title ?? ""
                     try PinCommands(context: context).sendLayout(op, title: title, origin: invocation.origin)
                 } catch {
-                    registry?.refuse(String(describing: error))
+                    registry?.refuse(RefusalStrings.describe(error))
                 }
             })
         }

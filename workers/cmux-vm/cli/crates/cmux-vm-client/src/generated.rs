@@ -1626,6 +1626,75 @@ pub mod types {
         #[serde(rename = "wgPublicKey")]
         pub wg_public_key: ::std::string::String,
     }
+    ///The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DeviceAddress {
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: DeviceAddressDeviceId,
+        ///The stored address in canonical form (RFC 5952), or null.
+        #[serde(
+            rename = "publicIpv6",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub public_ipv6: ::std::option::Option<::std::string::String>,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DeviceAddressDeviceId(::std::string::String);
+    impl ::std::ops::Deref for DeviceAddressDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DeviceAddressDeviceId> for ::std::string::String {
+        fn from(value: DeviceAddressDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DeviceAddressDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DeviceAddressDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DeviceAddressDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DeviceAddressDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`DeviceEnrollment`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct DeviceEnrollment {
@@ -5089,6 +5158,180 @@ pub mod types {
             value.parse()
         }
     }
+    ///A device publishes its own public IPv6 address, authenticated only by its install key: the cmux-mesh-v1 message with purpose address, the device id as target, an empty WireGuard key, the address exactly as sent as the name line (empty for null), and the device's recorded install public key. Fresh (120 s) and single use.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PublishAddressRequest {
+        ///16 random bytes, base64url without padding.
+        pub nonce: PublishAddressRequestNonce,
+        ///The device's current global unicast IPv6 address (one address: no prefix, zone or IPv4 form; not Teredo, 6to4 or documentation space), or null to clear it.
+        #[serde(
+            rename = "publicIpv6",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub public_ipv6: ::std::option::Option<PublishAddressRequestPublicIpv6>,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: PublishAddressRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PublishAddressRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for PublishAddressRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PublishAddressRequestNonce> for ::std::string::String {
+        fn from(value: PublishAddressRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PublishAddressRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PublishAddressRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PublishAddressRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PublishAddressRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's current global unicast IPv6 address (one address: no prefix, zone or IPv4 form; not Teredo, 6to4 or documentation space), or null to clear it.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PublishAddressRequestPublicIpv6(::std::string::String);
+    impl ::std::ops::Deref for PublishAddressRequestPublicIpv6 {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PublishAddressRequestPublicIpv6> for ::std::string::String {
+        fn from(value: PublishAddressRequestPublicIpv6) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PublishAddressRequestPublicIpv6 {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PublishAddressRequestPublicIpv6 {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PublishAddressRequestPublicIpv6 {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PublishAddressRequestPublicIpv6 {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PublishAddressRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for PublishAddressRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PublishAddressRequestSignature> for ::std::string::String {
+        fn from(value: PublishAddressRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PublishAddressRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PublishAddressRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PublishAddressRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PublishAddressRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///Default deny: only what these rules allow is reachable.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct PutAclRequest {
@@ -8104,6 +8347,7 @@ impl Client {
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),
@@ -8217,6 +8461,57 @@ impl Client {
             200u16 => ResponseValue::from_response(response).await,
             400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**A device publishes its public IPv6 address
+
+    Opens the direct IPv6 path to the device's VMs: one firewall rule per VM the ACL allows, UDP 4101 from this one /128, replaced (new rule first, then the old one deleted) when the address changes and deleted when it is cleared or the device is closed. Publish again after every network change. An address that is not one global unicast IPv6 address is 400. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/signed/address`
+
+    */
+    pub async fn mesh_device_signed_device_address<'a>(
+        &'a self,
+        device_id: &'a str,
+        body: &'a types::PublishAddressRequest,
+    ) -> Result<ResponseValue<types::DeviceAddress>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/signed/address",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_device_signed_device_address",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
@@ -9052,6 +9347,7 @@ impl Client {
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

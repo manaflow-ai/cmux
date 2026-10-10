@@ -37,7 +37,8 @@ nonisolated enum DiffSidecarProcess {
 
     struct Limits: Sendable {
         var startup: Duration = .seconds(5)
-        /// Longer than the sidecar's 120-second session open limit.
+        /// From the ready marker to the reply; longer than the sidecar's
+        /// 120-second session open limit.
         var request: Duration = .seconds(130)
         var grace: Duration = .milliseconds(250)
     }
@@ -65,9 +66,18 @@ private nonisolated final class Invocation: Sendable {
     private struct State {
         var process: Process?
         var stdin: FileHandle?
+        /// The parent's read ends, held until each reads end of file. The
+        /// Process is released at exit, and with it the Pipes; a FileHandle
+        /// that dies first closes its descriptor and drops the EOF event, so
+        /// a reply that trailed the exit never finished (a 60 s test hang).
+        var replyReader: FileHandle?
+        var stderrReader: FileHandle?
         var reply = Data()
         var stderr = Data()
         var ready = false
+        /// The request deadline, armed at the ready marker: a loaded machine
+        /// can take longer than it to start the child, which `startup` judges.
+        var requestLimit: Duration?
         var replyClosed = false
         var exitStatus: Int32?
         var continuation: CheckedContinuation<Data, any Error>?
@@ -109,6 +119,9 @@ private nonisolated final class Invocation: Sendable {
             state.continuation = continuation
             state.process = process
             state.stdin = input.fileHandleForWriting
+            state.replyReader = output.fileHandleForReading
+            state.stderrReader = errors.fileHandleForReading
+            state.requestLimit = limits.request
             return false
         }
         if cancelled {
@@ -118,6 +131,14 @@ private nonisolated final class Invocation: Sendable {
         do {
             try process.run()
         } catch {
+            // No child holds a write end, so no EOF comes: release the readers here.
+            output.fileHandleForReading.readabilityHandler = nil
+            errors.fileHandleForReading.readabilityHandler = nil
+            state.withLock { state in
+                state.replyReader = nil
+                state.stderrReader = nil
+                state.process = nil
+            }
             fail(.startFailed)
             return
         }
@@ -127,7 +148,6 @@ private nonisolated final class Invocation: Sendable {
             return
         }
         arm(after: limits.startup) { $0.ready ? nil : .startFailed }
-        arm(after: limits.request) { _ in .timedOut }
     }
 
     /// Fails with `error` (unless already finished) and stops the child.
@@ -152,21 +172,25 @@ private nonisolated final class Invocation: Sendable {
             guard let self, let error = self.state.withLock({ check($0) }) else { return }
             self.fail(error)
         }
-        state.withLock { $0.deadlines.append(task) }
+        state.withLock { state in
+            if state.outcome == nil { state.deadlines.append(task) } else { task.cancel() }
+        }
     }
 
     private func receiveStderr(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
+            state.withLock { $0.stderrReader = nil }
             return
         }
-        let stdin = state.withLock { state -> FileHandle? in
+        let (stdin, requestLimit) = state.withLock { state -> (FileHandle?, Duration?) in
             if state.stderr.count < 8192 { state.stderr.append(data) }
-            guard !state.ready, state.stderr.starts(with: DiffSidecarProcess.readyMarker) else { return nil }
+            guard !state.ready, state.stderr.starts(with: DiffSidecarProcess.readyMarker) else { return (nil, nil) }
             state.ready = true
             defer { state.stdin = nil }
-            return state.stdin
+            return (state.stdin, state.requestLimit)
         }
+        if let requestLimit { arm(after: requestLimit) { _ in .timedOut } }
         // The group exists now, so a stop reaches git and cmux children too.
         guard let stdin else { return }
         do {
@@ -180,7 +204,10 @@ private nonisolated final class Invocation: Sendable {
     private func receiveReply(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
-            state.withLock { $0.replyClosed = true }
+            state.withLock { state in
+                state.replyClosed = true
+                state.replyReader = nil
+            }
             finishIfDone()
             return
         }

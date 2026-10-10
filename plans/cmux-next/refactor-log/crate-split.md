@@ -1,0 +1,174 @@
+# Lane refactor-crate-split: cmux-tui-core domain crates (2026-10-09)
+
+Append-only log of this lane (refactor brief 2026-10-09). One line per landing under "Landings": date, SHA, what moved where, old -> new lines, gate minutes, measured build change.
+
+Goal: split `cmux-tui/crates/cmux-tui-core` (about 295k lines, 1 crate) into
+domain crates. Each step moves one domain into its own crate under
+`cmux-tui/crates/`; cmux-tui-core re-exports it at the old path
+(`pub use <crate> as <module>;`) so no caller and no `crate::<module>::...`
+path changes in the same step. mux.rs and server.rs belong to their own
+refactor lanes; this lane never edits them.
+
+## Module graph (feat-cmux-next 2dba648cdbde)
+
+Edges are `crate::<module>` references (root re-exports resolved to their
+module). "Closure" is the transitive set of crate-local modules a module needs.
+
+- The crate is one strongly connected tangle: every module that reaches
+  `mux` or `server` reaches all 73 others (resource -> request_origin ->
+  state -> mux -> server -> ...). So only modules whose closure avoids
+  mux/server can move as they are.
+- Movable now (closure has no mux/server), by size: cloud_conversations
+  3063 (no crate-local deps), fs_ops 2778 (none, unix), platform 2298
+  (+windows_processes 451), unix_process_scope 1689 (none), terminal_backend
+  1610 (platform, terminal_end, terminal_host_protocol),
+  terminal_host_protocol 1311 (none), terminal_host 967
+  (terminal_host_protocol), sizing_policy 776, process_resources 648
+  (host_exe, windows_processes), image_paste* 1368 (unix), host_exe 489
+  (platform), terminal_loss_log 386 + terminal_loss_cause 157 +
+  process_identity 123, user_settings 301 (platform), pairing 300,
+  terminal_end 270, stream_interrupt 262, remote_relay_state 226,
+  conversation_drafts 181, pty_write 169, debug_spans 115, backoff 113,
+  terminal_respawn_text 86, conversation_search 77, short_id 65,
+  machine_name 35.
+- The brief's first candidates all reach mux today through thin edges:
+  - terminal_host_runtime (15.8k with its folder): server only for
+    `encode/decode_terminal_host_clear_history`, surface only for
+    `VT_REPLAY_MAX_BYTES`, plus shell_integration, terminal_metadata and
+    program_status (which reach mux). Moving those 2 functions and 1 const
+    down (to terminal_host_protocol) and the shell/metadata pieces it uses
+    makes it movable.
+  - browser (12k): `Weak<Mux>` and the `Surface` enum are threaded through
+    the frame/navigation loops (emit_browser_status/dirty/failure, connect,
+    open). Needs a small host seam (a trait the mux implements) before a
+    move; that is a design step, not move-only, so it comes after the leaf
+    crates.
+  - surface (14.4k), workspace_registry (39.8k), apps (9.8k), scripts (0.6k),
+    git_ops (6k): depend on Mux, resource_router and workspace_registry in
+    both directions. They need seams (traits or id-only APIs) first.
+  - diagnostics (0.7k): depends on journal_ingress (-> mux).
+
+## Crate order
+
+1. cmux-tui-cloud-conversations: cloud_conversations (3063). No deps.
+2. cmux-tui-fs-ops: fs_ops (2778, unix). No deps.
+3. cmux-tui-platform: platform, windows_processes, host_exe,
+   process_identity, process_resources, unix_process_scope (about 5.7k).
+   Prerequisite for 4 and 6 (15 modules use platform).
+4. cmux-tui-terminal-host-protocol: terminal_host_protocol, terminal_end,
+   terminal_host, terminal_loss_cause, terminal_loss_log, terminal_backend,
+   pty_write (about 4.9k).
+5. Small leaf utilities that 1-4 or later crates need (backoff,
+   stream_interrupt, debug_spans, short_id, machine_name, sizing_policy) go
+   with the first crate that needs them, or into cmux-tui-util if two do.
+6. cmux-tui-terminal-host-runtime: terminal_host_runtime and its folder,
+   after the thin edges above move down (about 16k).
+7. cmux-tui-browser: browser, browser/*, browser_provider after the host
+   seam (about 12.3k).
+8. Later (need seams): surface, workspace_registry, apps + scripts, git_ops,
+   journal_*.
+
+godfile-baseline.tsv keys are file paths: moving a baselined file
+(platform.rs, unix_process_scope.rs, terminal_host_runtime.rs, browser.rs)
+changes its key, so that step also edits the baseline (WINDOW-LITE token).
+cmux-tui/scripts/*.py hold 33 hard-coded cmux-tui-core source paths; each
+step updates the ones it moves.
+
+## Build-time rule (measured at step 1)
+
+A change in a crate below cmux-tui-core still recompiles cmux-tui-core and
+cmux-tui (cargo rebuilds every dependent of a changed path crate). So a leaf
+extraction makes only the leaf's own `cargo test -p` fast (12.2 s -> 0.2 s);
+`cargo build -p cmux-tui` stays about 14 s, the fixed incremental cost of
+cmux-tui-core (295k lines). The build win comes from two moves only:
+(a) shrink cmux-tui-core's own compile, so the biggest movable code first;
+(b) move code that only cmux-tui uses ABOVE cmux-tui-core (a crate that
+depends on core, or into cmux-tui), so edits there never rebuild core.
+Order after step 1 follows that: the platform + terminal-host families
+(about 10.6k together) and terminal_host_runtime (15.8k) before small leaves;
+fs_ops (2.8k) goes next only because it is ready and has no dependents in
+core except server/fs_wire.
+
+## Candidates from the mux.rs lane (2026-10-09)
+
+mux/signaled_mutex.rs (std + diagnostics::LockStats + JournalContention),
+mux/deadline_fanout.rs (std only) and later mux/provider_authority.rs (std +
+zeroize) sit at the bottom of the tangle. They are a few hundred lines, so by
+the build-time rule they do not shrink cmux-tui-core's compile in a
+measurable way. Decision: not now. They go into a small cmux-tui-sync leaf
+crate only when a crate extracted below core needs them (for example the
+terminal-host runtime), with LockStats and JournalContention moved with
+them. Crate boundary agreed through the chief with the mux.rs lane first.
+
+## Order that shrinks cmux-tui-core's own compile (chief, 2026-10-09)
+
+Priority is by lines removed from cmux-tui-core, biggest first, among
+domains that can leave without a design step: platform family 5.7k (step 2),
+terminal-host protocol family about 4.9k with the surface consts and
+server/protocol_key.rs, terminal_host_runtime 15.8k (after now_ms and
+NotificationLevel reach a leaf module), browser 12.3k (after a host seam),
+then the seam-gated domains (surface, workspace_registry, apps). Leaves under
+1k lines go along with a larger step, never alone. fs_ops (2.8k, ready on
+local branch refactor-crate-split-step2) fills a gap only.
+
+## Landings
+
+- 2026-10-09 90f75c91fc9c (code 98fdbdfc9fe7) step 1: cmux-tui-core/src/cloud_conversations/ (8 files) -> crates/cmux-tui-cloud-conversations; cmux-tui-core 295,439 -> 292,376 lines; Testbox gate 8 min; post-land cmux-tui.yml focused run 37892029995 green. Build (32 vCPU, warm, edit in moved code): `cargo test -p <domain> --no-run` 12.2 s -> 0.2 s; `cargo build -p cmux-tui` 14.1 -> 13.6 s (no real change).
+- 2026-10-09 75d9ecbb99bf (code f8e3500ec0df) step 2: cmux-tui-core platform, host_exe, process_identity, process_resources, unix_process_scope, windows_processes -> crates/cmux-tui-platform (5,712 lines); cmux-tui-core 292,376 -> 288,158 lines; godfile rows renamed, crash baseline transferred (core unwrap 1643->1626, expect 287->286; platform 17/1; totals unchanged); unix_process_scope test seams behind feature test-support (core dev-dependency only); Testbox gate 9 min; post-land run 37911896855. Build: `cargo build -p cmux-tui` after a core edit about 14.8 s, unchanged.
+- 2026-10-09 f8940112fe7b (code 58d36e4504c2) cx-ko2e A1: terminal_host_runtime mod unix snapshot/resize/kitty codecs, hex helpers, PayloadDecoder, put_* (521 lines) -> terminal_host_runtime/shared/codec.rs; pty_size, kitty_graphics_limits_within -> shared/host_state.rs; terminal_host_runtime.rs 9976 -> 9436; Testbox gate 8 min.
+- 2026-10-09 41686fae4f6d (code e237adb3a54d) cx-ko2e A2: HostLaunch codec, default-colors codec, clear-history ack, host_launch_failure -> shared/codec.rs; 9436 -> 9155; gate 7.5 min.
+- 2026-10-09 ddc4e576947b (code d7b2b36ea79d) cx-ko2e A3: host consts, input_request_is_supported, persist_and_claim_host_exit_after_drain, ViewerSizes, mutate_viewer_sizes -> shared/host_state.rs; 9155 -> 9059; gate 7.5 min. Rest of table A waits for table B seams (HostStream first).
+
+## Lane 2 claims (crate-split lane 2, hq-11, 2026-10-09)
+
+A second crate-split lane takes the movable leaves that steps 1-4 above do
+not name. It does not reorder or take any open step of lane 1 (platform,
+terminal-host protocol family, terminal_host_runtime, browser, fs_ops stay
+lane 1's). Each step is move-only: a new crate under `cmux-tui/crates/`,
+re-exported by cmux-tui-core at the old path, one LOCK slot per step.
+Lane 2 landing lines carry the prefix "lane 2" in the Landings list.
+
+1. cmux-tui-image-paste: image_paste, image_paste_file, image_paste_ownership,
+   image_paste_recovery, image_paste_storage and their tests (1,368 lines,
+   unix). The image paste spool: storage dir, owned files, crash recovery.
+2. cmux-tui-util: backoff, stream_interrupt, debug_spans, short_id,
+   machine_name, terminal_respawn_text, user_settings (1,027 lines). Small
+   daemon primitives without daemon state. This is the cmux-tui-util of
+   step 5: terminal_host_runtime (lane 1, step 6) uses debug_spans, so a
+   crate below core must own it before that move.
+3. cmux-tui-remote-access: pairing, remote_relay_state (526 lines). Device
+   pairing challenges and the relay peer, pairing record and revocation
+   state. Lands in the same slot as 2 (leaves under 1k never go alone).
+
+Not claimed, and why: sizing_policy is already a 7-line re-export of
+cmux-terminal-sizing. conversation_drafts and conversation_search (258
+lines) belong with conversation_store, which needs
+`workspace_registry::{open_registry_database, unix_epoch_ms, new_uuid_v4}`
+to move down first; they move with conversation_store, not alone.
+
+Expected build effect (by the build-time rule above): about 2.9k lines leave
+core (1%); an edit inside a moved module still rebuilds core and cmux-tui.
+Each landing line records the measured `cargo build -p cmux-tui-core` time
+after an edit in a moved function, before and after the move.
+- 2026-10-09 70bb57f3e77c (code c6e9f47415c6) cx-ko2e B1: seam terminal_host_runtime/sys.rs HostStream (std UnixStream on Unix, uds_windows::UnixStream on Windows); HostTap, SmartStream group, ParserCommand/ParserBudget, enqueue_parser_output -> shared/host_state.rs; terminal_host_runtime.rs 9059 -> 8689; gate 8 min.
+- 2026-10-09 5175437db410 (code 8ec38cd5e3f3) cx-ko2e B2a: clipboard-read broker -> shared/clipboard_read.rs (Unix-bound impls stay in unix/clipboard_read.rs); gate 8 min.
+- 2026-10-09 bcb887e23aa5 (code 6eb04a08db9e) cx-ko2e B2b: unix/control_responses.rs -> shared/control_responses.rs over HostStream; InputAckReceipt -> shared/attachment.rs; 8689 -> 8629; gate 5 min.
+- 2026-10-09 (B3) cx-ko2e B3: HostAttachment (+impl, Drop), send_host_frame, SpawnedHostProcess, connect_record* -> shared/attachment.rs (+ attachment/connect.rs, attachment/terminate.rs) over HostStream; unix/renderer_grant.rs -> shared/renderer_grant.rs (test beside it); read_required_frame -> shared/codec.rs; sys seams connect_with_retry, PtyCustody, record writers (Windows: fail-closed stubs); terminal_host_runtime.rs 8629 -> 7456; cmux-tui-core tests 2681 passed + 10 ignored (#[test] 2690 before and after); gate 5.3 min.
+- 2026-10-09 (B4) cx-ko2e B4: records group (validate/liveness/load/stale removal/exit sidecars/exit diagnostic/write_json_record, RECORD_TEMP_SEQUENCE) -> shared/records.rs over new sys seams (FileOwner, file_owner, is_private_file, has_single_link, canonical_endpoint, is_endpoint_file, open_private+PrivateOpen, probe_lease+LeaseProbe, process_definitely_gone, remove_released_pty_lock, remove_terminal_loss_signals, sync_dir, barrier_sync[_dir]); rename_no_replace, prepare_private_dir, prepare_endpoint_dir, connect_with_retry -> sys/unix.rs; Windows: fail-closed stubs in sys.rs; terminal_host_runtime.rs 7456 -> 6864.
+- 2026-10-09 (B5) cx-ko2e B5: impl HostAttachment clipboard hooks (clipboard_replier + 4 test hooks) and ClipboardReplier (writer: Weak<Mutex<HostStream>>) -> shared/clipboard_read.rs; unix/clipboard_read.rs keeps only the HostShared-bound timer and reply path.
+- 2026-10-09 (B6) cx-ko2e B6: Lease seam, Unix side: HostLivenessLease, TerminalHostResetLock, TerminalHostPublicationLock and the publication-lock functions -> sys/unix/lease.rs; unix/barrier_sync.rs -> sys/unix/barrier_sync.rs; terminal_host_runtime.rs ->     6703 lines.
+- 2026-10-09 (B7) cx-ko2e B7: Waker and PtyReadiness seams, Unix side: AcceptWaker -> sys/unix/waker.rs, wait_for_pty_readable_or_forced_drain -> sys/unix/pty_readiness.rs; terminal_host_runtime.rs ->     6605 lines.
+- 2026-10-09 (B8) cx-ko2e B8: HostShared struct + impl -> shared/host_shared.rs (+ host_shared/resize.rs, host_shared/lifecycle.rs) over sys seams AcceptWaker, HostStream (pty_drain_waker), SessionId (adopted_session), GroupSignal (terminate_and_wait); signal_terminal_process_groups stays in mod unix (table C, now takes GroupSignal); publish_host_frames*, changed_pwd_frame, output_transition_frames, snapshot_cwd -> shared/host_state.rs; unix/clipboard_read.rs remainder (timer worker, host reply path) -> shared/clipboard_read.rs; terminal_host_runtime.rs 6605 -> 5655.
+- 2026-10-09 (B9) cx-ko2e B9: unix/host_parser.rs, unix/exited_drain.rs, unix/metric_commits.rs -> shared/ (git mv; pub(super) -> pub(crate); imports only).
+- 2026-10-09 (B10) cx-ko2e B10: LaunchOwnerConnection, ActiveClientStream, ClientSetupRollback, authenticate_client, mint_renderer_capability -> shared/host_serve.rs; HostServiceGuard, UnpublishedHostGuard -> shared/records.rs (Windows HostLivenessLease stub: acquire errors); terminal_host_runtime.rs ->     5456 lines.
+- 2026-10-09 (B11) cx-ko2e B11: send_snapshot_resync, serve_client, serve_client_with_snapshot_timeout -> shared/host_serve.rs over HostStream; PTY custody hello through seam sys::serve_pty_custody (Unix: unix/pty_custody.rs serve; Windows: refused); terminal_host_runtime.rs ->     4934 lines.
+- 2026-10-09 (B12+B13) cx-ko2e B12: launch_terminal_host, launch_terminal_host_with_identity, adopt_terminal_host, adopt_current_terminal_host, adopt_terminal_host_with_kitty_limits -> shared/attachment/launch.rs (seam sys::launch_terminal_host_from; Windows stub errors); record_owner_token, live_successor_record (from unix/pty_custody.rs) -> shared/records.rs. B13: unix/host_crash.rs -> shared/host_crash.rs (private create through sys::open_private CreateNewNoFollow). terminal_host_runtime.rs ->     4843 lines.
+- 2026-10-09 (B14) cx-ko2e B14: unix/host_accept.rs -> shared/host_accept.rs (AcceptBackoff, serve_accepted over HostStream); the backoff's waker poll is now the seam AcceptWaker::wait_readable(Duration) -> io::Result<bool> (Unix: the same poll; Windows stub errors).
+- 2026-10-09 (B15) cx-ko2e B15: unix/unadoptable.rs -> shared/unadoptable.rs (public API unchanged) over seams open_private(ExistingNoFollow), lease_was_free, wait_lease_exclusive (sys/unix/lease.rs), process_definitely_gone + kill_process_group (new sys/unix/process.rs), canonical_endpoint/file_owner, is_endpoint_file; Windows stubs fail closed.
+- 2026-10-09 (T1) cx-ko2e T1: the inline #[cfg(test)] mod tests of mod unix (3,679 lines) -> unix/tests.rs (test doubles and shared fixtures) + unix/tests/{launch_codec,input_records,attach_protocol,smart_viewer_exit}.rs by topic (tests beside, not inside; names unchanged); terminal_host_runtime.rs 4841 -> 1162.
+- 2026-10-09 (B16) cx-ko2e B16: serve_terminal_host_stdio -> shared/host_serve/stdio.rs (the host process main loop, one accept loop for every platform); new seams sys::HostListener {bind (bind + 0600 + nonblocking), accept, wait(waker, Option<Duration>)} (sys/unix/listener.rs), sys::adopt_launch {adopt_pty_fd, max_payload, decode, start} and sys::host_signals {on_service_manager_stop, set_breadcrumb_path} (Unix: the unix modules, now pub(crate)); Windows stubs fail closed; terminal_host_runtime.rs -> 971 lines; its godfile row is removed (under budget).
+- 2026-10-09 (B17) cx-ko2e B17: start_host_runtime -> shared/host_start.rs (reader, parser, child watcher, exit publisher on a platform child); seams sys::HostChild (Unix: unix/host_start.rs, Spawned | Adopted), sys::PtyPollHandle + pty_poll_handle (Unix RawFd from MasterPty::as_raw_fd), drain waker pair = HostStream::pair; Windows stubs fail closed. Also fixed a Windows-only unused-import warning in shared/unadoptable.rs (host_refusal re-export, d5137c4a1619).
+- 2026-10-09 (B18) cx-ko2e B18: launch_terminal_host_from, HostPresentation, launch_terminal_host_seeded (unix/standby.rs) -> shared/attachment/launch.rs; StandbyTerminalHost stays Unix (pre_exec setsid, table C) and is the seam sys::StandbyTerminalHost {process, stdin: impl Write, stdout: impl Read, host_pid} (GPUI R2: Windows stub uses io::PipeWriter/PipeReader); new seam sys::endpoint_dir(FileOwner); the sys::launch_terminal_host_from seam is gone.
+- 2026-10-09 lane 2 step 1 (code 36c60c86bbba): cmux-tui-core image_paste, image_paste_file, image_paste_ownership, image_paste_recovery, image_paste_storage (+ their 2 #[path] test files, unchanged) -> crates/cmux-tui-image-paste (1,368 lines); crash baseline transferred (core unwrap 1626 -> 1604, image-paste 22); workspace test list 8946 -> 8946; Testbox gate about 15 min (fmt, workspace clippy -D warnings, workspace tests, windows-gnu check --tests). Build (32 vCPU, warm, edit in matches_mime): `cargo build -p cmux-tui-core` 15.7 s -> 6.2 s; `cargo test -p cmux-tui-image-paste --no-run` 2 s. Related: 374126a4dc89 (CI guard) moved the macOS and Windows platform selectors to -p cmux-tui-platform; they had matched 0 tests since step 2.
+- 2026-10-09 lane 2 steps 2+3 (code d26faab74680): cmux-tui-core backoff, stream_interrupt, debug_spans, short_id, machine_name, terminal_respawn_text, user_settings -> crates/cmux-tui-util (1,027 lines); pairing, remote_relay_state -> crates/cmux-tui-remote-access (526 lines); only items core uses became pub; test seams behind feature test-support; PairingBroker::new keeps no Default impl (allow with reason); crash baseline transferred (core unwrap 1604 -> 1587, expect 286 -> 284; util 12/1, remote-access 5/1); workspace test list 8946 -> 8946, 8890 passed 0 failed; Testbox gate about 14 min. Build (edit in a moved fn): `cargo build -p cmux-tui-core` about 15.5 s in core -> 6.2 s (util) / 6.6 s (remote-access).
+- 2026-10-10 lane 2 landing fdc55cb2fb50 (steps 1-3 above in one LOCK slot, token a39d6c882208): re-gated on merged head aa3c7f17d6cc through gate-run.sh (receipt /tmp/gates/aa3c7f17d6ccec720fdf208f5507b5563a2c15bb.json): fmt, workspace clippy -D warnings, nextest --profile ci 8970 passed, count 8970 = base 25a3fde51b93 8970, windows-gnu check --tests, crash ratchet, godfile; gate about 11 min. A first gate run on c48f387b23c2 had 2 load-timing failures in cmux-tui terminal_host_recovery (pipelined_new_tabs_start_hosts_in_parallel_in_request_order, host_crash_is_named_with_its_panic_message); both pass alone 3 of 3 and passed in the full re-run. Image paste tests keep their #[path] files (NO UNIT TESTS rule).

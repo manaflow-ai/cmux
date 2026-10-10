@@ -20,7 +20,7 @@ enum WireCoding {
         let line = try encoder().encode(RequestEnvelope(id: id, request: request))
         guard let verbatim = request as? any VerbatimFieldsRequest,
               case .object(var fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return line }
-        for (name, value) in verbatim.verbatimFields { fields[name] = value }
+        for (name, value) in verbatim.verbatimFields { fields.updateValue(value, forKey: name) }
         let plain = JSONEncoder()
         plain.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try plain.encode(JSONValue.object(fields))
@@ -61,10 +61,9 @@ struct ResponseEnvelope<R: Decodable>: Decodable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if R.self == EmptyResponse.self, !container.contains(.data) {
+        if R.self == EmptyResponse.self, !container.contains(.data), let empty = EmptyResponse() as? R {
             // Some acks omit `data`.
-            // crash-allow: checked on the line above (R.self == EmptyResponse.self).
-            data = EmptyResponse() as! R
+            data = empty
         } else {
             data = try container.decode(R.self, forKey: .data)
         }

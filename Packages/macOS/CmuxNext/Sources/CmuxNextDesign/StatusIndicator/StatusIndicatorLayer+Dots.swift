@@ -6,13 +6,12 @@ import QuartzCore
 /// dot; the replicator delays each copy by a third of the cycle, so the
 /// render server runs the whole wave with no timer and no wakeup. Still
 /// (Reduce Motion, hidden, occluded), the three dots stay at full strength.
+/// The `bars` glyph (a status icon set's working mark) is the same
+/// replicator around one short rounded bar.
 extension StatusIndicatorLayer {
-    /// Dot diameter as a share of the glyph square: three dots and two gaps
-    /// of half a dot fill the width (3 + 2 * 0.5 = 4 dots wide).
-    static let dotsDiameterShare: CGFloat = 0.25
     static let dotsCount = 3
 
-    func buildDots(in rect: CGRect) {
+    func buildDots(in rect: CGRect, bars: Bool = false) {
         let replicator = dotsLayer ?? {
             let replicator = CAReplicatorLayer()
             replicator.actions = Self.noActions
@@ -25,14 +24,13 @@ extension StatusIndicatorLayer {
             return replicator
         }()
         if replicator.frame != rect { replicator.frame = rect }
-        let side = rect.width * Self.dotsDiameterShare
-        let step = side * 1.5
+        let element = StatusGlyphGeometry.repeatedElement(in: rect.size, bars: bars)
         replicator.instanceCount = Self.dotsCount
-        replicator.instanceTransform = CATransform3DMakeTranslation(step, 0, 0)
+        replicator.instanceTransform = CATransform3DMakeTranslation(element.step, 0, 0)
         guard let dot = replicator.sublayers?.first as? CAShapeLayer else { return }
         dot.contentsScale = contentsScale
-        dot.frame = CGRect(x: 0, y: (rect.height - side) / 2, width: side, height: side)
-        dot.path = CGPath(ellipseIn: dot.bounds, transform: nil)
+        dot.frame = element.frame
+        dot.path = StatusGlyphGeometry.repeatedElementPath(element.frame, bars: bars)
     }
 
     func removeDots() {

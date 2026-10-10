@@ -64,7 +64,7 @@ struct PageHostPoolClaimReadyBenchmark {
         }
         // A parked spare waits seconds or more in the app: let its document settle first.
         try await Task.sleep(for: .seconds(1))
-        let provider = PageHostPoolSettingsClaimTests.RecordingProvider()
+        let provider = RecordingPageProvider()
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider)]
         let start = Date().timeIntervalSince1970 * 1_000
         let page = try #require(pool.claim(.settings, routes: routes, route: "#/settings/general",

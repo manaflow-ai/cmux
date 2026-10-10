@@ -15,6 +15,14 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// over the socket, SIGTERM, SIGINT, SIGHUP) when it ended. Nil in
     /// markers written before this field existed.
     var quitting: Bool?
+    /// The uncaught Objective-C exception that ended the run
+    /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
+    /// encoded into `run.json`.
+    var exception: RecordedException?
+
+    private enum CodingKeys: String, CodingKey {
+        case pid, launched, recovery, survived, signal, quitting
+    }
 
     /// The run ended because someone asked it to: a requested-quit signal
     /// its handler recorded, or no fatal signal while a requested quit ran

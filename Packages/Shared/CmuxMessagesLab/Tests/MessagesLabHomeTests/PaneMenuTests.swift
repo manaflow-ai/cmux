@@ -15,9 +15,9 @@ import Testing
         if let i = items.lastIndex(where: { $0.author == Fixture2.them }) { items[i].reactions = reactions }
         p.apply(items: items, summary: Fixture2.summary(lastSeq: 6), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded()
-        c.demo.layoutIfNeeded()
-        c.demo.collection.layoutIfNeeded()
-        guard let hit = c.demo.lastTextRow(mine: false) else { return (nil, c) }
+        c.demo!.layoutIfNeeded()
+        c.demo!.collection.layoutIfNeeded()
+        guard let hit = c.demo!.lastTextRow(mine: false) else { return (nil, c) }
         return (c.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)), c)
     }
 
@@ -43,8 +43,8 @@ import Testing
 
     @Test func tapbackDetailsListsWhoReactedFromHomeStore() throws {
         let (_, c) = menu(reactions: [CmuxHomeCore.Reaction(author: Fixture2.me, partIndex: 0, kind: .tapback(.love))])
-        let hit = try #require(c.demo.lastTextRow(mine: false))
+        let hit = try #require(c.demo!.lastTextRow(mine: false))
         #expect(hit.row.reactions.map(\.senderId) == [Fixture2.me.rawValue])
-        #expect(c.store.state.conversation.participants.first { $0.id == Fixture2.me.rawValue }?.displayName != nil)
+        #expect(c.store!.state.conversation.participants.first { $0.id == Fixture2.me.rawValue }?.displayName != nil)
     }
 }
