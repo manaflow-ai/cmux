@@ -23,7 +23,10 @@ public final class SocketTasksSource: TasksSource {
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private let retryTimer = DemandTimer(owner: "tasks.reconnect")
     private var backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))
-    private var inbox = Data()
+    /// Reads, frames and decodes the socket off the main actor (cx-9c8m).
+    private var reader: TasksSocketReader?
+    /// Bumped per connection, so lines a closed connection decoded are dropped.
+    private var generation = 0
     private var outbox = Data()
     private var nextID: UInt64 = 1
     private var keysByID: [UInt64: String] = [:]
@@ -71,9 +74,26 @@ public final class SocketTasksSource: TasksSource {
     private func open() -> Bool {
         guard let socket = Self.connect(path: path) else { return false }
         fd = socket
-        let read = DispatchSource.makeReadSource(fileDescriptor: socket, queue: .main)
-        read.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.readAvailable() } } // main-proof: dispatch source on queue: .main
+        generation += 1
+        let generation = generation
+        // Reading, line framing and JSON decoding run on the reader's queue;
+        // the main actor gets each read's decoded lines in one hop. The read
+        // source closes the descriptor when it is cancelled, after its last
+        // handler, so a descriptor number is never reused under a read.
+        let reader = TasksSocketReader(fd: socket)
+        let read = DispatchSource.makeReadSource(fileDescriptor: socket, queue: reader.queue)
+        read.setEventHandler { [weak self, weak read, reader] in
+            let batch = reader.readAvailable()
+            // A level-triggered source keeps firing at EOF: stop it here,
+            // before the main actor's close runs.
+            if batch.ended { read?.cancel() }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.deliver(batch, generation: generation) } // main-proof: DispatchQueue.main.async
+            }
+        }
+        read.setCancelHandler { close(socket) }
         read.resume()
+        self.reader = reader
         readSource = read
         backoff.reset()
         directoryWatch?.cancel()
@@ -113,15 +133,18 @@ public final class SocketTasksSource: TasksSource {
     }
 
     private func closeConnection() {
-        readSource?.cancel()
-        readSource = nil
         writeSource?.cancel()
         writeSource = nil
-        if fd >= 0 {
+        if let readSource {
+            // Its cancel handler closes the descriptor on the reader's queue.
+            readSource.cancel()
+        } else if fd >= 0 {
             close(fd)
-            fd = -1
         }
-        inbox.removeAll()
+        readSource = nil
+        reader = nil
+        fd = -1
+        generation += 1
         outbox.removeAll()
         keysByID.removeAll()
     }
@@ -169,24 +192,13 @@ public final class SocketTasksSource: TasksSource {
 
     // MARK: - Reading
 
-    private func readAvailable() {
-        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        // concurrency-allow: O_NONBLOCK descriptor read from its readable dispatch source; EAGAIN returns at once.
-        let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-        if n < 0, errno == EAGAIN || errno == EINTR { return }
-        guard n > 0 else {
-            lost()
-            return
-        }
-        inbox.append(contentsOf: chunk[0..<n])
-        // One pass over the buffer, one removal at the end (no quadratic splits).
-        var start = inbox.startIndex
-        while let newline = inbox[start...].firstIndex(of: UInt8(ascii: "\n")) {
-            dispatch(TasksWire.decode(Data(inbox[start..<newline])))
-            start = inbox.index(after: newline)
+    private func deliver(_ batch: TasksSocketReader.Batch, generation: Int) {
+        guard generation == self.generation, fd >= 0 else { return }
+        for line in batch.lines {
+            dispatch(line)
             if fd < 0 { return }
         }
-        inbox.removeSubrange(inbox.startIndex..<start)
+        if batch.ended { lost() }
     }
 
     private func dispatch(_ line: TasksWire.Line) {
@@ -257,5 +269,57 @@ private nonisolated struct TasksRequestLine: Encodable {
         var container = encoder.container(keyedBy: Key.self)
         for (key, value) in fields { try container.encode(value, forKey: Key(stringValue: key)) }
         try container.encode(params, forKey: Key(stringValue: "params"))
+    }
+}
+
+/// The read half of a Tasks connection, confined to its own serial queue:
+/// non-blocking reads, newline framing and JSON decoding never run on the
+/// main actor. A snapshot line can be large; the scan resumes where the last
+/// read stopped (no rescan of a partial line), and a line over
+/// `inboxLimit` ends the connection (the source reconnects and resyncs).
+nonisolated final class TasksSocketReader: @unchecked Sendable {
+    struct Batch: Sendable {
+        var lines: [TasksWire.Line] = []
+        /// EOF, a read error, or an oversized line: the connection is over.
+        var ended = false
+    }
+
+    static let inboxLimit = 64 * 1024 * 1024
+
+    let queue = DispatchQueue(label: "com.cmuxterm.app.next.tasks.socket", qos: .userInitiated)
+    private let fd: Int32
+    // Touched only on `queue` (the read source's handler).
+    private var inbox = Data()
+    private var scanned = 0
+
+    init(fd: Int32) {
+        self.fd = fd
+    }
+
+    func readAvailable() -> Batch {
+        var batch = Batch()
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        // concurrency-allow: O_NONBLOCK descriptor read on the reader's queue, from its readable dispatch source.
+        let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+        if n < 0, errno == EAGAIN || errno == EINTR { return batch }
+        guard n > 0 else {
+            batch.ended = true
+            return batch
+        }
+        inbox.append(contentsOf: chunk[0..<n])
+        // One pass over the new bytes, one removal at the end.
+        var start = inbox.startIndex
+        var from = inbox.index(inbox.startIndex, offsetBy: scanned)
+        while let newline = inbox[from...].firstIndex(of: UInt8(ascii: "\n")) {
+            batch.lines.append(TasksWire.decode(Data(inbox[start..<newline])))
+            start = inbox.index(after: newline)
+            from = start
+        }
+        inbox.removeSubrange(inbox.startIndex..<start)
+        scanned = inbox.count
+        if inbox.count > Self.inboxLimit {
+            batch.ended = true
+        }
+        return batch
     }
 }
