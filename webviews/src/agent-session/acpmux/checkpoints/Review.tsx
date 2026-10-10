@@ -132,6 +132,7 @@ export function CheckpointReview({
           <div className="acpmux-checkpoint-actions">
             <button
               type="button"
+              data-copy-state={copiedFor === record.checkpoint_id ? "copied" : "ready"}
               disabled={!!busy}
               onClick={() => {
                 const checkpointId = record.checkpoint_id;

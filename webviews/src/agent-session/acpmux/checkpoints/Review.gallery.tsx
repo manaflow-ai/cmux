@@ -74,7 +74,7 @@ const keyboardSelection: Play = async (ctx) => {
 const copyReplacement: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-checkpoint-actions button:first-child" });
   await ctx.waitFor(() => ctx.find({ text: "refs/cmux/checkpoints/gallery-b" }));
-  await ctx.waitFor(() => ctx.find({ selector: ".acpmux-checkpoint-actions button:first-child" }));
+  await ctx.waitFor(() => ctx.find({ selector: '.acpmux-checkpoint-actions button[data-copy-state="ready"]' }));
 };
 
 export default componentEntry<Props>({
