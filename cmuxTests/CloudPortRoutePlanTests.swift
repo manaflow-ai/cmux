@@ -151,6 +151,20 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("SSH loopback aliases keep ownership of the ready service")
+    func loopbackAliasesShareServiceIdentity() async throws {
+        let model = makeModel(forward: { _ in 46_903 }, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://127.0.0.1:3000")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        _ = try #require(state.nextURL())
+        #expect(state.owns(URL(string: "http://localhost:3000")!))
+        #expect(state.owns(URL(string: "http://[::1]:3000")!))
+        #expect(!state.owns(URL(string: "http://localhost:3001")!))
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {
