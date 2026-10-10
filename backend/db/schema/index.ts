@@ -197,7 +197,7 @@ export const memberships = pgTable("memberships", {
 }, (table) => [
 	index("memberships_user").using("btree", table.userId.asc().nullsLast().op("text_ops")),
 	primaryKey({ columns: [table.teamId, table.userId], name: "memberships_pkey"}),
-	check("memberships_role_check", sql`role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text])`),
+	check("memberships_role_check", sql`role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'billing'::text, 'guest'::text])`),
 ]);
 
 export const homeParticipants = pgTable("home_participants", {

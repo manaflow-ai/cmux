@@ -94,6 +94,13 @@ deploy's own credentials and refuses when a migration file of the commit is not 
 missing table, column or privilege. While the tracking table is absent or unreadable by
 the deploy role it warns and the schema check alone decides.
 
+**Development vars** (`worker-release.ts vars --base-config`, backend.yml deploy-development): the
+serving version's vars must equal wrangler.jsonc env.development.vars at the push's BEFORE commit
+(an all-zero BEFORE uses the parent of the feat-cmux-next head). A difference is drift (a var set
+out of band): refused, names only. When they match, the repo is the source: a var the pushed
+commits change (an image promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by
+name and plain value.
+
 **Post-deploy** (`worker-release.ts`): before the deploy it records the version serving
 100% (refuses during a gradual deployment); after it smokes `release-smoke.json` (routes
 without `sources` always, the others when a matching file changed). On red it runs
@@ -212,6 +219,27 @@ feat-cmux-next-hq39-backend-label-rails: it needs `PLANETSCALE_SERVICE_TOKEN_ID`
 landed-checkout production apply (workflow_dispatch after landing); without both, the required
 gate "backend migrations applied" could not pass.
 
+## Image staleness
+
+`image-staleness.ts` (bead cx-4l51; workflow `cloud-image-staleness.yml`) keeps the Cloud images
+from falling behind the daemon silently. Each bake records the baked daemon's full `identify`
+answer (`web/scripts/cmux-vm-image/identify.ts`); the bake record in `channels/dev.json`
+`history` keeps it as `cmux_tui: {commit, committed_at, capabilities}`. The guard reads every
+image a channel points at (the Cloud image at the top level, the team VM image under `team_vm`)
+and the tip's capability list from the cmux-tui source (`advertised_capabilities` and
+`identify_capabilities` in `cmux-tui-core/src/server/capabilities.rs`; a name it cannot resolve
+fails it). Runtime-only capabilities (inside an `if` in `identify_capabilities`, and the app host
+and file ops lists) are never required. It fails when an image lacks a capability the tip always
+serves, when the set differs and the image's cmux-tui is more than 7 days older than the tip
+commit, when an image has no recorded list, or when wrangler.jsonc boots an image the channel
+does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the channels or
+wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
+match again. The workflow job stays green (a warning only): staleness is not a code red and never
+blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
+(GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
+smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
+`web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
+
 ## Rollback
 
 - Bad deploy: automatic (`wrangler rollback`). By hand: `wrangler rollback <version> --name <worker>`; the version is in the deploy log line "previous version of ...".
@@ -322,3 +350,10 @@ cmux-old never reads cmux_vm, so the migrations stay in place; if they must go, 
 Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) uses the same pattern
 through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
 `--rollback`, new VMs only); it is not needed now either.
+
+## Lessons from the first production attempts (2026-10-09)
+
+- **One owner, lock first.** Two sessions prepared the production cmux_vm apply at the same time; the single-owner decision reached one of them after its run had started. A production DB step takes the rails lock (`db-release.ts apply` holds it) and announces its one owner before any role or grant is made.
+- **Rehearsal login.** A PlanetScale-managed owner role gets a new password on a branch copy, so a rehearsal that reuses the main branch login fails with `password authentication failed`. The rehearsal now uses the copied login only for a SQL owner and resets the copy's own owner record for a PlanetScale-role owner (rehearsal.ts; the reset refuses any branch that is not `rh-*`).
+- **PITR lag.** The copy is a point-in-time restore of the target 6 minutes back. A role or grant younger than that is not on the copy. Wait more than 6 minutes after creating the owner role or the bootstrap grant before a rehearsal.
+- **Bootstrap of the schema.** `CREATE SCHEMA cmux_vm AUTHORIZATION <owner>` is refused on PlanetScale (the admin role cannot SET ROLE to the owner). The bootstrap that works: a temporary admin role (`pscale role create <db> main <name> --inherited-roles postgres --ttl 90m`), `GRANT CREATE ON DATABASE postgres TO <owner>` as that role, wait past the PITR lag, apply, then `REVOKE CREATE ON DATABASE postgres FROM <owner>` as the same role (a grant made by the temporary role blocks its clean delete), then delete the temporary role by exact id. The owner never keeps database CREATE after the bootstrap (the apply refuses it in production).

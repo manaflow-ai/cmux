@@ -40,6 +40,7 @@ final class OmniboxSuggestionPanel {
             return row
         }
         rows.forEach { content.card.addSubview($0) }
+        content.setAccessibilityRows(rows)
         place(below: anchor, pane: pane, in: window)
     }
 
@@ -93,8 +94,13 @@ final class OmniboxSuggestionPanel {
     }
 
     func highlight(_ index: Int?) {
+        var changed = false
         for (offset, row) in rows.enumerated() {
+            changed = changed || row.isHighlighted != (offset == index)
             row.isHighlighted = offset == index
+        }
+        if changed {
+            NSAccessibility.post(element: content.card, notification: .selectedChildrenChanged)
         }
     }
 
@@ -110,12 +116,29 @@ final class OmniboxSuggestionPanel {
 }
 
 /// Transparent panel content holding the card layer and its shadow.
+final class SuggestionCardListView: NSView {
+    private var accessibilityRows: [SuggestionRowView] = []
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        accessibilityRows = rows
+    }
+
+    override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilityRows.filter { $0.isAccessibilitySelected() }
+    }
+}
+
 final class SuggestionCardView: NSView {
-    let card = NSView()
+    let card = SuggestionCardListView()
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // The transparent host is layout-only. The card is the AX list so
+        // VoiceOver can enter the suggestion popup and move through rows.
+        setAccessibilityElement(false)
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.list)
         wantsLayer = true
         layer?.masksToBounds = false
         card.wantsLayer = true
@@ -149,6 +172,12 @@ final class SuggestionCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()
+    }
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        card.setAccessibilityRows(rows)
+        card.setAccessibilityChildren(rows)
+        rows.forEach { $0.setAccessibilityParent(card) }
     }
 
     private func refresh() {

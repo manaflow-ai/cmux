@@ -13,6 +13,12 @@ public protocol PaletteUsageStore: AnyObject {
     func recordUse(key: String, query: String, at now: Date)
     /// The palette is about to open: refresh the mirror if it is stale.
     func prepare()
+    /// The store can hide rows (the daemon's history; a local history cannot).
+    var canHideRows: Bool { get }
+    /// Hides row `key` from the palette, or shows it again.
+    func setHidden(key: String, hidden: Bool)
+    /// Reset Ranking: forgets row `key`'s uses and learned picks.
+    func forget(key: String)
 }
 
 /// A history kept in this process and saved with `persistence` (tests, and
@@ -34,4 +40,13 @@ public final class LocalPaletteUsageStore: PaletteUsageStore {
     }
 
     public func prepare() {}
+
+    public var canHideRows: Bool { false }
+
+    public func setHidden(key: String, hidden: Bool) {}
+
+    public func forget(key: String) {
+        history.forget(key)
+        persistence?.save(history)
+    }
 }

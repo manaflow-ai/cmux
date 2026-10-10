@@ -112,6 +112,17 @@ public struct InviteReceipt: Hashable, Sendable {
     }
 }
 
+/// A source sent nothing: the op's owner is not connected, while the
+/// merged connection may stay online (another owner answers, as the cloud
+/// does for a router whose local Chief owner is down). `HomeStore` keeps a
+/// send waiting for the owner's `.ownerRecovered` ("sending", then "Not
+/// Delivered" past `HomeStore.offlineSendDeadline`, never "May Not Have
+/// Been Delivered") and refuses any other op with `ownerUnreachable`. It
+/// never reaches the store's callers.
+public struct HomeOwnerOffline: Error, Hashable, Sendable {
+    public init() {}
+}
+
 /// Why the owner refused an op, or why the client refused to send it.
 public enum HomeRejection: Error, Hashable, Sendable {
     /// The owner is unreachable. Ops other than sends are refused (U5); a

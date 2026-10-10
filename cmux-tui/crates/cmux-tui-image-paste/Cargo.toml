@@ -1,0 +1,19 @@
+[package]
+name = "cmux-tui-image-paste"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The image paste spool of the cmux-tui daemon (terminal-image-paste-v1): bounded temporary image files, their storage, ownership marks and crash recovery"
+
+[lints]
+workspace = true
+
+[target.'cfg(unix)'.dependencies]
+anyhow.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true

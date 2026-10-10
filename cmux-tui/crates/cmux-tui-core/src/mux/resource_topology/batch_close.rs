@@ -167,7 +167,7 @@ impl Mux {
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
 
         let mut tab_groups = None;
         let mut plan = match &request.target {

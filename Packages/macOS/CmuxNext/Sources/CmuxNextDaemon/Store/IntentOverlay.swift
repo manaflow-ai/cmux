@@ -60,6 +60,9 @@ import Foundation
             pane.insertTab(tab, at: pane.tabs.count)
             store.tabsBySurface[provisional.surface] = tab
             return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .splitPane(let target, let direction, let ratio, let provisional):
+            return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
+                                          provisional: provisional, to: store)
         case .bindAgentSession(let surface, let session):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
             let previous = tab.snapshot
@@ -97,6 +100,10 @@ import Foundation
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
+        // The daemon's pane under the split's public pane id replaces the provisional one.
+        if case .splitPane(_, _, _, let provisional) = pending.kind, ProvisionalSplit.daemonHas(provisional, in: store) {
+            return nil
+        }
         return apply(pending.kind, to: store)
     }
 
@@ -129,6 +136,8 @@ import Foundation
             }
         case .tabSnapshot(let surface, let previous):
             store.tabsBySurface[surface]?.update(previous)
+        case .splitPane(let screen, let layout, let columns, let pane):
+            ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .createdTab(let surface, let pane):
             store.tabsBySurface[surface] = nil
             guard store.panesByHandle[pane]?.removeTab(surface: surface) != nil else {

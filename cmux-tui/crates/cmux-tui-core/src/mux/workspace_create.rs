@@ -117,7 +117,7 @@ impl Mux {
         let workspace_public_id =
             requested_public_id.map(Ok).unwrap_or_else(WorkspacePublicId::random)?;
         let (placement, delta, selection_resync) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
                 anyhow::bail!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})");
             }

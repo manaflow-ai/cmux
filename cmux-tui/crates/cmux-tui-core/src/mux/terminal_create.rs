@@ -159,6 +159,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
+            tab_id: None,
             env,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
@@ -438,7 +439,7 @@ impl Mux {
                 terminal_lifecycle_name(terminal.lifecycle)
             );
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }

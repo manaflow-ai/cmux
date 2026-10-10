@@ -170,7 +170,7 @@ impl Surface {
         let title_changed = Arc::new(AtomicBool::new(false));
         let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         let records = terminal_metadata.program_status();
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed, records);
+        let callbacks = hosted_terminal_callbacks(&PendingBells::default(), title_changed, records);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -216,12 +216,20 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: Mutex::new(Box::new(term)),
+                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
-                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::ExitedHosted),
+                mouse_encoders: RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.mouse_encoders",
+                    Box::new(mouse_encoders),
+                ),
+                runtime: RankedMutex::new(
+                    LockRank::Runtime,
+                    "pty.runtime",
+                    PtyRuntime::ExitedHosted,
+                ),
                 lifetime: PtyLifetime::SessionOwned,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: Some(identity),
@@ -237,17 +245,21 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 dirty: AtomicBool::new(true),
-                title: Mutex::new(String::new()),
+                title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
                 directory_reported: AtomicBool::new(false),
-                geometry: Mutex::new(PtyGeometry {
-                    cols,
-                    rows,
-                    cell_width: cell_pixels.0,
-                    cell_height: cell_pixels.1,
-                }),
+                geometry: RankedMutex::new(
+                    LockRank::Geometry,
+                    "pty.geometry",
+                    PtyGeometry {
+                        cols,
+                        rows,
+                        cell_width: cell_pixels.0,
+                        cell_height: cell_pixels.1,
+                    },
+                ),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
@@ -258,19 +270,27 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
-                taps: Mutex::new(Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 snapshot_position: Default::default(),
-                last_attach_colors: Mutex::new(None),
-                render: Arc::new(Mutex::new(RenderHub {
-                    state: Box::new(render_state),
-                    built_generation: 0,
-                    latest: None,
-                    initial_graphics: None,
-                    final_initial: None,
-                    taps: Vec::new(),
-                })),
+                last_attach_colors: RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.last_attach_colors",
+                    None,
+                ),
+                render: Arc::new(RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.render",
+                    RenderHub {
+                        state: Box::new(render_state),
+                        built_generation: 0,
+                        latest: None,
+                        initial_graphics: None,
+                        final_initial: None,
+                        taps: Vec::new(),
+                    },
+                )),
                 render_generation: AtomicU64::new(1),
                 frame_requests,
                 #[cfg(test)]

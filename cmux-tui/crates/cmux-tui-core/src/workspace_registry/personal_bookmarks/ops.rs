@@ -392,8 +392,11 @@ impl WorkspaceRegistry {
     /// The revision and every node of one profile's tree, in depth-first
     /// pre-order.
     pub fn list_bookmarks(&self, profile: &str) -> anyhow::Result<(u64, Vec<Bookmark>)> {
-        ensure_profile(&self.connection, profile)?;
-        Ok((bookmarks_revision(&self.connection)?, read_bookmarks(&self.connection, profile)?))
+        ensure_profile(&self.connection.get(), profile)?;
+        Ok((
+            bookmarks_revision(&self.connection.get())?,
+            read_bookmarks(&self.connection.get(), profile)?,
+        ))
     }
 
     /// Validate and commit one bookmark op in one transaction. With a key
@@ -412,7 +415,8 @@ impl WorkspaceRegistry {
             let digest = Sha256::digest(serde_json::to_vec(&op)?);
             digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
         };
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(key) = key
             && let Some((stored_operation, stored_fingerprint, result)) = lookup_replay(&tx, key)?
         {

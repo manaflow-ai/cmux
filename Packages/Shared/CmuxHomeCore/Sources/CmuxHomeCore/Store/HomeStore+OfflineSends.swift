@@ -24,9 +24,34 @@ extension HomeStore {
         throw HomeSendState.pendingResend
     }
 
+    /// The same for a logged send with attachments: its uploads wait for
+    /// the reconnect (`resumeInterruptedUploads`, in log order), then it
+    /// goes after every earlier send of its conversation. Always throws
+    /// `pendingResend`.
+    func queueUploadWhileOffline(_ key: IdempotencyKey) throws -> Never {
+        uploads[key]?.waitingForReconnect = true
+        offlineQueued.insert(key)
+        scheduleOfflineDeadline(key)
+        throw HomeSendState.pendingResend
+    }
+
+    /// A send its owner never got (`HomeOwnerOffline`: the owner is down
+    /// while another owner keeps the store online) waits for the owner's
+    /// `.ownerRecovered`, which resends it, or fails at the deadline: "Not
+    /// Delivered" unless an earlier attempt may have reached the owner.
+    func waitForOwnerRecovery(_ key: IdempotencyKey) {
+        log.markUnconfirmed(key)
+        if !possiblySent.contains(key) {
+            offlineQueued.insert(key)
+            uploads[key]?.reachedOwner = false
+        }
+        if offlineDeadlines[key] == nil { scheduleOfflineDeadline(key) }
+    }
+
     /// Fails the send "Not Delivered" when it is still waiting for the
-    /// owner at the deadline. A send in flight or committed by then is
-    /// decided by its answer instead.
+    /// owner at the deadline: unanswered, or its uploads waiting for the
+    /// reconnect. A send in flight or committed by then is decided by its
+    /// answer instead.
     private func scheduleOfflineDeadline(_ key: IdempotencyKey) {
         let clock = self.clock
         let deadline = Self.offlineSendDeadline
@@ -35,10 +60,12 @@ extension HomeStore {
             do { try await clock.sleep(for: deadline) } catch { return }
             guard !Task.isCancelled, let self, !self.stopped else { return }
             self.offlineDeadlines[key] = nil
-            guard let entry = self.log.entries.first(where: { $0.intent.key == key }), entry.state == .unconfirmed else { return }
+            guard let entry = self.log.entries.first(where: { $0.intent.key == key }) else { return }
+            let uploadWaiting = self.uploads[key]?.waitingForReconnect == true
+            guard entry.state == .unconfirmed || uploadWaiting else { return }
             // Never sent: "Not Delivered". Sent once and unanswered since:
             // the owner may have committed it.
-            let reachedOwner = !self.offlineQueued.contains(key)
+            let reachedOwner = self.uploads[key]?.reachedOwner ?? !self.offlineQueued.contains(key)
             self.offlineQueued.remove(key)
             self.giveUp(key, .ownerUnreachable, reachedOwner: reachedOwner)
         }
@@ -52,6 +79,7 @@ extension HomeStore {
     /// The owner decided the send (or it left the log): its deadline ends.
     func endOfflineDeadline(_ key: IdempotencyKey) {
         offlineQueued.remove(key)
+        possiblySent.remove(key)
         offlineDeadlines.removeValue(forKey: key)?.cancel()
     }
 
@@ -59,5 +87,6 @@ extension HomeStore {
         for task in offlineDeadlines.values { task.cancel() }
         offlineDeadlines.removeAll()
         offlineQueued.removeAll()
+        possiblySent.removeAll()
     }
 }

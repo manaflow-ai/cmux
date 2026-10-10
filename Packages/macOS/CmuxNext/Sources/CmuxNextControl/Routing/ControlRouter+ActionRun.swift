@@ -1,6 +1,7 @@
 import CmuxNextActions
 public import CmuxNextSettings
 import Foundation
+import os
 
 /// `action.run` (plans/cmux-next/state-ownership.md 4).
 ///
@@ -90,6 +91,7 @@ extension ControlRouter {
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin() else { throw expired }
+            if action.id == "tab.focus" { tabSwitchMark("run") }
             return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
         }
         do {
@@ -219,4 +221,12 @@ extension ControlRouter {
         }
         return resolved
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

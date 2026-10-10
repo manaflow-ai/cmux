@@ -11,6 +11,7 @@ extension SidebarModel {
         }
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
+        options.groupsByFolder = groupsByFolder
         let selectable = Set(selectableWorkspaces.map(\.id))
         var rows: [SidebarItem] = []
         var stops: [WorkspaceID: SidebarItem] = [:]
