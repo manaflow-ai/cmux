@@ -47,7 +47,6 @@ extension SidebarView {
         wantsLayer = true
         aboveLine.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(aboveLine)
-        installCardStack()
     }
 
     /// Gives the three regions their sections: the band above the list,

@@ -226,6 +226,21 @@ final class SidebarNoticeCardView: NSView {
     /// The text lines shown (heading, title, detail, shortcut).
     var lineViews: [NSView] { [eyebrowLabel, titleLabel, detailLabel, shortcutLabel].filter { !$0.isHidden } }
 
+    /// Whether the title does not fit its line (it would end in "…").
+    var titleTruncates: Bool {
+        let width = (titleLabel.stringValue as NSString).size(withAttributes: [.font: Typography.bodyEmphasized]).width
+        return ceil(width) > titleLabel.frame.width
+    }
+
+    /// Whether the detail needs more than its two lines.
+    var detailTruncates: Bool {
+        guard !detailLabel.isHidden else { return false }
+        let needed = (detailLabel.stringValue as NSString).boundingRect(
+            with: NSSize(width: detailLabel.frame.width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: Typography.caption]).height
+        return ceil(needed) > detailLabel.frame.height + 1
+    }
+
     /// Whether the icon (or the spinner) shows beside the title.
     var showsSymbol: Bool { !icon.isHidden || !spinner.isHidden }
 
