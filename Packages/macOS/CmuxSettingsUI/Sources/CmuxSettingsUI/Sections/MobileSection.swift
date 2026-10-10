@@ -386,7 +386,10 @@ public struct MobileSection: View {
 
     @ViewBuilder
     private func boundPortStatusText(_ snapshot: MobilePairingStatusSnapshot) -> some View {
-        if !snapshot.isRunning {
+        if let failure = snapshot.tailscaleFailureDescription {
+            Label(failure, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if !snapshot.isRunning {
             Text(String(localized: "settings.mobile.port.status.starting", defaultValue: "Starting the pairing listener…"))
                 .foregroundStyle(.secondary)
         } else if snapshot.usesEphemeralFallback, let bound = snapshot.boundPort {
