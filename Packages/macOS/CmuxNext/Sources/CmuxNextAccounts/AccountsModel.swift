@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 public import CmuxNextCodeRouter
 public import Foundation
 public import Observation
@@ -91,13 +93,28 @@ public final class AccountsModel {
             return
         }
         if Self.needsConfirmation(provider), !confirmed {
-            confirmTarget = provider
+            askConsent(provider, pasted: pasted)
             return
         }
         confirmTarget = nil
         // The row shows Connecting at once; the request runs after.
         apply(.connectStarted, to: provider)
         Task { await runConnect(provider, pasted: pasted) }
+    }
+
+    /// The Codex consent as a native cmux dialog whose Connect is user-only consent
+    /// (cx-zk9t): page script, posted input and accessibility presses cannot answer it,
+    /// unlike the inline confirmation it replaces.
+    private func askConsent(_ provider: AIProvider, pasted: String?) {
+        confirmTarget = nil
+        let spec = CmuxDialogSpec(title: provider.displayName, lines: [AccountsStrings.codexRefreshNote],
+                                  buttons: [.cancel(AccountsStrings.cancel),
+                                            CmuxDialogButton(id: "connect", title: AccountsStrings.confirmConnect, role: .default)],
+                                  identifier: "cmux.dialog.accounts.codexConsent", confirmKind: .consent)
+        let scope: CmuxDialogScope = (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
+        CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
+            if answer.button == "connect", !answer.isDismissal { self?.connect(provider, pasted: pasted, confirmed: true) }
+        }
     }
 
     /// Connecting Codex hands its refresh token to CodeRouter, which then

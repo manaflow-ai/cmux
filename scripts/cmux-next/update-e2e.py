@@ -521,9 +521,8 @@ def main():
         except RuntimeError as error:
             print(f"trust reset: {error}")
         try:
-            with open(config, "w") as f:
-                json.dump({"app": {"quitBehavior": "end-everything"}}, f)
-            time.sleep(1)  # the app reloads cmux.json from its file watcher
+            # A scripted quit never ends sessions (cx-zk9t): end everything with the DEBUG fixture.
+            app.rpc("debug.quit", {"fixture_quit": "end-everything"})
             app.quit()
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")

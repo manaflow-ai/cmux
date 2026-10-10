@@ -329,7 +329,7 @@ try:
     check("Imported from Firefox (default-release)" in imported_folders(), "CLI import made the Firefox folder")
     check(dialog() is None, "CLI import shows no dialog")
 finally:
-    rpc("action.run", {"action": "quitEndSessions"})
+    rpc("debug.quit", {"fixture_quit": "end-sessions"})
     try:
         app.wait(timeout=20)
     except subprocess.TimeoutExpired:
