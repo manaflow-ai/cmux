@@ -46,9 +46,9 @@ export function edgeCanaryProblems({
   modelsStatus,
   codexOutcome,
   claudeCheck,
-  claudeOutcome,
-  codexTail,
-  claudeTail,
+  claudeOutcome = "",
+  codexTail = "",
+  claudeTail = "",
 }) {
   const problems = [];
   if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
