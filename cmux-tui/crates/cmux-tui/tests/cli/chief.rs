@@ -518,7 +518,8 @@ fn skew_daemon(dir: &std::path::Path, cli_path: &std::path::Path) -> PathBuf {
 fn bundled_cli(dir: &std::path::Path, name: &str) -> PathBuf {
     let bin_dir = dir.join(format!("{name}.app/Contents/Resources/bin"));
     fs::create_dir_all(&bin_dir).unwrap();
-    let cli = bin_dir.join("cmux");
+    // Named cmux-tui: the full command surface (a `cmux` name is the app CLI).
+    let cli = bin_dir.join("cmux-tui");
     fs::copy(bin(), &cli).unwrap();
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
     cli
