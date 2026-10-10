@@ -4,6 +4,22 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated static func performRemoteBrowserCreation(
+        link: CloudMachineLink,
+        request: CloudTuiRequest
+    ) async throws -> CmuxTuiSnapshotParser.CreatedBrowserPath? {
+        let data = try await link.run(arguments: request)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: object)
+    }
+
     /// Creates a browser in cmux-tui so the browser's page, network, and localhost
     /// context belong to this machine rather than to the Mac running cmux.
     func createBrowser(
@@ -24,29 +40,20 @@ extension CmuxTuiSurfaceProvider {
             guard let link = await self.links.link(machineID: self.machineID) else {
                 throw ProviderError.machineAsleep(self.machineID)
             }
-            // The daemon mutation owns its response after it is admitted. A
-            // provider replacement can cancel this queue turn while the
-            // receipt is still in flight, so keep the transport waiter alive
-            // long enough to adopt or compensate for the committed tab.
-            // The queue turn may be cancelled while the daemon has already
-            // committed the tab. Keep the transport waiter independent of
-            // that local cancellation so the receipt can be adopted or
-            // compensated below.
-            let request = Task.detached { @MainActor in
-                try await link.run(arguments: CloudTuiRequests.createBrowserArguments(
-                    socketPath: connected.socketPath,
-                    workspaceID: remoteWorkspaceID,
-                    screenID: screenID,
-                    paneID: paneID,
-                    url: url.absoluteString,
-                    name: name,
-                    idempotencyKey: idempotencyKey,
-                    correlationKey: correlationKey
-                ))
-            }
-            let data = try await request.value
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let created = CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: object) else {
+            let request = CloudTuiRequests.createBrowserArguments(
+                socketPath: connected.socketPath,
+                workspaceID: remoteWorkspaceID,
+                screenID: screenID,
+                paneID: paneID,
+                url: url.absoluteString,
+                name: name,
+                idempotencyKey: idempotencyKey,
+                correlationKey: correlationKey
+            )
+            // Keep the transport and response parsing off the main actor. The
+            // committed queue still serializes the mutation and the receipt is
+            // adopted below on the provider's actor-isolated state.
+            guard let created = try await Self.performRemoteBrowserCreation(link: link, request: request) else {
                 throw ProviderError.browserNotCreated
             }
             do {

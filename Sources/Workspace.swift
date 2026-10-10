@@ -10040,7 +10040,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror { return nil }
 
         let requestedBrowserURL = initialRequest?.url ?? url
-        var cloudBrowserRoute: CloudBrowserCreationRoute?
         let browserEnabled: Bool = {
 #if DEBUG
             // Tests that inspect the construction boundary must exercise the
@@ -10085,14 +10084,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   dividerPosition: initialDividerPosition
               ) else { return nil }
 
-        if creationPolicy != .restoration {
-            cloudBrowserRoute = cloudBrowserCreationRoute(
-                sourcePanelID: panelId,
-                requestedURL: requestedBrowserURL
-            )
-        }
-        let requiresCloudBrowser = cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil } ?? false
-        let cloudBrowserUnavailable = requiresCloudBrowser && cloudBrowserRoute == nil
+        let cloudBrowserPlan = cloudBrowserCreationPlan(
+            sourcePanelID: panelId,
+            requestedURL: requestedBrowserURL,
+            creationPolicy: creationPolicy
+        )
 
         // Preflight is deliberately adjacent to construction: Bonsplit's
         // delegate remains the final mutation-time backstop.
@@ -10105,9 +10101,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
             ),
-            initialURL: cloudBrowserRoute == nil && !cloudBrowserUnavailable ? url : nil,
-            initialRequest: cloudBrowserRoute == nil && !cloudBrowserUnavailable ? initialRequest : nil,
-            renderInitialNavigation: cloudBrowserRoute == nil && !cloudBrowserUnavailable && (browserEnabled || creationPolicy != .restoration),
+            initialURL: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable ? url : nil,
+            initialRequest: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable ? initialRequest : nil,
+            renderInitialNavigation: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable && (browserEnabled || creationPolicy != .restoration),
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
@@ -10175,11 +10171,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
-        if let cloudBrowserRoute {
-            startCloudBrowserCreation(panel: browserPanel, route: cloudBrowserRoute)
-        } else if cloudBrowserUnavailable && creationPolicy != .restoration {
-            browserPanel.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
-        }
+        applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
 
         return browserPanel
     }
@@ -10232,12 +10224,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
-        let cloudBrowserRoute = creationPolicy == .restoration ? nil : cloudBrowserCreationRoute(
+        let cloudBrowserPlan = cloudBrowserCreationPlan(
             sourcePanelID: sourcePanelId,
-            requestedURL: initialRequest?.url ?? url
+            requestedURL: initialRequest?.url ?? url,
+            creationPolicy: creationPolicy
         )
-        let requiresCloudBrowser = cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil } ?? false
-        let cloudBrowserUnavailable = requiresCloudBrowser && cloudBrowserRoute == nil
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
@@ -10247,9 +10238,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
             ),
-            initialURL: cloudBrowserRoute == nil && !cloudBrowserUnavailable ? url : nil,
-            initialRequest: cloudBrowserRoute == nil && !cloudBrowserUnavailable ? initialRequest : nil,
-            renderInitialNavigation: cloudBrowserRoute == nil && !cloudBrowserUnavailable && (browserEnabled || creationPolicy != .restoration),
+            initialURL: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable ? url : nil,
+            initialRequest: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable ? initialRequest : nil,
+            renderInitialNavigation: cloudBrowserPlan.route == nil && !cloudBrowserPlan.unavailable && (browserEnabled || creationPolicy != .restoration),
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             chromeVisibility: chromeVisibility,
@@ -10314,11 +10305,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
-        if let cloudBrowserRoute {
-            startCloudBrowserCreation(panel: browserPanel, route: cloudBrowserRoute)
-        } else if cloudBrowserUnavailable && creationPolicy != .restoration {
-            browserPanel.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
-        }
+        applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
 
         return browserPanel
     }

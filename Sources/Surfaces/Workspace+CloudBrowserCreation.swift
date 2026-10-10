@@ -13,6 +13,33 @@ extension Workspace {
         let url: URL
     }
 
+    /// The value captured before a native browser placeholder is inserted.
+    /// Both browser entrypoints use this plan so Cloud routing and unavailable
+    /// handling cannot drift between split and tab creation.
+    struct CloudBrowserCreationPlan {
+        let route: CloudBrowserCreationRoute?
+        let unavailable: Bool
+    }
+
+    /// Resolves the remote target once for a browser creation intent. Restore
+    /// uses the catalog's saved projection instead of issuing a new mutation.
+    func cloudBrowserCreationPlan(
+        sourcePanelID: UUID?,
+        requestedURL: URL?,
+        creationPolicy: BrowserPanelCreationPolicy
+    ) -> CloudBrowserCreationPlan {
+        let route = creationPolicy == .restoration
+            ? nil
+            : cloudBrowserCreationRoute(sourcePanelID: sourcePanelID, requestedURL: requestedURL)
+        let requiresCloudBrowser = cloudVMBinding.map {
+            SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil
+        } ?? false
+        return CloudBrowserCreationPlan(
+            route: route,
+            unavailable: creationPolicy != .restoration && requiresCloudBrowser && route == nil
+        )
+    }
+
     /// Returns a remote browser target only for a bound Cloud workspace. SSH
     /// workspaces continue through their existing browser path.
     func cloudBrowserCreationRoute(sourcePanelID: UUID?, requestedURL: URL?) -> CloudBrowserCreationRoute? {
@@ -126,6 +153,15 @@ extension Workspace {
             }
         }
         cloudBrowserCreationTasks[panel.id] = task
+    }
+
+    /// Applies the shared post-insertion action for split and tab entrypoints.
+    func applyCloudBrowserCreationPlan(_ plan: CloudBrowserCreationPlan, to panel: BrowserPanel) {
+        if let route = plan.route {
+            startCloudBrowserCreation(panel: panel, route: route)
+        } else if plan.unavailable {
+            panel.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+        }
     }
 
     /// Compensates a committed daemon tab when the local placeholder closes
