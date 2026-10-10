@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 
@@ -61,6 +62,22 @@ struct AppCrashReporting: Sendable {
             sends: sends)
         ownerPanics.start()
         self.ownerPanics = ownerPanics
+        Self.installLayoutPassGuard(reporter: reporter)
+    }
+
+    /// A layout feedback loop (one view laid out more than
+    /// `LayoutPassGuard.bound` times in one run-loop turn) is reported, with
+    /// the view's class, before AppKit throws its layout-pass exception.
+    static func installLayoutPassGuard(reporter: CrashReporter) {
+        let guardian = LayoutPassGuard.shared
+        guardian.onLoop = { report in
+            reporter.captureNonFatal(
+                "layout loop: \(report.viewClass) laid out \(report.passes) times in one turn",
+                type: "LayoutLoop", fingerprint: ["layout-loop", report.viewClass],
+                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none"],
+                extra: ["ancestry": report.ancestry.joined(separator: " < ")])
+        }
+        guardian.install()
     }
 
     /// The owner's state root: the parent of its sessions directory, which

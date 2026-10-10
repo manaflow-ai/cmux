@@ -36,8 +36,12 @@ struct ChiefHomeAcpmux {
     init(home: ChiefHome) {
         host = Self.host(muxHome: home.muxHome)
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
-                                                    environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+        var resolved = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+                                                 environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+        // A daemon this tab starts first gets the env the Chief host gives its own
+        // (ChiefAppLinks.acpmuxEnvironment): built-in Chief presets need it.
+        resolved?.childEnvironment.merge(ChiefAppLinks.acpmuxEnvironment(home)) { $1 }
+        let environment = resolved
         let chief = AcpmuxHost(environment: environment)
         paneHost = chief
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
