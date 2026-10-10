@@ -73,10 +73,12 @@ enum AgentBesidePlacement {
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
                 // Keyboard focus stays in the chat, now in its dock.
-                if chatHadFocus {
+                if chatHadFocus || content.focusedPane?.pane === anchor {
                     let chatID = chat.id
                     let listed = Task { @MainActor () -> Bool in
-                        for await moved in Observations({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
+                        // The chat's new dock pane, once the window shows it (the controller can come after the store's echo).
+                        let shown = { services.locateTab(chatID).flatMap { $0.1 === anchor ? nil : content.pane(for: $0.1.handle) } }
+                        for await moved in Observations({ shown() != nil }) where moved {
                             return true
                         }
                         return false
