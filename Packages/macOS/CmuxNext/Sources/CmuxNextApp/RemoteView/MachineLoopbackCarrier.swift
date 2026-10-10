@@ -110,3 +110,15 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
         }
     }
 }
+
+extension RemoteLocalhostService {
+    /// The rd byte path to `port` on `machine`'s loopback. A machine with no
+    /// daemon here gives a carrier that ends at once (the tab says why).
+    func browserCarrier(machine: String, port: UInt16) -> MachineLoopbackCarrier {
+        let opener = loopbackOpener(machine: machine)
+        return MachineLoopbackCarrier {
+            guard let opener else { throw LoopbackForwardError.unavailable(machine) }
+            return try await opener(port)
+        }
+    }
+}
