@@ -20,11 +20,14 @@ extension Workspace {
         let machine = SurfaceMachineID(rawValue: binding.vmID)
         guard machine.cloudMachineID != nil,
               SurfaceCatalog.shared.provider(for: machine) is CmuxTuiSurfaceProvider else { return nil }
-        let boundRemoteWorkspaceID = binding.remoteWorkspaceID?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let sourceView: SurfaceRemoteView? = sourcePanelID.flatMap { panelID in
-            guard let projection = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: panelID),
+        let boundRemoteWorkspaceID: String? = {
+            guard let value = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return value
+        }()
+        let sourceView: SurfaceRemoteView? = {
+            guard let sourcePanelID,
+                  let projection = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID),
                   projection.resource.machine == machine,
                   let resource = SurfaceCatalog.shared.resources[projection.resource] else { return nil }
             if let tabID = projection.remoteTabID {
@@ -34,7 +37,7 @@ extension Workspace {
                 return resource.remoteViews?.first(where: { $0.workspace.id == boundRemoteWorkspaceID })
             }
             return resource.remoteViews?.first
-        }
+        }()
         let remoteWorkspaceID = boundRemoteWorkspaceID
             ?? sourceView?.workspace.id
             ?? (SurfaceCatalog.shared.provider(for: machine) as? CmuxTuiSurfaceProvider)?.info.remoteWorkspaces?.first(where: \.focused)?.id
