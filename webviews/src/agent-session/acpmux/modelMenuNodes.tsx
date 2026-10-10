@@ -372,7 +372,6 @@ export function menuNodes(
     /// A query's matches across this harness's models, best nearest the chip.
     matches(query: string, within?: TaxModel[]): MenuNode[] {
       const found = data.filter(query, within);
-      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
       const rows = found.map((model) => modelRow(model, undefined, `${model.provider} · ${model.family}`));
       if (rows.length === 0) return [{ key: "none", label: t("picker.noMatches") }];
       return ordered(rows, order);
