@@ -2249,7 +2249,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == format('refs/heads/cmux-next-dev-{0}', inputs.dev_daily_sha) && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true')
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == format('refs/heads/cmux-next-dev-{0}', inputs.dev_daily_sha) && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
