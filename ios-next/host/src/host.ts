@@ -89,6 +89,9 @@ export class HostCore {
       // The Mac's "view browser tabs" setting decides which browser browser.*
       // serves: the Mac's own tabs (mirrored) when on, the host's Chrome otherwise.
       this.server.register("browser.macStatus", () => mac.current);
+      mac.on("targets", () => {
+        if (layout instanceof DaemonLayout) layout.invalidate();
+      });
       mac.on("status", (status) => {
         this.server.broadcast("browser.macStatus", status);
         this.browser.reconnect();

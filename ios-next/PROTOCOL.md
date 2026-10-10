@@ -152,15 +152,21 @@ Layout     {workspaces:[Workspace]}                 // Mac sidebar order
 Workspace  {id, title, color?, active, activePaneId?, panes:[Pane]}
 Pane       {id, rect:{x,y,w,h}, tabs:[LayoutTab], focusedTabId?, active}
 LayoutTab  {id, kind:"terminal"|"browser"|"agent"|"conversation"|"other",
-            title, refId?, streamable, url?, focused}
+            title, refId?, streamable, url?, focused, visibleOnMac?, reason?}
 ```
 - `rect` is normalized to the workspace (0..1, origin top-left); panes tile the
   workspace. Panes are listed top-to-bottom, then left-to-right.
 - `refId`: terminal tabs carry the `terminalId` for `term.*`; agent tabs the
   `sessionId` for `agent.*`; standalone browser tabs the `tabId` for `browser.*`.
 - `streamable:false`: the phone cannot open a live view; show a placeholder card
-  (title, `url`). cmux-next browser panes are always `streamable:false`; so are
-  agent tabs of another machine and conversation tabs.
+  (title, `url`, `reason`). Agent tabs of another machine and conversation tabs
+  are never streamable. A cmux-next browser pane is streamable only with
+  `browser.mac.v1` on and a target the Mac app maps to that tab (`refId` = the
+  `browser.*` tabId); otherwise `reason` says why (setting off, build without
+  the setting or the mapping, ...).
+- `visibleOnMac` (browser tabs): the Mac shows this tab right now (selected in its
+  pane, on the active screen of the active workspace). A hidden tab sends no
+  frames: offer "Show on Mac", which calls `layout.focusTab {paneId, tabId}`.
 - `active` (pane): the Mac's focused pane, only in the active workspace.
 - `layout.get {}` -> `{layout}`
 - `layout.focusTab {paneId, tabId}` -> `{}`: selects the tab in its pane and focuses
@@ -222,10 +228,15 @@ With `browser.mac.v1` (host bridged to the cmux-next app):
 - When `on`, the tabs are the Mac user's: `browser.create`, `browser.close` and
   `browser.activate` fail with `unsupported`; attaching never switches, resizes or
   changes the user agent of the Mac's tab (frames have the Mac's viewport; the phone
-  scales). A tab the Mac is not showing (a pane's background tab) sends no frames.
+  scales). A tab the Mac is not showing (`visibleOnMac:false`) sends no frames.
+- `browser.attach {..., bringForward?:true}`: for a Mac tab, first show it on the Mac
+  (the same as `layout.focusTab` on its pane), then attach. Only when the phone
+  sends it (the opt-in setting "Bring tabs forward on Mac automatically"); never
+  by default.
 - Switching state drops the current tabs (`browser.closed`) and lists the new ones.
-- `layout.v1` browser tabs matched to a Mac tab are `streamable:true` with
-  `refId` = that `tabId`.
+- Mac panes and targets are paired only through the mapping the Mac app publishes
+  (`devtools.json` `targets:[{tabId, targetId}]` or a target id in the daemon's tab
+  state); never by URL or title.
 
 ## 5. Backend HTTP API (Cloudflare Worker, base `https://<worker>/v1`)
 

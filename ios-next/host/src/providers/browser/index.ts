@@ -113,6 +113,8 @@ export interface BrowserProviderOptions {
   mirror?: (endpoint: string) => boolean;
   /** An endpoint to use instead of normal discovery while it returns one (the Mac's CEF). */
   preferEndpoint?: () => string | null;
+  /** Makes a mirrored Mac tab visible on the Mac (browser.attach bringForward:true). */
+  bringForward?: (tabId: string) => Promise<void>;
 }
 
 export interface BrowserProviderEvents {
@@ -924,8 +926,11 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     this.on("event", (topic, payload) => server.broadcast(topic, payload));
     server.register("browser.list", async () => ({ tabs: await this.list() }));
     server.register("browser.create", async (p) => ({ tab: await this.create(optStr(p, "url")) }));
-    server.register("browser.attach", (p, session) =>
-      this.attach(
+    server.register("browser.attach", async (p, session) => {
+      // Mac tab + explicit phone opt-in: show it on the Mac first (a hidden
+      // tab streams no frames). Never without bringForward:true.
+      if (p.bringForward === true && this.mirroring && this.opts.bringForward) await this.opts.bringForward(str(p, "tabId"));
+      return this.attach(
         session,
         str(p, "tabId"),
         num(p, "width", 390),
@@ -934,8 +939,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         p.mobile !== false,
         p.frameMeta === true,
         p.reloadForMode === true,
-      ),
-    );
+      );
+    });
     server.register("browser.detach", async (p, session) => {
       await this.detach(session, num(p, "streamId"));
       return {};

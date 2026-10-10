@@ -62,7 +62,7 @@ describe("layout mapping", () => {
     expect(p3).toMatchObject({ id: "p3", focusedTabId: "t5", active: false });
     expect(p3!.tabs).toEqual([
       { id: "t2", kind: "terminal", title: "~", refId: "s2", streamable: true, focused: false },
-      { id: "t5", kind: "browser", title: "Example", url: "https://example.com/", streamable: false, focused: true },
+      { id: "t5", kind: "browser", title: "Example", url: "https://example.com/", streamable: false, focused: true, visibleOnMac: true, reason: expect.any(String) },
     ]);
     expect(p9!.tabs[0]).toEqual({ id: "t7", kind: "agent", title: "codex", refId: "sess-1", streamable: true, focused: true });
     expect(p12).toMatchObject({ id: "p12", active: true, tabs: [{ title: "build", refId: "s8" }] });

@@ -144,6 +144,10 @@ export interface LayoutTab {
   streamable: boolean;
   url?: string;
   focused: boolean;
+  /** Browser tabs: shown on the Mac right now (a hidden tab sends no frames). */
+  visibleOnMac?: boolean;
+  /** Why the tab is not streamable. */
+  reason?: string;
 }
 export interface LayoutPane {
   id: string;

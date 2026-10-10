@@ -113,8 +113,14 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
     the URL as `http://127.0.0.1:<port>`; no host name from the file is
     used.
 
-  The host re-checks the file on change and every 5 s, and drops the
-  connection when it turns off. It sends no `--remote-allow-origins`-style
+  The file is the app's own (`~/Library/Application Support/<bundle id>/devtools.json`,
+  written by `CEFRemoteDevTools`). The host acts only on `state:"ready"`, and
+  never on `restartRequired`, even if a port was seen earlier. The host
+  re-checks the file on change and every 5 s, and drops the connection when it
+  turns off. Panes are paired with targets only through the mapping the app
+  publishes; nothing is guessed from URL or title. `browser.attach
+  bringForward:true` (phone opt-in) and "Show on Mac" use the same
+  allowlisted `layout.focusTab` selection. It sends no `--remote-allow-origins`-style
   Origin and connects only to loopback. Through it, the phone can see and
   drive (input, navigate, reload) the Mac user's tabs, which is what the
   setting grants. It never creates, closes or activates a Mac tab, never

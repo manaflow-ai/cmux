@@ -12,7 +12,8 @@ import { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { discoverTargets } from "./bridge/discover.ts";
 import { DaemonLayout } from "./layout/index.ts";
-import { MacBrowser } from "./bridge/macBrowser.ts";
+import { findDevtoolsFile, MacBrowser, macBrowserResolver } from "./bridge/macBrowser.ts";
+import type { BrowserResolver } from "./layout/index.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
 import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
@@ -163,8 +164,8 @@ interface RunOptions {
   acpmuxSocket?: string;
 }
 
-/** The Mac's CEF targets while browser.* mirrors the cmux-next app (set by run). */
-let macTargets: () => { id: string; url: string; title: string }[] | null = () => null;
+/** Maps a Mac browser pane to browser.* (set by run once the core exists). */
+let browserResolver: BrowserResolver = () => ({ reason: "not ready" });
 
 /** Bridges to the running cmux-next app, or null for standalone mode. */
 async function setupBridge(opts: RunOptions, log: (m: string) => void) {
@@ -191,9 +192,15 @@ async function setupBridge(opts: RunOptions, log: (m: string) => void) {
     terminals: targets.daemonSocket ? new DaemonTerminals(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
     agents: targets.acpmuxSocket ? new AcpmuxAgents(() => targets.acpmuxSocket, { log: makeLogger("bridge") }) : undefined,
     layout: targets.daemonSocket
-      ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge"), macTargets: () => macTargets() })
+      ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge"), resolveBrowser: (t) => browserResolver(t) })
       : undefined,
-    mac: targets.daemonSocket ? new MacBrowser({ hostName: hostname().replace(/\.local$/, ""), log: makeLogger("bridge") }) : undefined,
+    mac: targets.daemonSocket
+      ? new MacBrowser({
+          hostName: hostname().replace(/\.local$/, ""),
+          log: makeLogger("bridge"),
+          file: () => findDevtoolsFile(targets.session && targets.session !== "cmux-app" ? targets.session.slice("cmux-app-".length) : null),
+        })
+      : undefined,
   };
 }
 
@@ -221,10 +228,22 @@ async function run(opts: RunOptions): Promise<void> {
       launch: opts.launch,
       download: opts.download,
       log: makeLogger("browser"),
-      ...(mac ? { preferEndpoint: () => mac.endpoint, mirror: (e: string) => e === mac.endpoint } : {}),
+      ...(mac
+        ? {
+            preferEndpoint: () => mac.endpoint,
+            mirror: (e: string) => e === mac.endpoint,
+            // browser.attach bringForward:true (phone opt-in): show the tab on the Mac first.
+            bringForward: async (tabId: string) => {
+              const layout = bridge?.layout;
+              if (!(layout instanceof DaemonLayout)) return;
+              const loc = await layout.locateBrowserTarget(tabId);
+              if (loc) await layout.focusTab(loc.paneId, loc.tabId);
+            },
+          }
+        : {}),
     },
   });
-  macTargets = () => (core.browser.isMirroring ? core.browser.currentTabs().map((t) => ({ id: t.id, url: t.url, title: t.title })) : null);
+  if (mac) browserResolver = macBrowserResolver(mac, () => (core.browser.isMirroring ? core.browser.currentTabs().map((t) => t.id) : null));
   if (mac?.current.state === "on") void core.browser.connect().catch(() => {});
   const api = new ApiClient(apiBase, cfg.hostToken);
   const agent: HostAgent = new HostAgent({

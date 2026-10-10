@@ -11,7 +11,6 @@ import type { Logger } from "../util.ts";
 import { DaemonConn } from "../bridge/daemonConn.ts";
 import { terminalId } from "../bridge/daemonTerminals.ts";
 import { paneRects } from "./split.ts";
-import { matchTargets } from "../bridge/macBrowser.ts";
 
 export interface LayoutSource extends EventEmitter<{ event: [topic: string, payload: unknown] }> {
   get(): Promise<Layout>;
@@ -32,6 +31,10 @@ export function registerLayout(server: RpcServer, source: LayoutSource): void {
 
 interface DTab {
   surface: number;
+  tab_resource_id?: string | null;
+  /** If a cmux-next build publishes the CEF target id in tab state. */
+  browser_target_id?: string | null;
+  cdp_target_id?: string | null;
   kind: string;
   name?: string | null;
   title?: string | null;
@@ -70,19 +73,25 @@ function parseNum(prefix: string, id: string): number {
   return Number(m[1]);
 }
 
-export function layoutTab(t: DTab, focused: boolean, macTargetId?: string): LayoutTab {
+/** How a Mac browser tab maps to browser.* (refId) or why it cannot (reason). */
+export type BrowserRef = { refId: string } | { reason: string };
+export type BrowserResolver = (tab: DTab) => BrowserRef;
+
+export function layoutTab(t: DTab, focused: boolean, visibleOnMac = focused, resolveBrowser?: BrowserResolver): LayoutTab {
   const title = (t.name || t.title || "").trim();
   const base = { id: tabIdOf(t.surface), focused };
   switch (t.kind) {
     case "pty":
       return { ...base, kind: "terminal", title: title || "Terminal", refId: terminalId(t.surface), streamable: true };
-    case "browser":
-      // cmux-next browser panes are drawn by the app (CEF/WebKit) and cannot
-      // be streamed through the daemon: the phone shows a placeholder.
-      // With the Mac's "view browser tabs" setting on, a pane matched to a
-      // CEF target streams through browser.* (refId = that tabId).
-      if (macTargetId) return { ...base, kind: "browser", title: title || t.url || "Browser", refId: macTargetId, streamable: true, ...(t.url ? { url: t.url } : {}) };
-      return { ...base, kind: "browser", title: title || t.url || "Browser", streamable: false, ...(t.url ? { url: t.url } : {}) };
+    case "browser": {
+      // cmux-next browser panes stream only with the Mac's "view browser
+      // tabs" setting on and a target the app maps to this tab. A tab the
+      // Mac is not showing sends no frames until it is shown
+      // (layout.focusTab or browser.attach bringForward:true).
+      const ref: BrowserRef = resolveBrowser ? resolveBrowser(t) : { reason: "Browser tabs on the Mac cannot be viewed from the phone" };
+      const common = { ...base, kind: "browser" as const, title: title || t.url || "Browser", visibleOnMac, ...(t.url ? { url: t.url } : {}) };
+      return "refId" in ref ? { ...common, refId: ref.refId, streamable: true } : { ...common, streamable: false, reason: ref.reason };
+    }
     case "conversation": {
       const a = t.conversation?.agent_session;
       if (a && a.session) {
@@ -97,7 +106,7 @@ export function layoutTab(t: DTab, focused: boolean, macTargetId?: string): Layo
 }
 
 /** Maps list-workspaces to the phone Layout (active screen of each workspace). */
-export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }, macTargets?: Map<number, string>): Layout {
+export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }, resolveBrowser?: BrowserResolver): Layout {
   const workspaces: LayoutWorkspace[] = [];
   for (const ws of tree.workspaces ?? []) {
     const screen = ws.screens?.find((s) => s.active) ?? ws.screens?.[0];
@@ -106,7 +115,9 @@ export function mapDaemonLayout(tree: { workspaces?: DWorkspace[] }, macTargets?
     for (const pane of screen?.panes ?? []) {
       const tabs = pane.tabs ?? [];
       const activeIdx = typeof pane.active_tab === "number" && pane.active_tab < tabs.length ? pane.active_tab : 0;
-      const mapped = tabs.map((t, i) => layoutTab(t, i === activeIdx, macTargets?.get(t.surface)));
+      // Shown on the Mac: the pane's selected tab on the active screen of the active workspace.
+      const shown = Boolean(ws.active && screen?.active);
+      const mapped = tabs.map((t, i) => layoutTab(t, i === activeIdx, shown && i === activeIdx, resolveBrowser));
       panes.push({
         id: paneIdOf(pane.id),
         rect: rects.get(pane.id) ?? { x: 0, y: 0, w: 1, h: 1 },
@@ -137,15 +148,15 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
   private timer: NodeJS.Timeout | null = null;
   private readonly log: Logger;
 
-  private readonly macTargets?: () => { id: string; url: string; title: string }[] | null;
+  private readonly resolveBrowser?: BrowserResolver;
 
   constructor(
     private readonly socketPath: () => string | null,
-    opts: { log?: Logger; macTargets?: () => { id: string; url: string; title: string }[] | null } = {},
+    opts: { log?: Logger; resolveBrowser?: BrowserResolver } = {},
   ) {
     super();
     this.log = opts.log ?? (() => {});
-    this.macTargets = opts.macTargets;
+    this.resolveBrowser = opts.resolveBrowser;
   }
 
   /** Recomputes the layout soon (e.g. the Mac's browser targets changed). */
@@ -153,13 +164,11 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
     if (this.conn) this.schedule();
   }
 
-  private browserMatches(): Map<number, string> | undefined {
-    const targets = this.macTargets?.();
-    if (!targets) return undefined;
-    const tabs: { key: number; url?: string | null; title?: string | null }[] = [];
-    for (const ws of this.tree.workspaces ?? [])
-      for (const sc of ws.screens ?? []) for (const p of sc.panes ?? []) for (const t of p.tabs ?? []) if (t.kind === "browser") tabs.push({ key: t.surface, url: t.url, title: t.name || t.title });
-    return matchTargets(tabs, targets);
+  /** Pane and tab of the Mac browser tab streamed as `targetId`, if any. */
+  async locateBrowserTarget(targetId: string): Promise<{ paneId: string; tabId: string } | null> {
+    const layout = await this.get();
+    for (const ws of layout.workspaces) for (const p of ws.panes) for (const t of p.tabs) if (t.kind === "browser" && t.refId === targetId) return { paneId: p.id, tabId: t.id };
+    return null;
   }
 
   private async open(): Promise<DaemonConn> {
@@ -202,7 +211,7 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
     const c = this.conn;
     if (!c) throw new RpcError("unavailable", "not connected to the cmux-next app");
     this.tree = await c.request("list-workspaces");
-    const layout = mapDaemonLayout(this.tree, this.browserMatches());
+    const layout = mapDaemonLayout(this.tree, this.resolveBrowser);
     const key = JSON.stringify(layout);
     if (emit && key !== this.last) this.emit("event", "layout.changed", { layout });
     this.last = key;
