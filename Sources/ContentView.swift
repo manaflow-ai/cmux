@@ -1685,6 +1685,7 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
+            sidebarTabSearchSource: SidebarTabSearchSource(entries: { commandPaletteSwitcherEntries(includeSurfaces: true) }, fingerprint: { commandPaletteSwitcherEntriesFingerprint(includeSurfaces: true) }),
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -11322,6 +11323,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let observedWindowReference: WeakWindowReference
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
+    var sidebarTabSearchSource = SidebarTabSearchSource()
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
@@ -12091,7 +12093,7 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext,
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        let scrollInsets = Self.sidebarTabSearchScrollInsets
         return GeometryReader { viewport in
             // Keep viewport geometry as a downward-only layout input. Writing
             // this value into @State from onGeometryChange feeds an
@@ -12149,6 +12151,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(maxWidth: .infinity)
                 .frame(height: scrollInsets.top)
             }
+            .overlay(alignment: .top) { sidebarTabSearchOverlay(viewportHeight: viewport.size.height) }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
             .onAppear {

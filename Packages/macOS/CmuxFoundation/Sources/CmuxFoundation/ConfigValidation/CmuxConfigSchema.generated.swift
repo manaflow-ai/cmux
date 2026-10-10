@@ -2498,6 +2498,7 @@ enum CmuxEmbeddedConfigSchema {
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
+              "searchTabs",
               "commandPalette",
               "agentInbox",
               "commandPaletteNext",
