@@ -6,7 +6,7 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 222 operations for exactly one local mux
+`cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
