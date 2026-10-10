@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxAgentQuestion
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The question card: one view for Home transcript rows, agent panes and the
 /// UI Gallery. It renders `AgentQuestionCardState` with the frames of
@@ -73,7 +74,7 @@ public final class AgentQuestionCardView: NSView {
         submitButton.action = #selector(submitPressed)
         addSubview(skipButton)
         addSubview(submitButton)
-        check.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        check.image = NSImage.icon(.statusComplete, size: style.checkSize)
         addSubview(check)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)

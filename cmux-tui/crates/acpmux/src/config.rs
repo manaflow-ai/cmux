@@ -800,7 +800,14 @@ pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
+
+/// The cmux terminal launch credential (plans/cmux-next/identity.md
+/// section 2). It names the one terminal that started a process; acpmux, its
+/// daemon, agents and hooks serve many terminals, so none of them carries it.
+/// Both scrubs remove it from every child they prepare.
+pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// The keys `scrub_nested_claude_env` removes, from the daemon's environment
 /// and the imported login environment.
@@ -827,6 +834,7 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 
 mod launchers;

@@ -73,7 +73,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         ]
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
         creation = [
-            Row(action: "newTab.sameKind", title: nil, symbol: "plus"),
+            Row(action: "newTab.default", title: nil, symbol: "plus"),
             Row(action: "newIncognitoWindow", title: Self.text("menu.profile.incognito", "Incognito Window"), symbol: "eyeglasses"),
         ]
     }

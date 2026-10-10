@@ -98,9 +98,15 @@
   visibility: visible;
 }
 
+/* An <output> is inline by default; the notice is its own line under the actions. */
+.ds-notice {
+  display: block;
+}
+
 .ds-sidebar-separator {
   height: 1px;
   margin: 4px 0;
+  border: 0;
   background: var(--page-separator);
 }
 

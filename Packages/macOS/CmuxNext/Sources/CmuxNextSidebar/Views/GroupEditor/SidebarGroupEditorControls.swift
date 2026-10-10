@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// One color dot in the group editor: the theme's palette color, or for
@@ -100,8 +101,7 @@ final class SidebarGroupEditorRow: NSView {
         shortcut.font = Typography.body
         shortcut.stringValue = item.shortcut ?? ""
         shortcut.alignment = .right
-        icon.image = item.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Typography.body.pointSize, weight: .regular)
+        icon.image = item.icon.map { NSImage.icon($0, size: .iconRowSize(forLabelPointSize: Typography.body.pointSize)) }
         for view in [icon, label, shortcut] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)

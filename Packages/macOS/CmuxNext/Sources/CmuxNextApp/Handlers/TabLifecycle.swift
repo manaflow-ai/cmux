@@ -54,12 +54,13 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
-    /// `newTab.sameKind` (Cmd-T, the strip's +): a tab of the kind of the
+    /// `newTab.default` (Cmd-T, the strip's +): a tab of the kind of the
     /// pane's selected tab (`NewTabKind`) unless `tabs.newTabKind` says
     /// otherwise, through the New Terminal Tab, New Browser Tab and New
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
-    /// MCP) always get the same kind, whatever the user's setting.
-    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+    /// MCP) always get the same kind, whatever the user's setting, and so
+    /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
+    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true) {
         // A named tab or pane that resolves to nothing is refused by the
         // lookup. Without one, a missing focused pane is not a refusal yet:
         // the active workspace may still be empty (below).
@@ -108,7 +109,7 @@ enum TabLifecycle {
         if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
-        if user {
+        if user, followsSetting {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
             kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
                                       sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))

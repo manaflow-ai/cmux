@@ -3535,7 +3535,7 @@
       },
       "shortcuts": [
         {
-          "id": "newTab.sameKind",
+          "id": "newTab.default",
           "title": {
             "en": "New Tab",
             "ar": "علامة تبويب جديدة",

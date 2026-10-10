@@ -15,8 +15,8 @@ nonisolated struct RustTarget: Decodable {
 }
 
 nonisolated struct RustTabDrop: Decodable {
-    var kind: String; var workspace: String?; var section: RustSectionID?; var group: String?; var index: Int?
-    var swiftValue: SidebarTabDrop? { switch kind { case "into_workspace": return workspace.map(WorkspaceID.init).map(SidebarTabDrop.intoWorkspace); case "new_workspace": guard let section = section?.swiftValue, let index else { return nil }; return .newWorkspace(section: section, group: group.map(GroupID.init), index: index); case "into_group": return group.map(GroupID.init).map(SidebarTabDrop.intoGroup); default: return nil } }
+    var kind: String; var workspace: String?; var section: RustSectionID?; var group: String?; var index: Int?; var tab: String?
+    var swiftValue: SidebarTabDrop? { switch kind { case "into_workspace": return workspace.map(WorkspaceID.init).map(SidebarTabDrop.intoWorkspace); case "new_workspace": guard let section = section?.swiftValue, let index else { return nil }; return .newWorkspace(section: section, group: group.map(GroupID.init), index: index); case "into_group": return group.map(GroupID.init).map(SidebarTabDrop.intoGroup); case "before_tab": guard let workspace, let tab else { return nil }; return .beforeTab(WorkspaceID(workspace), TabID(tab)); default: return nil } }
 }
 
 nonisolated struct RustTabRefusal: Decodable {

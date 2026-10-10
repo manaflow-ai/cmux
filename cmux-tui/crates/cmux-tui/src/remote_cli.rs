@@ -556,6 +556,11 @@ fn run_connect(
     if preset_route.is_some() {
         flags.route = preset_route;
     }
+    // A client with its own state directory (the app's link, cx-fdjq) keeps
+    // its client log there, as `remote-link --state-dir` does (cx-bduj).
+    if let Some(root) = flags.state_dir.as_deref() {
+        crate::client_log::use_path(root.join("client.log"));
+    }
     connect_with_flags(flags, load_config)
 }
 
@@ -2180,6 +2185,11 @@ fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
 fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     let RemoteLinkArgs { session, state_dir, mux_socket, link_socket, agent_hooks } =
         parse_remote_link_args(args)?;
+    // A link with its own state directory keeps its client log there too,
+    // never in the user's default state root (cx-bduj).
+    if let Some(root) = state_dir.as_deref() {
+        crate::client_log::use_path(root.join("client.log"));
+    }
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
     let link = link_socket.unwrap_or(default_link);
     if let Some(providers) = agent_hooks {
@@ -2504,6 +2514,7 @@ fn ensure_daemon(
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
+        log_under_state_root(&mut mux_owner, state_root);
         mux_owner
             .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
             .stdin(Stdio::null())
@@ -2531,11 +2542,23 @@ fn ensure_daemon(
     if let Some(state_root) = state_root {
         command.arg("--state-dir").arg(state_root);
     }
+    log_under_state_root(&mut command, state_root);
     command.stdin(Stdio::null());
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+/// The mux owner and sidecar of a link with its own state directory log to
+/// `<state-dir>/client.log`, as the link does, unless `CMUX_TUI_LOG_FILE`
+/// already names a file (cx-bduj).
+fn log_under_state_root(command: &mut Command, state_root: Option<&Path>) {
+    if let Some(root) = state_root
+        && std::env::var_os("CMUX_TUI_LOG_FILE").is_none()
+    {
+        command.env("CMUX_TUI_LOG_FILE", root.join("client.log"));
+    }
 }
 
 /// Connect to a socket this daemon's own user serves. The daemon only starts

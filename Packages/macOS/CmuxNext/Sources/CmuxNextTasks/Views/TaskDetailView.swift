@@ -1,4 +1,5 @@
 import CmuxAgentBrands
+import CmuxNextIcons
 import SwiftUI
 
 /// The selected task: title, status, agent session with its plan.
@@ -62,7 +63,7 @@ private struct SessionCard: View {
                 Text(TasksStrings.plan).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(colors.tertiary)
                 ForEach(Array(session.plan.enumerated()), id: \.offset) { _, step in
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Image(systemName: symbol(step.status)).font(.system(size: 10.5)).foregroundStyle(step.status == "completed" ? colors.success : colors.tertiary)
+                        Icon(icon(step.status), size: 12).foregroundStyle(step.status == "completed" ? colors.success : colors.tertiary)
                         Text(step.content).font(.system(size: 12)).foregroundStyle(step.status == "completed" ? colors.secondary : colors.primary)
                     }
                 }
@@ -81,11 +82,11 @@ private struct SessionCard: View {
         }
     }
 
-    private func symbol(_ status: String) -> String {
+    private func icon(_ status: String) -> IconName {
         switch status {
-        case "completed": "checkmark.circle.fill"
-        case "in_progress": "circle.dotted"
-        default: "circle"
+        case "completed": .statusComplete
+        case "in_progress": .statusInprogress
+        default: .stateIdle
         }
     }
 }

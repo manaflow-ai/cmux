@@ -29,11 +29,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 keywords: ["create", "last", "end"], category: .workspace, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-at-bottom", startsTerminal: true
             ),
+            // Folds New Workspace in This Group and in Same Directory (cmuxterm-hq#1829; legacyAliases).
             ActionDescriptor(
-                id: "workspace.newInGroup",
-                title: String(localized: "action.workspace.newInGroup", defaultValue: "New Workspace in This Group", table: "WorkspaceActions", bundle: .module),
-                keywords: ["create", "group", "section"], category: .workspace, symbol: "folder.badge.plus",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-in-group", startsTerminal: true
+                id: "workspace.newLikeThis",
+                title: String(localized: "action.workspace.newLikeThis", defaultValue: "New Workspace Like This", table: "WorkspaceActions", bundle: .module),
+                keywords: ["create", "same", "group", "cwd", "folder", "directory"], category: .workspace, symbol: "square.on.square.dashed",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-like-this", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "workspace.newInNewGroup",
@@ -46,12 +47,6 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspace.newOnMachine", defaultValue: "New Workspace on Machine…", table: "WorkspaceActions", bundle: .module),
                 keywords: ["create", "remote", "ssh", "cloud", "session"], category: .workspace, symbol: "server.rack",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine], targets: [.workspace], cliName: "workspace new-on-machine", startsTerminal: true
-            ),
-            ActionDescriptor(
-                id: "workspace.newInSameDirectory",
-                title: String(localized: "action.workspace.newInSameDirectory", defaultValue: "New Workspace in Same Directory", table: "WorkspaceActions", bundle: .module),
-                keywords: ["create", "cwd", "folder", "path"], category: .workspace, symbol: "folder",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-in-same-directory", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "workspace.duplicate",
