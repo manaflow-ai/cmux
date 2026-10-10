@@ -106,14 +106,18 @@ def wait(check, seconds, step=0.5):
     return None
 
 
-def sidebar():
-    windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
-    return windows[0] if windows else {}
+def windows():
+    return (rpc("debug.sidebar_rows") or {}).get("windows") or []
 
 
 def row_of(entry):
-    rows = [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
-    return next((r for r in rows if any(i in str(r.get("key")) for i in ids(entry))), None)
+    """The workspace's row in the first window that lists it."""
+    for window in windows():
+        rows = [r for r in window.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+        found = next((r for r in rows if any(i in str(r.get("key")) for i in ids(entry))), None)
+        if found:
+            return found
+    return None
 
 
 def group_of(entry):
@@ -140,8 +144,8 @@ def setting(path, value):
 
 def put_back(path):
     saved = SETTINGS[path]
-    if saved is None:
-        return
+    if saved is None or "error" in saved:
+        return  # never read: leave the user's value alone
     previous = saved.get("value") if isinstance(saved, dict) else None
     if previous is None:
         rpc("settings.unset", {"path": path})
@@ -156,12 +160,16 @@ def restore():
 
 
 def select(anchor):
-    action("goToWorkspace", focus=True, target=target_of(anchor))
-    wait(lambda: (row_of(anchor) or {}).get("selected"), 5)
+    """Shows the anchor, as the palette's Go to Workspace does; exits when it cannot."""
+    key = str((row_of(anchor) or {}).get("key", ""))
+    sidebar_id = key[key.find("(") + 1:key.rfind(")")].strip('"') if "(" in key else target_of(anchor).split(":", 1)[1]
+    reply = action("goToWorkspace", {"workspace": sidebar_id}, focus=True)
+    if not wait(lambda: (row_of(anchor) or {}).get("selected"), 5):
+        sys.exit(f"could not select the anchor workspace: {reply}")
 
 
 def click_new_button():
-    frame = sidebar().get("new_button")
+    frame = next((w.get("new_button") for w in windows() if w.get("new_button")), None)
     if not frame:
         return {"error": "no + button in the sidebar"}
     x, y = frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
@@ -217,9 +225,11 @@ def main():
     before = known()
     reply = action("workspace.newAtBottom", focus=True)
     made = (wait(lambda: new_workspaces(before), 20) or [None])[0]
+    listed = made and wait(lambda: row_of(made), 10)
     time.sleep(1)  # test harness: the slot is applied once the daemon lists it
-    row("New Workspace at Bottom (an explicit place)", "a new workspace outside the group",
-        f"reply {reply}; its group {made and group_of(made)}", bool(made) and group_of(made) is None)
+    row("New Workspace at Bottom (an explicit place)", "a new workspace listed outside the group",
+        f"reply {reply}; row {bool(listed)}; its group {made and group_of(made)}",
+        bool(listed) and row_of(made) is not None and group_of(made) is None)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "new-workspace-in-group.png")})
 
 
