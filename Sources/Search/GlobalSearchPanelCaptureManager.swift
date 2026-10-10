@@ -7,7 +7,7 @@ final class GlobalSearchPanelCaptureManager {
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
     private let agentSessionSource: (GlobalSearchPanelContext) -> AgentSessionSearchSource?
-    private let agentSessionTranscripts = AgentSessionSearchTranscripts()
+    private let agentSessionTranscripts: any AgentSessionTranscriptStore
 
     private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
@@ -16,8 +16,9 @@ final class GlobalSearchPanelCaptureManager {
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
     /// Last indexed scrollback fingerprint per terminal panel, to skip
-    /// unchanged re-captures across palette opens.
-    private var terminalCaptureFingerprints: [UUID: UInt64] = [:]
+    /// unchanged re-captures across palette opens. Internal so tests can
+    /// stand in for a scrollback capture.
+    var terminalCaptureFingerprints: [UUID: UInt64] = [:]
     /// What each agent-session panel last indexed, to skip unchanged upserts.
     private var agentSessionIndexStates: [UUID: AgentSessionIndexState] = [:]
 
@@ -31,11 +32,13 @@ final class GlobalSearchPanelCaptureManager {
     init(
         indexProvider: @escaping () async -> SearchIndex?,
         cancelPanelPurge: @escaping (UUID) -> Void,
-        agentSessionSource: @escaping (GlobalSearchPanelContext) -> AgentSessionSearchSource? = { _ in nil }
+        agentSessionSource: @escaping (GlobalSearchPanelContext) -> AgentSessionSearchSource? = { _ in nil },
+        agentSessionTranscripts: any AgentSessionTranscriptStore = AgentSessionSearchTranscripts()
     ) {
         self.indexProvider = indexProvider
         self.cancelPanelPurge = cancelPanelPurge
         self.agentSessionSource = agentSessionSource
+        self.agentSessionTranscripts = agentSessionTranscripts
     }
 
     func refreshPanelContent(for context: GlobalSearchPanelContext, index: SearchIndex) async {
@@ -54,13 +57,15 @@ final class GlobalSearchPanelCaptureManager {
             }
         } else if let browserPanel = context.panel as? BrowserPanel {
             captureBrowserPanel(browserPanel)
-        } else if let terminalPanel = context.panel as? TerminalPanel {
+        } else if context.panel.panelType == .terminal {
             if let source = agentSessionSource(context),
                await indexAgentSession(source, context: context, index: index) {
                 return
             }
             await purgeAgentSessionDocument(forPanelID: context.panelID, index: index)
-            await indexTerminalPanel(terminalPanel, context: context, index: index)
+            if let terminalPanel = context.panel as? TerminalPanel {
+                await indexTerminalPanel(terminalPanel, context: context, index: index)
+            }
         }
     }
 

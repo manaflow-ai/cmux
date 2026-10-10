@@ -213,7 +213,81 @@ struct SearchIndexAgentSessionTests {
         #expect(found == rollout.path)
     }
 
+    @MainActor
+    @Test
+    func aPaneClosedWhileItsSessionIsReadKeepsNothingIndexed() async throws {
+        let (directory, index) = try makeIndex()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let context = makeTerminalContext()
+        let transcripts = StubSessionTranscripts(revision: 1, text: "the quince harvest plan")
+        let manager = makeCaptureManager(index: index, transcripts: transcripts)
+        let panelID = context.panelID
+        await transcripts.setDuringRefresh { @MainActor in
+            manager.cancelCaptures(forPanelID: panelID)
+        }
+
+        await manager.refreshPanelContent(for: context, index: index)
+
+        let hits = try await index.search("quince", limit: 10)
+        #expect(hits.isEmpty)
+        await manager.pruneAgentSessionReaders()
+        let retained = await transcripts.retainedSessionIDs
+        #expect(retained == [])
+    }
+
+    @MainActor
+    @Test
+    func aScrollbackIndexedBesideAnUnchangedSessionIsPurged() async throws {
+        let (directory, index) = try makeIndex()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let context = makeTerminalContext()
+        let transcripts = StubSessionTranscripts(revision: 1, text: "the quince harvest plan")
+        let manager = makeCaptureManager(index: index, transcripts: transcripts)
+        await manager.refreshPanelContent(for: context, index: index)
+
+        // An overlapping refresh that read the pane before its session had
+        // text indexes the scrollback after the session document landed.
+        manager.terminalCaptureFingerprints[context.panelID] = 7
+        let scrollback = try #require(GlobalSearchDocuments.terminalDocument(for: context, text: "stale scrollback about medlars"))
+        try await index.upsert(scrollback)
+
+        await manager.refreshPanelContent(for: context, index: index)
+
+        let stale = try await index.search("medlars", limit: 10)
+        #expect(stale.isEmpty)
+        let session = try await index.search("quince", limit: 10)
+        #expect(session.map(\.kind) == [.agentSession])
+    }
+
     // MARK: - Fixtures
+
+    @MainActor
+    private func makeTerminalContext() -> GlobalSearchPanelContext {
+        GlobalSearchPanelContext(
+            windowID: windowID,
+            windowTitle: "Window 1",
+            workspaceID: workspaceID,
+            workspaceTitle: "orchard",
+            panelID: UUID(),
+            panelTitle: "Terminal",
+            panel: StubAgentPanePanel()
+        )
+    }
+
+    @MainActor
+    private func makeCaptureManager(
+        index: SearchIndex,
+        transcripts: StubSessionTranscripts
+    ) -> GlobalSearchPanelCaptureManager {
+        GlobalSearchPanelCaptureManager(
+            indexProvider: { index },
+            cancelPanelPurge: { _ in },
+            agentSessionSource: { _ in
+                AgentSessionSearchSource(sessionID: "s-1", agentKind: .claude, transcriptPath: "/tmp/s-1.jsonl")
+            },
+            agentSessionTranscripts: transcripts
+        )
+    }
 
     private func makeIndex() throws -> (URL, SearchIndex) {
         let directory = FileManager.default.temporaryDirectory
@@ -257,5 +331,53 @@ struct SearchIndexAgentSessionTests {
             rank: 0,
             timestamp: Date(timeIntervalSince1970: 0)
         )
+    }
+}
+
+/// A terminal pane that isn't a live terminal, so a refresh indexes only its
+/// agent session.
+@MainActor
+private final class StubAgentPanePanel: Panel {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    var panelType: PanelType { .terminal }
+    var displayTitle: String { "Terminal" }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
+
+/// Session text without transcript files; `duringRefresh` runs while a
+/// refresh waits on the read, the way a pane closes mid-read.
+private actor StubSessionTranscripts: AgentSessionTranscriptStore {
+    private let revision: Int
+    private let text: String
+    private var duringRefresh: (@MainActor @Sendable () -> Void)?
+    private(set) var retainedSessionIDs: Set<String>?
+
+    init(revision: Int, text: String) {
+        self.revision = revision
+        self.text = text
+    }
+
+    func setDuringRefresh(_ action: @escaping @MainActor @Sendable () -> Void) {
+        duringRefresh = action
+    }
+
+    func refreshedRevision(for source: AgentSessionSearchSource) async -> Int? {
+        if let duringRefresh {
+            await duringRefresh()
+        }
+        return revision
+    }
+
+    func text(forSessionID sessionID: String) -> String? {
+        text
+    }
+
+    func retainOnly(sessionIDs: Set<String>) {
+        retainedSessionIDs = sessionIDs
     }
 }

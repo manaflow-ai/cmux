@@ -27,12 +27,20 @@ struct AgentSessionSearchSource: Sendable, Equatable {
     }
 }
 
+/// What the capture manager reads agent sessions through; tests stand in
+/// for the transcript files.
+protocol AgentSessionTranscriptStore: Sendable {
+    func refreshedRevision(for source: AgentSessionSearchSource) async -> Int?
+    func text(forSessionID sessionID: String) async -> String?
+    func retainOnly(sessionIDs: Set<String>) async
+}
+
 /// Owns one incremental transcript reader per indexed agent session.
 ///
 /// The actor only bookkeeps readers and revisions. The blocking file reads
 /// and parsing run on a dedicated utility queue, never on the main actor or
 /// a cooperative-pool thread (the same split `AgentUsageSampler` uses).
-actor AgentSessionSearchTranscripts {
+actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     private var readers: [String: AgentSessionSearchTranscript] = [:]
     private var revisions: [String: Int] = [:]
     private var readsInFlight: Set<String> = []
