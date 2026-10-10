@@ -42,6 +42,21 @@ import Testing
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
+    @Test func terminalInputRecoveryDistinguishesExplicitRejectionFromUnknownDelivery() {
+        let rejected = CloudMachineLink.LinkError.exited(
+            status: 1,
+            output: #"{ "details": { "error": "terminal_input_delivery_failed" } }"#
+        )
+        #expect(CmuxTuiSurfaceProvider.isRecoverableTerminalInputFailure(rejected))
+
+        let indeterminate = CloudMachineLink.LinkError.exited(
+            status: 1,
+            output: #"{ "details": { "error": "terminal_input_delivery_indeterminate" } }"#
+        )
+        #expect(!CmuxTuiSurfaceProvider.isRecoverableTerminalInputFailure(indeterminate))
+        #expect(!CmuxTuiSurfaceProvider.isRecoverableTerminalInputFailure(CloudMachineLink.LinkError.timedOut))
+    }
+
     @Test func creationAttachmentUsesOnlyTheCommittedTerminalAndGeneration() {
         var result: [String: Any] = [
             "value": ["terminal_id": "term_test", "tab_id": "tab_test"],

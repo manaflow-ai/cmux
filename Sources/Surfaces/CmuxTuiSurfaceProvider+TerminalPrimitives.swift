@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -44,9 +45,9 @@ extension CmuxTuiSurfaceProvider {
 
     /// Press named keys (`enter`, `ctrl+c`, …) in the remote terminal, in order.
     func sendKeys(terminalID: String, keys: [String]) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiRequests.keysArguments(socketPath: connected.socketPath, terminalID: terminalID, keys: keys))
+        try await runInputCommand(terminalID: terminalID) { socketPath in
+            CloudTuiRequests.keysArguments(socketPath: socketPath, terminalID: terminalID, keys: keys)
+        }
     }
 
     /// The remote terminal's visible screen, as the daemon reports it
@@ -81,6 +82,41 @@ extension CmuxTuiSurfaceProvider {
     static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
         guard resource.kind != .display, let views = resource.remoteViews, views.count == 1 else { return nil }
         return views[0]
+    }
+
+    /// Retries only an explicit daemon-side input rejection. Transport failures
+    /// and indeterminate delivery remain single-attempt so a caller never sends
+    /// unknown bytes twice.
+    func runInputCommand(
+        terminalID: String,
+        _ request: (String) -> CloudTuiRequest
+    ) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        do {
+            _ = try await link.run(arguments: request(connected.socketPath))
+            return
+        } catch {
+            guard Self.isRecoverableTerminalInputFailure(error) else { throw error }
+            await recoverManualMirrorInput(terminalID: terminalID)
+            let refreshed = try await links.connected(machineID: machineID)
+            guard let freshLink = await links.link(machineID: machineID) else {
+                throw ProviderError.machineAsleep(machineID)
+            }
+            do {
+                _ = try await freshLink.run(arguments: request(refreshed.socketPath))
+            } catch {
+                if Self.isRecoverableTerminalInputFailure(error) {
+                    throw ProviderError.terminalInputUnavailable(terminalID)
+                }
+                throw error
+            }
+        }
+    }
+
+    nonisolated static func isRecoverableTerminalInputFailure(_ error: Error) -> Bool {
+        guard case let .rejected(code) = CloudTuiDaemonAnswer(error: error) else { return false }
+        return code == "terminal_input_delivery_failed" || code == "terminal_input_unavailable"
     }
 
 }

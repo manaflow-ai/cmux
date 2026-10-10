@@ -97,10 +97,8 @@ extension CmuxTuiSurfaceProvider {
 
     /// ASCII receiver-wire bytes reach the terminal through stdin, never process argv.
     func writeBytes(terminalID: String, data: Data) async throws {
-        _ = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(
-            arguments: CloudTuiRequests.writeBytes(terminalID: terminalID, data: data)
-        )
+        try await runInputCommand(terminalID: terminalID) { _ in
+            CloudTuiRequests.writeBytes(terminalID: terminalID, data: data)
+        }
     }
 }
