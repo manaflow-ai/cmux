@@ -37,7 +37,6 @@
     "agent-session/acpmux/NewTabPage.tsx#NewTabPage",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
-    "agent-session/acpmux/TrustAsk.tsx#TrustAsk",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",
     "agent-session/acpmux/changeIcons.tsx#ArrowRight",
     "agent-session/acpmux/changeIcons.tsx#Check",
