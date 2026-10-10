@@ -14,7 +14,7 @@ extension CmuxTuiSurfaceProvider {
                     if configured { browser.pendingCloudRestoreURL = nil }
                     continue
                 }
-                if let browserURL = cloudBrowserOriginURL(for: resource) {
+                if let browserURL = cloudBrowserOriginURL(for: resource, restoring: browser) {
                     let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: browserURL), resourceID: resource.id)
                     if configured { browser.pendingCloudRestoreURL = nil }
                     continue
@@ -64,7 +64,7 @@ extension CmuxTuiSurfaceProvider {
             guard configured else { throw ProviderError.localForwardURLUnavailable }
             return pane
         }
-        if let browserURL = cloudBrowserOriginURL(for: resource) {
+        if let browserURL = cloudBrowserOriginURL(for: resource, restoring: browser) {
             let configured = configureBrowser(browser, url: browserURL, resourceID: resource.id)
             guard configured else { throw ProviderError.localForwardURLUnavailable }
             return pane
@@ -225,6 +225,11 @@ extension CmuxTuiSurfaceProvider {
                 let resource = self.catalog.resources[resourceID]
                     ?? resourceID.forwardedPort.map { CmuxTuiSnapshotParser.portBrowser(machine: self.machine, port: $0) }
                 guard let resource, resource.machine == self.machine else { throw SurfaceCatalogError.unknownResource(resourceID) }
+                if let browserURL = self.cloudBrowserOriginURL(for: resource, restoring: browser) {
+                    let configured = self.configureBrowser(browser, url: browserURL, resourceID: resourceID)
+                    if configured { browser.pendingCloudRestoreURL = nil }
+                    return
+                }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { throw ProviderError.invalidPreviewURL }
@@ -362,7 +367,7 @@ extension CmuxTuiSurfaceProvider {
                     }
                     continue
                 }
-                if let browserURL = cloudBrowserOriginURL(for: resource) {
+                if let browserURL = cloudBrowserOriginURL(for: resource, restoring: browser) {
                     let configured = configureBrowser(
                         browser,
                         url: browser.cloudRestoreURL(on: browserURL),
@@ -433,16 +438,16 @@ extension CmuxTuiSurfaceProvider {
         return url
     }
 
-    /// A daemon-owned browser retains its requested origin. Route that origin
-    /// through the authenticated Cloud proxy instead of rewriting public pages
-    /// to the machine's private address (which would change the page).
-    func cloudBrowserOriginURL(for resource: SurfaceResource) -> URL? {
+    /// A daemon browser restores its saved document before resolving a route.
+    /// The catalog can still contain the about:blank URL used at creation while
+    /// the native pane has since navigated to a guest-local or public origin.
+    func cloudBrowserOriginURL(for resource: SurfaceResource, restoring browser: BrowserPanel? = nil) -> URL? {
         guard machine.cloudMachineID != nil, resource.kind == .browser,
-              resource.remoteViews?.isEmpty == false,
-              let raw = resource.url, let url = URL(string: raw),
-              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-              url.host?.isEmpty == false,
-              !RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") else { return nil }
+              !resource.id.key.hasPrefix("port:"), resource.remoteViews?.isEmpty == false else { return nil }
+        let catalogURL = resource.url.flatMap { URL(string: $0) } ?? SurfacePaneFactory.blankURL
+        let url = browser?.cloudRestoreURL(on: catalogURL) ?? catalogURL
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.isEmpty == false else { return nil }
         return url
     }
 }

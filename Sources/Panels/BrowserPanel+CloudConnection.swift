@@ -110,13 +110,13 @@ extension BrowserPanel {
             return
         }
         if let loopbackURL = provider.cloudLoopbackBrowserURL(for: known) {
-            let restoredURL = Self.cloudRestoredURL(pendingCloudRestoreURL, on: loopbackURL)
+            let restoredURL = cloudRestoreURL(on: loopbackURL)
             let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
             if configured { pendingCloudRestoreURL = nil }
             return
         }
-        if let browserURL = provider.cloudBrowserOriginURL(for: known) {
-            let restoredURL = Self.cloudRestoredURL(pendingCloudRestoreURL, on: browserURL)
+        if let browserURL = provider.cloudBrowserOriginURL(for: known, restoring: self) {
+            let restoredURL = cloudRestoreURL(on: browserURL)
             let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
             if configured { pendingCloudRestoreURL = nil }
             return
@@ -187,7 +187,7 @@ extension BrowserPanel {
 
     func cloudRestoreURL(on target: URL) -> URL {
         if let resource = cloudResourceForDuplication,
-           resource.kind == .browser, !resource.key.hasPrefix("port:"),
+           resource.machine.cloudMachineID != nil, resource.kind == .browser, !resource.key.hasPrefix("port:"),
            let preferred = pendingCloudRestoreURL ?? currentURLForTabDuplication,
            ["http", "https"].contains(preferred.scheme?.lowercased() ?? "") {
             return preferred
@@ -205,8 +205,13 @@ extension BrowserPanel {
     /// a loopback URL routes only to the machine that owns this browser.
     func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
         let catalog = SurfaceCatalog.shared
-        if let owner = privateAddressRouteOwner,
-           owner.cloudMachineID != nil {
+        if let resource = cloudResourceForDuplication,
+           resource.machine.cloudMachineID != nil,
+           resource.kind == .browser, !resource.key.hasPrefix("port:") {
+            return catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider
+        }
+        if RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
+           let owner = privateAddressRouteOwner, owner.cloudMachineID != nil {
             return catalog.provider(for: owner) as? CmuxTuiSurfaceProvider
         }
         let addresses = catalog.machines.compactMapValues(\.privateAddress)

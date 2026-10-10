@@ -316,9 +316,10 @@ final class CloudBrowserAccessState {
     func displayURL(_ observedURL: URL?) -> URL? {
         guard let remoteURL else { return nil }
         if let observedURL, Self.isLoopbackAliasHost(observedURL.host ?? ""),
-           remoteURL.scheme?.lowercased() == "http",
+           observedURL.scheme?.lowercased() == "http",
            var components = URLComponents(url: observedURL, resolvingAgainstBaseURL: false) {
-            components.host = remoteURL.host
+            components.host = RemoteLoopbackProxyAlias.isLoopbackHost(remoteURL.host ?? "")
+                ? remoteURL.host : RemoteLoopbackProxyAlias.canonicalLoopbackHost
             return components.url
         }
         guard !hasCommittedNavigation,

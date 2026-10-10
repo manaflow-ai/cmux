@@ -194,6 +194,7 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
+        case .direct where route == .direct: return remoteURL
         case .direct: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
         case .proxied where preservesRemoteHost:
             // WebKit bypasses its CONNECT proxy for literal loopback hosts.
