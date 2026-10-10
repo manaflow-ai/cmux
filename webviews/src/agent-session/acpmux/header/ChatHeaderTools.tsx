@@ -16,6 +16,7 @@ import { useQuickActions, type QuickActionMode } from "./quickActions";
 export const HEADER_ACTIONS = {
   terminal: "splitRight",
   browser: "splitBrowserRight",
+  changes: "openDiffViewer",
   rename: "renameTab",
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",
@@ -47,6 +48,8 @@ export type ChatMenuChild = { key: string; label: string; shortcutAction?: strin
 export function ChatHeaderTools({
   onTerminal,
   onBrowser,
+  hasChanges = false,
+  onChanges,
   sideTabs = false,
   onSideTabs,
   onPointerEnter,
@@ -61,6 +64,10 @@ export function ChatHeaderTools({
   /// `toggle` closes the split this button opened when it is still there.
   onTerminal: (mode: QuickActionMode) => void;
   onBrowser: (mode: QuickActionMode) => void;
+  /// Whether the chat edited files: Changes shows then, and while its diff is open.
+  hasChanges?: boolean;
+  /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
+  onChanges?: (mode: QuickActionMode) => void;
   /// Whether the panes beside the chat show: [+] New tab reads Hide tabs, in the same spot.
   sideTabs?: boolean;
   onSideTabs?: () => void;
@@ -80,6 +87,7 @@ export function ChatHeaderTools({
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
+  const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
   const { lit } = useHeaderState();
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
@@ -101,6 +109,21 @@ export function ChatHeaderTools({
             >
               <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={15} />
             </button>
+          ) : id === "changes" ? (
+            // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
+            onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)) ? (
+              <button
+                key={id}
+                type="button"
+                className="acpmux-header-tool"
+                aria-label={t("header.changes")}
+                aria-pressed={on(HEADER_ACTIONS.changes, mode)}
+                title={withShortcut(t("header.changes"), changesKey)}
+                onClick={() => onChanges(mode)}
+              >
+                <Icon name="diff.file" size={15} />
+              </button>
+            ) : null
           ) : id === "terminal" ? (
             <button
               key={id}
