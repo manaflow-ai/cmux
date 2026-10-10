@@ -19,10 +19,9 @@ extension CmuxSettingsFileStore {
             logInvalid("integrations", sourcePath: sourcePath)
         }
 
-        // Build only the section each parser reads. In -Onone builds every
-        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a
-        // dozen of them overflowed a 512 KB cooperative thread in app-host tests.
-        let betaFeatures = BetaFeaturesCatalogSection()
+        // Read every beta toggle from the single section value above. In -Onone builds a
+        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a dozen of them
+        // overflowed a 512 KB cooperative thread in app-host tests.
         parseBetaToggle(
             root["rightSidebar"] as? [String: Any],
             nestedPath: ["beta", "feed", "enabled"],
