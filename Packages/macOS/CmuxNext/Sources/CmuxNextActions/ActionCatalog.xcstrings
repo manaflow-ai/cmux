@@ -1573,6 +1573,137 @@
         }
       }
     },
+  "action.agentPane.toggleSummary": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Toggle Chat Summary"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "チャット概要の切り替え"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "تبديل ملخص الدردشة"
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Uključi/isključi sažetak chata"
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Slå chatsammendrag til/fra"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Chat-Zusammenfassung ein/aus"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Alternar resumen del chat"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Afficher/masquer le résumé du chat"
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Attiva/disattiva il riepilogo della chat"
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "បិទ/បើកសេចក្តីសង្ខេបការជជែក"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "채팅 요약 전환"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Slå chatsammendrag av/på"
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Przełącz podsumowanie czatu"
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Alternar resumo do chat"
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Переключить сводку чата"
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "สลับสรุปแชท"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Sohbet özetini aç/kapat"
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Перемкнути підсумок чату"
+      }
+    },
+    "vi": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "Bật/tắt tóm tắt cuộc trò chuyện"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "切换聊天摘要"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "needs_review",
+        "value": "切換聊天摘要"
+      }
+    }
+  }
+},
     "action.appearance.animationSpeed.fast": {
       "extractionState": "manual",
       "localizations": {

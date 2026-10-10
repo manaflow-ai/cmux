@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { forwardRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -23,21 +23,17 @@ export type PinnedSummaryProps = {
   sections?: readonly SummarySectionInput[];
   cwd?: string;
   projectName?: string;
-  mode: "pinned" | "popover";
+  mode: "wide" | "narrow";
   onClose: () => void;
   onOpenChanges?: () => void;
   onRefresh?: () => void;
-  onTogglePin?: () => void;
 };
 
-function ExternalRow({ row, cwd, onClose }: { row: SummaryRow; cwd: string; onClose: () => void }) {
+function ExternalRow({ row, cwd }: { row: SummaryRow; cwd: string }) {
   const t = useT();
   const [confirm, setConfirm] = useState(false);
   const local = Boolean(
-    row.href?.startsWith("/") &&
-    row.href &&
-    row.href === row.href &&
-    (row.href === cwd || row.href.startsWith(`${cwd.replace(/\/$/, "")}/`)),
+    row.href?.startsWith("/") && row.href && (row.href === cwd || row.href.startsWith(`${cwd.replace(/\/$/, "")}/`)),
   );
   const icon = row.icon && ICONS[row.icon] ? ICONS[row.icon] : "agent.session";
   const body = (
@@ -55,7 +51,6 @@ function ExternalRow({ row, cwd, onClose }: { row: SummaryRow; cwd: string; onCl
         className="acpmux-summary-row acpmux-summary-link"
         href={row.href}
         data-summary-path={local ? row.href : undefined}
-        onClick={onClose}
       >
         {body}
       </a>
@@ -72,24 +67,17 @@ function ExternalRow({ row, cwd, onClose }: { row: SummaryRow; cwd: string; onCl
     <span className="acpmux-summary-row acpmux-summary-confirm">
       <Icon name="status.warning" size={12} row />
       <span className="acpmux-summary-text">{t("summary.agentLinkConfirm")}</span>
-      <a href={row.href} data-confirm="true" onClick={onClose}>
+      <a href={row.href} data-confirm="true">
         {t("summary.openLink")}
       </a>
     </span>
   );
 }
 
-export function PinnedSummary({
-  summary,
-  sections = [],
-  cwd = "/",
-  projectName,
-  mode,
-  onClose,
-  onOpenChanges,
-  onRefresh,
-  onTogglePin,
-}: PinnedSummaryProps) {
+export const PinnedSummary = forwardRef<HTMLElement, PinnedSummaryProps>(function PinnedSummary(
+  { summary, sections = [], cwd = "/", projectName, mode, onClose, onOpenChanges, onRefresh },
+  ref,
+) {
   const t = useT();
   const sectionInputs = sanitizeSections(sections, cwd);
   const builtins: SummarySectionInput[] = [
@@ -113,6 +101,17 @@ export function PinnedSummary({
       rows: (summary.plans ?? []).map((plan) => ({
         title: plan.text,
         icon: "task" as const,
+        provenance: "builtin" as const,
+      })),
+    },
+    {
+      id: "subagents",
+      title: t("summary.subagents"),
+      provider: "builtin",
+      rows: summary.subagents.map((agent) => ({
+        title: agent.title,
+        icon: "agent" as const,
+        badge: agent.state,
         provenance: "builtin" as const,
       })),
     },
@@ -155,9 +154,12 @@ export function PinnedSummary({
   const all = [...builtins, ...sectionInputs];
   const content = (
     <section
-      className={`acpmux-pinned-summary ${mode === "pinned" ? "acpmux-pinned-summary-card" : "acpmux-summary-popover"}`}
+      ref={ref}
+      className="acpmux-pinned-summary acpmux-summary-panel"
       data-summary-mode={mode}
       aria-label={t("summary.open")}
+      role="region"
+      tabIndex={-1}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -185,7 +187,7 @@ export function PinnedSummary({
                 items={section.rows.slice(0, 50)}
                 row={(row) => (
                   <li key={`${section.id}-${row.title}`} data-provenance={row.provenance}>
-                    <ExternalRow row={row} cwd={cwd} onClose={onClose} />
+                    <ExternalRow row={row} cwd={cwd} />
                   </li>
                 )}
               />
@@ -213,7 +215,8 @@ export function PinnedSummary({
       </footer>
     </section>
   );
-  if (mode === "pinned") return <>{content}</>;
   const slot = document.querySelector<HTMLElement>(".acpmux-summary-slot");
   return slot ? createPortal(content, slot) : content;
-}
+});
+
+PinnedSummary.displayName = "PinnedSummary";

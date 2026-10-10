@@ -15,6 +15,11 @@ extension AgentPaneView {
         deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
     }
 
+    /// Toggles the chat summary panel without moving focus into it.
+    public func toggleSummary() {
+        deliver([.command("toggleSummary")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"toggleSummary\");"])
+    }
+
     /// Runs a grouped-permission action from the app shortcut registry. The
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.

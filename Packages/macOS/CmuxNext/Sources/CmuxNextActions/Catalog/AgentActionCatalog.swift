@@ -89,6 +89,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // palette's chats page lists every chat; this opens it from anywhere.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
+            ActionDescriptor(
+                id: "agentPane.toggleSummary",
+                title: String(localized: "action.agentPane.toggleSummary", defaultValue: "Toggle Chat Summary", bundle: .module),
+                keywords: ["agent", "chat", "summary", "panel", "show", "hide"],
+                defaultShortcut: Shortcut("s", modifiers: [.control, .shift, .command]),
+                category: .agents, symbol: "list.bullet.rectangle",
+                surfaces: [.palette, .keyboard], requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
             permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),

@@ -1507,6 +1507,7 @@ function AcpmuxPane() {
       toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        if (name === "toggleSummary") window.dispatchEvent(new Event("cmux-acpmux-toggle-summary"));
         if (
           [
             "permissionAllowOnce",

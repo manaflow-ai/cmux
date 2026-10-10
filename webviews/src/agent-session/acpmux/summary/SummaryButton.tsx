@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -11,10 +11,22 @@ import { Popover } from "../../../ui/Popover";
 import type { SummarySectionInput } from "./summaryModel";
 import { registerPicker } from "../pickerOpeners";
 
-/// The header's summary button and its popover: what this chat has produced so far. The
-/// summary is read from the transcript only while the popover is open, so a live turn pays
-/// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
-/// there opens the image viewer (`onOpenImage`) in the gallery's place.
+const OPEN_STATE_KEY = "agentPane.summary.open";
+const LEGACY_PIN_KEY = "agentPane.summary.pinned";
+
+function storedOpenState(): boolean {
+  try {
+    const stored = globalThis.window?.localStorage.getItem(OPEN_STATE_KEY);
+    if (stored === "true" || stored === "false") return stored === "true";
+    // Preserve a user's choice from the first pinned-summary implementation when upgrading.
+    return globalThis.window?.localStorage.getItem(LEGACY_PIN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+/// The header's summary button. Modern agent panes use a persistent docked panel; the legacy
+/// transcript-only surface keeps its existing summary popover until that surface is retired.
 export function SummaryButton({
   rows,
   onOpenOutput,
@@ -34,30 +46,32 @@ export function SummaryButton({
 }) {
   const t = useT();
   const modern = cwd !== undefined || sections !== undefined;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => modern && storedOpenState());
   const [wide, setWide] = useState(modern);
-  const [pinned, setPinned] = useState(() => {
-    try {
-      return globalThis.window?.localStorage.getItem("agentPane.summary.pinned") !== "false";
-    } catch {
-      return true;
-    }
-  });
   const [gallery, setGallery] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
-  // The gallery opens from the popover, which is gone when it closes: focus returns to the button.
-  // Not when it closes for the image viewer, which takes focus itself.
+  const panel = useRef<HTMLElement>(null);
+  const focusPanelOnOpen = useRef(false);
   const refocus = useRef(false);
-  useEffect(() => {
-    if (gallery || !refocus.current) return;
-    refocus.current = false;
-    button.current?.focus();
-  }, [gallery]);
-  const closeGallery = () => {
-    refocus.current = true;
-    setGallery(false);
-  };
-  const summary = useMemo(() => sessionSummary(rows), [rows]);
+  const setSummaryOpen = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      if (!modern) return;
+      try {
+        globalThis.window?.localStorage.setItem(OPEN_STATE_KEY, String(next));
+      } catch {
+        /* storage is unavailable in opaque gallery documents */
+      }
+    },
+    [modern],
+  );
+  const toggleSummary = useCallback(
+    (focusPanel = false) => {
+      if (focusPanel) focusPanelOnOpen.current = true;
+      setSummaryOpen(!open);
+    },
+    [open, setSummaryOpen],
+  );
   useEffect(() => {
     if (!modern) return;
     const stage = button.current?.closest(".acpmux-stage");
@@ -69,36 +83,31 @@ export function SummaryButton({
     observer.observe(stage);
     return () => observer.disconnect();
   }, [modern]);
-  const showPinned = pinned && wide;
   useEffect(() => {
-    if (showPinned) setOpen(true);
-    else if (!wide) setOpen(false);
-  }, [showPinned, wide]);
-  const togglePin = () => {
-    const next = !pinned;
-    setPinned(next);
-    setOpen(next);
-    try {
-      globalThis.window?.localStorage.setItem("agentPane.summary.pinned", String(next));
-    } catch {
-      /* storage is unavailable in opaque test documents */
-    }
-  };
-  const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+    if (!modern) return;
+    const toggleFromKeyboard = () => toggleSummary(true);
+    window.addEventListener("cmux-acpmux-toggle-summary", toggleFromKeyboard);
+    return () => window.removeEventListener("cmux-acpmux-toggle-summary", toggleFromKeyboard);
+  }, [modern, toggleSummary]);
   useEffect(() => {
-    if (!open) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover")) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", dismissOutside, true);
-    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+    if (!open || !focusPanelOnOpen.current) return;
+    focusPanelOnOpen.current = false;
+    requestAnimationFrame(() => panel.current?.focus());
   }, [open]);
-  // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
+  const closeGallery = () => {
+    refocus.current = true;
+    setGallery(false);
+  };
+  const summary = useMemo(() => sessionSummary(rows), [rows]);
+  const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const label = t("summary.open");
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
+  useEffect(() => registerPicker(label, () => setSummaryOpen(true)), [label, setSummaryOpen]);
+  useEffect(() => {
+    if (gallery || !refocus.current) return;
+    refocus.current = false;
+    button.current?.focus();
+  }, [gallery]);
+  const panelMode = wide ? "wide" : "narrow";
   return (
     <span className="acpmux-summary">
       <button
@@ -107,16 +116,15 @@ export function SummaryButton({
         className="acpmux-summary-button"
         aria-label={label}
         title={label}
-        aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => (wide ? togglePin() : setOpen((current) => !current))}
+        onClick={() => toggleSummary()}
       >
         <Icon name="view.list" size={15} />
       </button>
       {!modern && open && (
         <Popover
           open={open}
-          onOpenChange={setOpen}
+          onOpenChange={(next) => setOpen(next)}
           anchor={button.current}
           label={label}
           className="acpmux-summary-popover"
@@ -140,34 +148,19 @@ export function SummaryButton({
           />
         </Popover>
       )}
-      {showPinned && (
+      {modern && open && (
         <PinnedSummary
+          ref={panel}
           summary={summary}
           sections={sections}
           cwd={cwd}
           projectName={projectName}
-          mode="pinned"
+          mode={panelMode}
           onClose={() => {
-            togglePin();
+            setSummaryOpen(false);
             button.current?.focus();
           }}
           onOpenChanges={onOpenChanges}
-          onTogglePin={togglePin}
-        />
-      )}
-      {modern && !showPinned && open && (
-        <PinnedSummary
-          summary={summary}
-          sections={sections}
-          cwd={cwd}
-          projectName={projectName}
-          mode="popover"
-          onClose={() => {
-            setOpen(false);
-            button.current?.focus();
-          }}
-          onOpenChanges={onOpenChanges}
-          onTogglePin={togglePin}
         />
       )}
       {gallery && (

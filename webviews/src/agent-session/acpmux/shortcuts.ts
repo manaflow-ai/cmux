@@ -5,6 +5,7 @@ import { createContext, useContext } from "react";
 export const SHORTCUT_ACTIONS = {
   newAgentChat: "palette.newAgentChat",
   toggleDictation: "palette.toggleDictation",
+  toggleSummary: "agentPane.toggleSummary",
   permissionAllowOnce: "agentPane.permission.allowOnce",
   permissionAllowChat: "agentPane.permission.allowChat",
   permissionDeny: "agentPane.permission.deny",

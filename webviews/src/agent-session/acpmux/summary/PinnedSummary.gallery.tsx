@@ -22,7 +22,7 @@ const props = {
   sections,
   cwd: "/Users/you/src/project",
   projectName: "project",
-  mode: "pinned" as const,
+  mode: "wide" as const,
   onClose: () => undefined,
 };
 export default componentEntry({
@@ -37,9 +37,9 @@ export default componentEntry({
   styles: () => import("./summary.css"),
   variants: {
     "pinned-wide": { note: "Dense pinned card with project header, plan and data sections.", props },
-    "narrow-popover": {
-      note: "Narrow fallback reserves space below the header.",
-      props: { ...props, mode: "popover" },
+    "narrow-docked": {
+      note: "Narrow fallback stays docked above the transcript and reserves its own strip.",
+      props: { ...props, mode: "narrow" },
     },
     empty: { note: "No rows keeps the card quiet.", props: { ...props, sections: [] } },
     busy: {

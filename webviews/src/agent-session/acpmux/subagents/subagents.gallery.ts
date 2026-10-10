@@ -166,7 +166,7 @@ export default agentPaneEntry({
       snapshot: MIXED,
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-summary-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-popover .acpmux-summary-subagents"));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-summary-panel [data-section-id="subagents"]'));
       },
     },
   },
