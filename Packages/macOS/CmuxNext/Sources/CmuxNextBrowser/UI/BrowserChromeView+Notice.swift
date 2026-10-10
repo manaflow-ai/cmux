@@ -35,25 +35,11 @@ extension BrowserChromeView {
     /// The notice text on screen (tests, diagnostics).
     public var noticeText: String? { currentNotice?.text }
 
-    /// The notice's view tree with each frame and any label text
-    /// (diagnostics: a pill drawn without its text, cx-whr7).
-    public var noticeLayout: [String]? {
-        currentNotice.map { notice in
-            var rows: [String] = []
-            func visit(_ view: NSView, _ depth: Int) {
-                let text = (view as? NSTextField).map { " \"\($0.stringValue)\" intrinsic=\($0.intrinsicContentSize.width)" } ?? ""
-                rows.append(String(repeating: " ", count: depth) + "\(type(of: view)) \(view.frame)\(view.isHidden ? " hidden" : "")\(text)")
-                view.subviews.forEach { visit($0, depth + 1) }
-            }
-            visit(notice, 0)
-            return rows
-        }
-    }
+    /// The notice's view tree with each frame and any label text (diagnostics).
+    public var noticeLayout: [String]? { currentNotice?.layoutReport }
 
-    /// Where the notice draws (diagnostics): `overlay_host` (above every
-    /// page window), `window` (the chrome's own window, under a Chromium
-    /// page), `offscreen` (its tab is parked or out of a window), nil when
-    /// none shows.
+    /// Where the notice draws (diagnostics): `overlay_host` (above pages),
+    /// `window` (under a Chromium page), `offscreen` (parked), nil: none.
     public var noticePlacement: String? {
         currentNotice.map { $0.window is OverlayHostPanel ? "overlay_host" : $0.window == nil ? "offscreen" : "window" }
     }
