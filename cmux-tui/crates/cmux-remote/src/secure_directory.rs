@@ -118,14 +118,17 @@ mod unix {
         let mut directory = open_anchor(absolute)?;
         let mut trusted_symlinks = 0_usize;
         let mut final_component_created = false;
+        // The directory being checked, for an error that names it (cx-hgyq).
+        let mut walked = PathBuf::from(if absolute { "/" } else { "." });
         if !pending.is_empty() {
-            validate_ancestor(&directory, path, policy)?;
+            validate_ancestor(&directory, path, &walked, policy)?;
         }
 
         while let Some(component) = pending.pop_front() {
             match open_directory_at(directory.as_raw_fd(), &component) {
                 Ok(next) => {
-                    validate_ancestor(&next, path, policy)?;
+                    walked.push(&component);
+                    validate_ancestor(&next, path, &walked, policy)?;
                     directory = next;
                     final_component_created = false;
                 }
@@ -154,7 +157,8 @@ mod unix {
                     let created = create_directory_at(directory.as_raw_fd(), &component)?;
                     let next = open_directory_at(directory.as_raw_fd(), &component)
                         .map_err(|error| with_component_context(path, &component, error))?;
-                    validate_ancestor(&next, path, policy)?;
+                    walked.push(&component);
+                    validate_ancestor(&next, path, &walked, policy)?;
                     directory = next;
                     final_component_created = created;
                 }
@@ -335,6 +339,7 @@ mod unix {
     pub(super) fn validate_ancestor(
         directory: &File,
         path: &Path,
+        ancestor: &Path,
         policy: AncestorPolicy,
     ) -> io::Result<()> {
         if policy == AncestorPolicy::TrustSandbox {
@@ -350,12 +355,131 @@ mod unix {
             ));
         }
         if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            // The user-private-group rule (OpenSSH's user-group-modes, as
+            // Debian and Ubuntu ship it): a directory of the effective user
+            // that only its own private group may write is the user's alone.
+            // Ubuntu's umask 0002 makes ~/.local 775 (cx-hgyq).
+            let why = if mode & 0o002 != 0 {
+                "it is writable by every user".to_owned()
+            } else if owner != effective_uid() {
+                "it is owned by root and writable by its group".to_owned()
+            } else {
+                match private_group_problem(metadata.gid()) {
+                    None => return Ok(()),
+                    Some(problem) => problem,
+                }
+            };
             return Err(invalid_path(
                 path,
-                "has an ancestor writable by other users without sticky-directory protection",
+                &format!(
+                    "has an ancestor {} (mode {:04o}) writable by other users without sticky-directory protection: {why}",
+                    ancestor.display(),
+                    mode & 0o7777
+                ),
             ));
         }
         Ok(())
+    }
+
+    /// Why group `gid` is not the effective user's private group, or None
+    /// when it is: the user's primary group, with no member in its group
+    /// entry but the user, and the primary group of no other account.
+    fn private_group_problem(gid: u32) -> Option<String> {
+        let uid = effective_uid();
+        let Some((user, primary)) = passwd_name_and_gid(uid) else {
+            return Some("the effective user has no account entry".to_owned());
+        };
+        if gid != primary {
+            return Some(format!("its group {gid} is not your primary group {primary}"));
+        }
+        match group_members(gid) {
+            None => return Some(format!("group {gid} has no readable group entry")),
+            Some(members) if members.iter().any(|member| member != &user) => {
+                return Some(format!("group {gid} has other members"));
+            }
+            Some(_) => {}
+        }
+        match std::fs::read_to_string("/etc/passwd") {
+            Err(_) => Some("/etc/passwd cannot be read to check the group".to_owned()),
+            Ok(accounts) if other_account_has_primary_gid(&accounts, uid, gid) => {
+                Some(format!("another account has group {gid} as its primary group"))
+            }
+            Ok(_) => None,
+        }
+    }
+
+    /// Whether an `/etc/passwd` line other than `uid`'s has primary gid `gid`.
+    fn other_account_has_primary_gid(accounts: &str, uid: u32, gid: u32) -> bool {
+        accounts.lines().any(|line| {
+            let mut fields = line.split(':');
+            let (Some(_name), Some(_password), Some(line_uid), Some(line_gid)) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                return false;
+            };
+            line_gid.parse::<u32>() == Ok(gid) && line_uid.parse::<u32>() != Ok(uid)
+        })
+    }
+
+    /// The account name and primary gid of `uid` (`getpwuid_r`).
+    fn passwd_name_and_gid(uid: u32) -> Option<(String, u32)> {
+        let mut buffer = vec![0_u8; 16 * 1024];
+        let mut entry = MaybeUninit::<libc::passwd>::uninit();
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: every pointer is valid for the call; the buffer outlives
+        // the reads of the entry's strings below.
+        let status = unsafe {
+            libc::getpwuid_r(
+                uid,
+                entry.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status != 0 || result.is_null() {
+            return None;
+        }
+        // SAFETY: getpwuid_r succeeded, so the entry is initialized and its
+        // name is a NUL-terminated string inside `buffer`.
+        let (name, gid) = unsafe {
+            let entry = entry.assume_init();
+            (std::ffi::CStr::from_ptr(entry.pw_name).to_string_lossy().into_owned(), entry.pw_gid)
+        };
+        Some((name, gid))
+    }
+
+    /// The member names in group `gid`'s entry (`getgrgid_r`).
+    fn group_members(gid: u32) -> Option<Vec<String>> {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut entry = MaybeUninit::<libc::group>::uninit();
+        let mut result: *mut libc::group = std::ptr::null_mut();
+        // SAFETY: every pointer is valid for the call; the buffer outlives
+        // the reads of the member list below.
+        let status = unsafe {
+            libc::getgrgid_r(
+                gid,
+                entry.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status != 0 || result.is_null() {
+            return None;
+        }
+        let mut members = Vec::new();
+        // SAFETY: getgrgid_r succeeded, so the entry is initialized; gr_mem is
+        // a NULL-terminated array of NUL-terminated strings inside `buffer`.
+        unsafe {
+            let entry = entry.assume_init();
+            let mut cursor = entry.gr_mem;
+            while !cursor.is_null() && !(*cursor).is_null() {
+                members.push(std::ffi::CStr::from_ptr(*cursor).to_string_lossy().into_owned());
+                cursor = cursor.add(1);
+            }
+        }
+        Some(members)
     }
 
     fn validate_final(
