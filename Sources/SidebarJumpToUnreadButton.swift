@@ -163,7 +163,7 @@ struct SidebarJumpToUnreadButton: View {
             } label: {
                 HStack(spacing: 6) {
                     if isConfirmingHide {
-                        title(String(localized: "sidebar.jumpToUnread.confirmHide", defaultValue: "Click × again to not show again"))
+                        title(String(localized: "sidebar.jumpToUnread.confirmHide", defaultValue: "Click × again to hide"))
                     } else {
                         let arrow = SidebarJumpToUnreadButtonPresentation.systemName
                         CmuxSystemSymbolImage(systemName: arrow, pointSize: 11, weight: .semibold, tint: cmuxAccent.color)
