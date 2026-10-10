@@ -10,6 +10,16 @@ enum MemoryPressureAggregateSource: String, Equatable, Sendable {
     case unavailable
 }
 
+/// Describes how much of the aggregate process population a sample covers.
+enum MemoryPressureAggregateCoverage: String, Equatable, Sendable {
+    /// Every process contributing to the selected accounting source was measured.
+    case complete
+    /// The reported bytes are a measured lower bound because some records were unreadable or raced an exit.
+    case lowerBound = "lower_bound"
+    /// No measured bytes can safely describe the selected aggregate.
+    case unavailable
+}
+
 /// A single process contribution used by the aggregate accounting reducer.
 struct MemoryPressureAggregateProcessFootprint: Equatable, Sendable {
     let pid: Int
@@ -63,6 +73,7 @@ struct MemoryPressureAggregateAccounting: Sendable {
 /// Raw metrics collected before aggregate-pressure policy is applied.
 struct MemoryPressureAggregateSample: Equatable, Sendable {
     let source: MemoryPressureAggregateSource
+    let coverage: MemoryPressureAggregateCoverage
     let aggregateBytes: UInt64?
     let physicalMemoryBytes: UInt64?
     let availableMemoryBytes: UInt64?
@@ -86,6 +97,13 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
         self.processCount = max(0, processCount)
         self.missingProcessCount = max(0, missingProcessCount)
         self.sampledAt = sampledAt
+        if source == .unavailable || aggregateBytes == nil {
+            coverage = .unavailable
+        } else if source == .coalition || self.missingProcessCount == 0 {
+            coverage = .complete
+        } else {
+            coverage = .lowerBound
+        }
     }
 
     static func unavailable(sampledAt: Date) -> Self {
@@ -104,10 +122,9 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
     /// safely drive an idle-agent hibernation decision. Coalition samples are already scoped
     /// and may still be used when the process listing races exits.
     var isUsable: Bool {
-        source != .unavailable &&
+        coverage == .complete &&
             aggregateBytes != nil &&
-            (physicalMemoryBytes ?? 0) > 0 &&
-            (source == .coalition || missingProcessCount == 0)
+            (physicalMemoryBytes ?? 0) > 0
     }
 
     func withSampledAt(_ sampledAt: Date) -> Self {
@@ -139,13 +156,15 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
     func privacySafeDiagnosticPayload() -> [String: Any] {
         [
             "source": source.rawValue,
+            "coverage": coverage.rawValue,
             "aggregate_bytes": aggregateBytes.map { NSNumber(value: $0) } ?? NSNull(),
             "physical_memory_bytes": physicalMemoryBytes.map { NSNumber(value: $0) } ?? NSNull(),
             "available_memory_bytes": availableMemoryBytes.map { NSNumber(value: $0) } ?? NSNull(),
             "process_count": processCount,
             "process_count_available": source != .coalition,
             "missing_process_count": missingProcessCount,
-            "complete": isUsable
+            "complete": coverage == .complete,
+            "known_lower_bound": coverage == .lowerBound
         ]
     }
 }
@@ -154,6 +173,7 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
 struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
     let severity: MemoryPressureSeverity
     let source: MemoryPressureAggregateSource
+    let coverage: MemoryPressureAggregateCoverage
     let aggregateBytes: UInt64?
     let physicalMemoryBytes: UInt64?
     let availableMemoryBytes: UInt64?
@@ -164,6 +184,7 @@ struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
     init(sample: MemoryPressureAggregateSample, severity: MemoryPressureSeverity) {
         self.severity = severity
         source = sample.source
+        coverage = sample.coverage
         aggregateBytes = sample.aggregateBytes
         physicalMemoryBytes = sample.physicalMemoryBytes
         availableMemoryBytes = sample.availableMemoryBytes
@@ -175,18 +196,20 @@ struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
     /// Only complete, real metrics may authorize idle-agent hibernation.
     var isActionable: Bool {
         severity >= .warning &&
-            source != .unavailable &&
+            coverage == .complete &&
             aggregateBytes != nil &&
-            (source == .coalition || missingProcessCount == 0)
+            (physicalMemoryBytes ?? 0) > 0
     }
 }
 
 /// Relative aggregate-memory policy shared by production and injectable tests.
 ///
 /// The defaults are fractions of installed physical memory, never a fixed GB
-/// value. A coalition/tree sample must cross the warning fraction before the
-/// optional available-memory signal can raise its severity. This prevents an
-/// unrelated low-memory application from causing cmux to hibernate agent work.
+/// value. A complete coalition/tree sample must cross the warning fraction
+/// before the optional available-memory signal can raise its severity. Lower
+/// bounds may report the threshold they establish, but never authorize
+/// hibernation. This prevents an unrelated low-memory application from causing
+/// cmux to hibernate agent work.
 struct MemoryPressureAggregatePolicy: Equatable, Sendable {
     let warningCoalitionFraction: Double
     let criticalCoalitionFraction: Double
@@ -216,7 +239,7 @@ struct MemoryPressureAggregatePolicy: Equatable, Sendable {
     static let `default` = Self()
 
     func severity(for sample: MemoryPressureAggregateSample) -> MemoryPressureSeverity {
-        guard sample.isUsable,
+        guard sample.coverage != .unavailable,
               let aggregateBytes = sample.aggregateBytes,
               let physicalMemoryBytes = sample.physicalMemoryBytes,
               physicalMemoryBytes > 0 else {

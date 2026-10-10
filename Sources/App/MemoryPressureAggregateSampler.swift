@@ -85,6 +85,11 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
         var processFootprints: [MemoryPressureAggregateProcessFootprint] = []
         processFootprints.reserveCapacity(descendantPIDs.count)
         var missingProcessCount = snapshot.enumerationMissingProcessCount
+        if !snapshot.enumerationIsComplete, missingProcessCount == 0 {
+            // Preserve incomplete coverage even if an upstream census only
+            // reported its boolean completeness bit.
+            missingProcessCount = 1
+        }
 
         for pid in descendantPIDs {
             guard let process = snapshot.process(pid: pid),
@@ -103,11 +108,37 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
 
         let accounting = MemoryPressureAggregateAccounting().summarize(processFootprints)
 
-        guard snapshot.enumerationIsComplete,
-              !descendantPIDs.isEmpty, missingProcessCount == 0 else {
+        guard !descendantPIDs.isEmpty else {
             return MemoryPressureAggregateSample(
                 source: .unavailable,
                 aggregateBytes: nil,
+                physicalMemoryBytes: physicalMemoryBytes,
+                availableMemoryBytes: availableMemoryBytes,
+                processCount: descendantPIDs.count,
+                missingProcessCount: missingProcessCount,
+                sampledAt: sampledAt
+            )
+        }
+
+        // Keep readable records as a diagnostic lower bound when one or more
+        // processes cannot be measured (for example a root-owned login wrapper
+        // returning EPERM). It remains non-actionable until coverage is complete.
+        guard !processFootprints.isEmpty else {
+            return MemoryPressureAggregateSample(
+                source: .unavailable,
+                aggregateBytes: nil,
+                physicalMemoryBytes: physicalMemoryBytes,
+                availableMemoryBytes: availableMemoryBytes,
+                processCount: descendantPIDs.count,
+                missingProcessCount: missingProcessCount,
+                sampledAt: sampledAt
+            )
+        }
+
+        guard snapshot.enumerationIsComplete, missingProcessCount == 0 else {
+            return MemoryPressureAggregateSample(
+                source: .descendantProcessTree,
+                aggregateBytes: accounting.aggregateBytes,
                 physicalMemoryBytes: physicalMemoryBytes,
                 availableMemoryBytes: availableMemoryBytes,
                 processCount: descendantPIDs.count,
@@ -139,7 +170,7 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         operatingSystemMajorVersion: Int =
             ProcessInfo.processInfo.operatingSystemVersion.majorVersion
     ) -> Bool {
-        [14, 15, 26].contains(operatingSystemMajorVersion) &&
+        [14, 15, 26, 27].contains(operatingSystemMajorVersion) &&
             MemoryLayout<CoalitionResourceUsagePrefix>.size == 328 &&
             MemoryLayout<CoalitionResourceUsagePrefix>.offset(of: \.physicalFootprint) == 320
     }
@@ -167,8 +198,8 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         }
 
         // This private ABI is deliberately optional. The prefix layout is
-        // stable through macOS 15 and the kernel copies only the requested
-        // size; a missing/changed symbol simply selects the safe tree fallback.
+        // validated on the allowlisted releases and the kernel copies only the
+        // requested size; a missing/changed symbol selects the safe tree fallback.
         typealias CoalitionInfoFunction = @convention(c) (
             UInt64,
             UnsafeMutableRawPointer,

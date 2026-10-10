@@ -64,6 +64,16 @@ class MemoryPressureCoalitionTests(unittest.TestCase):
             with self.subTest(version=version):
                 self.assertFalse(supported[str(version)])
 
+    def test_live_macos27_coalition_includes_a_real_child(self):
+        version = subprocess.check_output(["sw_vers", "-productVersion"], text=True)
+        if int(version.split(".")[0]) != 27:
+            self.skipTest("live coalition regression requires macOS 27")
+        sample = self.probe("live")
+        self.assertEqual(sample["source"], "coalition")
+        self.assertEqual(sample["coverage"], "complete")
+        self.assertGreater(sample["child_delta_bytes"], 32 * 1024 * 1024)
+        self.assertGreater(sample["aggregate_bytes"], sample["baseline_aggregate_bytes"])
+
     def test_root_owned_login_eperm_is_a_non_actionable_lower_bound(self):
         sample = self.probe("unreadable-login")
         self.assertEqual(sample["coverage"], "lower_bound")
