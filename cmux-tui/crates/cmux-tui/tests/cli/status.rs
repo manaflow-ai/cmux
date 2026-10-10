@@ -36,7 +36,14 @@ fn status_output(server: &HeadlessServer, terminal: Option<&str>, args: &[&str])
 /// The entries of `workspace`, from `cmux status list`.
 fn entries(server: &HeadlessServer, workspace: &str) -> Vec<serde_json::Value> {
     let output = status_output(server, None, &["status", "list", "--target", workspace]);
-    assert_success(&output);
+    if !output.status.success() {
+        let listed = status_output(server, None, &["workspace", "list"]);
+        panic!(
+            "status list --target {workspace} failed: {}\nworkspaces: {}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&listed.stdout)
+        );
+    }
     let listed = json_output(&output);
     let snapshots = match &listed {
         serde_json::Value::Array(items) => items.clone(),
@@ -186,17 +193,8 @@ fn status_entries_auto_clear_with_their_owner_and_replay_after_a_daemon_restart(
         &server,
         None,
         &[
-            "status",
-            "set",
-            "done",
-            "--label",
-            "Done",
-            "--target",
-            &workspace,
-            "--state",
-            "success",
-            "--ttl",
-            "1500ms",
+            "status", "set", "done", "--label", "Done", "--target", &workspace, "--state",
+            "success", "--ttl", "5s",
         ],
     );
     assert_success(&output);
@@ -234,6 +232,24 @@ fn status_run_and_terminal_owners_clear_through_a_real_daemon() {
         .map(|terminal| terminal["id"].as_str().unwrap().to_string())
         .find(|terminal| workspace_of_terminal(&snapshot, terminal) == workspace)
         .expect("beta has a terminal");
+    // A second tab keeps beta open when the owner terminal closes.
+    let tab = snapshot["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == terminal.as_str())
+        .and_then(|item| item["tab_id"].as_str())
+        .unwrap()
+        .to_string();
+    let pane = snapshot["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == tab.as_str())
+        .and_then(|item| item["pane_id"].as_str())
+        .unwrap()
+        .to_string();
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &pane]);
 
     let output = status_output(
         &server,
@@ -267,25 +283,38 @@ fn status_run_and_terminal_owners_clear_through_a_real_daemon() {
     assert!(run["expires_at_ms"].is_string(), "{run}");
     assert!(run["owner"].is_null(), "a finished run has no owner: {run}");
 
-    // The command kills `status run` itself: its busy entry must not stay.
-    let killed = Command::new(bin())
+    // The command kills `status run` itself once its busy entry shows: the
+    // entry must not stay behind.
+    let gate = server.dir.join("doomed.fifo");
+    let made = Command::new("/usr/bin/mkfifo").arg(&gate).status().unwrap();
+    assert!(made.success());
+    let script = format!("read go < '{}'; kill -KILL $PPID", gate.display());
+    let mut doomed_run = Command::new(bin())
         .arg("--socket")
         .arg(&server.socket)
         .args(["status", "run", "--label", "Doomed", "--target", &workspace])
-        .args(["--", "/bin/sh", "-c", "kill -KILL $PPID"])
+        .args(["--", "/bin/sh", "-c", &script])
         .env("LC_ALL", "C")
         .env_remove("CMUX_TUI_SOCKET")
         .env_remove("CMUX_TUI_TERMINAL_ID")
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
         .unwrap();
-    assert!(!killed.status.success());
-    let doomed = entries(&server, &workspace)
-        .into_iter()
-        .find(|entry| entry["text"] == "Doomed")
-        .and_then(|entry| entry["key"].as_str().map(str::to_owned));
-    if let Some(doomed) = doomed {
-        assert_cleared(&server, &workspace, &doomed, "status run was killed");
-    }
+    let doomed_key = format!("run:{}", doomed_run.id());
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let busy = loop {
+        if let Some(entry) = entry(&server, &workspace, &doomed_key) {
+            break entry;
+        }
+        assert!(Instant::now() < deadline, "status run never marked Doomed busy");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(busy["state"], "busy", "{busy}");
+    assert_eq!(busy["owner"]["pid"], doomed_run.id(), "{busy}");
+    fs::write(&gate, "go\n").unwrap();
+    assert!(!doomed_run.wait().unwrap().success());
+    assert_cleared(&server, &workspace, &doomed_key, "status run was killed");
 
     let output = status_output(&server, None, &["terminal", &terminal, "close"]);
     assert_success(&output);
@@ -305,7 +334,10 @@ fn status_set_refuses_a_forged_owner() {
     let output = status_output(
         &server,
         Some(&forged_terminal),
-        &["status", "set", "forged", "--label", "Forged", "--target", &workspace, "--state", "busy"],
+        &[
+            "status", "set", "forged", "--label", "Forged", "--target", &workspace, "--state",
+            "busy",
+        ],
     );
     assert!(!output.status.success(), "a forged owner terminal was accepted");
     let error = json_error(&output);
@@ -319,17 +351,8 @@ fn status_set_refuses_a_forged_owner() {
         &server,
         None,
         &[
-            "status",
-            "set",
-            "ghost",
-            "--label",
-            "Ghost",
-            "--target",
-            &workspace,
-            "--state",
-            "busy",
-            "--pid",
-            &gone_pid,
+            "status", "set", "ghost", "--label", "Ghost", "--target", &workspace, "--state",
+            "busy", "--pid", &gone_pid,
         ],
     );
     assert!(!output.status.success(), "an exited owner process was accepted");

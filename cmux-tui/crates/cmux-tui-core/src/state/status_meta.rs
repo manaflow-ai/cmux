@@ -96,6 +96,26 @@ impl StatusMeta {
                     .ok_or_else(|| bad_request("exit_code must be an integer"))?,
             ),
         };
+        // A present field of the wrong type is refused, never ignored (a
+        // negative ttl_ms must not make an entry that never expires).
+        let typed = |name: &str, read: fn(&Value) -> bool| match fields.get(name) {
+            None | Some(Value::Null) => Ok(()),
+            Some(value) if read(value) => Ok(()),
+            Some(_) => Err(bad_request(format!("{name} has the wrong type"))),
+        };
+        typed("ttl_ms", |value| value.as_u64().is_some())?;
+        typed("duration_ms", |value| value.as_u64().is_some())?;
+        typed("progress", |value| value.as_f64().is_some())?;
+        for name in ["state", "style", "target_terminal"] {
+            typed(name, Value::is_string)?;
+        }
+        if let Some(owner) = owner {
+            for name in ["terminal", "agent_session"] {
+                if owner.get(name).is_some_and(|value| !value.is_null() && !value.is_string()) {
+                    return Err(bad_request(format!("owner.{name} must be a string")));
+                }
+            }
+        }
         Ok(Self {
             state: string(fields.get("state")),
             progress: fields.get("progress").and_then(Value::as_f64),
@@ -186,6 +206,7 @@ pub(crate) fn create_status_meta_schema(transaction: &Transaction<'_>) -> anyhow
            target_terminal TEXT,
            exit_code INTEGER,
            duration_ms INTEGER,
+           entry_updated_at_ms INTEGER,
            PRIMARY KEY(workspace_id, status_key)
          );",
     )?;
@@ -213,8 +234,8 @@ pub(crate) fn write_meta(
         "INSERT OR REPLACE INTO workspace_status_meta(
            workspace_id, status_key, state, progress, style, expires_at_ms, owner_pid,
            owner_machine, owner_terminal, owner_agent_session, target_terminal, exit_code,
-           duration_ms, owner_pid_start
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+           duration_ms, owner_pid_start, entry_updated_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             workspace_id,
             key,
@@ -230,6 +251,7 @@ pub(crate) fn write_meta(
             meta.exit_code,
             to_i64(meta.duration_ms)?,
             owner_process.map(|process| process.started.to_string()),
+            i64::try_from(now_ms)?,
         ],
     )?;
     Ok(())
@@ -261,12 +283,20 @@ pub(crate) fn decorate_entries(
     let mut statement = connection.prepare(
         "SELECT state, progress, style, expires_at_ms, owner_pid, owner_machine, owner_terminal,
                 owner_agent_session, target_terminal, exit_code, duration_ms
-         FROM workspace_status_meta WHERE workspace_id = ?1 AND status_key = ?2",
+         FROM workspace_status_meta
+         WHERE workspace_id = ?1 AND status_key = ?2 AND entry_updated_at_ms = ?3",
     )?;
     for entry in entries.iter_mut() {
         let Some(key) = entry["key"].as_str().map(str::to_owned) else { continue };
+        // Meta belongs to the write that made it: an entry an older binary
+        // rewrote since (a new updated_at_ms) is a plain line again.
+        let Some(updated) =
+            entry["updated_at_ms"].as_str().and_then(|value| value.parse::<i64>().ok())
+        else {
+            continue;
+        };
         let meta = statement
-            .query_row(params![workspace_id, key], |row| {
+            .query_row(params![workspace_id, key, updated], |row| {
                 let ms = |index: usize| -> rusqlite::Result<Option<String>> {
                     Ok(row.get::<_, Option<i64>>(index)?.map(|value| value.to_string()))
                 };
@@ -305,9 +335,19 @@ pub(crate) fn decorate_entries(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "end", rename_all = "snake_case")]
 pub(crate) enum OwnerEnd {
-    Terminal { terminal: String },
-    Process { pid: u32, machine: String },
-    Expired { now_ms: u64 },
+    Terminal {
+        terminal: String,
+    },
+    /// `started` limits the match to rows of that start time; `None`
+    /// matches every row of the pid (no process runs under it).
+    Process {
+        pid: u32,
+        machine: String,
+        started: Option<u64>,
+    },
+    Expired {
+        now_ms: u64,
+    },
 }
 
 /// `(workspace_id, status_key)` of every entry `end` removes, ordered.
@@ -322,9 +362,15 @@ pub(crate) fn owned_entries(
             .prepare(&format!("{SELECT}owner_terminal = ?1 ORDER BY 1, 2"))?
             .query_map(params![terminal], map)?
             .collect::<Result<Vec<_>, _>>()?,
-        OwnerEnd::Process { pid, machine } => connection
+        OwnerEnd::Process { pid, machine, started: None } => connection
             .prepare(&format!("{SELECT}owner_pid = ?1 AND owner_machine = ?2 ORDER BY 1, 2"))?
             .query_map(params![pid, machine], map)?
+            .collect::<Result<Vec<_>, _>>()?,
+        OwnerEnd::Process { pid, machine, started: Some(started) } => connection
+            .prepare(&format!(
+                "{SELECT}owner_pid = ?1 AND owner_machine = ?2 AND owner_pid_start = ?3 ORDER BY 1, 2"
+            ))?
+            .query_map(params![pid, machine, started.to_string()], map)?
             .collect::<Result<Vec<_>, _>>()?,
         OwnerEnd::Expired { now_ms } => connection
             .prepare(&format!(
@@ -343,8 +389,12 @@ pub(crate) fn remove_entries(
 ) -> anyhow::Result<Vec<String>> {
     let mut workspaces: Vec<String> = Vec::new();
     for (workspace, key) in entries {
+        // Only the write the meta belongs to: an entry an older binary
+        // rewrote since keeps its plain line; the stale meta goes.
         transaction.execute(
-            "DELETE FROM workspace_status_entries WHERE workspace_id = ?1 AND status_key = ?2",
+            "DELETE FROM workspace_status_entries WHERE workspace_id = ?1 AND status_key = ?2
+               AND updated_at_ms = (SELECT entry_updated_at_ms FROM workspace_status_meta
+                                    WHERE workspace_id = ?1 AND status_key = ?2)",
             params![workspace, key],
         )?;
         delete_meta(transaction, workspace, Some(key))?;

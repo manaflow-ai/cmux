@@ -128,7 +128,8 @@ fn status_set_meta(
     use crate::workspace_registry::Actor;
     let meta =
         crate::state::status_meta::StatusMeta::from_fields(&request.fields).map_err(state_error)?;
-    let local = matches!(request.actor, Actor::User { .. } | Actor::Frontend { .. } | Actor::Daemon);
+    let local =
+        matches!(request.actor, Actor::User { .. } | Actor::Frontend { .. } | Actor::Daemon);
     if meta.owner_pid.is_some() && !local {
         return Err(ResourceError::operation_failed(
             "workspace_status.set",

@@ -79,8 +79,12 @@ pub(crate) fn watch_owners(
     if let Some(pid) = pid {
         match OwnerProcess::current(pid) {
             Some(process) => watch_process(mux, process),
-            // It ended between the commit and now.
-            None => clear_now(mux, &OwnerEnd::Process { pid, machine: mux.status_machine_id() }),
+            // It ended between the commit and now: no process runs under
+            // this pid, so every entry recorded for it is dead.
+            None => clear_now(
+                mux,
+                &OwnerEnd::Process { pid, machine: mux.status_machine_id(), started: None },
+            ),
         }
     }
     if has_ttl {
@@ -103,9 +107,23 @@ pub(crate) fn resume(mux: &Arc<Mux>) {
                     Some(current) if recorded.started == 0 || current == recorded => {
                         watch_process(mux, current);
                     }
-                    _ => clear_now(
+                    // Another process holds the pid now: only the rows of
+                    // the recorded start time are dead.
+                    Some(_) => clear_now(
                         mux,
-                        &OwnerEnd::Process { pid: recorded.pid, machine: machine.clone() },
+                        &OwnerEnd::Process {
+                            pid: recorded.pid,
+                            machine: machine.clone(),
+                            started: Some(recorded.started),
+                        },
+                    ),
+                    None => clear_now(
+                        mux,
+                        &OwnerEnd::Process {
+                            pid: recorded.pid,
+                            machine: machine.clone(),
+                            started: None,
+                        },
                     ),
                 }
             }
@@ -168,14 +186,21 @@ fn spawn_watch(
 
 /// Watch a terminal owner through the session host's exit subscription. The
 /// wait holds the daemon while it blocks; a terminal ends with its daemon.
+const TERMINAL_WAIT_SLICE: Duration = Duration::from_secs(30);
+
 fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
     let end = OwnerEnd::Terminal { terminal: terminal.clone() };
     spawn_watch(mux, format!("terminal:{terminal}"), end, move |weak| {
         let Ok(id) = TerminalPublicId::parse(terminal) else { return Watch::Failed };
         let mut backoff = Duration::from_secs(1);
         loop {
+            // A bounded wait, so the watch never keeps a dropped or
+            // shutting-down daemon alive for long.
             let Some(mux) = weak.upgrade() else { return Watch::Failed };
-            match mux.wait_for_terminal_exit(&id, None) {
+            if mux.daemon_shutdown_requested() {
+                return Watch::Failed;
+            }
+            match mux.wait_for_terminal_exit(&id, Some(TERMINAL_WAIT_SLICE)) {
                 Ok(state) if state["state"] == "exited" => return Watch::Ended,
                 Ok(_) => {}
                 // The session host no longer knows the terminal: it is gone.
@@ -204,8 +229,12 @@ fn is_gone(error: &anyhow::Error) -> bool {
 /// Watch a process owner through the kernel's exit notification. The wait
 /// holds no daemon reference.
 fn watch_process(mux: &Arc<Mux>, process: OwnerProcess) {
-    let end = OwnerEnd::Process { pid: process.pid, machine: mux.status_machine_id() };
-    spawn_watch(mux, format!("pid:{}", process.pid), end, move |_| {
+    let end = OwnerEnd::Process {
+        pid: process.pid,
+        machine: mux.status_machine_id(),
+        started: Some(process.started),
+    };
+    spawn_watch(mux, format!("pid:{}:{}", process.pid, process.started), end, move |_| {
         match wait_for_process_exit(process.pid) {
             Ok(()) => Watch::Ended,
             Err(error) => {
@@ -352,8 +381,15 @@ fn run_expiry() {
                 eprintln!("cmux-tui: status expiry failed: {error}");
                 failed = true;
             }
-            if let Ok(Some(deadline)) = mux.read_registry_state(status_meta::next_expiry_ms) {
-                next = Some(next.map_or(deadline, |current| current.min(deadline)));
+            match mux.read_registry_state(status_meta::next_expiry_ms) {
+                Ok(Some(deadline)) => {
+                    next = Some(next.map_or(deadline, |current| current.min(deadline)));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    eprintln!("cmux-tui: reading the next status expiry failed: {error}");
+                    failed = true;
+                }
             }
         }
         // After a failure the expired row stays; retry with a growing delay

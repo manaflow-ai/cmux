@@ -27,10 +27,19 @@ pub(crate) enum WorkspaceStatusChange {
         #[serde(skip_serializing_if = "crate::state::status_meta::StatusMeta::is_plain_boxed")]
         meta: Box<crate::state::status_meta::StatusMeta>,
     },
-    Clear { key: Option<String> },
-    Progress { value: Option<f64>, label: Option<String> },
+    Clear {
+        key: Option<String>,
+    },
+    Progress {
+        value: Option<f64>,
+        label: Option<String>,
+    },
     ProgressClear,
-    Log { level: String, source: Option<String>, text: String },
+    Log {
+        level: String,
+        source: Option<String>,
+        text: String,
+    },
     LogClear,
 }
 
