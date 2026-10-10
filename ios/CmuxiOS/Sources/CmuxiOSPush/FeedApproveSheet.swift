@@ -160,7 +160,7 @@ public struct FeedApproveSheet: View {
             Button { Task { await model.answer(allow: true) } } label: { Text("approve.allow", bundle: .module) }
             denyButton
         case .sent(let allow):
-            Text(allow ? "approve.sentAllow" : "approve.sentDeny", bundle: .module)
+            allow ? Text("approve.sentAllow", bundle: .module) : Text("approve.sentDeny", bundle: .module)
         case .closed:
             Text("approve.closed", bundle: .module)
         case .failed:
