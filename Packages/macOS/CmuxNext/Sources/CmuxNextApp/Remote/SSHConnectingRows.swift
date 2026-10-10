@@ -9,7 +9,7 @@ import CmuxNextSidebar
 /// link's and the daemon's (`SidebarBridge.sshStatus`); this type only
 /// presents it, so the sidebar bridge does not grow.
 enum SSHConnectingRows {
-    static let prefix = "ssh-connecting:"
+    nonisolated static let prefix = "ssh-connecting:"
 
     /// `sections` with one pending row per SSH machine that is connecting
     /// (or installing, or connected while its tree loads) and lists no
@@ -38,10 +38,10 @@ enum SSHConnectingRows {
     }
 
     /// A connecting row: no workspace yet, so no daemon command.
-    static func isRow(_ id: WorkspaceID) -> Bool { id.rawValue.hasPrefix(prefix) }
+    nonisolated static func isRow(_ id: WorkspaceID) -> Bool { id.rawValue.hasPrefix(prefix) }
 
     /// The machine id of a connecting row.
-    static func machine(of id: WorkspaceID) -> String? {
+    nonisolated static func machine(of id: WorkspaceID) -> String? {
         isRow(id) ? String(id.rawValue.dropFirst(prefix.count)) : nil
     }
 
