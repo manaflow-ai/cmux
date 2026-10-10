@@ -47,7 +47,9 @@ final class SidebarGroupEditor {
         }
         panel.onCustomColor = { [weak self] in
             guard let self, let id = self.shownGroup else { return }
-            // The panel takes focus and the bubble closes; the color panel keeps the group.
+            // The panel takes focus and the bubble closes; the color panel keeps the
+            // group, and a new empty group is kept for it (not deleted on close).
+            self.onItem?(id, SidebarGroupEditing.keepGroupItem)
             self.colorPanel.open(for: id, current: self.shownTint)
         }
         panel.onItem = { [weak self] item in

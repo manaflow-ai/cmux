@@ -169,15 +169,42 @@ final class SidebarGroupColorPanel: NSObject {
     private var group: GroupID?
     var onColor: ((GroupID, GroupTint) -> Void)?
 
+    /// The shared panel's settings before it was borrowed, put back when it closes.
+    private var borrowed: (showsAlpha: Bool, isContinuous: Bool)?
+    private var closeObserver: NSObjectProtocol?
+
     func open(for group: GroupID, current: GroupTint?) {
         self.group = group
         let panel = NSColorPanel.shared
+        if borrowed == nil { borrowed = (panel.showsAlpha, panel.isContinuous) }
         panel.showsAlpha = false
         panel.isContinuous = false
         panel.setTarget(self)
         panel.setAction(#selector(changed(_:)))
         if let picked = current?.picked { panel.color = picked }
+        // The panel is shared: once it closes, its colors no longer go to this group.
+        if closeObserver == nil {
+            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.release() } // main-proof: queue: .main delivers on the main thread
+            }
+        }
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func release() {
+        let panel = NSColorPanel.shared
+        if group != nil {
+            panel.setTarget(nil)
+            panel.setAction(nil)
+        }
+        if let borrowed {
+            panel.showsAlpha = borrowed.showsAlpha
+            panel.isContinuous = borrowed.isContinuous
+        }
+        borrowed = nil
+        group = nil
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
     }
 
     @objc private func changed(_ sender: Any?) {
