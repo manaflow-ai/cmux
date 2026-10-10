@@ -46,6 +46,7 @@
     "tab-drag-v1",
     "tab-groups-v1",
     "tab-metadata-v1",
+    "tab-restart-v1",
     "tab-split-respawn-v1",
     "tab-workspace-name-v1",
     "terminal-clipboard-read-v1",

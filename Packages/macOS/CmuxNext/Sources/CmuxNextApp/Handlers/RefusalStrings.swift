@@ -128,6 +128,7 @@ nonisolated enum RefusalStrings {
     static var noWindowShowsWorkspace: String { text("handlers.refusal.noWindowShowsWorkspace", "no window shows a workspace") }
     static func tabHasNoLiveContent(_ id: String) -> String { format("handlers.refusal.tabHasNoLiveContent", "tab %@ has no live content", id) }
     static var notATerminal: String { text("handlers.refusal.notATerminal", "the tab is not a terminal") }
+    static var tabNotDead: String { text("handlers.refusal.tabNotDead", "only a terminal tab whose shell ended can restart") }
     static var noWindowOpen: String { text("handlers.refusal.noWindowOpen", "no window is open") }
     static var noWindowForRename: String { text("handlers.refusal.noWindowForRename", "no window for the rename prompt") }
     static var indexRequired: String { text("handlers.refusal.indexRequired", "an index 1-9 is required") }

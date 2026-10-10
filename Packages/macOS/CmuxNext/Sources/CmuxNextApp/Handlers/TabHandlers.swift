@@ -17,6 +17,7 @@ enum TabHandlers {
         bindMoves(registry, ctx)
         bindMetadata(registry, ctx)
         TabHandlers.bindMoreActions(into: registry, context: ctx)
+        TabRestart.bind(into: registry, context: ctx)
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {

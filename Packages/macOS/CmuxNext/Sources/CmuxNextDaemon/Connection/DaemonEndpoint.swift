@@ -143,6 +143,9 @@ public struct DaemonCapabilities: Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     public let tabColumnRespawn = "tab-column-respawn-v1"
+    /// `restart-tab`: a terminal tab whose shell ended restarts under the
+    /// same terminal id (Unix daemons).
+    public let tabRestart = "tab-restart-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -255,7 +258,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, tabRestart] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
