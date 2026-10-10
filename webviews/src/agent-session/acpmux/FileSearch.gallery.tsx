@@ -70,17 +70,13 @@ function GalleryFileSearch(props: Props) {
 
 const openResults: Play = async (ctx) => {
   await ctx.type("Composer", field);
-  await ctx.waitFor(
-    () => ctx.document.querySelectorAll('[role="option"]').length === composerFiles.length,
-  );
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === composerFiles.length);
   const input = ctx.find(field);
   const active = input.getAttribute("aria-activedescendant");
   if (!active || ctx.document.getElementById(active)?.getAttribute("aria-selected") !== "true")
     throw new Error("file search did not expose its highlighted result");
   await ctx.press("ArrowDown");
-  await ctx.waitFor(
-    () => ctx.find(field).getAttribute("aria-activedescendant")?.endsWith("-1") ?? false,
-  );
+  await ctx.waitFor(() => ctx.find(field).getAttribute("aria-activedescendant")?.endsWith("-1") ?? false);
 };
 
 const pickResult: Play = async (ctx) => {
@@ -88,9 +84,8 @@ const pickResult: Play = async (ctx) => {
   await ctx.press("Enter");
   await ctx.waitFor(
     () =>
-      ctx.document
-        .querySelector("[data-file-search-picked]")
-        ?.getAttribute("data-file-search-picked") === composerFiles[1]!.path,
+      ctx.document.querySelector("[data-file-search-picked]")?.getAttribute("data-file-search-picked") ===
+      composerFiles[1]!.path,
   );
 };
 
@@ -122,18 +117,15 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason:
-        "Searching is an overlay over the transcript and must not move the underlying composer anchor.",
+      reason: "Searching is an overlay over the transcript and must not move the underlying composer anchor.",
     },
     layoutShiftMax: {
       value: 0,
-      reason:
-        "Results and notes stay inside the fixed file-search dialog instead of reflowing the pane.",
+      reason: "Results and notes stay inside the fixed file-search dialog instead of reflowing the pane.",
     },
     longFrameFailMs: {
       value: 33,
-      reason:
-        "Typing and stepping through file results should remain responsive on the gallery host.",
+      reason: "Typing and stepping through file results should remain responsive on the gallery host.",
     },
     settleMaxMs: {
       value: 250,
@@ -162,9 +154,7 @@ export default componentEntry<Props>({
       props: { ...baseProps, search: truncatedSearch },
       play: async (ctx) => {
         await ctx.type("src", field);
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll('[role="option"]').length === files.length,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === files.length);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-file-note").length === 1);
       },
     },
