@@ -10,8 +10,6 @@ mod files;
 mod parse;
 mod run;
 mod target;
-#[cfg(test)]
-mod tests;
 mod write_run;
 
 use std::collections::BTreeSet;
