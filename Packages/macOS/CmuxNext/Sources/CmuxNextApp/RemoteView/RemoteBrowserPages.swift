@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 #if DEBUG
@@ -134,14 +133,7 @@ enum RemoteBrowserPages {
         guard let record = RemoteBrowserTabRecord(url: url) else { return nil }
         let credential = hostToken(for: record)
         // A host on another machine: its loopback over the machine's daemon link.
-        let carrier = record.machine.map { machine -> MachineLoopbackCarrier in
-            let opener = services.remoteLocalhost.loopbackOpener(machine: machine)
-            let port = record.endpoint.port
-            return MachineLoopbackCarrier {
-                guard let opener else { throw LoopbackForwardError.unavailable(machine) }
-                return try await opener(port)
-            }
-        }
+        let carrier = record.machine.map { services.remoteLocalhost.browserCarrier(machine: $0, port: record.endpoint.port) }
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
