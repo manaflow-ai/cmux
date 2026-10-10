@@ -215,12 +215,12 @@ struct CloudPortRoutePlanTests {
     func displayURLMapsCurrentListenerBeforeNavigationIsRecorded() async throws {
         let model = makeModel(forward: { _ in 51_629 }, route: .loopback)
         let state = CloudBrowserAccessState()
-        let logical = URL(string: "http://localhost:3000/")!
+        let logical = URL(string: "http://localhost:3000/projects/123?tab=logs#tail")!
         state.configure(model: model, url: logical)
         model.connect()
         #expect(await wait { model.phase == .forwarded(51_629) })
 
-        let listener = URL(string: "http://127.0.0.1:51629/")!
+        let listener = URL(string: "http://127.0.0.1:51629/projects/123?tab=logs#tail")!
         #expect(state.displayURL(listener) == logical)
         await model.retire()
     }

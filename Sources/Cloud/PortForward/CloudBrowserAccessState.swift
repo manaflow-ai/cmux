@@ -322,7 +322,7 @@ final class CloudBrowserAccessState {
     func sessionURL(currentURL: URL?) -> URL? {
         guard let remoteURL else { return nil }
         guard let currentURL, currentURL.scheme != "about" else { return remoteURL }
-        guard owns(currentURL) else { return navigationURL == nil ? remoteURL : nil }
+        guard ownsLoopbackListener(currentURL) else { return navigationURL == nil ? remoteURL : nil }
         guard var parts = URLComponents(url: currentURL, resolvingAgainstBaseURL: false) else { return remoteURL }
         parts.host = remoteURL.host
         parts.port = remoteURL.port
