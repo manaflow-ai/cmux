@@ -1,0 +1,48 @@
+{
+  "oracle": {},
+  "cmux": {
+    "table-sample-data-rows": 59,
+    "offscreen-lower-bound": "# at least N interactive elements outside the viewport are not shown; snapshot() shows the whole page",
+    "offscreen-exact": "3000",
+    "visible-box-charged": {
+      "after": true,
+      "cut": true
+    },
+    "long-url": {
+      "url": false,
+      "cut": true
+    },
+    "big-values-cut": {
+      "generated": true,
+      "placeholder": true,
+      "option": true,
+      "editable": true
+    },
+    "shared-label-names": {
+      "cut": true,
+      "fast": true
+    },
+    "locator-read-cut": {
+      "short": true,
+      "cut": true
+    },
+    "locator-inner-cut": {
+      "short": true,
+      "cut": true
+    },
+    "all-text-cut": {
+      "first": "one",
+      "secondCut": true,
+      "third": ""
+    },
+    "content-cut": {
+      "short": true,
+      "cut": true
+    },
+    "password-read": {
+      "value": "********",
+      "attribute": "********"
+    },
+    "short-secret-html": "masked"
+  }
+}

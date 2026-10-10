@@ -1523,6 +1523,20 @@ jobs:
         if: needs.decide.outputs.track == 'nightly-next'
         run: scripts/cmux-next/build-web-bundles.sh --force
 
+      # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
+      # every dependency from scratch on each nightly: about 150 s of the
+      # serial build path (2026-10-09). Their target dirs keep the dependency
+      # builds between nightly-next runs; cargo still rebuilds what changed.
+      - name: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            cmux-tui -> target/acpmux-app
+            Native/OptChat/optchat-chief -> target/app
+          shared-key: nightly-next-rust-helpers
+          cache-all-crates: true
+
       - name: Build in-tree acpmux for the compilation cache
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
