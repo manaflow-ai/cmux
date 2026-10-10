@@ -1,8 +1,9 @@
 //! Windows per-terminal hosts (bead cx-ko2e, plans/cmux-next/windows-terminal-hosts.md):
 //! a terminal survives a daemon restart, as on Unix
 //! (terminal_host_recovery.rs `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`).
-//! Red until the Windows host lands: today the daemon owns the ConPTY, and a
-//! fenced shutdown ends the terminal.
+//! The daemon's Job Object decides what ends a host that could not break
+//! away: a kill-on-close job ends the terminal when it closes (and every tree
+//! says so), a plain one does not.
 #![cfg(windows)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -29,8 +30,7 @@ struct Daemon {
     state: PathBuf,
     dir: PathBuf,
     /// A Job Object without `JOB_OBJECT_LIMIT_BREAKAWAY_OK` that the daemon
-    /// runs in (`new_in_job_without_breakaway`); it kills what is left in it
-    /// when the test drops it.
+    /// (and every daemon `start` starts again) runs in.
     job: Option<NoBreakawayJob>,
 }
 
@@ -41,8 +41,10 @@ impl Daemon {
 
     /// A daemon started in a job that forbids breakaway, as under a parent
     /// that keeps its children in a job (some CI runners, IDE terminals).
-    fn new_in_job_without_breakaway(name: &str) -> Self {
-        Self::with_job(name, Some(NoBreakawayJob::new()))
+    /// `kill_on_close`: the job ends its processes when its last handle
+    /// closes.
+    fn new_in_job_without_breakaway(name: &str, kill_on_close: bool) -> Self {
+        Self::with_job(name, Some(NoBreakawayJob::new(kill_on_close)))
     }
 
     fn with_job(name: &str, job: Option<NoBreakawayJob>) -> Self {
@@ -140,13 +142,15 @@ impl Drop for Daemon {
 
 const CREATE_SUSPENDED: u32 = 0x0000_0004;
 
-/// An unnamed Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and
-/// without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: a process in it cannot start a
-/// child with `CREATE_BREAKAWAY_FROM_JOB` (`ERROR_ACCESS_DENIED`).
+/// An unnamed Job Object without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: a process
+/// in it cannot start a child with `CREATE_BREAKAWAY_FROM_JOB`
+/// (`ERROR_ACCESS_DENIED`). With `kill_on_close` it has
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: dropping it (the last handle) ends
+/// every process in it.
 struct NoBreakawayJob(windows_sys::Win32::Foundation::HANDLE);
 
 impl NoBreakawayJob {
-    fn new() -> Self {
+    fn new(kill_on_close: bool) -> Self {
         use windows_sys::Win32::System::JobObjects::{
             CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
@@ -156,6 +160,9 @@ impl NoBreakawayJob {
         unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             assert!(!job.is_null(), "CreateJobObjectW: {}", std::io::Error::last_os_error());
+            if !kill_on_close {
+                return Self(job);
+            }
             let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
             let set = SetInformationJobObject(
@@ -232,6 +239,33 @@ fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");
     response["data"].clone()
+}
+
+/// The pid of the program a terminal runs (`process-info`).
+fn shell_pid(path: &Path, surface: u64) -> u32 {
+    let info = request(path, serde_json::json!({"cmd": "process-info", "surface": surface}));
+    info["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()).unwrap_or_else(|| {
+        panic!("no pid for surface {surface}: {info}");
+    })
+}
+
+/// Whether process `pid` ends within `timeout`. A pid that cannot be opened
+/// has ended.
+fn process_ends_within(pid: u32, timeout: Duration) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
+    // SAFETY: plain Win32 calls; the handle opened here is closed here.
+    unsafe {
+        let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if process.is_null() {
+            return true;
+        }
+        let ended = WaitForSingleObject(process, timeout.as_millis() as u32) == WAIT_OBJECT_0;
+        CloseHandle(process);
+        ended
+    }
 }
 
 fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
@@ -329,11 +363,12 @@ fn tab_of(path: &Path, surface: u64) -> serde_json::Value {
 
 /// A daemon in a kill-on-close job that forbids breakaway starts the
 /// terminal's host inside that job (coordinator decision 2026-10-09). The
-/// terminal runs, and every tree says it ends when the job closes:
-/// `terminal_host_fallback: "breakaway_denied"`.
+/// terminal runs, every tree says it ends when the job closes
+/// (`terminal_host_fallback: "breakaway_denied"`), and closing the job ends
+/// its shell.
 #[test]
 fn a_terminal_in_a_kill_on_close_job_without_breakaway_says_so() {
-    let daemon = Daemon::new_in_job_without_breakaway("nobreak");
+    let mut daemon = Daemon::new_in_job_without_breakaway("nobreak", true);
     let marker = format!("in-job-{}", std::process::id());
     let created = request(
         &daemon.socket,
@@ -357,6 +392,69 @@ fn a_terminal_in_a_kill_on_close_job_without_breakaway_says_so() {
     let tab = tab_of(&daemon.socket, surface);
     assert_eq!(tab["terminal_state"], "running", "{tab}");
     assert_eq!(tab["terminal_host_fallback"], "breakaway_denied", "{tab}");
+
+    let shell = shell_pid(&daemon.socket, surface);
+    drop(daemon.job.take());
+    assert!(
+        process_ends_within(shell, test_timeout(Duration::from_secs(10))),
+        "the shell {shell} outlived its kill-on-close job"
+    );
+}
+
+/// A daemon in a job that forbids breakaway but does not kill on close: the
+/// host runs inside that job, no tree shows a notice, the terminal survives
+/// a fenced daemon restart, and its shell survives the job closing.
+#[test]
+fn a_terminal_in_a_plain_job_without_breakaway_survives_restart_and_job_close() {
+    let mut daemon = Daemon::new_in_job_without_breakaway("plainjob", false);
+    let marker = format!("plain-job-{}", std::process::id());
+    let created = request(
+        &daemon.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["cmd.exe", "/q", "/k"],
+            "new_workspace": true,
+            "name": "plain-job",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let tab = tab_of(&daemon.socket, surface);
+    assert!(tab["terminal_host_fallback"].is_null(), "{tab}");
+    let shell = shell_pid(&daemon.socket, surface);
+
+    daemon.stop_keeping_terminals();
+    daemon.start();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let adopted = loop {
+        let resolved = request_response(
+            &daemon.socket,
+            serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["ok"] == true
+            && resolved["data"]["lifecycle"] == "running"
+            && let Some(surface) = resolved["data"]["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "terminal {terminal_id} was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+
+    drop(daemon.job.take());
+    assert!(
+        !process_ends_within(shell, Duration::from_secs(2)),
+        "the shell {shell} ended with a job that does not kill on close"
+    );
+    request(
+        &daemon.socket,
+        serde_json::json!({"id": 3, "cmd": "send", "surface": adopted, "text": format!("echo {marker}\r")}),
+    );
+    assert!(
+        wait_for_screen(&daemon.socket, adopted, &marker).contains(&marker),
+        "the terminal stopped answering after its job closed"
+    );
 }
 
 /// A terminal with its own host reports no fallback.
