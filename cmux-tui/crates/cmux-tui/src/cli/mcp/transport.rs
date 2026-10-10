@@ -96,9 +96,9 @@ pub(super) fn resource(
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
-    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|_| {
-        let message = crate::localization::catalog().startup.invalid_session_name;
-        fail(NotRun, "usage.invalid", message.to_string())
+    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
+        CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
+            .with_key(key.as_deref())
     })?;
     let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
