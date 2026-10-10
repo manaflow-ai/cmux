@@ -17,6 +17,7 @@ final class CloudWorkspaceCreationCoordinator {
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
         existingRemoteView: SurfaceRemoteView? = nil,
+        resolveExistingWorkspace: CloudWorkspaceCreationOperation.ResolveExistingWorkspace? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
@@ -24,6 +25,7 @@ final class CloudWorkspaceCreationCoordinator {
         let failed = operations.values.filter {
             reuseFailedCreation && $0.allowsActionRetry && $0.provider === provider && !$0.isRunning
                 && $0.failure != nil && $0.host?.manager === host?.manager
+                && $0.host?.reservedWorkspaceID == host?.reservedWorkspaceID
         }
         // An ambiguous pair of failed intents must be retried from its own pane;
         // never guess which concurrent request a new action meant to recover.
@@ -33,7 +35,8 @@ final class CloudWorkspaceCreationCoordinator {
             validateOperation: validateOperation
         )
         operation.validateOperation = validateOperation
-        operation.existingRemoteView = existingRemoteView
+        if retained == nil || existingRemoteView != nil { operation.existingRemoteView = existingRemoteView }
+        operation.resolveExistingWorkspace = resolveExistingWorkspace
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
@@ -418,6 +421,20 @@ final class CloudWorkspaceCreationCoordinator {
             )
             catalog.notifyChange()
             try check(operation, catalog: catalog)
+        }
+        // Discover a new machine's seeded workspace only after the manual pane
+        // can accept input. Keep the resolver for a failed discovery's retry so
+        // an unavailable graph can never become an implicit workspace create.
+        if operation.receipt == nil, existingWorkspace == nil,
+           let resolve = operation.resolveExistingWorkspace {
+            let existing = try await resolve()
+            try check(operation, catalog: catalog)
+            if let existing {
+                operation.receipt = SurfaceWorkspaceCreationReceipt(
+                    workspace: existing.workspace, terminal: existing.terminal, cursor: nil
+                )
+                operation.existingRemoteView = existing.remoteView
+            }
         }
         let receipt: SurfaceWorkspaceCreationReceipt
         if let retained = operation.receipt {

@@ -25,12 +25,13 @@ enum InProcessMachineCreateLauncher {
         let provider: @MainActor (String) -> CmuxTuiSurfaceProvider?
         let refresh: @MainActor () async -> Void
         let open: @MainActor (Invocation, CmuxTuiSurfaceProvider) async throws -> Void
+        var validate: @MainActor (Invocation) throws -> Void = { _ in }
     }
 
     private static func dependencies(
         client: VMClient,
         registry: CmuxTuiSurfaceProviderRegistry,
-        host: CloudWorkspaceCreationHost?
+        host: CloudWorkspaceCreationHost
     ) -> Dependencies {
         let scope = registry.creationScope
         return Dependencies(
@@ -63,93 +64,105 @@ enum InProcessMachineCreateLauncher {
                 _ = await registry.refresh(force: false)
             },
             open: { invocation, provider in
+                try await open(
+                    invocation, provider: provider, catalog: .shared, host: host,
+                    refreshGraph: { await provider.refreshCurrentGraph(force: $0) },
+                    validateScope: {
+                        guard let scope, scope == registry.creationScope else {
+                            throw CloudDiagnosticFailure.sessionRefresh
+                        }
+                    }
+                )
+            },
+            validate: { invocation in
                 guard let scope, scope == registry.creationScope else {
                     throw CloudDiagnosticFailure.sessionRefresh
                 }
-                let catalog = SurfaceCatalog.shared
-                guard let workspace = Workspace.liveWorkspace(id: invocation.workspaceID),
-                      let manager = workspace.owningTabManager else {
-                    throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
+                try validateDestination(host: host)
+                if invocation.machineID == nil {
+                    guard hasUniqueLoadingPanel(workspaceID: invocation.workspaceID) else {
+                        throw CloudDiagnosticFailure.placement
+                    }
                 }
-                let openingHost: CloudWorkspaceCreationHost
-                if let host, host.manager === manager, host.isAvailable {
-                    openingHost = host
-                } else {
-                    openingHost = CloudWorkspaceCreationHost(
-                        manager: manager, reservedWorkspaceID: invocation.workspaceID
-                    )
-                }
-                guard openingHost.isAvailable else {
-                    throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
-                }
+            }
+        )
+    }
 
-                guard await provider.refreshCurrentGraph(force: false),
-                      scope == registry.creationScope,
-                      let refreshedWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
-                      refreshedWorkspace.owningTabManager === manager,
-                      openingHost.isAvailable else {
-                    guard scope == registry.creationScope,
-                          let refreshedWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
-                          refreshedWorkspace.owningTabManager === manager,
-                          openingHost.isAvailable,
-                          await provider.refreshCurrentGraph(force: true) else {
+    private static func validateDestination(host: CloudWorkspaceCreationHost) throws {
+        guard host.isAvailable, let manager = host.manager,
+              let workspaceID = host.reservedWorkspaceID,
+              let workspace = Workspace.liveWorkspace(id: workspaceID),
+              workspace.owningTabManager === manager else {
+            throw CloudDiagnosticFailure.placement
+        }
+    }
+
+    private static func hasUniqueLoadingPanel(workspaceID: UUID) -> Bool {
+        Workspace.liveWorkspace(id: workspaceID)?.panels.values.filter { $0 is CloudVMLoadingPanel }.count == 1
+    }
+
+    /// Admits manual input before graph discovery, retaining the initiating host
+    /// and the shared coordinator's retry, cancellation, and placement ownership.
+    static func open(
+        _ invocation: Invocation,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        host: CloudWorkspaceCreationHost,
+        refreshGraph: @escaping @MainActor (Bool) async -> Bool,
+        validateScope: @escaping @MainActor () throws -> Void
+    ) async throws {
+        let validateOperation: @MainActor () throws -> Void = {
+            try Task.checkCancellation()
+            try validateScope()
+            try validateDestination(host: host)
+            guard host.reservedWorkspaceID == invocation.workspaceID else {
+                throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
+            }
+        }
+        // Never recapture selection after an await or follow a moved destination
+        // into a different window. An explicit retry captures its own host.
+        try validateOperation()
+        let boundRemoteWorkspaceID = Workspace.liveWorkspace(id: invocation.workspaceID)?.cloudVMBinding?.remoteWorkspaceID
+        _ = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+            machine: provider.machine,
+            provider: provider,
+            catalog: catalog,
+            name: invocation.displayName,
+            focus: invocation.focus,
+            host: host,
+            resolveExistingWorkspace: {
+                try validateOperation()
+                if !(await refreshGraph(false)) {
+                    try validateOperation()
+                    guard await refreshGraph(true) else {
                         throw CloudDiagnosticFailure.sessionRefresh
                     }
                 }
-                try Task.checkCancellation()
-                guard scope == registry.creationScope,
-                      let currentWorkspace = Workspace.liveWorkspace(id: invocation.workspaceID),
-                      currentWorkspace.owningTabManager === manager,
-                      openingHost.isAvailable else {
-                    throw CloudDiagnosticFailure.sessionRefresh
-                }
+                try validateOperation()
                 let machineInfo = catalog.snapshot.machines.first { $0.id == provider.machine }
-                let boundRemoteWorkspaceID = currentWorkspace.cloudVMBinding?.remoteWorkspaceID
-                let remoteWorkspace: SurfaceRemoteWorkspace?
+                let remoteWorkspace: SurfaceRemoteWorkspace
                 switch resolveRemoteWorkspace(in: machineInfo, boundID: boundRemoteWorkspaceID) {
                 case .selected(let selected):
                     remoteWorkspace = selected
                 case .empty:
-                    remoteWorkspace = nil
+                    return nil
                 case .ambiguous, .unavailable:
                     throw SurfaceCatalogError.destinationNotFound("Cloud workspace selection")
                 }
-                let terminal: SurfaceResource?
-                let remoteView: SurfaceRemoteView?
-                if let remoteWorkspace {
-                    switch resolveStarterTerminal(
-                        in: catalog.snapshot.resources(on: provider.machine),
-                        workspaceID: remoteWorkspace.id
-                    ) {
-                    case .selected(let selected, let selectedView):
-                        terminal = selected
-                        remoteView = selectedView
-                    case .none:
-                        terminal = nil
-                        remoteView = nil
-                    case .ambiguous:
-                        throw SurfaceCatalogError.destinationNotFound("Cloud terminal selection")
-                    }
-                } else {
-                    terminal = nil
-                    remoteView = nil
+                switch resolveStarterTerminal(
+                    in: catalog.snapshot.resources(on: provider.machine),
+                    workspaceID: remoteWorkspace.id
+                ) {
+                case .selected(let terminal, let view):
+                    return (remoteWorkspace, terminal, view)
+                case .none:
+                    return (remoteWorkspace, nil, nil)
+                case .ambiguous:
+                    throw SurfaceCatalogError.destinationNotFound("Cloud terminal selection")
                 }
-                guard let hostManager = host?.manager, hostManager === manager else {
-                    throw SurfaceCatalogError.destinationNotFound(invocation.workspaceID.uuidString)
-                }
-                _ = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
-                    machine: provider.machine,
-                    provider: provider,
-                    catalog: catalog,
-                    name: invocation.displayName,
-                    focus: invocation.focus,
-                    existingWorkspace: remoteWorkspace,
-                    existingTerminal: terminal,
-                    existingRemoteView: remoteView,
-                    host: openingHost,
-                    validateOperation: { try Task.checkCancellation() }
-                )
-            }
+            },
+            validateOperation: validateOperation,
+            reuseFailedCreation: true
         )
     }
 
@@ -226,6 +239,8 @@ enum InProcessMachineCreateLauncher {
         var machineID: String?
         var provider: CmuxTuiSurfaceProvider?
         do {
+            try Task.checkCancellation()
+            try dependencies.validate(invocation)
             if let openedMachineID = invocation.machineID {
                 machineID = openedMachineID
             } else {
@@ -294,6 +309,7 @@ enum InProcessMachineCreateLauncher {
         guard registry.creationScope != nil else { return false }
         let host = CloudWorkspaceCreationHost(manager: manager, reservedWorkspaceID: invocation.workspaceID)
         guard host.isAvailable else { return false }
+        guard invocation.machineID != nil || hasUniqueLoadingPanel(workspaceID: invocation.workspaceID) else { return false }
         let deps = dependencies(client: client, registry: registry, host: host)
         let task = Task { @MainActor in
             let completion = await run(invocation, operationID: operationID, dependencies: deps, onOutput: { onOutput?($0) })
