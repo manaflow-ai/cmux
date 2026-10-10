@@ -3644,6 +3644,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/agent_session_start.rs"]
+mod agent_session_start;
+#[cfg(unix)]
 #[path = "cli/all_sessions_scope.rs"]
 mod all_sessions_scope;
 #[cfg(unix)]
@@ -3660,9 +3663,6 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
-#[cfg(unix)]
-#[path = "cli/agent_session_start.rs"]
-mod agent_session_start;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;

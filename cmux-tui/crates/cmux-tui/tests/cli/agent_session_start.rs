@@ -30,12 +30,8 @@ impl Daemon {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
-        let daemon = Self {
-            socket: dir.join("mux.sock"),
-            session: format!("asx-{name}"),
-            dir,
-            host_kind,
-        };
+        let daemon =
+            Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
         let output = daemon.server("ensure").output().unwrap();
         assert!(
             output.status.success(),

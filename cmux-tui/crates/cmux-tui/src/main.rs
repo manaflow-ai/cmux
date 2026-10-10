@@ -30,14 +30,14 @@ mod local_actor;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod agent_start_host;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
-#[cfg(unix)]
-mod agent_start_host;
 #[cfg(unix)]
 mod link;
 mod local_owner;
