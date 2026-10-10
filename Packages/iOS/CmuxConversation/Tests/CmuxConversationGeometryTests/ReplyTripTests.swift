@@ -45,6 +45,18 @@ import Testing
         #expect(trip.y == -128.67)
     }
 
+    /// A swiped bottom bubble whose thread slot is where it already sits
+    /// still walks its swing home rather than jumping back when it lands.
+    @Test func swingWalksHomeEvenWhenTheRowHasNowhereToGo() {
+        var trip = ReplyTrip(startY: 0, targetY: 0.05, initialOffsetX: 30, easing: 0.88, snapDistance: 0.25 / 3)
+        trip.step(frameDuration: Self.frame)
+        #expect(trip.y == 0.05)
+        #expect(abs(trip.offsetX - (30 - 6 * ReplyTrip.firstStepFrames)) < 0.001)
+        trip.step(frameDuration: Self.frame)
+        #expect(abs(trip.offsetX - (30 - 6 * ReplyTrip.firstStepFrames - 6)) < 0.001)
+        #expect(!trip.isResting)
+    }
+
     @Test func shortTripWalksTheSwingBack6PointsAFrame() {
         var trip = ReplyTrip(startY: 0, targetY: 1, initialOffsetX: 30, easing: 0.89, snapDistance: 0.25 / 3)
         trip.step(frameDuration: Self.frame)
