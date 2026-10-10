@@ -1,0 +1,67 @@
+name: cmux NEXT DEV daily dispatcher
+
+# The feat-cmux-next push lane is intentionally cheap and can be superseded by
+# the next merge. This schedule snapshots the current branch tip and asks the
+# source workflow for one Release cmux NEXT DEV artifact at most every 30
+# minutes. The offset avoids the owner lane's `*/30` nightly-next tick while
+# #18927 is open. The source run is pinned to that SHA and never cancels another run.
+on:
+  schedule:
+    - cron: "15,45 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-dev-daily-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the current feat-cmux-next tip when needed
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cmux-next.yml';
+            const { data: ref } = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: `heads/${source}`,
+            });
+            const sha = ref.object.sha;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: workflow,
+              event: 'workflow_dispatch',
+              branch: source,
+              per_page: 100,
+            });
+            const activeOrSucceeded = data.workflow_runs.some((run) =>
+              run.head_sha === sha && (
+                (run.name?.startsWith('cmux NEXT DEV daily ·') || run.display_title?.startsWith('cmux NEXT DEV daily ·')) &&
+                ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+                ((run.name?.startsWith('cmux NEXT DEV daily ·') || run.display_title?.startsWith('cmux NEXT DEV daily ·')) && run.status === 'completed' && run.conclusion === 'success')
+              )
+            );
+            if (activeOrSucceeded) {
+              core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
+              return;
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflow,
+              ref: source,
+              inputs: { dev_daily: 'true', dev_daily_sha: sha },
+            });
+            core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha}`);

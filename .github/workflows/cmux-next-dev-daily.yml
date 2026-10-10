@@ -3,7 +3,7 @@ name: cmux NEXT DEV daily
 on:
   # This workflow runs from the default branch, so the signing job evaluates
   # trusted publisher code while consuming only the exact artifact from the
-  # completed feat-cmux-next push run.
+  # completed scheduled feat-cmux-next workflow_dispatch run.
   workflow_run:
     workflows: [cmux-next]
     types: [completed]
@@ -22,9 +22,10 @@ concurrency:
 jobs:
   publish:
     if: >-
-      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
       github.event.workflow_run.head_branch == 'feat-cmux-next' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.path == '.github/workflows/cmux-next.yml'
     name: Sign and publish cmux NEXT DEV
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
@@ -39,7 +40,7 @@ jobs:
       APP_NAME: cmux NEXT DEV
       BUNDLE_ID: com.cmuxterm.app.debug.next
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
-      # A source run may have red tests or lint while its app-producing Mac
+      # A source run may have unrelated red checks while its app-producing Mac
       # job succeeded. Those independent reds must not suppress this channel.
       SOURCE_APP_PRODUCER_JOBS: |-
         cmux app scheme compile (Debug)
