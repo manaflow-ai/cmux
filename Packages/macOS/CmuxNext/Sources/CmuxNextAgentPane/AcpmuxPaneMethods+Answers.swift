@@ -16,7 +16,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// tool permission. They are an object of 1 to ``maximumAnswerItems`` of the question's own
     /// items (an item id or prompt), and each value is a string, a list of at most
     /// ``maximumAnswerListStrings`` strings, or Codex's `{answers: [string]}` with that one key. Each key and each string is at most
-    /// ``maximumAnswerBytes`` UTF-8 bytes.
+    /// ``maximumAnswerBytes`` UTF-8 bytes (per string, never a list's strings together).
     static func breaksAnswersRule(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
         guard let object, object["method"] as? String == "_acpmux/permission_respond",
               let params = object["params"] as? [String: Any], let rawAnswers = params["answers"] else { return false }

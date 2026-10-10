@@ -4,7 +4,11 @@
 # no sudo, no system LaunchDaemon, no pf, no change to the subrouter, to the
 # shared acpmux daemon (com.acpmux.daemon) or to ~/.local/bin.
 #
-# usage: install.sh --optchat-chief PATH --cmux-tui PATH --cmux PATH --acpmux PATH [--brain DIR] [--no-start]
+# usage: install.sh --optchat-chief PATH --cmux-tui PATH --cmux PATH --acpmux PATH [--brain DIR] [--harness H] [--no-start]
+#
+# No harness is pinned by default: the host takes acpmux's default (the configured CodeRouter
+# route, else the user's own `claude` login), and `engine.json` swaps it per turn.
+# --harness H pins MUX_HARNESS=H in the host's LaunchAgent.
 #
 # --cmux is the Rust `cmux` CLI from the same build (the app's Contents/Resources/bin/cmux).
 # It sits next to optchat-chief, so the host pins it first on PATH for the Chief and its
@@ -18,7 +22,7 @@
 set -euo pipefail
 
 BRAIN="${HOME}/.cmux/brains/chief"
-CHIEF="" TUI="" CLI="" ACPMUX="" START=1
+CHIEF="" TUI="" CLI="" ACPMUX="" HARNESS="" START=1
 while (($#)); do
   case "$1" in
     --optchat-chief) CHIEF="$2"; shift 2 ;;
@@ -26,8 +30,9 @@ while (($#)); do
     --cmux) CLI="$2"; shift 2 ;;
     --acpmux) ACPMUX="$2"; shift 2 ;;
     --brain) BRAIN="$2"; shift 2 ;;
+    --harness) HARNESS="$2"; shift 2 ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -36,7 +41,9 @@ die() { echo "install.sh: $*" >&2; exit 2; }
 [[ "$(id -u)" != 0 ]] || die "run as the brain's user, never root"
 for b in "$CHIEF" "$TUI" "$CLI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an executable: '$b'"; done
 command -v claude >/dev/null || [[ -x "$HOME/.local/bin/claude" ]] || die "claude is not installed for $USER"
-command -v sr >/dev/null || [[ -x "$HOME/bin/sr" ]] || die "sr is not installed for $USER (claude-sr needs it)"
+if [[ "$HARNESS" == claude-sr ]]; then
+  command -v sr >/dev/null || [[ -x "$HOME/bin/sr" ]] || die "sr is not installed for $USER (--harness claude-sr needs it)"
+fi
 
 LA="$HOME/Library/LaunchAgents"
 P=ai.manaflow.chief-brain
@@ -80,18 +87,26 @@ render "$P.daemon" "$BRAIN/logs/daemon.log" \
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \
   "$(xml_env ACPMUX_HOME "$BRAIN/acpmux")"
+host_env=(MUX_HOME "$BRAIN/mux" ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_SOCKET "$BRAIN/acpmux/acpmux.sock"
+  ACPMUX_BIN "$BRAIN/bin/acpmux" CMUX_DAEMON_SOCKET "$SOCK" OPTCHAT_ACPMUX_SUPERVISED 1)
+[[ -z "$HARNESS" ]] || host_env+=(MUX_HARNESS "$HARNESS")
 render "$P.host" "$BRAIN/mux/host.log" \
   "$(xml_args "$BRAIN/bin/optchat-chief" host --conversation-source cloud \
       --cloud-install "$BRAIN/cloud/install.json" --daemon-socket "$SOCK" --mux-home "$BRAIN/mux")" \
-  "$(xml_env MUX_HOME "$BRAIN/mux" ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_SOCKET "$BRAIN/acpmux/acpmux.sock" \
-      ACPMUX_BIN "$BRAIN/bin/acpmux" MUX_HARNESS claude-sr CMUX_DAEMON_SOCKET "$SOCK" \
-      OPTCHAT_ACPMUX_SUPERVISED 1)"
+  "$(xml_env "${host_env[@]}")"
 
 ((START)) || { echo "not started (--no-start)"; exit 0; }
 domain="gui/$(id -u)"
 launchctl print "$domain" >/dev/null 2>&1 || domain="user/$(id -u)"
 boot() {
   launchctl bootout "$domain/$1" 2>/dev/null || true
+  # bootout returns before launchd has unloaded the agent; a bootstrap before
+  # that fails with "5: Input/output error". Wait for it (at most 30 s).
+  local i
+  for i in $(seq 1 60); do
+    launchctl print "$domain/$1" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
   launchctl bootstrap "$domain" "$LA/$1.plist"
   echo "started $1 in $domain"
 }

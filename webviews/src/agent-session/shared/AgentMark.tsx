@@ -25,7 +25,9 @@ function subscribe(listener: () => void) {
     observer = new MutationObserver(() => listeners.forEach((notify) => notify()));
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "data-agent-marks"],
+      // `style`: pages without data-theme (Settings) take the theme's lightness from the
+      // root's color-scheme, which window.cmuxTheme.apply sets (WebTheme.swift).
+      attributeFilter: ["data-theme", "data-agent-marks", "style"],
     });
   }
   return () => {
@@ -41,7 +43,9 @@ export const agentMarkObserving = () => observer !== undefined;
 // The pane is dark, in brand color, until told otherwise.
 const appearance = () => {
   if (typeof document === "undefined") return "dark brand";
-  const { theme, agentMarks } = document.documentElement.dataset;
+  const root = document.documentElement;
+  const { agentMarks } = root.dataset;
+  const theme = root.dataset.theme ?? root.style.colorScheme;
   return `${theme === "light" ? "light" : "dark"} ${agentMarks === "mono" ? "mono" : "brand"}`;
 };
 

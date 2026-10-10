@@ -75,6 +75,10 @@ pub struct Status {
     /// Nodes with a model call running or waiting to retry.
     pub busy: Vec<NodeId>,
     pub failures: Vec<Failure>,
+    /// Failing nodes turns no longer wait for (a repeating request error).
+    pub stuck: Vec<NodeId>,
+    /// Every stuck node was built since the last one got stuck.
+    pub recovered: bool,
     pub fatal: Option<String>,
     pub closed: bool,
 }
@@ -209,7 +213,10 @@ impl OptChat {
         let mut reports = Vec::new();
         let loaded = Db::open(&path).and_then(|mut store| {
             let built = db::migrate_legacy(&mut store, dir, &mut reports)?.map(|(_, b)| b);
-            let (memory, how) = db::checkpoint::load(&mut store, built, config.budget)?;
+            let (mut memory, how) = db::checkpoint::load(&mut store, built, config.budget)?;
+            if let Some(text) = store.state(db::IMPORTED_KEY)? {
+                memory.set_imported(db::decode_imported(&text));
+            }
             Ok((store, memory, how))
         });
         for r in &reports {
@@ -222,6 +229,9 @@ impl OptChat {
                 store,
                 appended: 0,
                 failing: BTreeMap::new(),
+                stuck: Default::default(),
+                recovered: false,
+                tries: BTreeMap::new(),
                 closed: false,
                 fatal: None,
                 reports: Vec::new(),
@@ -267,14 +277,28 @@ impl OptChat {
     /// tells when it was said, not when it was imported. Any other date is
     /// refused and nothing is logged.
     pub fn append_dated(&self, kind: Kind, text: &str, date: &str) -> Result<u64, Error> {
-        if !lines::is_iso(date) {
-            return Err(Error::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("not an RFC 3339 date: {date:?}"),
-            )));
+        self.append_imported(kind, text, Some(date))
+    }
+
+    /// Logs an imported message (section 10), with its own date when it has
+    /// one: its lines never hold a turn (`Memory::turn_ready`).
+    pub fn append_imported(
+        &self,
+        kind: Kind,
+        text: &str,
+        date: Option<&str>,
+    ) -> Result<u64, Error> {
+        if let Some(date) = date {
+            if !lines::is_iso(date) {
+                return Err(Error::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("not an RFC 3339 date: {date:?}"),
+                )));
+            }
         }
         let message = NewMessage {
-            date: Some(date),
+            date,
+            imported: true,
             ..NewMessage::new(kind, text)
         };
         let done = self.append_with(&[message], |_| Vec::new())?;
@@ -309,6 +333,7 @@ impl OptChat {
                 text: text.as_ref(),
                 key: m.key.clone(),
                 date: m.date,
+                imported: m.imported,
             })
             .collect();
         let mut st = self.shared.lock();
@@ -330,8 +355,11 @@ impl OptChat {
             let st = &*st;
             let mut m = st.memory.clone();
             after.push(m.clone());
-            for _ in 0..messages.len() {
-                m.append_in(&st.store);
+            for message in &messages {
+                let id = m.append_in(&st.store);
+                if message.imported {
+                    m.mark_imported(id);
+                }
                 after.push(m.clone());
             }
         }
@@ -347,6 +375,12 @@ impl OptChat {
                     db::checkpoint::CHECKPOINT_KEY.to_owned(),
                     Some(checkpoints[fresh].clone()),
                 ));
+                if after[fresh].imported() != after[0].imported() {
+                    writes.push((
+                        db::IMPORTED_KEY.to_owned(),
+                        Some(db::encode_imported(after[fresh].imported())),
+                    ));
+                }
             }
             writes
         }) {
@@ -418,8 +452,16 @@ impl OptChat {
         let result = match result {
             Ok((imported, built)) => {
                 let budget = st.memory.budget();
-                match db::checkpoint::load(&mut st.store, Some(built), budget) {
-                    Ok((memory, _)) => {
+                // Every message of the empty chat came from the import.
+                let ranges = vec![(0, imported.messages)];
+                let saved = st.store.put_state(&[(
+                    db::IMPORTED_KEY.to_owned(),
+                    Some(db::encode_imported(&ranges)),
+                )]);
+                match saved.and_then(|()| db::checkpoint::load(&mut st.store, Some(built), budget))
+                {
+                    Ok((mut memory, _)) => {
+                        memory.set_imported(ranges);
                         st.memory = memory;
                         drive(&self.shared, &mut st);
                         Ok(imported)
@@ -447,10 +489,23 @@ impl OptChat {
         }
     }
 
-    /// Blocks until every view line is a summary (section 6), woken on every
+    /// Blocks until every view line of the chat's own side is a summary
+    /// (section 6; an imported line does not hold a turn), woken on every
     /// change. False if canceled, timed out, shut down or stopped by a failed write.
+    /// A view line whose node is stuck (its call fails with a request error
+    /// that repeats on every try) does not hold the turn: the turn reads it
+    /// unbuilt (`PLACEHOLDER`, which `zoom` opens) rather than wait forever.
     pub fn settle(&self, cancel: Option<&Cancel>, timeout: Option<Duration>) -> bool {
-        self.wait(cancel, timeout, |st| st.memory.settled())
+        self.wait(cancel, timeout, State::turn_ready)
+    }
+
+    /// Whether a turn may start now: what `settle` waits for (every view
+    /// line built, stuck, or imported).
+    pub fn turn_ready(&self) -> bool {
+        let st = self.shared.lock();
+        let ready = st.turn_ready();
+        self.shared.unlock(st);
+        ready
     }
 
     /// Blocks until the compactor has nothing running or waiting to retry and
@@ -567,6 +622,8 @@ impl OptChat {
                     error: error.clone(),
                 })
                 .collect(),
+            stuck: st.stuck.iter().copied().collect(),
+            recovered: st.recovered,
             fatal: st.fatal.clone(),
             closed: st.closed,
         }

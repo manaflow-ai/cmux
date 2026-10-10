@@ -5,7 +5,7 @@
 // keeps two layers: `base`, the state the backend confirmed, and the pending intents. What
 // renders is the base with the pending intents folded over it, in input order.
 //
-// Rules (each has a test in test/intents.test.ts):
+// Rules:
 // - (a) dispatch applies synchronously and notifies before it returns; no await on the input path.
 // - (b) each intent gets an opid; a resend after a reconnect reuses it.
 // - (c) intents on one resource are sent one at a time, in input order; later ones fold over the

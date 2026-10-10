@@ -132,6 +132,11 @@ typedef enum {
   // the session's callback. The shim cancelled the navigation before it
   // loaded; s1 = the callback url.
   CMUX_SHIM_AUTH_CALLBACK = 37,
+  // A main-frame navigation to a local file cmux shows elsewhere (Markdown,
+  // or H.264/HEVC or AAC media this build cannot decode;
+  // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
+  // host opens the file in cmux's markdown page or a WebKit tab.
+  CMUX_SHIM_LOCAL_FILE_HANDOFF = 38,
 } cmux_shim_event_kind_t;
 
 typedef enum {

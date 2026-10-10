@@ -47,6 +47,14 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    // The pane's fork through a turn is a session/fork at the chat's end,
+    // checked as one from here on (`fork_through.rs`).
+    let m = if m == method::ACP_SESSION_FORK {
+        params = super::fork_through::to_session_fork(hub, &params)?;
+        method::SESSION_FORK
+    } else {
+        m
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
@@ -92,8 +100,9 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
             }))
         }
@@ -252,6 +261,10 @@ async fn dispatch_request(
                 .and_then(|m| m.get("resend"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let steer_only = mux_meta(&params)
+                .and_then(|m| m.get("steerOnly"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -261,6 +274,7 @@ async fn dispatch_request(
                 resend,
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
+                steer_only,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -381,6 +395,15 @@ async fn dispatch_request(
             Ok(result)
         }
         "_acpmux/models" => {
+            // `probe`: harnesses a client now uses (the Chief's engine set),
+            // probed now even when the start-time list left them out.
+            if let Some(names) = params.get("probe").and_then(Value::as_array) {
+                let names: std::collections::BTreeSet<String> =
+                    names.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                if !names.is_empty() {
+                    hub.allow_probes(names).await;
+                }
+            }
             if params.get("refresh").and_then(Value::as_bool).unwrap_or(false) {
                 hub.refresh_models().await;
             }
@@ -713,6 +736,17 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
+        method::MUX_DRAFT_GET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}))
+        }
+        method::MUX_DRAFT_SET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let text = str_param(&params, "text")
+                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+            let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
+            Ok(json!({"sessionId": s.id, "draft": draft}))
+        }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
             let remove: Vec<String> = params
@@ -731,6 +765,11 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
+        method::MUX_HARNESS_ADD
+        | method::MUX_HARNESS_REMOVE
+        | method::MUX_HARNESS_RESTORE
+        | method::MUX_HARNESS_DOCTOR
+        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }

@@ -57,6 +57,19 @@ final class LineTransport: Sendable {
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+
+        /// Marks a pending reply expired; its command and slot, or nil when
+        /// `id` is not waiting for a reply.
+        mutating func expireReply(_ id: UInt64) -> (String, ReplySlot)? {
+            guard case .reply(let cmd, let slot)? = pending[id] else { return nil }
+            pending.updateValue(.expired(cmd: cmd), forKey: id)
+            return (cmd, slot)
+        }
+
+        /// Every pending waiter, in send order.
+        func waitersInSendOrder() -> [Waiter] {
+            order.compactMap { pending[$0] }
+        }
     }
 
     /// An `ok:true` response line plus the number of events routed before it
@@ -114,11 +127,12 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .socketPathTooLong(path)
         }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+            var raw = sunPath  // the same memory; `modify` is mutating on the view
             raw.copyBytes(from: pathBytes)
-            raw[pathBytes.count] = 0
+            raw.modify(checked: pathBytes.count) { $0 = 0 }
         }
-        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        address.sun_len = UInt8(clamping: MemoryLayout<sockaddr_un>.size) // 106 bytes
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -179,12 +193,8 @@ final class LineTransport: Sendable {
 
     /// Fails a still-pending request with `timedOut`.
     func expire(id: UInt64, after timeout: Duration) {
-        let pending: (String, ReplySlot)? = state.withLock { state in
-            guard case .reply(let cmd, let slot)? = state.pending[id] else { return nil }
-            state.pending[id] = .expired(cmd: cmd)
-            return (cmd, slot)
-        }
-        guard let (cmd, slot) = pending else { return }
+        let expired: (String, ReplySlot)? = state.withLock { state in state.expireReply(id) }
+        guard let (cmd, slot) = expired else { return }
         slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
@@ -228,7 +238,7 @@ final class LineTransport: Sendable {
             let payload: Data
             do { payload = try body(id) } catch { return error }
             state.withLock { state in
-                state.pending[id] = waiter
+                state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
             }
             submittedID = id
@@ -270,7 +280,7 @@ final class LineTransport: Sendable {
     private func failAll(_ reason: TransportCloseReason) {
         let waiters: [Waiter] = state.withLock { state in
             if state.closed == nil { state.closed = reason }
-            let waiters = state.order.compactMap { state.pending[$0] }
+            let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
             return waiters
@@ -286,7 +296,7 @@ final class LineTransport: Sendable {
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
-        var buffer = Data()
+        var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
@@ -298,22 +308,8 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            // Only the new bytes can hold a newline: the buffered rest is one
-            // unfinished line. Rescanning it on every read was quadratic in
-            // the line size (a 10 MiB replay missed the attach deadline).
-            let scanFrom = buffer.count
-            buffer.append(contentsOf: chunk[0..<count])
-            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
-            var start = 0
-            for end in lineEnds {
-                if end > start {
-                    let base = buffer.startIndex
-                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
-                }
-                start = end + 1
-            }
-            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
-            if buffer.count > Self.maxLineBytes {
+            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
+            if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }
@@ -331,21 +327,6 @@ final class LineTransport: Sendable {
             }
         }
         onClose(reason)
-    }
-
-    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
-    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
-        data.withUnsafeBytes { raw -> [Int] in
-            guard let base = raw.baseAddress, offset < raw.count else { return [] }
-            var offsets: [Int] = []
-            var position = offset
-            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
-                let found = base.distance(to: UnsafeRawPointer(hit))
-                offsets.append(found)
-                position = found + 1
-            }
-            return offsets
-        }
     }
 
     /// Events routed so far. Read after a command's reply, it bounds every

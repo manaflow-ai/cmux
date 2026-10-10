@@ -68,6 +68,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
+        case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)

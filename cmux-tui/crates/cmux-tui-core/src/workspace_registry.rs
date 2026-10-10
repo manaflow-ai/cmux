@@ -5,6 +5,7 @@
 //! event are published, so durable order, reply order, and event order are the
 //! same order. Runtime pane/surface ids deliberately never enter this store.
 
+mod terminal_snapshot_read;
 use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::Cell;
@@ -43,11 +44,14 @@ pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
 mod receipt_env;
+pub(crate) mod registry_connection;
+pub(crate) use registry_connection::RegistryConnection;
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
@@ -55,7 +59,9 @@ pub(crate) mod terminal_respawn_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
-pub(crate) use effect_store::ResourceWorkspaceClose;
+pub(crate) use effect_store::{
+    EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
+};
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,
@@ -704,7 +710,8 @@ pub struct ProjectionCommit {
 /// calls, and the OS lease prevents another daemon from opening the same
 /// session concurrently.
 pub struct WorkspaceRegistry {
-    pub(crate) connection: Connection,
+    /// Behind its own lock; lock order rules: see `registry_connection`.
+    pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
@@ -714,13 +721,10 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     /// The topology state the resource journal states (see `public_fold`).
     public_fold: Option<public_fold::PublicTopologyFold>,
+    /// Projection and commit spans for `server-stats`; the mux keeps a clone.
+    resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
-    #[cfg(test)]
-    journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
-    #[cfg(test)]
-    journal_after_commit_admission:
-        Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     _lease: Option<SessionLease>,
     _session_guard: Option<SessionLease>,
 }
@@ -2758,7 +2762,7 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         Ok(Self {
-            connection,
+            connection: RegistryConnection::new(connection),
             database_path,
             registry_id,
             generation: try_new_uuid_v4()?,
@@ -2767,12 +2771,9 @@ impl WorkspaceRegistry {
             session_id,
             resource_effect_pepper,
             public_fold: None,
+            resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            #[cfg(test)]
-            journal_before_commit: None,
-            #[cfg(test)]
-            journal_after_commit_admission: None,
             _session_guard: session_guard,
             _lease: lease,
         })
@@ -2792,9 +2793,9 @@ impl WorkspaceRegistry {
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection)?;
-        let resource_revision = current_resource_revision(&self.connection)?;
-        let max_numeric_id = self.connection.query_row(
+        let revision = current_revision(&self.connection.get())?;
+        let resource_revision = current_resource_revision(&self.connection.get())?;
+        let max_numeric_id = self.connection.get().query_row(
             "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
             [],
             |row| row.get::<_, i64>(0),
@@ -2803,7 +2804,8 @@ impl WorkspaceRegistry {
             .context("stored workspace id is negative")?
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id
              FROM workspaces w
              JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
@@ -2840,7 +2842,7 @@ impl WorkspaceRegistry {
 
     /// Read the resource cursor without materializing the workspace graph.
     pub(crate) fn resource_revision(&self) -> anyhow::Result<u64> {
-        current_resource_revision(&self.connection)
+        current_resource_revision(&self.connection.get())
     }
 
     /// Internal workspaces staged by an interrupted correlated creation.
@@ -2852,7 +2854,8 @@ impl WorkspaceRegistry {
     pub(crate) fn interrupted_resource_workspaces(
         &self,
     ) -> anyhow::Result<Vec<(usize, RegistryWorkspace)>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT w.position, w.numeric_id, w.workspace_key, w.name, w.group_key,
                     json_extract(
                       creation.intent_json,
@@ -2918,50 +2921,24 @@ impl WorkspaceRegistry {
         &self.machine_id
     }
 
+    pub(crate) fn resource_projection_stats(
+        &self,
+    ) -> &std::sync::Arc<crate::diagnostics::ResourceProjectionStats> {
+        &self.resource_projection_stats
+    }
+
     /// The current terminal registry revision alone. Lookups that only need to
     /// stamp their answer read this instead of materializing every terminal
     /// row while holding the registry lock.
     pub fn terminal_revision(&self) -> anyhow::Result<u64> {
-        current_terminal_revision(&self.connection)
-    }
-
-    /// Returns the canonical, non-tombstoned terminal placement projection.
-    /// Runtime surface ids and renderer process ids are intentionally absent.
-    pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
-        let revision = current_terminal_revision(&self.connection)?;
-        let mut statement = self.connection.prepare(
-            "SELECT terminal_id, workspace_key, incarnation, lifecycle,
-                    launch_spec_json, exit_json, on_exit
-             FROM terminal_hosts
-             WHERE lifecycle != 'tombstoned'
-             ORDER BY created_revision ASC, terminal_id ASC",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, String>(6)?,
-            ))
-        })?;
-        let terminals =
-            rows.map(|row| terminal_from_stored(row?)).collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(TerminalRegistrySnapshot {
-            registry_id: self.registry_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            terminals,
-        })
+        current_terminal_revision(&self.connection.get())
     }
 
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
         validate_terminal_identity("terminal id", terminal_id)?;
-        read_terminal(&self.connection, terminal_id)
+        read_terminal(&self.connection.get(), terminal_id)
     }
 
     pub fn replay_terminal(
@@ -2972,7 +2949,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
-        terminal_replay(&self.connection, mutation, &fingerprint)
+        terminal_replay(&self.connection.get(), mutation, &fingerprint)
     }
 
     /// Commits one terminal state transition and its event in a single SQLite
@@ -3001,7 +2978,8 @@ impl WorkspaceRegistry {
             anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
         }
         let exit_json = terminal.exit.as_ref().map(canonical_json).transpose()?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
 
         if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
             return Ok(replay);
@@ -3083,12 +3061,9 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-        )?;
+        let ledger = mutation_ledger::KeyedLedger::Terminal;
+        let row = (fingerprint.as_str(), result_json.as_str(), sqlite_revision);
+        mutation_ledger::insert_keyed_mutation(&tx, ledger, mutation, row.0, row.1, row.2)?;
         tx.execute(
             "INSERT INTO terminal_events(
                revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
@@ -3118,7 +3093,8 @@ impl WorkspaceRegistry {
         expected_incarnation: Option<&str>,
     ) -> anyhow::Result<TerminalRegistryCommit> {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let commit = close_terminal_in_transaction(
             &tx,
             &self.generation,
@@ -3140,7 +3116,7 @@ impl WorkspaceRegistry {
         expected_incarnation: Option<&str>,
     ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
-        terminal_replay(&self.connection, mutation, &fingerprint)
+        terminal_replay(&self.connection.get(), mutation, &fingerprint)
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
@@ -3153,7 +3129,8 @@ impl WorkspaceRegistry {
         terminals: &[(String, Option<String>)],
     ) -> anyhow::Result<TerminalBatchClose> {
         validate_terminal_batch_close(mutation, terminals)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let result = close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
         tx.commit()?;
         Ok(result)
@@ -3162,13 +3139,14 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn set_terminal_close_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
-            self.connection.execute_batch(
+            self.connection.get().execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_terminal_close
                  BEFORE UPDATE OF lifecycle ON terminal_hosts
                  BEGIN SELECT RAISE(ABORT, 'forced terminal close failure'); END;",
             )?;
         } else {
             self.connection
+                .get()
                 .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_close")?;
         }
         Ok(())
@@ -3178,7 +3156,8 @@ impl WorkspaceRegistry {
         &self,
         revision: u64,
     ) -> anyhow::Result<Vec<TerminalRegistryEvent>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
              FROM terminal_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
@@ -3224,6 +3203,7 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let stored = self
             .connection
+            .get()
             .query_row(
                 "SELECT fingerprint, result_json, committed_revision
                  FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
@@ -3268,6 +3248,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<RegistryCommit> {
         let active_workspace = self
             .connection
+            .get()
             .query_row("SELECT value FROM meta WHERE key = 'active_workspace_id'", [], |row| {
                 row.get::<_, String>(0)
             })
@@ -3384,7 +3365,8 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let previous_topology =
             project_resource.then(|| self.resource_topology_snapshot()).transpose()?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
 
         if let Some((stored_fingerprint, stored_result, revision)) = tx
             .query_row(
@@ -3559,7 +3541,8 @@ impl WorkspaceRegistry {
     }
 
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
@@ -3602,6 +3585,7 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let stored = self
             .connection
+            .get()
             .query_row(
                 "SELECT schema_version, projection_revision, payload
                  FROM frontend_projections
@@ -3653,7 +3637,8 @@ impl WorkspaceRegistry {
             "schema_version": schema_version,
             "projection": projection,
         }))?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some((stored_fingerprint, result_json)) = tx
             .query_row(
                 "SELECT fingerprint, result_json FROM projection_mutations
@@ -3720,13 +3705,14 @@ impl WorkspaceRegistry {
             projection: projection.clone(),
         };
         tx.execute(
-            "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
-             VALUES(?1, ?2, ?3, ?4)",
+            "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json, actor)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
             params![
                 mutation.origin,
                 mutation.id,
                 fingerprint,
-                canonical_json(&serde_json::to_value(&stored)?)?
+                canonical_json(&serde_json::to_value(&stored)?)?,
+                mutation.actor.wire(),
             ],
         )?;
         tx.commit()?;
@@ -4432,18 +4418,16 @@ fn close_terminal_in_transaction(
             "already_closed": true,
         });
         let result_json = canonical_json(&result)?;
-        transaction.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                mutation.origin,
-                mutation.id,
-                fingerprint,
-                result_json,
-                i64::try_from(current_revision)
-                    .context("terminal revision exceeds SQLite integer range")?,
-            ],
+        let revision = i64::try_from(current_revision)
+            .context("terminal revision exceeds SQLite integer range")?;
+        let ledger = mutation_ledger::KeyedLedger::Terminal;
+        mutation_ledger::insert_keyed_mutation(
+            transaction,
+            ledger,
+            mutation,
+            fingerprint,
+            &result_json,
+            revision,
         )?;
         return Ok(TerminalRegistryCommit { revision: current_revision, result, replayed: false });
     }
@@ -4470,12 +4454,9 @@ fn close_terminal_in_transaction(
         "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
         [revision.to_string()],
     )?;
-    transaction.execute(
-        "INSERT INTO terminal_mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = mutation_ledger::KeyedLedger::Terminal;
+    let row = (fingerprint, result_json.as_str(), sqlite_revision);
+    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
     transaction.execute(
         "INSERT INTO terminal_events(
            revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
@@ -4709,12 +4690,9 @@ fn commit_workspace_registry_in_transaction(
     }
     transaction
         .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
-    transaction.execute(
-        "INSERT INTO mutations(
-           origin, mutation_id, fingerprint, result_json, committed_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-    )?;
+    let ledger = mutation_ledger::KeyedLedger::Workspace;
+    let row = (fingerprint, result_json, sqlite_revision);
+    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
     transaction.execute(
         "INSERT INTO workspace_events(
            revision, kind, workspace_key, origin, mutation_id, result_json

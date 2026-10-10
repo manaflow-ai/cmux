@@ -209,7 +209,9 @@ fn update_file(slot: &mut Slot, path: &Path) {
         return;
     }
     if let Ok(read) = read_file(slot.root.harness, path, prev.as_ref()) {
-        slot.scan.entries.extend(read.entry);
+        let mut entries: Vec<ChatEntry> = read.entry.into_iter().collect();
+        crate::adapters::finish_file(slot.root.harness, &slot.root.path, &mut entries);
+        slot.scan.entries.extend(entries);
         slot.scan.files.push((path.to_path_buf(), read.state));
     }
 }

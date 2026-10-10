@@ -401,11 +401,16 @@ pinned to at most one room, so `unpin` names only the workspace.
 ```text
 cmux closed list
 cmux closed <closed_id> reopen
+cmux closed <closed_id> delete [--members 0,2]
+cmux closed clear [--since-ms <unix ms>]
 ```
 
 The session keeps recently closed tabs, screens and workspaces. A tab reopens in
 its pane (else the focused pane of its workspace), a screen in its workspace, a
-workspace as a new workspace.
+workspace as a new workspace. `delete` and `clear` remove groups for good (and
+their terminal archives; the journals keep what they already recorded). `delete
+--members` removes only those members; `clear --since-ms` removes only the
+groups closed at or after that time.
 
 ### Other daemon scopes
 

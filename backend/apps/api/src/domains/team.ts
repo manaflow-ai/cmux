@@ -1,6 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
@@ -10,20 +11,30 @@ import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, 
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
+import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
+import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
+import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
-  readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
+  /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
+  readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string; readonly stack_team?: string; readonly deleted_at?: number } | null
   /** Members and hosts are rows (team-members.ts); the head keeps their counts. */
   readonly member_count?: number
+  /** Members that use a paid seat: all but guests (team-roles.ts usesSeat; seatsOf reads a head without it). */
+  readonly seat_count?: number
+  /** Owners of a Stack team, kept by the reducers that change roles (re-review P3); 0 means no owner (noOwnerOf, review P2-3). Undefined on older heads until team.owner_count.init. */
+  readonly owner_count?: number
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
+  readonly member_cleanup?: Readonly<Record<string, number>>
 }
 
 /**
- * TeamDO's reducer: the account directory (U2). Phase 1 knows personal teams
- * only; Stack teams arrive by webhook ops once the Stack webhook is configured.
+ * TeamDO's reducer: the account directory (U2). Personal teams come from
+ * user.ensure; Stack teams and their members from the Stack webhook (team-stack.ts).
  * Grants for team ops are checked by UserDO when it mints the token; TeamDO
  * checks membership and the op's principal kind.
  */
@@ -36,10 +47,18 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "team_vm.ssh_cert.challenge",
   "team_vm.ssh_cert",
   "team_vm.ssh_cert.revoke",
-  "team_vm.ssh_ca.rotate"
+  "team_vm.ssh_ca.rotate",
+  // A tainted team VM's owner actions: role check and audit here, the act in TeamVmDO (cx-q4f3).
+  "team_vm.taint.accept",
+  "team_vm.rebuild",
+  "team_vm.retired.delete",
+  "team_vm.retired.export",
+  // Removing a Stack team's member calls Stack first (team-member-admin.ts).
+  "team.members.remove"
 ])
 
-export const teamDomain: Domain<TeamState> = {
+/** Every audit record is also an `audit` row in the same commit (team-audit-rows.ts, team.audit.list). */
+export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
   initial: () => ({ team: null, member_count: 0, host_count: 0 }),
 
   authorize: (state, op, _params, principal, rows) => {
@@ -48,8 +67,12 @@ export const teamDomain: Domain<TeamState> = {
     if (HTTP_ONLY_OPS.has(op)) return { code: "validation.invalid", message: `${op} runs through POST /v1/ops only` }
     // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
     if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
+    if (teamDeleted(state)) return { code: "auth.forbidden", message: "this team was deleted" }
     if (op !== "team.ensure_personal") {
-      if (!memberOf(state, rows, principal.user)) return { code: "auth.forbidden", message: "not a member of this team" }
+      const member = memberOf(state, rows, principal.user)
+      if (!member) return { code: "auth.forbidden", message: "not a member of this team" }
+      // Every person op here uses the team (admin ops check team.manage in the reducer too); guests and billing hold no team.resources grant (spec H12).
+      if (!roleHas(member.role, "team.resources")) return { code: "auth.forbidden", message: `the ${member.role} role has no access to this team's resources` }
     }
     // The grant lives in UserDO. The Worker asks UserDO on every install call
     // (revocation and grant) and passes the grant's classes; none means refuse.
@@ -81,23 +104,71 @@ export const teamDomain: Domain<TeamState> = {
         // Internal (cx-44j.47): the future members op and operator tools remove through here.
         // Only this TeamDO's own submitSystem (identity system:team), never a delivered outbox item.
         if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
-        const user = (params as { user?: unknown } | null)?.user
+        const { user, from_stack: fromStack, by } = (params ?? {}) as { user?: unknown; from_stack?: unknown; by?: unknown }
         if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
         const member = memberOf(state, ctx.rows, user)
         if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
-        // An owner is demoted first, so no team is ever left without one (a personal team's owner never leaves).
-        if (member.role === "owner") return reject("auth.forbidden", "an owner cannot be removed; demote them first")
+        // A person's removal (team.members.remove) is checked again here, in the commit (review P3-1): the
+        // Stack call before it awaited, and the person's or the member's role may have changed meanwhile.
+        if (by !== undefined) {
+          const need = removeGrantFor(member.role)
+          if (typeof by !== "string" || need === null || !roleHas(memberOf(state, ctx.rows, by)?.role, need)) return reject("auth.forbidden", `${String(by)} may not remove a ${member.role}`)
+        }
+        // An owner is demoted first, so no team is ever left without one (a personal team's owner never
+        // leaves). On a Stack team, Stack's removal demotes and removes in this one commit (cx-3bi.43 P2-1),
+        // and a team Stack deleted removes everyone.
+        const stackOwner = state.team?.kind === "stack" && (fromStack === true || teamDeleted(state))
+        if (member.role === "owner" && !stackOwner) return reject("auth.forbidden", "an owner cannot be removed; demote them first")
         const { [user]: _gone, ...legacyMembers } = state.members ?? {}
+        const seats = seatsOf(state)
+        const seatCount = Math.max(0, seats - (usesSeat(member.role) ? 1 : 0))
+        const removed: TeamState = { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), seat_count: seatCount, member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } }
+        // Audited (a seat change is a billing record, spec H12); `by` is the person who asked (team.members.remove).
+        const a0 = state.team ? appendAudit(removed, state.team.id, ctx, op, `${user} (${member.role}) left the team${typeof by === "string" ? ` (removed by ${by})` : fromStack === true ? " in Stack" : ""}`, { user, role: member.role, ...(typeof by === "string" ? { by } : {}), seats_before: seats, seats_after: seatCount }, seats === seatCount ? "admin" : "billing") : undefined
+        const owners = withOwnerDelta(a0?.state ?? removed, member.role === "owner" ? -1 : 0, ctx)
+        const a = a0 ? { state: owners.state, outbox: [a0.outbox, ...owners.outbox] } : undefined
         return {
           ok: true,
-          state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1) },
+          state: a?.state ?? removed,
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
-          value: { user, removed: true },
-          ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
+          value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
+          ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), ...a.outbox] } : {})
+        }
+      }
+      case "team.stack_mirror":
+        return reduceStackMirror(state, params, ctx)
+      case "team.owner_count.init":
+        return reduceOwnerCountInit(state, params, ctx)
+      case "team.member.provision":
+        return reduceMemberProvision(state, params, ctx)
+      case "team.member.cleaned": {
+        // TeamDO's own submit after it put the member's certificates on the KRL (team-member-cleanup.ts).
+        if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
+        const v = (params ?? {}) as { user?: unknown; hosts?: unknown; cert_valid_before?: unknown }
+        if (typeof v.user !== "string" || !Array.isArray(v.hosts)) return reject("validation.invalid", "user and hosts required")
+        const at = state.member_cleanup?.[v.user]
+        if (at === undefined) return { ok: true, state, value: { orphaned: [] }, changed: false }
+        const user = v.user
+        const { [user]: _done, ...rest } = state.member_cleanup ?? {}
+        // Back in the team already (a re-join before the cleanup ran): certificates were revoked, hosts stay theirs.
+        const rejoined = memberOf(state, ctx.rows, user) !== undefined
+        const hosts = rejoined ? [] : v.hosts.map((id) => hostOf(state, ctx.rows, String(id))).filter((h): h is NonNullable<typeof h> => h !== undefined && h.owner_user === user && !h.orphaned && h.enrolled_at <= at)
+        const orphaned = hosts.map((h) => ({ ...h, orphaned: { at, former_owner: user } }))
+        // Rows only: a legacy map entry would overwrite the flag at a later rows_migrate.
+        const legacy = state.hosts ? Object.fromEntries(Object.entries(state.hosts).filter(([id]) => !hosts.some((h) => h.id === id))) : undefined
+        const a = appendAudit({ ...state, member_cleanup: rest, ...(legacy ? { hosts: legacy } : {}) }, state.team?.id ?? "", ctx, "team.member.cleaned", `member ${user} removed: ${orphaned.length} host(s) orphaned`, { user, orphaned: orphaned.map((h) => h.id) })
+        return {
+          ok: true,
+          state: a.state,
+          writes: orphaned.flatMap((h) => hostUpsert(h)),
+          value: { orphaned: orphaned.map((h) => h.id) },
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, v.cert_valid_before, rejoined)]
         }
       }
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")
+        // Only the caller's own personal team (cx-er4p review): never a shared team id, whatever builds the principal.
+        if (p.team !== personalTeamIdFor(p.user)) return reject("auth.forbidden", "not your personal team")
         if (state.team && state.team.id !== p.team) return reject("auth.forbidden", "not this team")
         const name = p.display_name ?? "Personal"
         const member: typeof TeamMember.Type = { user: p.user, role: "owner", display_name: name }
@@ -140,7 +211,7 @@ export const teamDomain: Domain<TeamState> = {
         const host = hostOf(state, ctx.rows, d.value.host)
         if (!host) return reject("selector.not_found", "host not found")
         const role = roleOf(state, ctx.rows, p.user)
-        if (host.owner_user !== p.user && role !== "owner" && role !== "admin") return reject("auth.forbidden", "only the host owner or a team admin may remove it")
+        if (host.owner_user !== p.user && !roleHas(role, "team.manage")) return reject("auth.forbidden", "only the host owner or a team admin may remove it")
         return {
           ok: true,
           state: { ...withoutLegacyHost(state, host.id), host_count: Math.max(0, (state.host_count ?? 1) - 1) },
@@ -177,7 +248,7 @@ export const teamDomain: Domain<TeamState> = {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot claim domains")
         const role = roleOf(state, ctx.rows, p.user)
-        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may claim domains")
+        if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may claim domains")
         return withAudit(reduceDomainClaim(state, params, ctx), state.team.id, ctx, op)
       }
       case "sso.connection.create":
@@ -185,7 +256,7 @@ export const teamDomain: Domain<TeamState> = {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change SSO connections")
         const role = roleOf(state, ctx.rows, p.user)
-        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change SSO connections")
+        if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may change SSO connections")
         return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
       }
       case "sso.connection.set_secret":
@@ -194,6 +265,14 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.release":
         // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
         return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "team_vm.taint_audit": {
+        // TeamDO's own submit after an owner or admin acted on a tainted team VM (cx-q4f3): audit only.
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { action?: string; by?: string; epoch?: number; tainted_by?: ReadonlyArray<string> }
+        const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted", retired_exported: "retired team VM files exported" }[t.action ?? ""]
+        if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
+      }
       case "team_vm.ssh_ca_installed":
       case "team_vm.ssh_certs_revoked":
       case "team_vm.ssh_account_allocated": {
@@ -227,7 +306,7 @@ export const teamDomain: Domain<TeamState> = {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot release integration locks")
         const role = roleOf(state, ctx.rows, p.user)
-        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may release an integration lock")
+        if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may release an integration lock")
         return withAudit(reduceReleaseLock(state, params, ctx), state.team.id, ctx, op)
       }
       case "team.policy.integration_synced": {
@@ -246,7 +325,7 @@ export const teamDomain: Domain<TeamState> = {
         // Muxes change policy only through an approval flow (identity spec 4a), which does not exist yet.
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change team policy or enrollment")
         const role = roleOf(state, ctx.rows, p.user)
-        if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change team policy or enrollment")
+        if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may change team policy or enrollment")
         if (op === "team.policy.update" || op === "team.policy.rollback") {
           const r = op === "team.policy.update" ? reducePolicyUpdate(state, params, ctx) : reducePolicyRollback(state, params, ctx)
           if (!r.ok || r.changed === false) return r
@@ -276,13 +355,13 @@ export const teamDomain: Domain<TeamState> = {
       case "team.device.release": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         const role = roleOf(state, ctx.rows, p.user)
-        return withAudit(reduceDeviceRelease(state, params, ctx, role === "owner" || role === "admin"), state.team.id, ctx, op)
+        return withAudit(reduceDeviceRelease(state, params, ctx, roleHas(role, "team.manage")), state.team.id, ctx, op)
       }
       default:
         return reject("validation.invalid", `unknown op ${op}`)
     }
   }
-}
+})
 
 type Audited<S> = { ok: true; state: S; value: unknown; changed?: boolean; audit?: { summary: string; detail: unknown } } | ({ ok: false } & import("@cmux/ownership").Reject)
 
@@ -296,6 +375,12 @@ const withAudit = (r: Audited<TeamState>, team: string, ctx: import("@cmux/owner
   const a = appendAudit(r.state, team, ctx, op, r.audit.summary, r.audit.detail)
   return { ok: true as const, state: a.state, value: r.value, outbox: [a.outbox] }
 }
+
+/** The removal's notice to the team VM record: it ends the member's wake leases, and taints when they ever held a team SSH certificate (cx-q4f3). */
+const vmTaintNotice = (team: string | undefined, user: string, at: number, certValidBefore: unknown, rejoined: boolean) =>
+  team && !rejoined
+    ? [{ kind: "team_vm.member_removed", entity: `vm-taint:${team}:${user}:${at}`, payload: { user, at, ...(typeof certValidBefore === "number" ? { cert_valid_before: certValidBefore } : {}) }, target: { class: "TeamVmDO", name: team } }]
+    : []
 
 /** The head without a legacy host entry (a head before team.rows_migrate). */
 const withoutLegacyHost = <S extends LegacyTeamMaps>(state: S, id: string): S => {

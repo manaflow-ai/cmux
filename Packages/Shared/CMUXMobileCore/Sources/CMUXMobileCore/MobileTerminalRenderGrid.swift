@@ -3,6 +3,9 @@ import Foundation
 public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidFormat(String)
     case invalidDimensions(columns: Int, rows: Int)
+    /// Past the replay's bounds (`maximumDimension`, `maximumScrollbackRows`,
+    /// `maximumReplayCells`), or more rows scrolled than the frame holds.
+    case invalidSize(columns: Int, rows: Int, scrollbackRows: Int, scrolledRows: Int)
     case invalidRow(Int)
     case invalidColumn(Int)
     case invalidCursor(row: Int, column: Int)
@@ -12,6 +15,17 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
 
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
+    /// Largest column or row count a frame may carry: the Mac producer clamps
+    /// to the same 4096 (`DaemonRenderGridState.maxDimension`).
+    public static let maximumDimension = 4_096
+    /// Largest scrollback row count a frame may carry: Macs clamp requested
+    /// scrollback to `MobileTerminalScrollbackPreference.maximumRows`, and a
+    /// burst delta carries at most 2000 rows.
+    public static let maximumScrollbackRows = MobileTerminalScrollbackPreference.maximumRows
+    /// Largest `columns * (rows + scrollbackRows)` a frame may carry. A full
+    /// replay pads every line to `columns`, so this bounds the bytes a frame
+    /// makes the phone build (about 32 MB of cells).
+    public static let maximumReplayCells = 32 * 1_024 * 1_024
 
     public var format: String
     public var surfaceID: String
@@ -148,6 +162,17 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
+        // A frame past what any Mac sends would make the phone's replay build
+        // an unbounded byte stream (crash program phase 3,
+        // MobileProtocolFuzzTests): reject it as malformed. Every product
+        // below is of values already bounded, so nothing overflows.
+        guard columns <= Self.maximumDimension, rows <= Self.maximumDimension,
+              scrollbackRows <= Self.maximumScrollbackRows,
+              columns * (rows + max(0, scrollbackRows)) <= Self.maximumReplayCells,
+              scrolledRows <= rows + max(0, scrollbackRows) else {
+            throw MobileTerminalRenderGridError.invalidSize(
+                columns: columns, rows: rows, scrollbackRows: scrollbackRows, scrolledRows: scrolledRows)
+        }
         if let cursor,
            !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {
             throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
@@ -170,7 +195,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,
@@ -191,7 +216,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,
@@ -348,16 +373,17 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         for span in rowSpans.sorted(by: { lhs, rhs in
             lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
         }) {
-            guard rows.indices.contains(span.row) else { continue }
-            let currentWidth = rows[span.row].count
-            if currentWidth < span.column {
-                rows[span.row].append(String(repeating: " ", count: span.column - currentWidth))
-            }
-            rows[span.row].append(span.text)
-            let textWidth = span.text.count
-            let padWidth = max(0, span.gridCellWidth - textWidth)
-            if padWidth > 0 {
-                rows[span.row].append(String(repeating: " ", count: padWidth))
+            // A span outside the grid is skipped.
+            rows.modify(checked: span.row) { row in
+                let currentWidth = row.count
+                if currentWidth < span.column {
+                    row.append(String(repeating: " ", count: span.column - currentWidth))
+                }
+                row.append(span.text)
+                let padWidth = max(0, span.gridCellWidth - span.text.count)
+                if padWidth > 0 {
+                    row.append(String(repeating: " ", count: padWidth))
+                }
             }
         }
         return rows
@@ -381,10 +407,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         for span in rowSpans {
             spansByRow[span.row, default: []].append(span)
         }
-        var signatures = Array(repeating: "", count: rows)
-        for row in 0..<rows {
-            guard let spans = spansByRow[row] else { continue }
-            signatures[row] = spans
+        return (0..<rows).map { row in
+            guard let spans = spansByRow[row] else { return "" }
+            return spans
                 .sorted { $0.column < $1.column }
                 .map { span in
                     let style = stylesByID[span.styleID] ?? .default
@@ -392,7 +417,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 }
                 .joined(separator: "\u{1F}")
         }
-        return signatures
     }
 
     private static func styleSignature(_ style: Style) -> String {
@@ -525,16 +549,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     }
 
     private static func trimmingTrailingGridBlanks(_ text: String) -> String {
-        let scalars = text.unicodeScalars
-        let space = UnicodeScalar(" ")
-        let tab = UnicodeScalar("\t")
-        var end = scalars.endIndex
-        while end > scalars.startIndex {
-            let previous = scalars.index(before: end)
-            guard scalars[previous] == space || scalars[previous] == tab else { break }
-            end = previous
+        var scalars = text.unicodeScalars
+        while let last = scalars.last, last == " " || last == "\t" {
+            scalars.removeLast()
         }
-        return String(String.UnicodeScalarView(scalars[..<end]))
+        return String(scalars)
     }
 
     /// Which terminal screen a full snapshot represents.

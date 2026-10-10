@@ -7,22 +7,17 @@ public import Foundation
 /// (the relaunch keeps every session), and a quit honors
 /// `updates.installOnQuit`.
 extension UpdaterService {
-    /// The card above the footer (a check the user asked for), or nil.
+    /// The notice card's update status, or nil (``UpdateFlow/card``); a
+    /// found update the user dismissed stays hidden until a newer one.
     public var card: UpdateCard? {
-        flow.card
+        guard let card = flow.card else { return nil }
+        if case .available(let version) = card, dismissedAvailableVersion == (version ?? "") { return nil }
+        return card
     }
 
     /// The footer's update pill, or nil when it does not show.
     public var footerPill: UpdateFooterPill? {
         flow.footerPill(preferences: preferences)
-    }
-
-    /// A click on the card: show a failed check's details.
-    public func cardClicked() {
-        switch card {
-        case .note(_, isError: true): presentUpdateUI?()
-        case .checking, .downloading, .note, nil: break
-        }
     }
 
     /// One click installs (footer pill, palette, `cmux update install`): at
@@ -55,6 +50,7 @@ extension UpdaterService {
         for effect in flow.handle(event, preferences: preferences) {
             perform(effect)
         }
+        followCardExpiry()
     }
 
     private func perform(_ effect: UpdateFlowEffect) {
