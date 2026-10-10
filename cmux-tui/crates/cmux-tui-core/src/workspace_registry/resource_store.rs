@@ -598,9 +598,8 @@ fn advance_agent_hook_apply_cursor_transaction(
 }
 
 impl WorkspaceRegistry {
-    /// Return the highest journal sequence committed with a hook projection.
-    /// This recovery watermark is not an admission cursor. It advances only
-    /// after the projection transaction commits.
+    /// Return the highest journal sequence committed with a hook projection. This recovery
+    /// watermark is not an admission cursor: it advances only after the projection commits.
     pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
         self.connection
             .get()
@@ -1204,8 +1203,9 @@ impl WorkspaceRegistry {
         Ok(committed)
     }
 
-    /// Mask cleared notifications from every later rebuild and drop their read
-    /// marks, publishing the delete deltas as one revision.
+    /// Mask cleared notifications from later rebuilds, drop their read marks and publish the
+    /// delete deltas as one revision; `extra` (the local feed reads) writes in the same transaction.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn commit_notification_clear(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1214,6 +1214,7 @@ impl WorkspaceRegistry {
         cleared: &[NotificationPublicId],
         result: &Value,
         deltas: &Value,
+        extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "notification.clear";
         validate_identifier("mutation id", &mutation.id)?;
@@ -1273,6 +1274,7 @@ impl WorkspaceRegistry {
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
+        extra.map_or(Ok(()), |extra| extra(&tx))?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -1371,8 +1373,7 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
-    /// Resolve only a live resource-to-host relationship for mutations that
-    /// must never act on a tombstoned terminal.
+    /// Resolve only a live resource-to-host relationship (never a tombstoned terminal).
     pub fn live_terminal_host_id(
         &self,
         public_id: &TerminalPublicId,
@@ -1389,9 +1390,8 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
-    /// A missing in-memory surface can be a startup race only while the
-    /// durable terminal is launching, adopting, or running. Exited and
-    /// tombstoned terminals cannot recover a hook projection.
+    /// A missing in-memory surface can be a startup race only while the durable terminal is
+    /// launching, adopting, or running. Exited and tombstoned ones cannot recover a projection.
     pub fn agent_hook_terminal_retryable(
         &self,
         public_id: &TerminalPublicId,

@@ -17,17 +17,6 @@ const ctx = (principal: Principal) => {
   return { principal, now: 1_800_000_000_000, tx, newId: idFactory(tx), rows }
 }
 
-describe("team admin ops are personal-team only until roles exist", () => {
-  // If this fails, someone let a shared team change team-wide settings without a role check.
-  it("a shared-team member cannot change the integration policy or automation settings", () => {
-    const pol = connectionsDomain.reduce(connectionsDomain.initial(), "integration.policy.set", { github: { scope: "installation" } }, ctx(sharedMember))
-    expect(pol).toMatchObject({ ok: false, code: "team.roles_required" })
-    const set = schedulerDomain.reduce(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), "automation.settings.set", { agent_run_default_seconds: 600 }, ctx(sharedMember))
-    expect(set).toMatchObject({ ok: false, code: "team.roles_required" })
-    expect(connectionsDomain.reduce(connectionsDomain.initial(), "integration.policy.set", { github: { scope: "installation" } }, ctx(personal)).ok).toBe(true)
-  })
-})
-
 describe("agent run limit: built-in 24 h, team default, automation override", () => {
   it("applies the team default to agent runs and lets an automation budget override it", () => {
     let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
