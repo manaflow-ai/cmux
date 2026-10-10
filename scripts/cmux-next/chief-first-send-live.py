@@ -15,9 +15,9 @@ which ends the app, the Chief host, its acpmux and the owner daemon.
 
 Prints one row per round and a total; exits 0 only when every round passed.
 
-Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--out DIR]
+Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--out DIR]
 """
-import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, time
+import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -25,6 +25,10 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--rounds", type=int, default=20)
 parser.add_argument("--deadline", type=float, default=120, help="seconds for the message to reach the brain's log")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--mode", choices=("immediate", "settled", "both"), default="both",
+                    help="immediate: send as soon as the composer exists; settled: send as chief-subagents-live.py's"
+                         " first ask does (the Chief conversation listed, the host connected, its tools socket up,"
+                         " 10 s, window snapshots each second); both: alternate, odd rounds immediate")
 opts = parser.parse_args()
 
 TAG = opts.tag
@@ -36,6 +40,8 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
+# The app's own acpmux for its tag (AcpmuxEnvironment: ~/.acpmux/tags/<slug>).
+TAG_ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-first-send-{TAG}-")
 os.makedirs(opts.out, exist_ok=True)
 
@@ -127,14 +133,55 @@ def end_round(app, cache):
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
     subprocess.run([ACPMUX, "daemon", "shutdown"], env=env, capture_output=True, timeout=30)
+    tag_env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
+    tag_env["ACPMUX_HOME"] = TAG_ACPMUX_HOME
+    subprocess.run([ACPMUX, "daemon", "shutdown"], env=tag_env, capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
     if cache:
         shutil.rmtree(os.path.dirname(cache), ignore_errors=True)
 
 
+def chief_listed():
+    home = rpc("debug.home") or {}
+    return any("agent_mux" in c.get("participants", []) for c in home.get("conversations", []))
+
+
+def settle(n, stop):
+    """What chief-subagents-live.py does before its first ask; returns the recorder thread."""
+    wait(chief_listed, 180, step=1)
+    wait(lambda: "daemon connected" in host_log_tail() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180, step=1)
+    time.sleep(10)  # test harness: the compactor start-up probe, as the subagent proof waits
+
+    def record():
+        frames = os.path.join(opts.out, f"frames-{n:02d}")
+        os.makedirs(frames, exist_ok=True)
+        k = 0
+        while not stop.is_set():
+            rpc("debug.window_snapshot", {"path": os.path.join(frames, f"frame-{k:05d}.png")}, timeout=10)
+            k += 1
+            stop.wait(1.0)
+    recorder = threading.Thread(target=record, daemon=True)
+    recorder.start()
+    rpc("action.run", {"id": "home.show"})
+    wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
+    return recorder
+
+
+def home_state():
+    """debug.home's store and Chief rows, short: what the Home view had at the send."""
+    home = rpc("debug.home") or {}
+    owner = home.get("chief_owner") or {}
+    chiefs = [{"id": c.get("id"), "shown": c.get("shown_count"), "pending": c.get("pending")}
+              for c in home.get("conversations", []) if "agent_mux" in c.get("participants", [])]
+    return {"store_online": owner.get("store_online"), "connected": owner.get("connected"), "chief": chiefs,
+            "page": json.dumps(home.get("page"))[:300]}
+
+
 def one_round(n, env):
     shutil.rmtree(MUX_HOME, ignore_errors=True)
+    settled = opts.mode == "settled" or (opts.mode == "both" and n % 2 == 0)
+    stop = threading.Event()
     text = f"first-send probe {TAG} round {n}: reply with only the word ok."
     log = open(os.path.join(opts.out, f"app-{TAG}-{n:02d}.log"), "w")
     started = time.time()
@@ -147,7 +194,11 @@ def one_round(n, env):
         # Send as soon as the composer exists: the owner and the brain host may still be starting.
         if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 120):
             return False, f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}", None
+        if settled:
+            settle(n, stop)
         shown_at = time.time() - started
+        before = home_state()
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"round-{n:02d}-before-send.png")}, timeout=10)
         drive = {}
         for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
             drive = rpc("debug.home.drive", {"action": action, **extra}) or {}
@@ -157,7 +208,7 @@ def one_round(n, env):
         home = rpc("debug.home") or {}
         cache = (home.get("chief_owner") or {}).get("cache")
         if not drive.get("ok"):
-            return False, f"send refused at {sent_at:.1f}s: {json.dumps(drive)[:300]}; debug.home {json.dumps(home)[:1500]}", cache
+            return False, f"send refused at {sent_at:.1f}s: {json.dumps(drive)[:300]}; at the send {json.dumps(before)}; debug.home {json.dumps(home)[:1500]}", cache
         count = wait(lambda: logged(text), opts.deadline, step=0.5) or 0
         if count:
             time.sleep(3)  # test harness: a duplicate would follow within the same catch-up
@@ -165,12 +216,14 @@ def one_round(n, env):
         reached_at = time.time() - started
         home = rpc("debug.home") or {}
         cache = (home.get("chief_owner") or {}).get("cache") or cache
-        detail = f"composer {shown_at:.1f}s, send {sent_at:.1f}s, in the brain's log x{count} by {reached_at:.1f}s"
+        detail = (f"{'settled' if settled else 'immediate'}: composer {shown_at:.1f}s, send {sent_at:.1f}s, "
+                  f"in the brain's log x{count} by {reached_at:.1f}s; at the send {json.dumps(before)}")
         if count == 1:
             return True, detail, cache
         return False, (f"{detail}; owner stored {json.dumps(owner_messages())[:800]}; "
                        f"debug.home {json.dumps(home)[:1500]}; host.log tail {host_log_tail()[-800:]!r}"), cache
     finally:
+        stop.set()
         end_round(app, cache)
         log.close()
 
