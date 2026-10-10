@@ -111,7 +111,6 @@
     "agent-session/acpmux/handoff/ReviewMessage.tsx#HandoffReviewMessage",
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/icons/IconsContext.tsx#IconsProvider",
-    "agent-session/acpmux/permissions/Panel.tsx#PermissionPanel",
     "agent-session/acpmux/question/QuestionCard.tsx#QuestionCard",
     "agent-session/acpmux/shell/MoveRow.tsx#MoveRow",
     "agent-session/acpmux/shell/ShellRow.tsx#ShellActionsContext",
