@@ -1,11 +1,26 @@
+import CoreFoundation
 import Foundation
 
 /// The plan's shared Cloud VM resource pool and how much of it active machines
 /// use (`GET /api/vm` `limits.poolVcpus`, `poolMemoryMb`, `usedVcpus`,
-/// `usedMemoryMb`). Every provisioning and running machine draws from one
-/// pool; paused machines do not. The server enforces the pool; this type only
-/// lets the client explain it before a create fails.
+/// `usedMemoryMb`). Every active machine draws from one pool; paused and
+/// stopped machines do not. The server enforces the pool; this type only lets
+/// the client explain it before a create or resize fails.
 public struct CloudVMResourcePool: Equatable, Sendable {
+    /// Whether a wire status represents a machine that currently consumes its
+    /// shared CPU and memory reservation. Provider and catalog payloads use
+    /// both database statuses (`running`, `provisioning`) and lifecycle
+    /// statuses while a machine is waking (`ready`, `creating`, `starting`,
+    /// `pending`, `resuming`).
+    public static func usesResourcePool(forStatus status: String) -> Bool {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "running", "provisioning", "ready", "creating", "starting", "pending", "resuming":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Creates a pool readout.
     /// - Parameters:
     ///   - poolVcpus: vCPUs the plan shares across its machines.
@@ -24,12 +39,14 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     /// - Parameter limits: The decoded `limits` JSON object.
     public init?(limits: [String: Any]) {
         guard let poolVcpus = Self.positiveInt(limits["poolVcpus"]),
-              let poolMemoryMb = Self.positiveInt(limits["poolMemoryMb"]) else { return nil }
+              let poolMemoryMb = Self.positiveInt(limits["poolMemoryMb"]),
+              let usedVcpus = Self.nonNegativeInt(limits["usedVcpus"]),
+              let usedMemoryMb = Self.nonNegativeInt(limits["usedMemoryMb"]) else { return nil }
         self.init(
             poolVcpus: poolVcpus,
             poolMemoryMb: poolMemoryMb,
-            usedVcpus: Self.nonNegativeInt(limits["usedVcpus"]) ?? 0,
-            usedMemoryMb: Self.nonNegativeInt(limits["usedMemoryMb"]) ?? 0
+            usedVcpus: usedVcpus,
+            usedMemoryMb: usedMemoryMb
         )
     }
 
@@ -124,19 +141,36 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     }
 
     /// Whole gigabytes, rounded down so free space is never overstated.
+    /// Converts memory from MB to whole GiB without overstating free capacity.
     static func gigabytes(_ memoryMb: Int) -> Int { max(0, memoryMb) / 1024 }
 
+    /// Parses a strictly positive integer from an untyped response value.
     private static func positiveInt(_ raw: Any?) -> Int? {
         guard let value = nonNegativeInt(raw), value > 0 else { return nil }
         return value
     }
 
+    /// Parses a nonnegative integer from an untyped response value.
     private static func nonNegativeInt(_ raw: Any?) -> Int? {
         let value: Int?
-        if let int = raw as? Int { value = int }
-        else if let number = raw as? NSNumber, number.doubleValue.isFinite { value = Int(exactly: number.doubleValue) }
-        else if let double = raw as? Double, double.isFinite { value = Int(exactly: double) }
-        else { value = nil }
+        if let number = raw as? NSNumber {
+            // JSONSerialization bridges both JSON numbers and booleans to
+            // NSNumber on Darwin. Check the Core Foundation type before
+            // converting so false/true cannot become 0/1, while numeric 0/1
+            // remain valid usage values.
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
+                return nil
+            }
+            value = Int(exactly: number.doubleValue)
+        } else if raw is Bool {
+            value = nil
+        } else if let int = raw as? Int {
+            value = int
+        } else if let double = raw as? Double, double.isFinite {
+            value = Int(exactly: double)
+        } else {
+            value = nil
+        }
         guard let value, value >= 0 else { return nil }
         return value
     }

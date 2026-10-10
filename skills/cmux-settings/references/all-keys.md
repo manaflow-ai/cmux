@@ -16,6 +16,7 @@ General app preferences from Settings > App.
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
+| `app.goToWorkspaceOrder` | `"sidebar"` or `"recent"` | `"sidebar"` | Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
@@ -131,6 +132,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
+| `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |

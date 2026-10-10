@@ -12,6 +12,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private var hostWindow: NSWindow?
     private var model: NewMachineModel?
     private var pendingSelectionID: UUID?
@@ -180,6 +181,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             self?.dismiss()
         }
         self.model = model
+        sheetController = sheet
         sheetWindow = window
         NotificationCenter.default.addObserver(
             self,
@@ -446,6 +448,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             host.endSheet(window)
         }
         window.orderOut(nil)
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         model = nil

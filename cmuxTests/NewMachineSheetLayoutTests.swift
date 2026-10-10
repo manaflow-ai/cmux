@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxCloudResizeCore
 import Observation
 import SwiftUI
 import Testing
@@ -69,7 +70,7 @@ struct NewMachineSheetLayoutTests {
         #expect(invalidated)
     }
 
-    /// Cmd+Y on a nightly account: the sheet opens on its host window with a
+    /// Cmd+Shift+Y on a nightly account: the sheet opens on its host window with a
     /// cold plan and many base machines, the Cloud cache refreshes the plan,
     /// pool, and machine list while it is up, and then the person picks a
     /// Base machine, which adds the inherited-settings row. Sizing the window
@@ -159,9 +160,12 @@ struct NewMachineSheetLayoutTests {
         #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
         for (name, popUp) in rows {
             let width = popUp.convert(popUp.bounds, to: host).width
+            // AppKit's intrinsicContentSize excludes a few points of the
+            // menu control's border/accessory; fittingSize is its measured
+            // natural width after those decorations are included.
             #expect(
-                width <= popUp.intrinsicContentSize.width + 1,
-                "\(name) pop-up is \(width)pt wide; its own width is \(popUp.intrinsicContentSize.width)pt"
+                width <= popUp.fittingSize.width + 1,
+                "\(name) pop-up is \(width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
             )
         }
     }

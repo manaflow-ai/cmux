@@ -377,6 +377,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(receivedParams["kind"] as? String, "anthropic_oauth")
         XCTAssertEqual(receivedParams["token"] as? String, Self.sampleOAuthToken)
         XCTAssertEqual(receivedParams["label"] as? String, "work")
+        XCTAssertEqual(receivedParams["visibility"] as? String, "team")
         XCTAssertEqual(receivedParams["teamId"] as? String, "team_explicit")
         XCTAssertEqual(
             result.stdout,

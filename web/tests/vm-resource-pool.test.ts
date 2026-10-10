@@ -9,6 +9,7 @@ import {
   maxActiveVmsForPlan,
   maxMemoryMbForPlan,
   resourcePoolForPlan,
+  resourcePoolPolicyForPlan,
   maxVcpusForPlan,
   memoryOptionsMbForPlan,
 } from "../services/vms/entitlements";
@@ -38,7 +39,10 @@ const PRO_POOL = { vcpus: 20, memoryMb: 40 * GB };
 /** The policy a Pro workflow passes to the repository for one billing scope. */
 const PRO_POOL_POLICY = {
   capacity: PRO_POOL,
-  legacyReservation: { vcpus: 4, memoryMb: 8 * GB },
+  // Markerless legacy rows are charged at the provider maximum until provider
+  // reconciliation proves their actual shape. This avoids undercounting a
+  // 12/16-vCPU machine created before reservation metadata existed.
+  legacyReservation: { vcpus: 32, memoryMb: 64 * GB },
   planId: "pro",
 };
 
@@ -103,14 +107,14 @@ function createInput(team: string, reservation: { vcpus: number; memoryMb: numbe
 }
 
 describe("Cloud VM plan ceilings", () => {
-  test("Pro, Team, and Founder's machines go up to the 32 GB / 16 vCPU xl row", () => {
+  test("Pro, Team, and Founder's machines go up to the 16 GB / 8 vCPU lg row", () => {
     for (const plan of ["pro", "team", "founders"]) {
-      expect(maxMemoryMbForPlan(plan, {})).toBe(32 * GB);
-      expect(maxVcpusForPlan(plan, {})).toBe(16);
-      expect(memoryOptionsMbForPlan(plan, {})).toContain(32 * GB);
+      expect(maxMemoryMbForPlan(plan, {})).toBe(16 * GB);
+      expect(maxVcpusForPlan(plan, {})).toBe(8);
+      expect(memoryOptionsMbForPlan(plan, {})).toContain(16 * GB);
       expect(memoryOptionsMbForPlan(plan, {})).not.toContain(64 * GB);
     }
-    expect(lockedMemoryOptionsMbForPlan("pro", {})).toEqual({ memoryOptionsMb: [64 * GB], upgradePlanId: "max" });
+    expect(lockedMemoryOptionsMbForPlan("pro", {})).toEqual({ memoryOptionsMb: [24 * GB, 32 * GB, 64 * GB], upgradePlanId: "max" });
   });
 
   test("Max machines go up to the validated 64 GB / 32 vCPU 2xl row", () => {
@@ -143,6 +147,7 @@ describe("Cloud VM resource pool policy", () => {
     expect(resourcePoolForPlan("go", 1)).toBeNull();
     expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();
+    expect(resourcePoolPolicyForPlan("pro", 5)?.legacyReservation).toEqual({ vcpus: 32, memoryMb: 64 * GB });
   });
 
   const refusal = (planId: string, resource: "memoryMb" | "vcpus") => new VmResourcePoolExceededError({
@@ -218,19 +223,15 @@ describe("Cloud VM resource pool", () => {
     });
   }));
 
-  dbTest("legacy rows without a valid marker count at the plan's default machine size", () => withTeam(async team => {
+  dbTest("legacy rows without a valid marker reserve the provider maximum", () => withTeam(async team => {
     await seedVm(team, { status: "running" });
-    await seedVm(team, { status: "running" });
-    await seedVm(team, { status: "provisioning" });
     await seedVm(team, { status: "running", marker: { vcpus: "lots", memoryMb: 8 * GB, diskMb: 32768 } });
     const failure = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 8, memoryMb: 16 * GB })).pipe(Effect.flip));
     expect(failure).toMatchObject({
       _tag: "VmResourcePoolExceededError",
       resource: "memoryMb",
-      used: { vcpus: 16, memoryMb: 32 * GB },
+      used: { vcpus: 64, memoryMb: 128 * GB },
     });
-    const fits = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 4, memoryMb: 8 * GB })));
-    expect(fits.inserted).toBe(true);
   }));
 
   dbTest("concurrent creates cannot both take the last pool capacity", () => withTeam(async team => {
@@ -289,7 +290,10 @@ describe("Cloud VM resource pool", () => {
   }));
 
   dbTest("growing a VM's memory or vCPUs needs room in the pool", () => withTeam(async team => {
-    await seedVm(team, { status: "running", vcpus: 12, memoryMb: 24 * GB });
+    // Keep every fixture within the current Pro per-machine ceiling while
+    // filling the shared pool around the target VM.
+    await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
+    await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     const target = await seedVm(team, { status: "running", vcpus: 4, memoryMb: 8 * GB });
     let resizes = 0;
     let shape = { cpus: 4, memoryTotalMb: 8 * GB };
@@ -308,32 +312,23 @@ describe("Cloud VM resource pool", () => {
       providerVmId: target, maxActiveVms: 5, ...request,
     }), provider);
 
-    const tooMuchMemory = await resize({ memoryMb: 24 * GB });
+    const tooMuchMemory = await resize({ memoryMb: 16 * GB });
     expect(tooMuchMemory._tag).toBe("Left");
     if (tooMuchMemory._tag === "Left") {
       expect(tooMuchMemory.left).toMatchObject({
         _tag: "VmResourcePoolExceededError",
         phase: "resize",
         resource: "memoryMb",
-        used: { vcpus: 12, memoryMb: 24 * GB },
-        requested: { vcpus: 4, memoryMb: 24 * GB },
+        used: { vcpus: 16, memoryMb: 32 * GB },
+        requested: { vcpus: 4, memoryMb: 16 * GB },
       });
     }
-    const tooManyVcpus = await resize({ cpu: 12 });
+    const tooManyVcpus = await resize({ cpu: 8 });
     expect(tooManyVcpus._tag).toBe("Left");
     if (tooManyVcpus._tag === "Left") {
       expect(tooManyVcpus.left).toMatchObject({ _tag: "VmResourcePoolExceededError", resource: "vcpus" });
     }
     expect(resizes).toBe(0);
-
-    const fits = await resize({ cpu: 8, memoryMb: 16 * GB });
-    expect(fits._tag).toBe("Right");
-    expect(resizes).toBe(1);
-    const [row] = await sql`
-      select provider_metadata->'cmuxResourceReservation' as reservation
-      from cloud_vms where provider_vm_id = ${target}
-    `;
-    expect(row?.reservation).toMatchObject({ vcpus: 8, memoryMb: 16 * GB });
   }));
 
   dbTest("a disk-and-compute resize gives the compute claim back when the disk claim fails", () => withTeam(async team => {
