@@ -367,9 +367,16 @@ import WebKit
             // Once this pane owns a live forward, rewrite that request to the
             // existing listener instead of reconfiguring the route and
             // reloading the forward indefinitely. Keep the original method,
-            // headers, and body intact.
+            // headers, and body intact. Preserve the service Host as well: a
+            // number of dev servers redirect a loopback listener back to
+            // localhost when the forwarded request presents the listener's
+            // ephemeral host, which would otherwise repeat this interception.
             var request = navigationAction.request
             request.url = listenerURL
+            if let host = serviceURL.host {
+                let port = serviceURL.port.map { ":\($0)" } ?? ""
+                request.setValue(host + port, forHTTPHeaderField: "Host")
+            }
             decisionHandler(.cancel)
             requestNavigation?(request, .currentTab, nil)
             return

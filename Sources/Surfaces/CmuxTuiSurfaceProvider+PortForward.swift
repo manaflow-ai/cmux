@@ -283,7 +283,9 @@ extension CmuxTuiSurfaceProvider {
     /// The SSH service behind one of this machine's forward listeners, so a
     /// listener URL opened in another pane reaches the service, not that port.
     func sshServiceURL(forForwardListener url: URL) -> URL? {
-        guard machine.isSSH, url.host == "127.0.0.1", let port = url.port else { return nil }
+        guard machine.isSSH,
+              PrivateNetworkHostPolicy().isLoopback(host: url.host ?? ""),
+              let port = url.port else { return nil }
         for (key, model) in portAccessStore.models where key.machineID == machineID {
             guard case .forwarded(let localPort) = model.phase, Int(localPort) == port,
                   var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }

@@ -10,6 +10,17 @@ extension BrowserPanel {
     func bindCloudBrowserNavigation() {
         cloudAccess.automaticallyNavigateRequest { [weak self] request in
             guard let self, !self.isClosingWebViewLifecycle else { return }
+            // Readiness callbacks used to enter through `navigate(to:)`, which
+            // installs the authenticated proxy before the first WebKit load.
+            // Keep that preparation when the request-preserving path is used;
+            // otherwise a proxied Cloud route can reach WebKit before its
+            // profile has the proxy configuration.
+            if let model = self.cloudAccess.model,
+               model.usesBrowserProxy,
+               let url = request.url,
+               self.cloudAccess.owns(url) {
+                self.prepareCloudBrowserNavigation()
+            }
             _ = self.navigateWithoutInsecureHTTPPrompt(
                 request: request,
                 recordTypedNavigation: false,
@@ -221,8 +232,9 @@ extension BrowserPanel {
     /// maps back to the service it forwards.
     func sshLoopbackServiceURL(for url: URL) -> URL? {
         guard PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return nil }
-        if let listener = cloudAccess.model?.localAddress, url.host == "127.0.0.1",
-           url.port.map({ "127.0.0.1:\($0)" }) == listener { return nil }
+        if let listenerPort = cloudAccess.model?.localAddress
+            .flatMap({ Int($0.split(separator: ":").last ?? "") }),
+           url.port == listenerPort { return nil }
         return privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) ?? url
     }
 
