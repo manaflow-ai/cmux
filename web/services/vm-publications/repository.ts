@@ -1717,6 +1717,9 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               reason: "publication_not_active",
             });
           }
+          // Only a row still provisioning becomes unavailable: an active row
+          // (activated by a concurrent request) or one already unavailable is
+          // left as it is.
           const [updated] = await tx
             .update(cloudVmPublications)
             .set({
@@ -1724,10 +1727,12 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               routingRevision: publication.routingRevision + 1,
               updatedAt: input.now,
             })
-            .where(eq(cloudVmPublications.id, publication.id))
+            .where(and(
+              eq(cloudVmPublications.id, publication.id),
+              eq(cloudVmPublications.state, "provisioning"),
+            ))
             .returning();
-          if (!updated)
-            throw new Error("publication unavailable update returned no row");
+          if (!updated) return publication;
           return updated;
         });
       }),

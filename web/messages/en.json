@@ -7174,7 +7174,7 @@
     },
     "rule_capacity": {
       "message": "The Cloud VM domain was not published: cmux Cloud has reached its network rule capacity.",
-      "action": "The cmux team has been alerted. Run `cmux cloud domains list` and remove the provisioning entry, or contact support."
+      "action": "The cmux team has been alerted. Run `cmux cloud domains rm <id>` to remove the failed entry, or contact support."
     },
     "publication_failed": {
       "message": "This Cloud VM domain failed to publish.",

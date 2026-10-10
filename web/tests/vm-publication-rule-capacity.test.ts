@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { context as otelContext, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
@@ -9,17 +9,12 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { FreestyleApiError } from "freestyle";
 
-// Only the account scope and browser-origin check are stand-ins; the error
-// mapping and the route span are real.
-const realRouteHelpers = { ...await import("../services/vms/routeHelpers") };
-mock.module("../services/vms/routeHelpers", () => ({
-  ...realRouteHelpers,
-  resolveVmRouteAccountScope: () => ({ ok: true, entitlements: { billingTeamId: "team-1" } }),
-  enforceBrowserMutationProtection: () => null,
-}));
-
-const { VmPublicationProviderError } = await import("../services/vm-publications/provider");
-const { publicationErrorResponse, withAuthedPublicationApiRoute } = await import("../app/api/vm/publications/routeShared");
+import { VmPublicationProviderError } from "../services/vm-publications/provider";
+import {
+  publicationErrorResponse,
+  reportTlsRuleLimit,
+  withAuthedPublicationApiRoute,
+} from "../app/api/vm/publications/routeShared";
 
 /** Freestyle's answer when the account already holds its maximum number of TLS rules. */
 function tlsRuleLimit(): FreestyleApiError {
@@ -29,7 +24,10 @@ function tlsRuleLimit(): FreestyleApiError {
   });
 }
 
-const user = { id: "user-1", teamIds: ["team-1"], teams: [], displayName: "User" };
+// A personal account with no billing metadata resolves to the free scope
+// without any stand-in; a bearer request needs no browser-origin check.
+const user = { id: "user-1", teamIds: [], teams: [], displayName: "User", isAnonymous: false, userBillingPlanId: null };
+const bearer = { authorization: "Bearer test-token" };
 
 // 2026-10-10 06:13 UTC: publish answered 502 "could not complete this change,
 // retry" while the shared Freestyle account was over its TLS rule limit, and
@@ -56,7 +54,8 @@ describe("publication create at the Freestyle TLS rule cap", () => {
     const body = await response.json() as Record<string, unknown>;
     expect(body).toMatchObject({ error: "vm_publication_rule_capacity", retryable: false });
     expect(String(body.message)).toMatch(/[぀-ヿ]/u);
-    expect(JSON.stringify(body)).not.toMatch(/TLS rule limit reached|retry if none exists/i);
+    expect(JSON.stringify(body)).not.toMatch(/TLS rule limit reached|retry if none exists|provisioning entry|provider_tls_rule_limit/i);
+    expect(body.details).toBeUndefined();
 
     const other = new VmPublicationProviderError({
       operation: "createTlsRule",
@@ -65,10 +64,18 @@ describe("publication create at the Freestyle TLS rule cap", () => {
     expect(publicationErrorResponse(other).status).toBe(502);
   });
 
+  test("the operator report is sent at most once per ten minutes per instance", () => {
+    const start = 9_000_000_000_000;
+    expect(reportTlsRuleLimit("createTlsRule", start)).toBe(true);
+    expect(reportTlsRuleLimit("createTlsRule", start + 60_000)).toBe(false);
+    expect(reportTlsRuleLimit("createTlsRule", start + 10 * 60_000)).toBe(true);
+  });
+
   test("the route span carries the error code and the provider cause chain", async () => {
     exporter.reset();
     const request = new Request("https://cmux.com/api/vm/publications", {
       method: "POST",
+      headers: bearer,
       body: JSON.stringify({ vmId: "vm-1", port: 3000, accessMode: "personal" }),
     });
     const response = await withAuthedPublicationApiRoute(
@@ -91,7 +98,7 @@ describe("publication create at the Freestyle TLS rule cap", () => {
 
   test("routes with an id use the template, never the raw id", async () => {
     exporter.reset();
-    const request = new Request("https://cmux.com/api/vm/publications/72dacb73-77e2-4e39-933b-9c1d55b09ecb", { method: "PATCH", body: "{}" });
+    const request = new Request("https://cmux.com/api/vm/publications/72dacb73-77e2-4e39-933b-9c1d55b09ecb", { method: "PATCH", headers: bearer, body: "{}" });
     await withAuthedPublicationApiRoute(request, async () => new Response(null, { status: 204 }), async () => {
       throw new Error("unreachable");
     }, async () => user as never);

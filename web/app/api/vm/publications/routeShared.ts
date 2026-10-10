@@ -265,23 +265,13 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
     // The cap is shared by every machine on the account: the user cannot free
     // it and an immediate retry cannot succeed. The vm-alerts cron pages on
     // the same condition from the provider's rule count.
-    reportError(
-      new Error("Cloud VM provider TLS rule limit reached"),
-      {
-        subsystem: "cloud_vm_alerts",
-        code: "provider_tls_rule_limit",
-        operation: error.operation,
-        operatorFault: true,
-      },
-      { fingerprint: ["cmux-vm-provider-tls-rule-limit", "freestyle"] },
-    );
+    reportTlsRuleLimit(error.operation);
     const copy = publicationApiCopy("rule_capacity", language);
     return publicationErrorJson({
       error: "vm_publication_rule_capacity",
       message: copy.message,
       action: copy.action,
       retryable: false,
-      details: { operation: error.operation, providerCode: "provider_tls_rule_limit" },
     }, 503);
   }
   if (error instanceof VmPublicationProviderError) {
@@ -304,6 +294,24 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
     message: "Cloud VM publication failed unexpectedly.",
     action: "Retry once. If it keeps failing, contact support.",
   }, 500);
+}
+
+const TLS_RULE_LIMIT_REPORT_INTERVAL_MS = 10 * 60 * 1_000;
+let lastTlsRuleLimitReportAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * One operator error per instance per ten minutes: every refused publish at
+ * the cap hits this path, and the vm-alerts cron already pages on the count.
+ */
+export function reportTlsRuleLimit(operation: string, now: number = Date.now()): boolean {
+  if (now - lastTlsRuleLimitReportAt < TLS_RULE_LIMIT_REPORT_INTERVAL_MS) return false;
+  lastTlsRuleLimitReportAt = now;
+  reportError(
+    new Error("Cloud VM provider TLS rule limit reached"),
+    { subsystem: "cloud_vm_alerts", code: "provider_tls_rule_limit", operation, operatorFault: true },
+    { fingerprint: ["cmux-vm-provider-tls-rule-limit", "freestyle"] },
+  );
+  return true;
 }
 
 /** A publication error body, tagged with its code so the route span records it. */

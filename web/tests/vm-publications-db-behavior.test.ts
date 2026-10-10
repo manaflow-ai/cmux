@@ -174,6 +174,56 @@ afterAll(async () => {
 });
 
 describe("Cloud VM publication persistence", () => {
+  dbTest("marks only a provisioning publication unavailable, bumping its routing revision", async () => {
+    const repo = requiredRepository();
+    const ownerUserId = "owner-mark";
+    await insertVm(ownerUserId, "provider-vm-mark");
+    const reserved = await runRepository(repo.reservePublicationWithNewDomain({
+      ownerUserId,
+      provider: "freestyle",
+      providerVmId: "provider-vm-mark",
+      domainHostname: "mark.preview.example.test",
+      hostname: "mark.preview.example.test",
+      kind: "generated",
+      port: 3_000,
+      accessMode: "public",
+      now: NOW,
+    }));
+    expect(reserved.publication.state).toBe("provisioning");
+
+    const marked = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(marked.state).toBe("unavailable");
+    expect(marked.routingRevision).toBe(reserved.publication.routingRevision + 1);
+
+    // Already unavailable: unchanged, revision kept.
+    const again = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: marked.routingRevision,
+      now: NOW,
+    }));
+    expect(again).toMatchObject({ state: "unavailable", routingRevision: marked.routingRevision });
+
+    // A stale revision is refused.
+    await expectRepositoryError(Effect.runPromise(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    })), { _tag: "PublicationConflictError", reason: "publication_revision_changed" });
+
+    // An active publication is never downgraded.
+    const active = await createActivePublication({ suffix: "mark-active" });
+    const kept = await runRepository(repo.markPublicationUnavailable({
+      id: active.publication.id,
+      expectedRoutingRevision: active.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(kept).toMatchObject({ state: "active", routingRevision: active.publication.routingRevision });
+  });
+
   dbTest("keeps the pending sign-in cap under simultaneous writers", async () => {
     const repo = requiredRepository();
     const sql = requiredSql();

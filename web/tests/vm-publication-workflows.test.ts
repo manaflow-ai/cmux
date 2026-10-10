@@ -1855,6 +1855,27 @@ describe("Cloud VM publication workflows", () => {
     expect(marked).toEqual([{ id: reserved.publication.id, expectedRoutingRevision: 3 }]);
   });
 
+  test("zone verification retries an unavailable publication like a provisioning one", async () => {
+    const zone = domain("custom", { hostname: "example.com", verificationState: "verified", certificateState: "active" });
+    const failed = target(publication("public", { hostname: "app.example.com", domainId: zone.id, state: "unavailable" }), zone);
+    const claimed: string[] = [];
+    await run(verifyCustomDomain({
+      principal: { userId: "owner-1", teamIds: [] }, hostname: zone.hostname, now: NOW,
+    }), fakeRepository({
+      findOwnedDomainByHostname: () => Effect.succeed(zone),
+      updateDomainState: () => Effect.succeed(zone),
+      listOwnedPublicationsForDomain: () => Effect.succeed([failed]),
+      claimVmPublicationOperation: (input) => {
+        claimed.push(input.publicationId);
+        return Effect.succeed({ kind: "in_progress", retryAt: new Date(NOW.getTime() + 1000) });
+      },
+    }), fakeProvider({
+      requestWildcardCertificate: () => Effect.succeed({} as never),
+      getWildcardCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
+    }));
+    expect(claimed).toEqual([failed.publication.id]);
+  });
+
   test("changing access on a failed publication is a clear 409 that says to delete it", async () => {
     const failed = publication("personal", { state: "unavailable", providerTlsRuleId: null });
     const repository = fakeRepository({ findOwnedPublication: () => Effect.succeed(target(failed)) });

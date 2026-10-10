@@ -392,7 +392,9 @@ function provisionPublicationsWaitingOnZone(input: {
     });
     for (const target of targets) {
       if (!publicationInCurrentAccount(target, { userId: input.ownerUserId, teamIds: input.teamIds })) continue;
-      if (target.publication.state !== "provisioning") continue;
+      // An `unavailable` row failed at the provider; a zone verification is
+      // the automatic retry for both, so a transient error never strands it.
+      if (target.publication.state !== "provisioning" && target.publication.state !== "unavailable") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
         provider: input.provider,
@@ -1028,9 +1030,9 @@ function ensureCustomDomainVerification(input: {
 
 /**
  * A provisioning step the provider refused (the account TLS rule cap or any
- * other provider error) leaves the row `unavailable`, a terminal state PATCH
- * refuses with `publication_failed`; `verify` can still retry it and delete
- * removes it. Left `provisioning`, it read as "already being configured" and
+ * other provider error) leaves the row `unavailable`, which PATCH refuses with
+ * `publication_failed`. It is not a dead end: `verify` and every zone
+ * verification retry it like a `provisioning` row, and delete removes it. Left `provisioning`, it read as "already being configured" and
  * every PATCH answered a retryable 503 forever. Marking is best-effort and
  * never replaces the provider's error.
  */
