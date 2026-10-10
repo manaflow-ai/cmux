@@ -204,13 +204,13 @@ struct InProcessMachineCreateLauncherTests {
         }
     }
 
-    @Test("Only an authoritative empty graph permits creating a workspace")
-    func successfulEmptyGraphCreatesOnce() async throws {
+    @Test("Only an authoritative empty or unknown graph permits creating a workspace", arguments: [false, true])
+    func successfulEmptyGraphCreatesOnce(graphUnknown: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             fixture.provider.usesReceipt = true
-            fixture.provider.info.remoteWorkspaces = []
+            fixture.provider.info.remoteWorkspaces = graphUnknown ? nil : []
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
             let pending = fixture.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
                 autoWelcomeIfNeeded: false)
