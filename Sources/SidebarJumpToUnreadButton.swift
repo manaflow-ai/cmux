@@ -39,9 +39,12 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
 extension View {
     /// Puts the Jump to Unread control at the trailing end of the footer row.
     func sidebarJumpToUnreadBar(presentationMode: WorkspacePresentationModeSettings.Mode) -> some View {
-        HStack(spacing: 4) {
-            frame(maxWidth: .infinity, alignment: .leading)
-            SidebarJumpToUnreadButton(presentationMode: presentationMode)
+        VStack(alignment: .leading, spacing: 0) {
+            SidebarJumpToUnreadButton(presentationMode: presentationMode, placement: .aboveFooter)
+            HStack(spacing: 4) {
+                frame(maxWidth: .infinity, alignment: .leading)
+                SidebarJumpToUnreadButton(presentationMode: presentationMode, placement: .footerRow)
+            }
         }
     }
 }
@@ -57,7 +60,7 @@ extension View {
 /// notification churn re-renders only this view, and only when the count
 /// changes.
 struct SidebarJumpToUnreadButton: View {
-    /// Design variations under review; `a` ships. Debug builds switch them
+    /// Design variations under review; `s` ships. Debug builds switch them
     /// from the control's context menu.
     enum Style: String, CaseIterable {
         /// Bordered button: count, arrow, shortcut, × inline.
@@ -66,6 +69,24 @@ struct SidebarJumpToUnreadButton: View {
         case n
         /// Plain text count and shortcut (not clickable), × always inline.
         case p
+        /// Glass capsule on its own row above the footer, leading:
+        /// "Jump to Unread (3)"; on hover the count turns into the shortcut.
+        case s
+        /// `s`, centered in the sidebar.
+        case sCentered
+
+        var placement: Placement {
+            switch self {
+            case .a, .n, .p: return .footerRow
+            case .s, .sCentered: return .aboveFooter
+            }
+        }
+    }
+
+    /// Where an instance sits; each renders only the styles placed there.
+    enum Placement {
+        case footerRow
+        case aboveFooter
     }
 
     static let hiddenDefaultsKey = "sidebar.jumpToUnreadButton.hidden"
@@ -74,16 +95,18 @@ struct SidebarJumpToUnreadButton: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     let presentationMode: WorkspacePresentationModeSettings.Mode
+    let placement: Placement
 
     @State private var unreadCount: Int
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var isHovered = false
     @State private var showsHiddenNote = false
     @AppStorage(SidebarJumpToUnreadButton.hiddenDefaultsKey) private var isHiddenByUser = false
-    @AppStorage(SidebarJumpToUnreadButton.styleDefaultsKey) private var styleRawValue = Style.a.rawValue
+    @AppStorage(SidebarJumpToUnreadButton.styleDefaultsKey) private var styleRawValue = Style.s.rawValue
 
-    init(presentationMode: WorkspacePresentationModeSettings.Mode) {
+    init(presentationMode: WorkspacePresentationModeSettings.Mode, placement: Placement = .footerRow) {
         self.presentationMode = presentationMode
+        self.placement = placement
         _unreadCount = State(
             initialValue: TerminalNotificationStore.shared.notificationMenuSnapshot.unreadCount
         )
@@ -91,9 +114,9 @@ struct SidebarJumpToUnreadButton: View {
 
     private var style: Style {
 #if DEBUG
-        Style(rawValue: styleRawValue) ?? .a
+        Style(rawValue: styleRawValue) ?? .s
 #else
-        .a
+        .s
 #endif
     }
 
@@ -109,12 +132,17 @@ struct SidebarJumpToUnreadButton: View {
         let resolved = presentation
         Group {
             if SidebarFooterPresentationPolicy.isVisible(.jumpToUnread, presentationMode: presentationMode),
-               resolved.isVisible, !isHiddenByUser {
+               resolved.isVisible, !isHiddenByUser, style.placement == placement {
                 control(resolved)
                     .onHover { isHovered = $0 }
                     .contextMenu { contextMenuItems }
+                    .frame(
+                        maxWidth: placement == .aboveFooter ? .infinity : nil,
+                        alignment: style == .sCentered ? .center : .leading
+                    )
+                    .padding(.bottom, placement == .aboveFooter ? 8 : 0)
             } else {
-                Color.clear.frame(width: 0, height: 22)
+                Color.clear.frame(width: 0, height: placement == .footerRow ? 22 : 0)
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -177,6 +205,49 @@ struct SidebarJumpToUnreadButton: View {
             .overlay(alignment: .topTrailing) {
                 closeButton(corner: true)
                     .offset(x: 6, y: -6)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .animation(.easeOut(duration: 0.15), value: isHovered)
+            }
+        case .s, .sCentered:
+            Button {
+                AppDelegate.shared?.jumpToLatestUnread()
+            } label: {
+                HStack(spacing: 6) {
+                    CmuxSystemSymbolImage(
+                        systemName: SidebarJumpToUnreadButtonPresentation.systemName,
+                        pointSize: 11,
+                        weight: .semibold,
+                        tint: cmuxAccent.color
+                    )
+                    Text(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Jump to Unread"))
+                        .cmuxFont(size: 12, weight: .medium)
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .lineLimit(1)
+                    // The count and the shortcut share one slot: hovering
+                    // swaps the count for the key that does the same thing.
+                    ZStack(alignment: .trailing) {
+                        badge(resolved)
+                            .opacity(isHovered && resolved.shortcutText != nil ? 0 : 1)
+                        shortcut(resolved)
+                            .opacity(isHovered ? 1 : 0)
+                    }
+                    .animation(.easeOut(duration: 0.15), value: isHovered)
+                }
+                .padding(.leading, 10)
+                .padding(.trailing, 6)
+                .frame(height: 28)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(SidebarJumpToUnreadGlassButtonStyle(isGlass: true))
+            .fixedSize()
+            .safeHelp(resolved.helpText)
+            .accessibilityLabel(resolved.label)
+            .accessibilityValue(resolved.countText ?? "")
+            .accessibilityIdentifier("SidebarJumpToUnreadButton")
+            .overlay(alignment: .topTrailing) {
+                closeButton(corner: true)
+                    .offset(x: 5, y: -5)
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .animation(.easeOut(duration: 0.15), value: isHovered)
@@ -278,7 +349,7 @@ struct SidebarJumpToUnreadButton: View {
 #if DEBUG
         Divider()
         ForEach(Style.allCases, id: \.self) { candidate in
-            Button("Debug: Style \(candidate.rawValue.uppercased())") { styleRawValue = candidate.rawValue }
+            Button("Debug: Style \(candidate == .sCentered ? "S Centered" : candidate.rawValue.uppercased())") { styleRawValue = candidate.rawValue }
         }
 #endif
     }
@@ -290,9 +361,10 @@ struct SidebarJumpToUnreadButton: View {
 private struct SidebarJumpToUnreadGlassButtonStyle: ButtonStyle {
     var isCloseButton = false
     var isCorner = false
+    var isGlass = false
 
     func makeBody(configuration: Configuration) -> some View {
-        SidebarJumpToUnreadGlassButtonBody(configuration: configuration, isCloseButton: isCloseButton, isCorner: isCorner)
+        SidebarJumpToUnreadGlassButtonBody(configuration: configuration, isCloseButton: isCloseButton, isCorner: isCorner, isGlass: isGlass)
     }
 }
 
@@ -300,11 +372,18 @@ private struct SidebarJumpToUnreadGlassButtonBody: View {
     let configuration: SidebarJumpToUnreadGlassButtonStyle.Configuration
     let isCloseButton: Bool
     let isCorner: Bool
+    let isGlass: Bool
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if isCloseButton {
+        if isGlass {
+            configuration.label
+                .sidebarJumpToUnreadFloatingGlass(hovered: isHovered)
+                .brightness(configuration.isPressed ? -0.06 : 0)
+                .scaleEffect(configuration.isPressed ? 0.98 : 1)
+                .onHover { isHovered = $0 }
+        } else if isCloseButton {
             configuration.label
                 .sidebarJumpToUnreadGlass(closeButton: true, corner: isCorner, hovered: isHovered, pressed: configuration.isPressed, dark: colorScheme == .dark)
                 .onHover { isHovered = $0 }
@@ -317,6 +396,26 @@ private struct SidebarJumpToUnreadGlassButtonBody: View {
 }
 
 private extension View {
+    /// Liquid Glass on macOS 26 (a material capsule before), hairline rim,
+    /// soft shadow, brighter on hover.
+    @ViewBuilder
+    func sidebarJumpToUnreadFloatingGlass(hovered: Bool) -> some View {
+        Group {
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *) {
+                glassEffect(.regular, in: Capsule())
+            } else {
+                background(.regularMaterial, in: Capsule())
+            }
+            #else
+            background(.regularMaterial, in: Capsule())
+            #endif
+        }
+        .overlay(Capsule().fill(Color.white.opacity(hovered ? 0.06 : 0)).allowsHitTesting(false))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.24), radius: 6, y: 2)
+    }
+
     func sidebarJumpToUnreadGlass(closeButton: Bool, corner: Bool, hovered: Bool, pressed: Bool, dark: Bool) -> some View {
         Group {
             if !closeButton {
