@@ -672,8 +672,10 @@ impl Hub {
     }
 
     /// Run new agents under agent hosts (see `agent_hosts_enabled`).
+    /// Windows: agent hosts are not ported yet, so agents stay direct
+    /// children in job objects (sessions do not outlive the daemon there).
     pub fn enable_agent_hosts(&self) {
-        self.agent_hosts.store(true, Ordering::SeqCst);
+        self.agent_hosts.store(cfg!(unix), Ordering::SeqCst);
     }
 
     pub(super) async fn spawn_hosted_child(

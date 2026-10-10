@@ -30,6 +30,8 @@ pub mod daemon;
 pub mod deliver;
 pub mod harness_admin;
 pub mod hub;
+#[cfg(windows)]
+mod job;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
