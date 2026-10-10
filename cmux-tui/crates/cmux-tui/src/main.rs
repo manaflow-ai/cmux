@@ -2397,6 +2397,8 @@ fn run_server(
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
     mux.set_acpmux_socket(acp::daemon_socket_path());
+    #[cfg(unix)]
+    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

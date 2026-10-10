@@ -122,25 +122,62 @@ pub(crate) fn configure_home() {
 /// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-    if let Some(socket) = var("ACPMUX_SOCKET") {
+    if let Some(socket) = env_value("ACPMUX_SOCKET") {
         return Some(PathBuf::from(socket));
     }
-    let acpmux_home = match var("ACPMUX_HOME") {
-        Some(home) => PathBuf::from(home),
-        None => {
-            let home = PathBuf::from(var("HOME")?);
-            let identity = crate::app_identity::AppIdentity::detect(
-                |name| std::env::var(name).ok(),
-                std::env::current_exe().ok().as_deref(),
-            );
-            let tag = acpmux_tag(var("CMUX_TAG"), identity);
-            tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux"))
-        }
-    };
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
-    Some(socket_in_home(&acpmux_home, uid))
+    Some(socket_in_home(&daemon_acpmux_home()?, uid))
+}
+
+/// How the session daemon starts the acpmux that [`daemon_socket_path`]
+/// names when an `agent-session-start` finds nothing there: this binary's
+/// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
+/// the wait for its socket). None with `ACPMUX_SOCKET`: a fixed socket
+/// belongs to an acpmux this daemon does not own.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move || {
+        let status = std::process::Command::new(&exe)
+            .env("ACPMUX_HOME", &home)
+            .args(["acp", "daemon", "start"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|error| format!("acpmux daemon start: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("acpmux daemon start exited with {status}"))
+        }
+    }))
+}
+
+/// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else the tag's own home,
+/// else `~/.acpmux`.
+#[cfg(unix)]
+fn daemon_acpmux_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME") {
+        return Some(PathBuf::from(home));
+    }
+    let home = PathBuf::from(env_value("HOME")?);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(env_value("CMUX_TAG"), identity);
+    Some(tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+#[cfg(unix)]
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
 /// acpmux `config::socket_path` for `home`: `<home>/acpmux.sock`, or, for a

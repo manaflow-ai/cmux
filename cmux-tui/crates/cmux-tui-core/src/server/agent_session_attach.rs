@@ -61,6 +61,9 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_link.rs"]
 mod agent_session_link;
+#[path = "agent_session_start.rs"]
+mod agent_session_start;
+pub use agent_session_start::{AGENT_SESSION_START_CAPABILITY, AcpmuxStarter};
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -95,6 +98,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 pub(crate) struct AgentSessions {
     socket: RwLock<Option<PathBuf>>,
     state: Mutex<AttachState>,
+    /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
+    starts: agent_session_start::AgentSessionStarts,
 }
 
 #[derive(Default)]
@@ -320,6 +325,12 @@ pub(crate) enum Refusal {
     Timeout,
     Refused,
     UnknownPermission,
+    /// `agent-session-start`: the tab already has a session.
+    Bound,
+    /// `agent-session-start`: acpmux is not running and could not be started.
+    AcpmuxUnavailable,
+    /// `agent-session-start`: the agent has no mode that asks before acting.
+    NotAsking,
 }
 
 impl Refusal {
@@ -334,6 +345,9 @@ impl Refusal {
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
             Self::UnknownPermission => "agent_session.unknown_permission",
+            Self::Bound => "agent_session.bound",
+            Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
+            Self::NotAsking => "agent_session.not_asking",
         }
     }
 
@@ -348,6 +362,9 @@ impl Refusal {
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::UnknownPermission => "no such pending permission request on this attachment",
+            Self::Bound => "the agent tab already has a session",
+            Self::AcpmuxUnavailable => "acpmux is not running on this machine and could not be started",
+            Self::NotAsking => "this agent has no mode that asks before each action",
         }
     }
 
@@ -381,6 +398,9 @@ pub(super) fn try_handle(
         _ => return None,
     };
     let id = object.remove("id");
+    if cmd == "agent-session-start" {
+        return Some(start(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -408,6 +428,27 @@ pub(super) fn try_handle(
             }
         }
     })
+}
+
+/// `agent-session-start` (agent_session_start.rs), with the attach verbs'
+/// trust and acpmux checks.
+fn start(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_start::start(mux, client, id, socket, params, writer)
 }
 
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
@@ -935,5 +976,19 @@ impl Mux {
     /// schedule, so the socket's presence at `identify` time proves nothing).
     pub(crate) fn serves_agent_session_attach(&self) -> bool {
         self.control_clients.agent_sessions.socket().is_some()
+    }
+
+    /// How this daemon starts its machine's acpmux when an
+    /// `agent-session-start` finds nothing on the socket (the binary's
+    /// `cmux acp daemon start`). With it and a socket path the daemon
+    /// advertises `agent-session-start-v1`.
+    pub fn set_acpmux_starter(&self, starter: Option<AcpmuxStarter>) {
+        self.control_clients.agent_sessions.starts.set_starter(starter);
+    }
+
+    /// True when the daemon can start sessions in its machine's acpmux.
+    pub(crate) fn serves_agent_session_start(&self) -> bool {
+        self.serves_agent_session_attach()
+            && self.control_clients.agent_sessions.starts.has_starter()
     }
 }

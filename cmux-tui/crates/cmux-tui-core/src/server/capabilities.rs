@@ -16,6 +16,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.serves_agent_session_start() {
+        capabilities.push(AGENT_SESSION_START_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
