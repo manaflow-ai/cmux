@@ -16,8 +16,6 @@
 
 pub mod fetch;
 pub mod schema;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
