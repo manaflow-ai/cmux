@@ -625,6 +625,23 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
         assert!(!text.contains("update the"), "{case}: {text}");
     }
 
+    // The refusal speaks the CLI's language; the fix command stays literal.
+    let ja_dir = dir.join("ja");
+    fs::create_dir_all(&ja_dir).unwrap();
+    let output = Command::new(&cli)
+        .arg("--socket")
+        .arg(skew_daemon(&ja_dir, &writable))
+        .args(["session", "current", "journal", "producer", "list"])
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_CLI_REEXEC")
+        .output()
+        .unwrap();
+    let text = stderr(&output);
+    assert!(text.contains("書き込めます") && text.contains("修正: "), "ja: {text}");
+    assert!(text.contains("daemon stop --socket"), "ja: {text}");
+
     // The loop guard: a CLI started by a re-exec never re-execs again.
     let guard_dir = dir.join("guard");
     fs::create_dir_all(&guard_dir).unwrap();
