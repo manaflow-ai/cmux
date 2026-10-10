@@ -66,7 +66,8 @@ impl Surface {
                 }
                 return;
             };
-            let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
+            let mutation =
+                if status_changed { "terminal.program_status" } else { "terminal.progress" };
             let published = match mux.publish_terminal_progress(self, mutation, status_change) {
                 Ok(published) => published,
                 Err(error) => {
@@ -81,10 +82,8 @@ impl Surface {
                     .finish_change_publication(revision, published);
             }
             if published && status_changed {
-                let alerts = records
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .take_alerts();
+                let alerts =
+                    records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
                 let notifications = pty
                     .terminal_metadata
                     .lock()
