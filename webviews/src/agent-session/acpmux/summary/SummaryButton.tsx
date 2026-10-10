@@ -45,7 +45,7 @@ export function SummaryButton({
   onOpenChanges?: () => void;
 }) {
   const t = useT();
-  const modern = cwd !== undefined || sections !== undefined;
+  const modern = cwd !== undefined || sections !== undefined || projectName !== undefined;
   const [open, setOpen] = useState(() => modern && storedOpenState());
   const [wide, setWide] = useState(modern);
   const [gallery, setGallery] = useState(false);
