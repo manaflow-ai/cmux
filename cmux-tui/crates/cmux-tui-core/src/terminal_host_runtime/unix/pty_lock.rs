@@ -27,7 +27,7 @@ pub(super) fn lock_path(record_path: &Path, terminal_id: &str, incarnation: &str
 /// A held PTY ownership lock. Dropping it (or the process ending) releases
 /// the lock; the file stays until the exit is acknowledged.
 #[derive(Debug)]
-pub(super) struct PtyOwnershipLock {
+pub(crate) struct PtyOwnershipLock {
     _file: File,
 }
 

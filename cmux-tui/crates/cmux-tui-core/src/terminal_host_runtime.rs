@@ -454,15 +454,19 @@ mod unix {
     use std::io as std_io;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, RawFd};
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    #[cfg(test)]
+    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    #[cfg(test)]
+    use std::time::Instant;
 
     use anyhow::Context;
     use cmux_pty::{ChildKiller, MasterPty, PtyCommand};
@@ -474,9 +478,8 @@ mod unix {
     use super::shared::records::*;
     use super::sys::GroupSignal;
     use super::sys::{
-        AcceptWaker, HostLivenessLease, acquire_terminal_host_publication_lock, connect_with_retry,
-        prepare_endpoint_dir, prepare_private_dir, reserve_terminal_host_publication,
-        wait_for_pty_readable_or_forced_drain,
+        AcceptWaker, connect_with_retry, prepare_endpoint_dir, prepare_private_dir,
+        reserve_terminal_host_publication, wait_for_pty_readable_or_forced_drain,
     };
     use super::*;
 
@@ -572,11 +575,10 @@ mod unix {
         }
     }
 
-    mod adopt_launch;
+    pub(crate) mod adopt_launch;
     mod adopted_child;
-    use super::shared::host_accept;
     mod host_scope;
-    mod host_signals;
+    pub(crate) mod host_signals;
     mod host_start;
     mod pty_custody;
     mod pty_lock;
@@ -698,200 +700,6 @@ mod unix {
         }
     }
 
-    pub fn serve_terminal_host_stdio(
-        args: &[String],
-        reader: &mut impl Read,
-        writer: &mut impl Write,
-    ) -> anyhow::Result<()> {
-        let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
-        let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
-        let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
-            // Keep the one-frame bootstrap probe useful for compatibility and
-            // packaging diagnostics. Production launchers always follow it
-            // with Launch on the same private pipe.
-            return Ok(());
-        };
-        let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
-        crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
-        let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
-            Ok(shared) => shared,
-            Err(error) => {
-                let failure = host_launch_failure(&error);
-                let mut response =
-                    Frame::new(MessageKind::LaunchFailed, encode_host_launch_failure(&failure)?);
-                response.request_id = launch_frame.request_id;
-                write_frame(writer, &response)?;
-                return Ok(());
-            }
-        };
-
-        let stopping = shared.clone();
-        host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
-        let endpoint = PathBuf::from(&launch.endpoint);
-        let mut unpublished = UnpublishedHostGuard {
-            shared: shared.clone(),
-            endpoint: endpoint.clone(),
-            armed: true,
-        };
-        let _ = fs::remove_file(&endpoint);
-        if let Some(parent) = endpoint.parent() {
-            prepare_private_dir(parent)?;
-        }
-        let listener = UnixListener::bind(&endpoint)?;
-        fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
-        listener.set_nonblocking(true)?;
-        crate::debug_spans::mark("host.endpoint_bound");
-
-        let start_nonce = CapabilityToken::random()?;
-        let record = TerminalHostRecord {
-            record_version: HOST_RECORD_VERSION,
-            terminal_id: bootstrapped.terminal_id.to_hex(),
-            incarnation: bootstrapped.incarnation.to_hex(),
-            endpoint: launch.endpoint.clone(),
-            owner_token: encode_hex(bootstrapped.owner_token().as_bytes()),
-            host_pid: std::process::id(),
-            host_start_nonce: encode_hex(start_nonce.as_bytes()),
-            workspace_key: String::new(),
-            supports_set_defaults: true,
-            supports_clear_history: true,
-            supports_terminate_ack: true,
-            supports_input_ack: true,
-            supports_terminal_metadata: true,
-            supports_clipboard_read: true,
-            supports_viewer_size_priority: true,
-            supports_pty_custody: true,
-        };
-        let record_root = Path::new(&launch.record_path)
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
-        let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
-        let lease =
-            HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
-        crate::debug_spans::mark("host.lease_acquired");
-        let mut guard = HostServiceGuard {
-            shared: shared.clone(),
-            endpoint,
-            record_path: PathBuf::from(&launch.record_path),
-            record: record.clone(),
-            lease: Some(lease),
-            published: false,
-        };
-        unpublished.armed = false;
-
-        // The PTY owner publishes its own adoption record before Ready. A
-        // daemon killed immediately after launch acknowledgement can never
-        // leave behind an undiscoverable terminal process.
-        write_record(Path::new(&launch.record_path), &record)?;
-        guard.published = true;
-        host_signals::set_breadcrumb_path(
-            Path::new(&launch.record_path).with_extension("signals"),
-            record.terminal_id.clone(),
-            record.incarnation,
-        );
-        crate::debug_spans::mark("host.record_written");
-        crate::debug_spans::finish(crate::debug_spans::take());
-
-        // Integration failure-injection seam for the narrow record-before-
-        // Ready crash window. It is inherited only by explicitly configured
-        // test daemons and bounded so an accidental environment setting
-        // cannot wedge a production host indefinitely.
-        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_READY_DELAY_MS")
-            && let Ok(delay) = delay.parse::<u64>()
-            && delay > 0
-        {
-            thread::sleep(Duration::from_millis(delay.min(5_000)));
-        }
-
-        let ready = HostReady {
-            selected_version: PROTOCOL_VERSION,
-            terminal_id: bootstrapped.terminal_id,
-            incarnation: bootstrapped.incarnation,
-        };
-        let mut response = Frame::new(MessageKind::Ready, ready.encode());
-        response.request_id = launch_frame.request_id;
-        // Publication is the ownership handoff. If the launcher dies in the
-        // narrow record-before-Ready window, EPIPE must not tear down the
-        // independently adoptable shell; a replacement daemon discovers the
-        // record and connects through the already-listening Unix socket.
-        let _ = write_frame(writer, &response);
-
-        let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-        let mut backoff = host_accept::AcceptBackoff::new();
-        loop {
-            let now = Instant::now();
-            if !shared.launch_owner_claimed.load(Ordering::Acquire)
-                && now >= launch_owner_deadline
-                && shared
-                    .launch_owner_claimed
-                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-            {
-                // A launcher that vanished before authenticating must not
-                // retain an already-exited host forever. A live PTY remains
-                // adoptable; only its eventual exit is now unblocked.
-                shared.mark_launch_owner_stream_ready();
-            }
-            if shared.dead.load(Ordering::Acquire)
-                && shared.active_client_streams.load(Ordering::Acquire) == 0
-            {
-                break;
-            }
-            match listener.accept() {
-                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
-                    Ok(()) => backoff.reset(),
-                    Err(error) => backoff.after_error(&shared, &error),
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    // Block until an attachment arrives or the accept waker
-                    // reports a lifecycle change (terminal exit, last client
-                    // stream closed). The only timeout is the one-shot launch
-                    // owner deadline, used until it passes; this loop used to
-                    // wake every 20 ms for the whole life of every terminal.
-                    let timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
-                        -1
-                    } else {
-                        let remaining = launch_owner_deadline.saturating_duration_since(now);
-                        i32::try_from(remaining.as_millis().saturating_add(1)).unwrap_or(i32::MAX)
-                    };
-                    let mut fds = [
-                        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-                        libc::pollfd {
-                            fd: shared.accept_waker.fd(),
-                            events: libc::POLLIN,
-                            revents: 0,
-                        },
-                    ];
-                    // SAFETY: both descriptors stay open for this call: the
-                    // listener until the accept loop exits and the waker with
-                    // `shared`.
-                    if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
-                        let error = std::io::Error::last_os_error();
-                        if error.kind() != std::io::ErrorKind::Interrupted {
-                            backoff.after_error(&shared, &error);
-                        }
-                    } else {
-                        // The listener drained without error: a later error
-                        // starts a new streak.
-                        backoff.reset();
-                    }
-                    if fds[1].revents != 0 {
-                        shared.accept_waker.drain();
-                    }
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
-                    ) => {}
-                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
-                Err(error) => backoff.after_error(&shared, &error),
-            }
-        }
-        thread::sleep(Duration::from_millis(20));
-        drop(guard);
-        Ok(())
-    }
-
     fn spawn_host_runtime(
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
@@ -942,6 +750,8 @@ pub(crate) use shared::codec::{
 #[cfg(unix)]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
 #[cfg(unix)]
+pub use shared::host_serve::serve_terminal_host_stdio;
+#[cfg(unix)]
 pub(crate) use shared::records::load_terminal_host_records_for_reset;
 #[cfg(unix)]
 pub use shared::records::{
@@ -970,8 +780,7 @@ pub(crate) use unix::{
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, isolate_terminal_host_process_fds,
-    launch_terminal_host_adopting, request_terminal_host_pty_custody, serve_terminal_host_stdio,
-    terminal_host_root,
+    launch_terminal_host_adopting, request_terminal_host_pty_custody, terminal_host_root,
 };
 
 #[cfg(not(unix))]
