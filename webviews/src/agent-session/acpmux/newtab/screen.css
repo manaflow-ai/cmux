@@ -175,21 +175,19 @@
   border-radius: 50%;
 }
 /* The host actions (ToolsRow): one quiet row under the field, text and a small glyph, the shortcut
-   on hover or focus (board principle 5). */
-.nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px;padding:0 4px}
+   in the tooltip (board principle 5). */
+.nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px}
 .nt-tool-host{display:contents}
-.nt-tool{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
+.nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
-.nt-tool-icon{display:inline-grid;place-items:center;width:14px;font:600 var(--text-caption)/1 ui-monospace,SFMono-Regular,Menlo,monospace}
-.nt-tool kbd{display:none;color:var(--acpmux-composer-dim);font:var(--text-caption)/1 system-ui}
-.nt-tool:hover kbd,.nt-tool:focus-visible kbd{display:inline}
+.nt-tool-icon{display:inline-grid;place-items:center;width:16px}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
    the window is too short. Marks are muted at rest: color is for state, not for every row. */
-.nt-all{margin-top:18px;display:flex;flex-direction:column;flex:1 1 0;min-height:240px}
-.nt-all .nt-chats-head{height:30px;padding:0 4px 0 10px}
+.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:240px}
+.nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500}
-.nt-all-search{margin-left:auto;display:flex;align-items:center;gap:6px;width:min(200px,45%);height:26px;padding:0 8px;box-sizing:border-box;border-radius:8px;color:var(--acpmux-composer-dim)}
+.nt-all-search{margin-left:auto;display:flex;align-items:center;gap:6px;width:min(200px,45%);height:26px;padding:0 10px;box-sizing:border-box;border-radius:8px;color:var(--acpmux-composer-dim)}
 .nt-all-search:hover,.nt-all-search:focus-within{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-all-search svg{flex:none}
 .nt-all-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);-webkit-appearance:none;appearance:none}

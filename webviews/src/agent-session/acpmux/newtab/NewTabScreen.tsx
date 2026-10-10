@@ -422,7 +422,7 @@ function ownsKeys(element: Element): boolean {
 }
 
 /// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
-/// a name, the shortcut on hover or focus. A tool's extra commands (Terminal: split right, split
+/// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
 /// down) are in its right-click menu. "Integrate a harness" ends the row.
 function ToolsRow({
   tools,
@@ -438,12 +438,17 @@ function ToolsRow({
     <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
       {tools.map((tool) => {
         const button = (
-          <button type="button" className="nt-tool" onClick={() => onRunAction?.(tool.id)}>
+          <button
+            type="button"
+            className="nt-tool"
+            // The shortcut in the tooltip: shown inline on hover it moved every later tool.
+            title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
+            onClick={() => onRunAction?.(tool.id)}
+          >
             <span className="nt-tool-icon" aria-hidden="true">
               {toolIcon(tool.symbol)}
             </span>
             <span>{toolTitle(t, tool)}</span>
-            {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
           </button>
         );
         return tool.menu.length > 0 ? (
@@ -461,7 +466,7 @@ function ToolsRow({
       {onAddHarness && (
         <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
           <span className="nt-tool-icon" aria-hidden="true">
-            +
+            {toolIcon("plus")}
           </span>
           <span>{t("newtab.addHarness")}</span>
         </button>
@@ -470,8 +475,38 @@ function ToolsRow({
   );
 }
 
-function toolIcon(symbol: string): string {
-  return { plusminus: "±", terminal: "›_", folder: "▱", "bubble.left.and.text.bubble.right": "◌" }[symbol] ?? "•";
+/// 14 px stroke icons in currentColor for the host actions, by SF Symbol name.
+function toolIcon(symbol: string): React.ReactNode {
+  const path: Record<string, React.ReactNode> = {
+    plusminus: <path d="M4 4.5h4M6 2.5v4M4 11.5h8M10 4.5h2" />,
+    terminal: (
+      <>
+        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+        <path d="m4.75 6.25 2 1.75-2 1.75M8.5 10h2.75" />
+      </>
+    ),
+    folder: (
+      <path d="M1.75 4.25c0-.8.65-1.5 1.5-1.5h2.6l1.5 1.5h5.4c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H3.25c-.85 0-1.5-.65-1.5-1.5z" />
+    ),
+    "bubble.left.and.text.bubble.right": (
+      <path d="M2.25 4c0-.85.65-1.5 1.5-1.5h8.5c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H7l-3 2.5V11h-.25c-.85 0-1.5-.65-1.5-1.5zM5 5.75h6M5 8h4" />
+    ),
+    plus: <path d="M8 3v10M3 8h10" />,
+  };
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {path[symbol] ?? <circle cx="8" cy="8" r="2" />}
+    </svg>
+  );
 }
 
 function toolMenuTitle(t: Translate, id: string): string {
