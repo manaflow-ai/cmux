@@ -45,19 +45,19 @@ nonisolated struct CloudCredentialRelay: Sendable {
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
 
-    /// Answers one provider call of the `credential` family.
-    func answer(_ call: AppsProviderCall) async -> Answer {
-        guard call.app == Self.app else {
+    /// Answers one provider call of the `credential` family from `app`.
+    func answer(app: String, op: String, params: JSONValue) async -> Answer {
+        guard app == Self.app else {
             return Self.failure("credential.app_refused", "only \(Self.app) may use the credential relay")
         }
-        switch call.op {
+        switch op {
         case Self.sessionOp:
             let state = await session()
             return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
         case Self.relayOp:
-            return await relay(call.params)
+            return await relay(params)
         default:
-            return Self.failure("operation.unsupported", "\(call.op) is not a credential op")
+            return Self.failure("operation.unsupported", "\(op) is not a credential op")
         }
     }
 

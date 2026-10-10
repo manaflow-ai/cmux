@@ -5,7 +5,7 @@ import Foundation
 /// Cloud ops through the Cloud app server (`cmux/cloud`, contract 2.1):
 /// `apps-run` on the local daemon; the server checks the args and origin,
 /// keeps the machine projection, and reaches the cmux-next API Worker
-/// through the host credential relay (install token, `CloudCredentialProvider`).
+/// through the host credential relay (install token, `CloudCredentialOps`).
 /// Never `/api/vm`.
 nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringConvertible {
     /// The server's code (`cmux.cloud.<reason>`).

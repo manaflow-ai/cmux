@@ -75,7 +75,10 @@ final class AppsService {
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
             try await router.appControl(method, params)
         }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control)]))
+        var handlers: [any AppHostCapabilityHandler] = [CodeRouterAppOps(control: control), ActionAppOps(control: control)]
+        // The Cloud credential relay (cx-wb5.63), on the app server link path only.
+        if let credential = services.cloud.credentialOps { handlers.append(credential) }
+        transport.provider.attach(AppHostCapabilities(handlers))
     }
 
     /// Opens the App Store (palette "App Store", `appStore.show`): a user
