@@ -13,6 +13,7 @@ Licensed Work:        The cmux server software in the following directories of
                         services/iroh-relay-minter/
                         cmux-tui/relays/cloudflare-do/
                         backend/
+                        ios-next/backend/
                       The Licensed Work excludes web/data/cmux.schema.json,
                       files generated from sources outside those directories,
                       and third-party material that is subject to its own
