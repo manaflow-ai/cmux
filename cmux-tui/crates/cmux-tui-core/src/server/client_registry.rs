@@ -336,6 +336,9 @@ pub(crate) struct ClientRegistry {
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     pub(super) loopback: loopback_forward::LoopbackForwarder,
+    /// Connection-scoped browser hosts (`browser-runtime-v1`).
+    #[cfg(unix)]
+    pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
@@ -350,6 +353,17 @@ pub(crate) struct ClientRegistry {
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
     pub(super) state: Mutex<ClientRegistryState>,
+}
+
+/// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
+#[cfg(unix)]
+fn browser_runtime_capability(capability: &str) -> bool {
+    capability == super::BROWSER_RUNTIME_CAPABILITY
+}
+
+#[cfg(not(unix))]
+fn browser_runtime_capability(_capability: &str) -> bool {
+    false
 }
 
 pub(super) fn clamp_client_label(value: String) -> String {
@@ -385,6 +399,8 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            #[cfg(unix)]
+            browser_runtimes: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
@@ -643,6 +659,7 @@ impl ClientRegistry {
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
+                    || browser_runtime_capability(capability)
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
             }));
