@@ -151,10 +151,14 @@ public final class TerminalSession {
         surfaceView.updateSurfaceSize(forceReport: true)
     }
 
-    isolated deinit {
-        eventsTask?.cancel()
-        writerTask?.cancel()
-        input.finish()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            eventsTask?.cancel()
+            writerTask?.cancel()
+            input.finish()
+        }
     }
 
     // MARK: Public API

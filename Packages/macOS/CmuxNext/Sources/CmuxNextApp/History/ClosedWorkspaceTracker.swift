@@ -40,7 +40,13 @@ final class ClosedWorkspaceTracker {
         self.agentHomes = agentHomes
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
+    }
 
     private static func snapshot(of daemons: [DaemonService], incognito: (String) -> Bool) -> ClosedWorkspaceLog.Snapshot {
         var machines: [String: ClosedWorkspaceLog.Snapshot.Machine] = [:]

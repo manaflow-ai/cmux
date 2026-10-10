@@ -106,12 +106,16 @@ final class ComputerUseSetup {
         self.clock = clock
     }
 
-    isolated deinit {
-        observation?.cancel()
-        reading?.cancel()
-        for observer in observers {
-            notifications.removeObserver(observer)
-            distributed.removeObserver(observer)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            reading?.cancel()
+            for observer in observers {
+                notifications.removeObserver(observer)
+                distributed.removeObserver(observer)
+            }
         }
     }
 

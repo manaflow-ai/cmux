@@ -10,6 +10,11 @@ final class PageState {
     var levelID = 0
     /// The level's generation this page last searched for.
     var generation = 0
+
+    // A palette reset (Tab Search, Cmd-Shift-P reopen) releases this inside an
+    // action's task-local scope; teardown must not need a main-actor hop (cx-t7hu).
+    nonisolated deinit {}
+
     /// Created while another level was on top: load its providers when it
     /// is first shown.
     var needsLoad = true
