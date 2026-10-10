@@ -182,14 +182,18 @@ class SidebarItemRowView: NSView {
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let pillFrame = style.isIconOnly || style == .chip ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
-        pill.frame = pillFrame
-        pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
+        // Icon-only items keep their selection and hover pill around the glyph.
+        // A full-width fill makes a compact sidebar read like a selected row.
+        let pillFrame = style.isIconOnly ? iconFrame
+            : style == .chip ? b
+            : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
+        pill.frame = pillFrame
+        pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         chip.frame = style == .list ? iconFrame : .zero
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
