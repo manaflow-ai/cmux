@@ -40,6 +40,31 @@ struct GlobalSearchSnippetTests {
     }
 
     @Test
+    func promptIconGlyphsAreDropped() {
+        let text = "\u{E0B6}\u{F07C} ~/code \u{E0B0} \u{2714} \u{F017} 16:44:11 $\u{FFFD} echo 4+4"
+        let excerpt = GlobalSearchSnippet.excerpt(text: text, tokens: ["echo"])
+        #expect(excerpt == "~/code \u{2714} 16:44:11 $ echo 4+4")
+    }
+
+    @Test
+    func aPunctuatedQueryWordIsFoundWholeBeforeItsTokens() {
+        let text = "lucas@Lucass-MacBook-Pro-4:~ 16:44:11" + String(repeating: " filler", count: 30) + " so 4+4 is 8"
+        let excerpt = GlobalSearchSnippet.excerpt(text: text, tokens: ["4", "4"], phrases: ["4+4"])
+        #expect(excerpt.contains("so 4+4 is 8"))
+        #expect(!excerpt.contains("Pro-4"))
+    }
+
+    @Test
+    func sessionMessagesAreJoinedWithASeparator() {
+        let excerpt = GlobalSearchSnippet.excerpt(
+            text: "2+2\n4\nwhat about 8+8",
+            tokens: ["2"],
+            lineSeparator: GlobalSearchSnippet.messageSeparator
+        )
+        #expect(excerpt == "2+2 \u{00B7} 4 \u{00B7} what about 8+8")
+    }
+
+    @Test
     func emptyTextGivesAnEmptyExcerpt() {
         #expect(GlobalSearchSnippet.excerpt(text: "", tokens: ["token"]).isEmpty)
     }

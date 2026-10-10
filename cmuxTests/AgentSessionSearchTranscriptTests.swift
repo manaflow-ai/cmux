@@ -13,7 +13,7 @@ import Testing
 @Suite("Agent session search transcript")
 struct AgentSessionSearchTranscriptTests {
     @Test
-    func readsPromptsRepliesAndToolTrafficNewestFirst() throws {
+    func readsPromptsRepliesAndToolTrafficInConversationOrder() throws {
         try withTranscript([
             Self.userLine(uuid: "u-1", content: "check the delphi token spend"),
             Self.assistantLine(uuid: "a-1", blocks: [["type": "text", "text": "Reading the cost sheet."]]),
@@ -25,9 +25,8 @@ struct AgentSessionSearchTranscriptTests {
             let lines = transcript.text.documentText.components(separatedBy: "\n")
             #expect(lines == [
                 "check the delphi token spend",
-                "now draft the ticket",
-                "check the delphi token spend",
                 "Reading the cost sheet.",
+                "now draft the ticket",
             ])
         }
     }
@@ -95,13 +94,15 @@ struct AgentSessionSearchTranscriptTests {
     @Test
     func boundedQueueDropsOldestButKeepsTheNewestEntry() {
         var queue = BoundedTextQueue(byteLimit: 10)
-        queue.append("aaaa")
-        queue.append("bbbb")
-        queue.append("cccc")
-        #expect(queue.newestFirst == ["cccc", "bbbb"])
+        queue.append("aaaa", seq: 0)
+        queue.append("bbbb", seq: 1)
+        #expect(!queue.droppedAny)
+        queue.append("cccc", seq: 2)
+        #expect(queue.entries.map(\.text) == ["bbbb", "cccc"])
+        #expect(queue.droppedAny)
 
-        queue.append(String(repeating: "z", count: 50))
-        #expect(queue.newestFirst == [String(repeating: "z", count: 50)])
+        queue.append(String(repeating: "z", count: 50), seq: 3)
+        #expect(queue.entries.map(\.text) == [String(repeating: "z", count: 50)])
     }
 
     @Test

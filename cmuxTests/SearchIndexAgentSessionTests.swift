@@ -43,6 +43,31 @@ struct SearchIndexAgentSessionTests {
     }
 
     @Test
+    func aPunctuatedQueryMatchesAsAPhraseNotAsLooseTokens() async throws {
+        let (directory, index) = try makeIndex()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try await index.upsert(document(
+            id: "prompt",
+            panelID: UUID(),
+            kind: .terminal,
+            title: "Terminal",
+            text: "lucas@Lucass-MacBook-Pro-4:~ 16:44:11 $ ls"
+        ))
+        try await index.upsert(document(
+            id: "session",
+            panelID: UUID(),
+            kind: .agentSession,
+            title: "4+4",
+            text: "4+4\n8"
+        ))
+
+        let hits = try await index.search("4+4", limit: 10)
+        #expect(hits.map(\.id) == ["session"])
+        #expect(hits.first?.snippet == "4+4 \u{00B7} 8")
+    }
+
+    @Test
     func titleMatchOutranksOneMentionInALongBody() async throws {
         let (directory, index) = try makeIndex()
         defer { try? FileManager.default.removeItem(at: directory) }

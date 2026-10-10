@@ -119,9 +119,15 @@ actor SearchIndex {
         let candidates = try rankedCandidates(matchQuery: matchQuery, limit: candidateLimit)
         let rows = Self.onePerPanel(candidates, limit: limit)
         let tokens = Self.queryTokens(for: trimmed)
+        let phrases = Self.queryPhrases(for: trimmed)
         return try rows.map { row in
             let text = try storedText(documentID: row.id) ?? ""
-            return row.withSnippet(GlobalSearchSnippet.excerpt(text: text, tokens: tokens))
+            return row.withSnippet(GlobalSearchSnippet.excerpt(
+                text: text,
+                tokens: tokens,
+                phrases: phrases,
+                lineSeparator: row.kind == .agentSession ? GlobalSearchSnippet.messageSeparator : " "
+            ))
         }
     }
 
@@ -406,12 +412,31 @@ actor SearchIndex {
         return tokens
     }
 
-    private static func matchQuery(for rawQuery: String) -> String? {
-        let tokens = queryTokens(for: rawQuery)
-        guard !tokens.isEmpty else { return nil }
+    /// Query words that hold punctuation between letters or digits ("4+4",
+    /// "api.ts"), lowercased: the snippet looks for these whole before
+    /// falling back to their tokens.
+    static func queryPhrases(for rawQuery: String) -> [String] {
+        rawQuery
+            .split(whereSeparator: \.isWhitespace)
+            .map { $0.lowercased() }
+            .filter { queryTokens(for: $0).count > 1 }
+    }
 
-        return tokens.map { token in
-            "\(token)*"
+    /// Each whitespace-separated query word must match. A word that splits
+    /// into several tokens ("4+4", "api.ts") matches them as a phrase, in
+    /// order and adjacent, so "4+4" no longer matches "Pro-4" or "16:44".
+    /// The last token of every word matches as a prefix.
+    static func matchQuery(for rawQuery: String) -> String? {
+        let words = rawQuery
+            .split(whereSeparator: \.isWhitespace)
+            .map { queryTokens(for: String($0)) }
+            .filter { !$0.isEmpty }
+        guard !words.isEmpty else { return nil }
+
+        return words.map { tokens in
+            tokens.count == 1
+                ? "\(tokens[0])*"
+                : "\"\(tokens.joined(separator: " "))\"*"
         }.joined(separator: " AND ")
     }
 

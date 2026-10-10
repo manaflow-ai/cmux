@@ -152,11 +152,12 @@ struct AgentSessionSearchText: Equatable, Sendable {
 
     var isEmpty: Bool { firstPrompt == nil && prompts.isEmpty && others.isEmpty }
 
-    /// The document text: the first prompt, then prompts newest first, then
-    /// replies and tool traffic newest first.
+    /// The document text, one message per line in conversation order. The
+    /// first prompt leads it again only once the prompt budget dropped it.
     var documentText: String {
-        ([firstPrompt].compactMap { $0 } + prompts.newestFirst + others.newestFirst)
-            .joined(separator: "\n")
+        let messages = (prompts.entries + others.entries).sorted { $0.seq < $1.seq }.map(\.text)
+        let lead = prompts.droppedAny ? [firstPrompt].compactMap { $0 } : []
+        return (lead + messages).joined(separator: "\n")
     }
 
     mutating func append(_ result: ChatTranscriptParseResult) {
@@ -164,9 +165,9 @@ struct AgentSessionSearchText: Equatable, Sendable {
             guard let entry = Self.entry(for: message) else { continue }
             if entry.isPrompt {
                 if firstPrompt == nil { firstPrompt = entry.text }
-                prompts.append(entry.text)
+                prompts.append(entry.text, seq: appendedEntryCount)
             } else {
-                others.append(entry.text)
+                others.append(entry.text, seq: appendedEntryCount)
             }
             appendedEntryCount += 1
         }
@@ -174,7 +175,7 @@ struct AgentSessionSearchText: Equatable, Sendable {
         // only the output is new.
         for message in result.updatedMessages {
             if let output = Self.completedOutput(of: message) {
-                others.append(output)
+                others.append(output, seq: appendedEntryCount)
                 appendedEntryCount += 1
             }
         }
@@ -225,29 +226,39 @@ struct AgentSessionSearchText: Equatable, Sendable {
 /// Oldest-first text entries that drop from the front past a UTF-8 byte limit.
 /// The newest entry always stays, even when it alone is over the limit.
 struct BoundedTextQueue: Equatable, Sendable {
+    struct Entry: Equatable, Sendable {
+        /// Position in the conversation, shared across queues.
+        let seq: Int
+        let text: String
+    }
+
     let byteLimit: Int
-    private var entries: [String] = []
+    private var storage: [Entry] = []
     private var head = 0
     private var bytes = 0
+    /// Whether the byte limit has ever dropped an entry.
+    private(set) var droppedAny = false
 
     init(byteLimit: Int) {
         self.byteLimit = byteLimit
     }
 
-    var isEmpty: Bool { head == entries.count }
+    var isEmpty: Bool { head == storage.count }
 
-    var newestFirst: [String] { entries[head...].reversed() }
+    /// Live entries, oldest first.
+    var entries: ArraySlice<Entry> { storage[head...] }
 
-    mutating func append(_ text: String) {
-        entries.append(text)
+    mutating func append(_ text: String, seq: Int) {
+        storage.append(Entry(seq: seq, text: text))
         bytes += text.utf8.count
-        while bytes > byteLimit, head < entries.count - 1 {
-            bytes -= entries[head].utf8.count
+        while bytes > byteLimit, head < storage.count - 1 {
+            bytes -= storage[head].text.utf8.count
             head += 1
+            droppedAny = true
         }
         // Compact once the dropped prefix outgrows the live entries.
-        if head > 64, head * 2 > entries.count {
-            entries.removeFirst(head)
+        if head > 64, head * 2 > storage.count {
+            storage.removeFirst(head)
             head = 0
         }
     }
@@ -255,6 +266,7 @@ struct BoundedTextQueue: Equatable, Sendable {
     static func == (lhs: BoundedTextQueue, rhs: BoundedTextQueue) -> Bool {
         lhs.byteLimit == rhs.byteLimit
             && lhs.bytes == rhs.bytes
-            && lhs.entries[lhs.head...].elementsEqual(rhs.entries[rhs.head...])
+            && lhs.droppedAny == rhs.droppedAny
+            && lhs.entries.elementsEqual(rhs.entries)
     }
 }

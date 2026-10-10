@@ -131,7 +131,8 @@ enum GlobalSearchDocuments {
     ) -> SearchIndexDocument {
         // The location already names the pane's directory, so the body is
         // only what was said; a leading path would open every snippet.
-        let text = cappedText(transcriptText)
+        // Newest messages sit at the end, so a cap keeps the end.
+        let text = cappedTextKeepingEnd(transcriptText)
 
         return SearchIndexDocument(
             id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession),
@@ -150,6 +151,12 @@ enum GlobalSearchDocuments {
         guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
         let endIndex = text.index(text.startIndex, offsetBy: GlobalSearchIndexingLimits.maxIndexedTextCharacters)
         return String(text[..<endIndex])
+    }
+
+    nonisolated static func cappedTextKeepingEnd(_ text: String) -> String {
+        guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
+        let startIndex = text.index(text.endIndex, offsetBy: -GlobalSearchIndexingLimits.maxIndexedTextCharacters)
+        return String(text[startIndex...])
     }
 
     static func firstNonEmpty(_ values: String?...) -> String? {
