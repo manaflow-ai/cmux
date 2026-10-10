@@ -102,7 +102,7 @@ struct TerminalLinkOpenCoordinator {
                 return true
             }
 
-            if !isExplicitLocalFileURL,
+            if reference.line == nil,
                CommandClickFileOpenRouter.shouldRouteInCmux(
                    path: reference.path,
                    defaults: defaults
