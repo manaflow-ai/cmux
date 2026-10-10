@@ -56,6 +56,7 @@ mod hosted_stager;
 use hosted_stager::{HostedFrameStager, HostedTransition};
 #[cfg(test)]
 use options::child_term_for;
+use options::configure_agent_browser_session;
 pub(crate) use options::replace_ghostty_cursor_defaults;
 pub use options::{DefaultColors, SurfaceOptions, TerminalColors, default_child_term};
 use pending_bells::PendingBells;
@@ -1658,19 +1659,6 @@ impl Surface {
             Surface::Pty(_) => SurfaceKind::Pty,
             Surface::Browser(_) => SurfaceKind::Browser,
         }
-    }
-}
-
-fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
-    let enabled = options
-        .extra_env
-        .iter()
-        .any(|(key, value)| key == "CMUX_TUI_AGENT_BROWSER_PROVIDER" && value == "1");
-    if enabled {
-        // agent-browser daemons are keyed by session. A distinct caller
-        // session prevents a command from another workspace from silently
-        // reusing the first workspace's page-scoped CDP connection.
-        set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
     }
 }
 
