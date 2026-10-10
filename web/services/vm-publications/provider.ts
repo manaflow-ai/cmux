@@ -41,8 +41,7 @@ export type VmPublicationProviderOperation =
   | "updateTlsRule"
   | "getTlsRule"
   | "deleteTlsRule"
-  | "deleteTlsRulesForHostname"
-  | "deleteTlsRulesForHostnames"
+  | "deletePublicationTlsRules"
   | "reconcileTlsRule"
   | "createDomainVerification"
   | "getDomainVerification"
@@ -222,13 +221,12 @@ export type VmPublicationProviderShape = {
   readonly deleteTlsRule: (
     tlsRuleId: string,
   ) => Effect.Effect<void, VmPublicationProviderError>;
-  /** Delete every exact HTTP ingress rule for a hostname, including crash-window duplicates. */
-  readonly deleteTlsRulesForHostname: (
-    hostname: string,
-  ) => Effect.Effect<number, VmPublicationProviderError>;
-  /** The same sweep for a batch of hostnames with one provider listing; returns rules deleted. */
-  readonly deleteTlsRulesForHostnames: (
-    hostnames: readonly string[],
+  /**
+   * Delete the TLS rules a batch of publications owns, with one provider
+   * listing; returns rules deleted. See {@link PublicationRuleOwner}.
+   */
+  readonly deletePublicationTlsRules: (
+    publications: readonly PublicationRuleOwner[],
   ) => Effect.Effect<number, VmPublicationProviderError>;
   readonly reconcileTlsRule: (
     tlsRuleId: string | null | undefined,
@@ -614,18 +612,38 @@ async function scanTlsRulesOnce(
   throw new Error("Freestyle TLS rule listing exceeded its page limit");
 }
 
-async function deleteExactHostnameRules(
+/**
+ * What a publication may delete. Its stored rule id, always. A publication
+ * whose hostname it has claimed also owns crash-window duplicates: exact HTTP
+ * ingress rules for that hostname that land on its own VM. Rules for the same
+ * hostname that land on another VM are never its own: an unclaimed row (a
+ * custom hostname whose zone another account verified first) shares the
+ * hostname with the claimed owner's live rule.
+ */
+export type PublicationRuleOwner = {
+  readonly hostname: string;
+  readonly providerVmId: string | null;
+  readonly providerTlsRuleId: string | null;
+  readonly hostnameClaimed: boolean;
+};
+
+async function deletePublicationRules(
   client: VmPublicationFreestyleClient,
-  hostnames: readonly string[],
+  publications: readonly PublicationRuleOwner[],
 ): Promise<number> {
-  const targets = new Set(hostnames.map(normalizedExactHostname));
-  if (targets.size === 0) return 0;
-  const ruleIds = (await listAllTlsRules(client))
-    .filter((rule) => {
+  const ruleIds = new Set(
+    publications.flatMap((publication) => publication.providerTlsRuleId?.trim() || []),
+  );
+  const claimed = publications.filter((publication) =>
+    publication.hostnameClaimed && publication.providerVmId?.trim());
+  if (claimed.length > 0) {
+    const owners = new Set(claimed.map((publication) =>
+      `${normalizedExactHostname(publication.hostname)}|${publication.providerVmId!.trim()}`));
+    for (const rule of await listAllTlsRules(client)) {
       const hostname = exactHttpIngressHostname(rule);
-      return hostname !== null && targets.has(hostname);
-    })
-    .map((rule) => rule.id);
+      if (hostname !== null && owners.has(`${hostname}|${rule.destination.vmId ?? ""}`)) ruleIds.add(rule.id);
+    }
+  }
   for (const ruleId of ruleIds) {
     try {
       await client.tls.rules.delete(ruleId);
@@ -633,7 +651,7 @@ async function deleteExactHostnameRules(
       if (!isNotFound(cause)) throw cause;
     }
   }
-  return ruleIds.length;
+  return ruleIds.size;
 }
 
 export function makeVmPublicationProvider(
@@ -703,14 +721,9 @@ export function makeVmPublicationProvider(
         }
       }),
 
-    deleteTlsRulesForHostname: (value) =>
-      providerEffect("deleteTlsRulesForHostname", () =>
-        deleteExactHostnameRules(createClient(), [value]),
-      ),
-
-    deleteTlsRulesForHostnames: (values) =>
-      providerEffect("deleteTlsRulesForHostnames", () =>
-        deleteExactHostnameRules(createClient(), values),
+    deletePublicationTlsRules: (publications) =>
+      providerEffect("deletePublicationTlsRules", () =>
+        publications.length === 0 ? Promise.resolve(0) : deletePublicationRules(createClient(), publications),
       ),
 
     reconcileTlsRule: (tlsRuleId, spec) =>

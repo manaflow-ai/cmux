@@ -55,6 +55,8 @@ describe("VM deletion publication teardown", () => {
                   publicationId: "00000000-0000-4000-8000-000000000002",
                   provider: "freestyle",
                   hostname: "one.preview.example.test",
+                  providerVmId: "vm-1",
+                  hostnameClaimed: true,
                   providerTlsRuleId: "tls-one",
                   state: "disabling",
                 },
@@ -62,6 +64,8 @@ describe("VM deletion publication teardown", () => {
                   publicationId: "00000000-0000-4000-8000-000000000003",
                   provider: "freestyle",
                   hostname: "two.preview.example.test",
+                  providerVmId: "vm-1",
+                  hostnameClaimed: true,
                   providerTlsRuleId: null,
                   state: "disabling",
                 },
@@ -74,8 +78,8 @@ describe("VM deletion publication teardown", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(2);
           },
         },
@@ -107,6 +111,8 @@ describe("VM deletion publication teardown", () => {
                     publicationId: "00000000-0000-4000-8000-000000000002",
                     provider: "freestyle",
                     hostname: "one.preview.example.test",
+                    providerVmId: "vm-1",
+                    hostnameClaimed: true,
                     providerTlsRuleId: "tls-one",
                     state: "disabling",
                   },
@@ -119,11 +125,11 @@ describe("VM deletion publication teardown", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostnames: () => {
+            deletePublicationTlsRules: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostnames",
+                  operation: "deletePublicationTlsRules",
                   cause: new Error("provider unavailable"),
                 }),
               );

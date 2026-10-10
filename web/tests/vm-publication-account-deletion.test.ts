@@ -18,6 +18,8 @@ const TARGET: CloudVmPublicationAccountDeletionTarget = {
   publicationId: "00000000-0000-4000-8000-000000000001",
   provider: "freestyle",
   hostname: "account.preview.example.test",
+  providerVmId: "vm-1",
+  hostnameClaimed: true,
   providerTlsRuleId: "tls-rule-account",
 };
 
@@ -68,8 +70,8 @@ describe("VM publication account deletion", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(2);
           },
         },
@@ -106,11 +108,11 @@ describe("VM publication account deletion", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostnames: () => {
+            deletePublicationTlsRules: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostnames",
+                  operation: "deletePublicationTlsRules",
                   cause: new Error("provider unavailable"),
                 }),
               );
@@ -125,7 +127,7 @@ describe("VM publication account deletion", () => {
     if (result._tag === "Left") {
       expect(result.left).toMatchObject({
         _tag: "VmPublicationProviderError",
-        operation: "deleteTlsRulesForHostnames",
+        operation: "deletePublicationTlsRules",
       });
     }
     expect(events).toEqual(["begin-disable", "provider-delete"]);
@@ -137,6 +139,8 @@ describe("VM publication account deletion", () => {
       ...TARGET,
       publicationId: "00000000-0000-4000-8000-000000000002",
       hostname: "second.preview.example.test",
+      providerVmId: "vm-1",
+      hostnameClaimed: true,
       providerTlsRuleId: null,
     };
     const result = await Effect.runPromise(
@@ -153,8 +157,8 @@ describe("VM publication account deletion", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(3);
           },
         },

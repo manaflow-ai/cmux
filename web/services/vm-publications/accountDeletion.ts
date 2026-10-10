@@ -96,9 +96,7 @@ export function teardownVmPublicationsForAccountDeletion(
     }
     const providerRules = targets.length === 0
       ? 0
-      : yield* provider.deleteTlsRulesForHostnames(
-        targets.map((target) => target.hostname),
-      );
+      : yield* provider.deletePublicationTlsRules(targets);
     for (const { target, alreadyDisabled } of disabled) {
       if (!alreadyDisabled) {
         yield* repository.finishDisablePublication({

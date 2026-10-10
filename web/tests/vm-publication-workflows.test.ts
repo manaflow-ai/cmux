@@ -1383,7 +1383,7 @@ describe("Cloud VM publication workflows", () => {
       },
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => {
+      deletePublicationTlsRules: () => {
         calls.push("rules.sweep");
         return Effect.succeed(2);
       },
@@ -1809,7 +1809,7 @@ describe("Cloud VM publication workflows", () => {
       finishDisablePublication: () => Effect.succeed({ ...disabling, state: "disabled", disabledAt: NOW }),
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => Effect.succeed(1),
+      deletePublicationTlsRules: () => Effect.succeed(1),
     });
 
     const result = await run(deletePublication({
@@ -1924,7 +1924,7 @@ describe("Cloud VM publication workflows", () => {
       },
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => {
+      deletePublicationTlsRules: () => {
         calls.push("rules.sweep");
         return Effect.succeed(1);
       },

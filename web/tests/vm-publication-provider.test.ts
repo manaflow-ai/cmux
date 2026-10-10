@@ -22,6 +22,11 @@ import {
 } from "../services/vm-publications/provider";
 
 const CREATED_AT = "2026-09-02T12:00:00.000Z";
+
+/** Claimed publications on one VM with no stored rule id: cleanup comes only from the hostname match. */
+function claimedOn(providerVmId: string, ...hostnames: string[]) {
+  return hostnames.map((hostname) => ({ hostname, providerVmId, providerTlsRuleId: null, hostnameClaimed: true }));
+}
 const UPDATED_AT = "2026-09-02T12:01:00.000Z";
 
 function forwardAuthData(
@@ -450,7 +455,7 @@ describe("VM publication Freestyle provider", () => {
     const provider = makeVmPublicationProvider(() => client);
 
     await expect(
-      Effect.runPromise(provider.deleteTlsRulesForHostname("App.Example.com.")),
+      Effect.runPromise(provider.deletePublicationTlsRules(claimedOn("vm-1", "App.Example.com."))),
     ).resolves.toBe(2);
     expect(deleted).toEqual(["tls-rule-persisted", "tls-rule-crash-duplicate"]);
   });
@@ -487,7 +492,7 @@ describe("VM publication Freestyle provider", () => {
 
     await expect(
       Effect.runPromise(
-        provider.deleteTlsRulesForHostnames(["app.example.com", "Sibling.Example.com."]),
+        provider.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com", "Sibling.Example.com.")),
       ),
     ).resolves.toBe(2);
     expect(deleted).toEqual(["tls-rule-target", "tls-rule-sibling"]);
@@ -501,7 +506,7 @@ describe("VM publication Freestyle provider", () => {
     }));
     expect(reconciled.rule.tlsRuleId).toBe("tls-rule-target");
     expect(pages).toHaveLength(2);
-    expect(await Effect.runPromise(provider.deleteTlsRulesForHostnames([]))).toBe(0);
+    expect(await Effect.runPromise(provider.deletePublicationTlsRules([]))).toBe(0);
   });
 
   test("repeats an unstable rule scan and fails closed when it never settles", async () => {
@@ -537,7 +542,7 @@ describe("VM publication Freestyle provider", () => {
     const provider = makeVmPublicationProvider(() => client);
 
     await expect(
-      Effect.runPromise(provider.deleteTlsRulesForHostnames(["app.example.com"])),
+      Effect.runPromise(provider.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com"))),
     ).resolves.toBe(1);
     expect(deleted).toEqual(["tls-rule-target"]);
     expect(calls).toBe(4);
@@ -549,7 +554,7 @@ describe("VM publication Freestyle provider", () => {
       },
     }));
     const error = await Effect.runPromise(
-      Effect.flip(neverSettles.deleteTlsRulesForHostnames(["app.example.com"])),
+      Effect.flip(neverSettles.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com"))),
     );
     expect(error).toBeInstanceOf(VmPublicationProviderError);
     expect(String((error.cause as Error).message)).toContain("kept changing");
