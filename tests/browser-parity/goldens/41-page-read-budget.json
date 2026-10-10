@@ -13,9 +13,10 @@
       "cut": true
     },
     "big-values-cut": {
-      "tail": false,
-      "cut": true,
-      "short": true
+      "generated": true,
+      "placeholder": true,
+      "option": true,
+      "editable": true
     },
     "shared-label-names": {
       "cut": true,

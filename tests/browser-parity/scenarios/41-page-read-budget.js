@@ -50,15 +50,26 @@ await page.evaluate(() => {
 const url = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
 const link = url.split("\n").find((l) => l.includes('link "Long"')) || "";
 emitCmux("long-url", { url: /\[url=/.test(link), cut: /stopped after [\d,]+ characters/.test(url) });
+// Each value is the first one past the budget in its own snapshot.
+const bigCut = async (body) => {
+  await page.evaluate((body) => {
+    const big = "q".repeat(200000);
+    document.body.innerHTML = body.replace(/BIG/g, big) + "<button>Tail</button>";
+  }, body);
+  const tree = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
+  return /stopped after [\d,]+ characters/.test(tree) && !tree.includes('button "Tail"') && tree.length < 20000;
+};
 await page.evaluate(() => {
-  const big = "q".repeat(200000);
   const style = document.createElement("style");
-  style.textContent = `#gen::before { content: "${big}"; }`;
+  style.textContent = `#gen::before { content: "${"q".repeat(200000)}"; }`;
   document.head.appendChild(style);
-  document.body.innerHTML = `<p id="gen">Generated</p><input placeholder="${big}"><select><option label="${big}">one</option></select><div contenteditable="true">${big}</div><button>Tail</button>`;
 });
-const values = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
-emitCmux("big-values-cut", { tail: values.includes('button "Tail"'), cut: /stopped after [\d,]+ characters/.test(values), short: values.length < 20000 });
+emitCmux("big-values-cut", {
+  generated: await bigCut('<p id="gen">Generated</p>'),
+  placeholder: await bigCut('<input placeholder="BIG">'),
+  option: await bigCut('<select><option label="BIG">one</option></select>'),
+  editable: await bigCut('<div contenteditable="true">BIG</div>'),
+});
 
 // ---- cell session=budget cmux-only
 // A name reads its sources within bounds charged to the snapshot: 1,000

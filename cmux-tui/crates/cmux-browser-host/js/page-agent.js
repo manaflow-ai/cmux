@@ -494,15 +494,20 @@
   const NAME_ATTRS = ["aria-label", "title", "alt", "placeholder", "value", "aria-description"];
   const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
   const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) + CUT : v || "");
+  // At most 64 targets, each id charged; `incomplete` when ids are left
+  // (past 64, or the budget stopped), so the name cannot be Playwright's,
+  // which reads every target.
   function labelledTargets(el, ctx) {
     const value = el.getAttribute("aria-labelledby");
     if (!value) return [];
     const out = [];
     const ids = /\S+/g;
-    for (let m = ids.exec(value); m && out.length < 64 && spend(ctx, 1); m = ids.exec(value)) {
+    let m = ids.exec(value);
+    for (; m && out.length < 64 && spend(ctx, 1); m = ids.exec(value)) {
       const t = el.ownerDocument.getElementById(m[0]);
       if (t) out.push(t);
     }
+    if (m) out.incomplete = true;
     return out;
   }
   function nameRoots(el, role, tag, ctx) {
@@ -533,6 +538,7 @@
   // value, generated content, shadow content, slotted nodes and
   // aria-labelledby or aria-owns targets.
   function nameFits(el, roots, ctx) {
+    if (roots.incomplete) return false;
     for (const a of NAME_ATTRS) {
       const v = el.getAttribute(a);
       if (v && v.length > NAME_CHARS) return false;
@@ -553,6 +559,8 @@
         if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return (over = true), STOP;
         if (n.nodeType === 3) chars += n.data.length;
         else if (n.nodeType === 1) {
+          // Counted before the select branch: leave() counts every element.
+          if (++depth > NAME_DEPTH) return (over = true), STOP;
           // A <select> in a label names it by its chosen options, not by
           // all of them.
           if (n !== root && tagOf(n) === "select") {
@@ -562,7 +570,6 @@
             }
             return false;
           }
-          if (++depth > NAME_DEPTH) return (over = true), STOP;
           for (const a of NAME_ATTRS) {
             const v = n.getAttribute(a);
             if (v) chars += v.length;
@@ -580,7 +587,11 @@
           // Shadow content and aria-labelledby or aria-owns targets inside
           // the content are read too.
           if (n.shadowRoot) queue.push(n.shadowRoot);
-          if (n !== root && n.hasAttribute("aria-labelledby")) queue.push(...labelledTargets(n, ctx));
+          if (n !== root && n.hasAttribute("aria-labelledby")) {
+            const targets = labelledTargets(n, ctx);
+            if (targets.incomplete) return (over = true), STOP;
+            queue.push(...targets);
+          }
           const owns = n.getAttribute("aria-owns");
           if (owns) for (const id of owns.split(/\s+/).slice(0, 64)) {
             const t = id && n.ownerDocument.getElementById(id);
@@ -646,7 +657,10 @@
   function nodeName(el, role, includeHidden, ctx) {
     if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el, ctx);
     const roots = nameRoots(el, role, tagOf(el), ctx);
-    if (!nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
+    // Past a cut nothing outside the element can be charged, so its name
+    // is read directly (an element scheduled before a node cut is still
+    // read; Playwright would read its sources whole).
+    if (ctx.truncated || !nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
     return accessibleName(el, includeHidden, ctx);
   }
 
@@ -765,26 +779,27 @@
     // A zero-size box that clips its overflow shows none of its content.
     const style = styleOf(el);
     if (style && ((r.width < 1 && CLIPPING.has(style.overflowX)) || (r.height < 1 && CLIPPING.has(style.overflowY)))) return false;
+    // Iterative: a page can nest zero-size elements deeper than the stack.
     const range = document.createRange();
-    const inside = (node) => {
-      for (let n = node.firstChild; n; n = n.nextSibling) {
-        if (!spend(ctx, 1)) return false;
-        if (n.nodeType === 3) {
-          if (!n.nodeValue.trim()) continue;
-          range.selectNodeContents(n);
-          const b = range.getBoundingClientRect();
-          if (b.width >= 1 && b.height >= 1) return true;
-        } else if (n.nodeType === 1) {
-          const cs = styleOf(n);
-          if (!cs || cs.display === "none" || clippedAway(cs)) continue;
-          const b = n.getBoundingClientRect();
-          if (b.width >= 1 && b.height >= 1) return true;
-          if (inside(n)) return true;
-        }
+    let found = false;
+    walkTree(el, (n) => {
+      if (n === el) return true;
+      if (!spend(ctx, 1)) return STOP;
+      if (n.nodeType === 3) {
+        if (!n.nodeValue.trim()) return false;
+        range.selectNodeContents(n);
+        const b = range.getBoundingClientRect();
+        if (b.width >= 1 && b.height >= 1) return (found = true), STOP;
+        return false;
       }
-      return false;
-    };
-    return inside(el);
+      if (n.nodeType !== 1) return false;
+      const cs = styleOf(n);
+      if (!cs || cs.display === "none" || clippedAway(cs)) return false;
+      const b = n.getBoundingClientRect();
+      if (b.width >= 1 && b.height >= 1) return (found = true), STOP;
+      return true;
+    });
+    return found;
   }
 
   // "host/first-segment/…" for a link to another site (hosts that differ
