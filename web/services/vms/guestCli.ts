@@ -1242,6 +1242,15 @@ file_mode_ok() {
   return 1
 }
 
+# A literal \`~\` component is never a safe remote destination: later shell
+# guidance can expand it to the machine user's home. Reject before mkdir/mv.
+reject_literal_tilde_path() {
+  case "/\${1}/" in
+    */~/*) printf 'CMUX-FILE-ERR unexpanded-tilde-path\\n'; return 1 ;;
+  esac
+  return 0
+}
+
 file_receive_cleanup() {
   if [ -n "\${cmux_fr_tmp:-}" ]; then rm -f "\$cmux_fr_tmp"; fi
   if [ -n "\${cmux_fr_dir:-}" ]; then rm -rf "\$cmux_fr_dir"; fi
@@ -1274,6 +1283,7 @@ guest_file_receive() {
   done
   [ -n "\$cmux_fr_path" ] || { printf 'CMUX-FILE-ERR usage cmux file receive <path> [--mode <octal>]\\n'; exit 2; }
   file_mode_ok "\$cmux_fr_mode" || { printf 'CMUX-FILE-ERR bad-mode %s\\n' "\$cmux_fr_mode"; exit 2; }
+  reject_literal_tilde_path "\$cmux_fr_path" || exit 1
   case "\$cmux_fr_path" in
     /*) ;;
     *) cmux_fr_path="\${HOME:-/root}/\$cmux_fr_path" ;;
@@ -2365,6 +2375,7 @@ peer_push() {
     esac
   done
   [ -n "\$cmux_pp_local" ] && [ -n "\$cmux_pp_remote" ] || die "\$cmux_pp_usage" 2
+  reject_literal_tilde_path "\$cmux_pp_remote" || die "vm push: remote path contains an unexpanded '~' component" 1
   file_mode_ok "\$cmux_pp_mode" || die "vm push: --mode takes an octal mode such as 600 or 755, got '\$cmux_pp_mode'" 2
   [ ! -d "\$cmux_pp_local" ] || die "vm push: \$cmux_pp_local is a directory; from inside a machine push one file at a time (tar it first)" 2
   [ -f "\$cmux_pp_local" ] && [ -r "\$cmux_pp_local" ] || die "vm push: cannot read \$cmux_pp_local" 2

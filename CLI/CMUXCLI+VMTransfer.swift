@@ -7,6 +7,10 @@ import Foundation
 /// Cloud file transfer. Push streams through OpenSSH/SFTP over the app's
 /// userspace WireGuard tunnel. Pull retains the existing exec transport.
 extension CMUXCLI {
+    private struct VMPushLocalValidationError: Error {
+        let cliError: CLIError
+    }
+
     /// Raw bytes per exec round trip. Base64 expands this ~4/3, staying well
     /// under control-plane request/response body limits.
     static let vmTransferChunkBytes = 512 * 1024
@@ -328,6 +332,10 @@ extension CMUXCLI {
         do {
             return try performVMPushTransfer(vmID: vmID, localURL: localURL, localPath: localPath, isDirectory: isDirectory,
                                             remotePath: remotePath, excludes: excludes, client: client, phase: &phase)
+        } catch let error as VMPushLocalValidationError {
+            // A rejected local archive is a caller error, not a transfer failure;
+            // do not open the socket just to report a validation refusal.
+            throw error.cliError
         } catch {
             // Structured API errors are already recorded by the app. Transport
             // and local subprocess failures need their own authenticated report.
@@ -1684,38 +1692,42 @@ extension CMUXCLI {
     /// Validate the archive after tar applies its exclusions, so every path that
     /// can reach the machine shares the same literal-tilde invariant.
     private func validateLocalTarball(at tarURL: URL) throws {
-        let result = CLIProcessRunner.runProcessData(
-            executablePath: "/usr/bin/tar",
-            arguments: ["-tzf", tarURL.path],
-            timeout: 30
-        )
-        guard result.status == 0 else {
-            throw CLIError(message: String(
-                localized: "cli.vm.push.archiveValidationFailed",
-                defaultValue: "Could not validate the paths in the push archive."
-            ))
-        }
-        // macOS tar escapes embedded ASCII newlines and backslashes in names.
-        // Split only its LF record delimiter; other Unicode newlines are filenames.
-        for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
-            try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
-        }
+        do {
+            let result = CLIProcessRunner.runProcessData(
+                executablePath: "/usr/bin/tar",
+                arguments: ["-tzf", tarURL.path],
+                timeout: 30
+            )
+            guard result.status == 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.push.archiveValidationFailed",
+                    defaultValue: "Could not validate the paths in the push archive."
+                ))
+            }
+            // macOS tar escapes embedded ASCII newlines and backslashes in names.
+            // Split only its LF record delimiter; other Unicode newlines are filenames.
+            for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
+                try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
+            }
 
-        let verbose = CLIProcessRunner.runProcessData(
-            executablePath: "/usr/bin/tar",
-            arguments: ["-tvzf", tarURL.path],
-            timeout: 30
-        )
-        guard verbose.status == 0 else {
-            throw CLIError(message: String(
-                localized: "cli.vm.push.archiveValidationFailed",
-                defaultValue: "Could not validate the paths in the push archive."
-            ))
-        }
-        for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
-            let line = String(decoding: entry, as: UTF8.self)
-            guard line.first == "l", let arrow = line.range(of: " -> ", options: .backwards) else { continue }
-            try Self.rejectLiteralTildePath(String(line[arrow.upperBound...]), operation: "vm push archive symlink target")
+            let verbose = CLIProcessRunner.runProcessData(
+                executablePath: "/usr/bin/tar",
+                arguments: ["-tvzf", tarURL.path],
+                timeout: 30
+            )
+            guard verbose.status == 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.push.archiveValidationFailed",
+                    defaultValue: "Could not validate the paths in the push archive."
+                ))
+            }
+            for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
+                let line = String(decoding: entry, as: UTF8.self)
+                guard line.first == "l", let arrow = line.range(of: " -> ", options: .backwards) else { continue }
+                try Self.rejectLiteralTildePath(String(line[arrow.upperBound...]), operation: "vm push archive symlink target")
+            }
+        } catch let error as CLIError {
+            throw VMPushLocalValidationError(cliError: error)
         }
     }
 

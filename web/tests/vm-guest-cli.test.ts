@@ -152,6 +152,22 @@ esac
     }
   });
 
+  test.each(["~", "nested/~", "~/\u{301}child"])("rejects literal tilde file destinations before touching the filesystem (%s)", async (remotePath) => {
+    let fixtureDirectory = "";
+    try {
+      const result = await runShim(["file", "receive", remotePath], {}, (directory) => {
+        fixtureDirectory = directory;
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("CMUX-FILE-ERR unexpanded-tilde-path");
+      expect(result.stdout).not.toContain("rm -rf");
+      expect(existsSync(join(fixtureDirectory, "~"))).toBe(false);
+      expect(existsSync(join(fixtureDirectory, "nested"))).toBe(false);
+    } finally {
+      if (fixtureDirectory) rmSync(fixtureDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("is valid POSIX sh", async () => {
     const result = await runChild("sh", ["-n"], { input: GUEST_CMUX_SHIM });
     expect(result.stderr).toBe("");
