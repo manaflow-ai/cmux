@@ -286,7 +286,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         let record = try #require(restored.record)
         #expect(record.modeRawValue == "resumeAgent")
         #expect(record.checkpointID == sessionID)
-        #expect(record.preparedArguments == [executable, "--resume", sessionID, "--permission-mode", "auto"])
+        #expect(record.preparedArguments == ["claude", "--resume", sessionID, "--permission-mode", "auto"])
 
     }
 
