@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What a page plays now, as Edge's media hub shows it (cx-6qwm.2): the
 /// `navigator.mediaSession` metadata when the page sets it, else the page

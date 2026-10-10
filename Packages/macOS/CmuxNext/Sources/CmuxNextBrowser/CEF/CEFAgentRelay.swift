@@ -23,7 +23,7 @@ public final class CEFAgentRelay {
     /// The media hub's binding reports arrive as protocol events too: the
     /// bridge takes its own, and the browser's events stay on while it
     /// listens, relay or not.
-    private lazy var media = tab.map(CEFMediaBridge.init(tab:))
+    private lazy var media = tab.map { CEFMediaBridge(tab: $0) }
     var mediaListens = false { didSet { updateWatch() } }
 
     init(tab: CEFTab) { self.tab = tab }
