@@ -71,10 +71,14 @@ impl Inner {
     }
 
     /// Forgets a context id that CDP reported as gone, so the next lookup
-    /// waits for (or creates) the frame's current one.
-    fn forget_context(&self, session: &Session, frame_id: &str, world: World) {
+    /// waits for (or creates) the frame's current one. Only that id: the
+    /// new document's context may already have replaced it.
+    fn forget_context(&self, session: &Session, frame_id: &str, world: World, gone: i64) {
         if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
-            tab.contexts.remove(&(frame_id.to_owned(), world));
+            let key = (frame_id.to_owned(), world);
+            if tab.contexts.get(&key).is_some_and(|(_, id)| *id == gone) {
+                tab.contexts.remove(&key);
+            }
         }
     }
 
@@ -100,7 +104,12 @@ impl Inner {
         });
         match known {
             Ok(context) if world == World::Agent => {
-                self.ensure_agent(session, &context, deadline)?;
+                if let Err(error) = self.ensure_agent(session, &context, deadline) {
+                    if is_stale_context(&error) {
+                        self.forget_context(session, frame_id, world, context.id);
+                    }
+                    return Err(error);
+                }
                 return Ok(context);
             }
             Ok(context) => return Ok(context),
@@ -234,18 +243,21 @@ impl Inner {
         let world = World::parse(params.get("world").and_then(Value::as_str)).ok_or_else(|| {
             DriverError::invalid("world: expected \"agent\", \"page\" or \"host\"")
         })?;
-        // A context that died with its document is forgotten and the call runs
-        // once more in the frame's current context.
-        match self.evaluate_once(&session, &frame_id, world, params, deadline) {
+        // A context that died with its document is forgotten (evaluate_once)
+        // and the call runs once more in the frame's current context.
+        let mut used = Vec::new();
+        match self.evaluate_once(&session, &frame_id, world, params, deadline, &mut used) {
             Err(error) if is_stale_context(&error) => {
-                self.forget_context(&session, &frame_id, world);
-                self.forget_context(&session, &frame_id, World::Agent);
-                self.evaluate_once(&session, &frame_id, world, params, deadline)
+                for (world, id) in used.drain(..) {
+                    self.forget_context(&session, &frame_id, world, id);
+                }
+                self.evaluate_once(&session, &frame_id, world, params, deadline, &mut used)
             }
             other => other,
         }
     }
 
+    /// `used`: the contexts it ran in, for the caller to forget if one is gone.
     fn evaluate_once(
         &self,
         session: &Session,
@@ -253,6 +265,7 @@ impl Inner {
         world: World,
         params: &Value,
         deadline: Instant,
+        used: &mut Vec<(World, i64)>,
     ) -> Result<Box<RawValue>, DriverError> {
         let source = required_str(params, "source")?;
         let args: Vec<Value> =
@@ -286,8 +299,10 @@ impl Inner {
             }
             World::Page => {
                 let page = self.context(session, frame_id, World::Page, deadline)?;
+                used.push((World::Page, page.id));
                 if !handles.is_empty() {
                     let agent = self.context(session, frame_id, World::Agent, deadline)?;
+                    used.push((World::Agent, agent.id));
                     let group = handle_group();
                     used_group = Some((agent.session.clone(), group.clone()));
                     let moved = self.move_handles(&agent, &page, &handles, &group, deadline);
@@ -304,6 +319,9 @@ impl Inner {
                 (page, source.to_owned())
             }
         };
+        if world != World::Page {
+            used.push((world, context.id));
+        }
         arguments.extend(args.into_iter().map(|value| json!({"value": value})));
         let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
         let reply: Result<CallReply, DriverError> = self.conn.call_typed(

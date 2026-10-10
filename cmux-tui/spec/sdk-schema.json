@@ -8194,6 +8194,101 @@
     }
    },
    "additional_properties": false
+  },
+  "HistorySearchRange": {
+   "kind": "object",
+   "fields": {
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "end": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "HistorySearchHit": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "target": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "position": {
+     "type": {
+      "kind": "scalar",
+      "name": "int64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "snippet": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "highlights": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "HistorySearchRange"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "int64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -19613,6 +19708,73 @@
     "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md."
    ]
   },
+  "history-search": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "history-search-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "hits": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "HistorySearchHit"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "took_us": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; advertised while the daemon has a search index. query is trimmed, 1-200 characters, no control characters; kinds are chat, command, scrollback, tab or workspace; limit is 1-100 (default 20). See spec/commands.md."
+   ]
+  },
   "conversation-op": {
    "authority": "local-admin",
    "since": 12,
@@ -21209,6 +21371,179 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+   ]
+  },
+  "feed-local-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "unread": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-read": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "items": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-begin": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-abort": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-done": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "home": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
    ]
   }
  },

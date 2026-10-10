@@ -106,6 +106,12 @@ extension LayoutRootView {
     /// The drop overlay style drawing now (`drop.overlay.style`).
     public var dropHighlightStyle: DropOverlayStyle { highlight.style }
 
+    /// Whether the drop highlight is showing, and the outline ring's opacity
+    /// as drawn (nil for another style): a hidden ring that came back after
+    /// a drop shows here (`debug.drop_highlight` `report`).
+    public var dropHighlightShowing: Bool { highlight.isShowing }
+    public var dropRingOpacity: Float? { highlight.outline?.ringOpacity }
+
     /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
         guard highlight.isShowing, window != nil else { return nil }

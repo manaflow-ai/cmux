@@ -103,12 +103,6 @@ impl WorkspaceHttpBearerToken {
         let expected = self.0.as_bytes();
         provided.len() == expected.len() && provided.ct_eq(expected).into()
     }
-
-    #[cfg(test)]
-    fn test_value() -> Self {
-        Self::new(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7_u8; HTTP_TOKEN_BYTES]))
-            .unwrap()
-    }
 }
 
 /// Loads a stable bearer credential or creates one with owner-only permissions.

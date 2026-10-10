@@ -54,7 +54,7 @@ public final class TabStripView: NSView {
     let inlineRename = TabInlineRename()
     // MARK: Views
 
-    var glassView: NSGlassEffectView?
+    var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
     let fadeMask = CAGradientLayer()

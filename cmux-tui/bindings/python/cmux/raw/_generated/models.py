@@ -791,6 +791,26 @@ class GuestUrlSubscribeResult:
 
 
 @dataclass(frozen=True)
+class HistorySearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchHit'
+    at_ms: int
+    highlights: List[HistorySearchRange]
+    key: str
+    kind: str
+    position: Union[int, None]
+    snippet: str
+    target: str
+    title: str
+
+
+@dataclass(frozen=True)
+class HistorySearchRange:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchRange'
+    end: int
+    start: int
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -2731,6 +2751,39 @@ class ExportLayoutRequest:
 
 
 @dataclass(frozen=True)
+class FeedLocalHandoffAbortRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-abort/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -2780,6 +2833,21 @@ class GetFrontendProjectionRequest:
 class GetSizeStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-size-state/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class HistorySearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/request'
+    query: str
+    kinds: Union[List[str], MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HistorySearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
+    hits: List[HistorySearchHit]
+    took_us: int
 
 
 @dataclass(frozen=True)
@@ -5012,6 +5080,8 @@ __all__ = [
     'GuestUrlClaimResult',
     'GuestUrlOpenResult',
     'GuestUrlSubscribeResult',
+    'HistorySearchHit',
+    'HistorySearchRange',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -5220,6 +5290,11 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffAbortRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -5228,6 +5303,8 @@ __all__ = [
     'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
+    'HistorySearchRequest',
+    'HistorySearchResult',
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',

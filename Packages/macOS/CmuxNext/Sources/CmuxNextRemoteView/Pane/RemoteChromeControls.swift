@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Small AppKit building blocks of the pane chrome: labels, symbols, a
 /// borderless text button with a hover fill, and a pill badge.
@@ -8,7 +9,8 @@ enum RemoteChrome {
         field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The pane's bars are sized by their row's fitting size (cx-k9mc).
+        field.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         return field
     }
 
@@ -18,6 +20,7 @@ enum RemoteChrome {
         field.alignment = .center
         field.preferredMaxLayoutWidth = width
         field.translatesAutoresizingMaskIntoConstraints = false
+        field.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         return field
     }
 

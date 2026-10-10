@@ -37,7 +37,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
                 app: AppTheme? = nil) {
-        let pageOpaque = WindowBackdrop(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
+        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens) }
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
