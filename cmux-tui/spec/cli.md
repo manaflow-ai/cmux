@@ -386,6 +386,9 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list
+agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
+agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
@@ -461,7 +464,7 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
-agent list|report
+agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
 pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
@@ -618,6 +621,29 @@ kept per repository; pins never expire, and pins beginning `handoff:` or
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Agent messages
+
+`agent message` stores a message with `agent.message.send` and then delivers
+it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
+its terminal), or an acpmux session by name or id (`acp:` optional). The
+sender is the caller's acpmux session (`ACPMUX_SESSION_ID`), else its terminal
+(`CMUX_TUI_TERMINAL_ID`), else `cli`; `--from` adds an untrusted display name.
+A lone `-` reads the body from standard input. `--reply-to` answers a message:
+the reply goes to its sender and stays in its thread.
+
+For an acpmux recipient the command then prompts the session with the message,
+using the message id as the acpmux prompt id, and marks the receipt
+`delivered` (or `failed`, with the error). It first sends that recipient's
+older queued messages, oldest first; the prompt id keeps any of them from
+running twice. A `failed` message is not retried. It never starts the acpmux
+daemon. A terminal agent's message stays `queued` until the agent's hooks take
+it. The command exits 1 when this message's own delivery failed; the message is
+stored either way, and problems with older messages are reported on stderr.
+
+`agent inbox` lists messages newest first for `<agent>`, or for the caller's
+own address when it has one, else every message. `--ack` marks the listed
+messages acknowledged for that recipient.
 
 ## Local agent plugins
 

@@ -14,7 +14,7 @@ on:
   push:
     # ghosttykit-pin/<name>: a GhosttyNextKit pin change before it lands; its
     # license tree feeds scripts/cmux-next/notices/ghosttykit_repin.py.
-    branches: [feat-cmux-next, "ghosttykit-pin/**"]
+    branches: ["ghosttykit-pin/**"]
     paths:
       - "ghostty"
       - "cmux-tui/build-support/notices/ghostty/**"

@@ -56,7 +56,7 @@ enum MarkdownLinkPolicy {
         set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
     }
     // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
-    // links, `HomeAppLinks`): a URL of another scheme is a link only when this rule allows it.
+    // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
     // Set at launch with `extraSchemes`; nil allows nothing more.
     private static var rule: (@Sendable (URL) -> Bool)?
     static var extraRule: (@Sendable (URL) -> Bool)? {

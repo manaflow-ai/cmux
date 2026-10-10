@@ -195,6 +195,12 @@ public final class AddressBarView: NSView {
         updateBadgeSpace()
     }
 
+    /// The machine chip's menu (the host's machine actions, cx-2cob).
+    public var machineBadgeMenu: (() -> NSMenu?)? {
+        get { machineBadgeView.makeMenu }
+        set { machineBadgeView.makeMenu = newValue }
+    }
+
     /// The browser profile badge's menu (the host's profile actions).
     public var profileBadgeMenu: (() -> NSMenu?)? {
         get { profileBadgeView.makeMenu }

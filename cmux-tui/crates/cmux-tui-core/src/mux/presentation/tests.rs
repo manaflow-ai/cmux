@@ -437,8 +437,7 @@ fn cmux_next_tab_notification_ack_is_explicit_and_durable() {
     // A second acknowledgement is a no-op, not an error.
     assert!(!mux.acknowledge_tab_notifications(surface).unwrap().cleared);
 
-    // A new notification is unread again until acknowledged; the legacy
-    // clear (selecting the tab) persists its acknowledgement too.
+    // A new notification is unread again until acknowledged.
     mux.post_notification(
         "tests failed".into(),
         "".into(),
@@ -447,7 +446,7 @@ fn cmux_next_tab_notification_ack_is_explicit_and_durable() {
     )
     .unwrap();
     assert_eq!(durable_unread(&mux), vec![false, true]);
-    assert!(mux.clear_surface_notification(surface));
+    assert!(mux.acknowledge_tab_notifications(surface).unwrap().cleared);
     assert_eq!(durable_unread(&mux), vec![false, false]);
 }
 
