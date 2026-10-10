@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Answers one G8 approval request (`apr_…`, cx-wb5.65) as the signed-in
 /// person's own session, only when it is the create the person confirmed:
@@ -27,9 +28,23 @@ nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     let call: Call
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.approval")
 
-    /// Approves `request` when it holds `op` with exactly `params` (a JSON object).
-    func approve(request: String, op: String, params: Data) async throws {
+    /// Approves `request` when it holds `op` with exactly `params` (a JSON
+    /// object) in `team`, the backend team the create was sent for (the
+    /// install token's team, captured when the person confirmed).
+    func approve(request: String, op: String, params: Data, team: String) async throws {
+        do {
+            try await checkedApprove(request: request, op: op, params: params, team: team)
+        } catch let failure as Failure {
+            if case .mismatch(_, let reason) = failure {
+                Self.logger.error("approval \(request, privacy: .public) refused: \(reason, privacy: .public) differs")
+            }
+            throw failure
+        }
+    }
+
+    private func checkedApprove(request: String, op: String, params: Data, team: String) async throws {
         let read = try await post("v1/read", ["op": "integration.approval.get", "params": ["request": request]])
         let held = read["value"] as? [String: Any] ?? [:]
         guard held["op"] as? String == op else { throw Failure.mismatch(request: request, reason: "op") }
@@ -42,7 +57,9 @@ nonisolated struct CloudApprovalAnswer: Sendable {
         let list = try await post("v1/read", ["op": "feed.list", "params": [
             "state": "open", "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100,
         ]])
-        guard let item = Self.item(carrying: request, op: op, digest: digest, in: list) else { throw Failure.notInFeed(request: request) }
+        guard let item = Self.item(carrying: request, op: op, digest: digest, team: team, in: list) else {
+            throw Failure.mismatch(request: request, reason: "feed item or team")
+        }
         let reply = try await post("v1/ops", ["op": "feed.answer", "origin": "user", "idempotency_key": "approve:\(request)",
                                               "params": ["item": item, "answer": ["decision": "allow", "scope": "once"]]])
         if reply["ok"] as? Bool == false {
@@ -59,17 +76,18 @@ nonisolated struct CloudApprovalAnswer: Sendable {
         return reply
     }
 
-    /// The id of the open approve item for `request`: posted by the Cloud
-    /// owner of the approval's team (`system:cloud:<team>`), for `op`, with
-    /// the same digest; nil for any other item.
-    static func item(carrying request: String, op: String, digest: String, in reply: [String: Any]) -> String? {
+    /// The id of the open approve item for `request`: for `team` (the
+    /// create's own team, never another team the person belongs to), posted
+    /// by that team's Cloud owner (`system:cloud:<team>`), for `op`, with the
+    /// same digest; nil for any other item.
+    static func item(carrying request: String, op: String, digest: String, team: String, in reply: [String: Any]) -> String? {
         let items = (reply["value"] as? [String: Any])?["items"] as? [[String: Any]] ?? []
         return items.first { item in
             let action = (item["prompt"] as? [String: Any])?["action"] as? [String: Any]
             let approval = (action?["input"] as? [String: Any])?["approval"] as? [String: Any]
             let poster = item["poster"] as? [String: Any]
             guard approval?["request"] as? String == request, approval?["digest"] as? String == digest,
-                  action?["tool"] as? String == op, let team = approval?["team"] as? String, !team.isEmpty else { return false }
+                  action?["tool"] as? String == op, !team.isEmpty, approval?["team"] as? String == team else { return false }
             return poster?["kind"] as? String == "integration" && poster?["scope"] as? String == "system:cloud:\(team)"
         }?["id"] as? String
     }
@@ -79,7 +97,7 @@ extension CloudApprovalAnswer.Failure: CustomStringConvertible {
     var description: String {
         switch self {
         case .notInFeed: CloudStrings.createApproveInFeed
-        case .mismatch(_, let reason): "\(CloudStrings.createApprovalMismatch) (\(reason))"
+        case .mismatch: CloudStrings.createApprovalMismatch
         case .refused(let code): "\(CloudStrings.createApproveInFeed) (\(code))"
         }
     }

@@ -27,6 +27,9 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
+        // The team the relay's create bills: the install token's team claim,
+        // captured now, when the person starts or confirms this create.
+        let team = Self.team(ofToken: try await installIdentity.installToken()) ?? ""
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
@@ -34,7 +37,7 @@ extension CloudService {
             },
             confirm: { [weak self] prompt in await CloudPresenter.confirmCreate(prompt, in: self?.confirmWindow?()) },
             approve: { request, params in
-                try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params))
+                try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
             },
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
@@ -46,6 +49,20 @@ extension CloudService {
             throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine")
         }
         return machine
+    }
+
+    /// The `team` claim of an install token (the owner's own token over
+    /// TLS; read for consistency, never trusted as a credential). Nil when
+    /// the token is not a JWT with a team.
+    nonisolated static func team(ofToken token: String) -> String? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let team = claims["team"] as? String, !team.isEmpty else { return nil }
+        return team
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
