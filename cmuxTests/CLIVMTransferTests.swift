@@ -1189,6 +1189,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testVMPushRejectsTildeSymlinkTargetsInArchive() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("archive-symlink-tilde")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let source = try vmTransferTempDir("archive-symlink-tilde")
+        defer { try? FileManager.default.removeItem(at: source) }
+        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("danger"), withDestinationPath: "new/~")
+        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("ordinary"), withDestinationPath: "~alice")
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            return self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                error: ["code": "unexpected", "message": "symlink target should be rejected locally"]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"],
+            environment: vmTransferEnvironment(socketPath: socketPath),
+            timeout: 30
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("unexpanded '~'"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("rm -rf"), result.stderr)
+        XCTAssertTrue(state.snapshot().isEmpty, "symlink target validation must precede upload")
+    }
+
     func testVMPushTildeArchiveValidationRespectsExcludesAndOrdinaryNames() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(String, [String], Bool)] = [

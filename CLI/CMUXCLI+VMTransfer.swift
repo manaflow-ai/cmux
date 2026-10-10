@@ -1700,6 +1700,23 @@ extension CMUXCLI {
         for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
             try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
         }
+
+        let verbose = CLIProcessRunner.runProcessData(
+            executablePath: "/usr/bin/tar",
+            arguments: ["-tvzf", tarURL.path],
+            timeout: 30
+        )
+        guard verbose.status == 0 else {
+            throw CLIError(message: String(
+                localized: "cli.vm.push.archiveValidationFailed",
+                defaultValue: "Could not validate the paths in the push archive."
+            ))
+        }
+        for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
+            let line = String(decoding: entry, as: UTF8.self)
+            guard line.first == "l", let arrow = line.range(of: " -> ", options: .backwards) else { continue }
+            try Self.rejectLiteralTildePath(String(line[arrow.upperBound...]), operation: "vm push archive symlink target")
+        }
     }
 
     static func formatByteCount(_ bytes: Int) -> String {
