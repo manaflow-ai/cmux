@@ -53,14 +53,17 @@ fn journal_durable_wait() -> Duration {
 
 #[cfg(not(test))]
 fn journal_durable_wait() -> Duration {
-    std::env::var(JOURNAL_DURABLE_WAIT_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(|milliseconds| {
-            Duration::from_millis(milliseconds)
-                .clamp(JOURNAL_DURABLE_WAIT_MIN, JOURNAL_DURABLE_WAIT_MAX)
-        })
-        .unwrap_or(JOURNAL_DURABLE_WAIT)
+    static WAIT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *WAIT.get_or_init(|| {
+        std::env::var(JOURNAL_DURABLE_WAIT_ENV)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(|milliseconds| {
+                Duration::from_millis(milliseconds)
+                    .clamp(JOURNAL_DURABLE_WAIT_MIN, JOURNAL_DURABLE_WAIT_MAX)
+            })
+            .unwrap_or(JOURNAL_DURABLE_WAIT)
+    })
 }
 
 #[derive(Debug)]

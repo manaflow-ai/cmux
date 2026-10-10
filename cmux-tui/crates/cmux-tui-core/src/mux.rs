@@ -6046,15 +6046,15 @@ impl Mux {
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         reason: &'static str,
-    ) {
-        let _ = self.journal_ingress.try_send(
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable(
             crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
                 terminal_id,
                 generation,
                 occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
                 reason,
             },
-        );
+        )
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -7066,7 +7066,10 @@ impl Mux {
             Ok(())
         })();
         if let Err(error) = result {
-            self.report_internal_diagnostic(format!("journal maintenance deferred: {error:#}"));
+            eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
+            self.report_internal_diagnostic(
+                "journal maintenance deferred; checkpoint maintenance will retry",
+            );
         }
     }
 

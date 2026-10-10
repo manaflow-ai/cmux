@@ -22,16 +22,18 @@ admitted to the durable session journal. This keeps a short state-disk or VM
 descheduling pause from stopping the live terminal host. Set
 `CMUX_TUI_JOURNAL_DURABLE_WAIT_MS` in the daemon environment to tune the wait;
 values are clamped to 5,000 through 300,000 milliseconds. A failed capture
-queues a `terminal.output.gap` marker when the journal lane can accept it, then
+waits for bounded durable admission of a `terminal.output.gap` marker, then
 disables further capture for that terminal while the daemon and terminal host
-remain available. The live session can therefore be recovered even when the
-registry writer is unhealthy.
+remain available. If the journal writer is already unavailable, the daemon
+reports that the marker could not be stored; the live session still remains
+available for recovery.
 
 Persistent sessions run bounded journal maintenance in the background. After
 4,096 new records it creates a checkpoint, then seals at most eight 1,024-record
 segments per 30-second tick. Segment preparation is outside the SQLite writer
-transaction. New registries enable incremental auto-vacuum; no retention policy
-deletes sealed history automatically.
+transaction. New registries enable incremental auto-vacuum, and older
+registries migrate to it once when they next open. No retention policy deletes
+sealed history automatically.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 

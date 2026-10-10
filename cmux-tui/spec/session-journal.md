@@ -395,10 +395,12 @@ exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
 
-If a terminal output write exhausts that wait, the capture lane queues a
-`terminal.output.gap` marker when admission is still available and disables
-further capture for that terminal. The daemon and PTY host continue running;
-the gap makes the missing byte range explicit for restoration and diagnostics.
+If a terminal output write exhausts that wait, the capture lane waits for
+bounded durable admission of a `terminal.output.gap` marker and disables
+further capture for that terminal. If journal admission has already failed, the
+daemon reports that the marker could not be stored. The daemon and PTY host
+continue running; a stored gap makes the missing byte range explicit for
+restoration and diagnostics.
 
 The helper allows four seconds for the complete journal receipt. Installed
 command providers allow at least five seconds, so their outer timeout cannot
@@ -406,7 +408,8 @@ cancel an event before the helper's bounded wait ends. Terminal output capture
 uses a separate thirty-second durable-admission default because a hosted VM can
 be descheduled for longer than a normal interactive request. Set
 `CMUX_TUI_JOURNAL_DURABLE_WAIT_MS` to tune that wait on a host; values are
-clamped to five seconds through five minutes.
+clamped to five seconds through five minutes. Older registries migrate to
+SQLite incremental auto-vacuum once at open before periodic maintenance starts.
 
 Install, inspect, or remove all detected provider adapters with:
 

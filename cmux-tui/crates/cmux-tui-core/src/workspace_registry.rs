@@ -128,6 +128,7 @@ const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
 const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
+const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -2686,6 +2687,7 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        migrate_journal_auto_vacuum(&connection)?;
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
@@ -3794,6 +3796,25 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(ProjectionCommit { projection: stored, replayed: false })
     }
+}
+
+/// Convert registries created before journal maintenance to incremental
+/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
+/// the marker keeps reopening an existing registry from repeating that work.
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<()> {
+    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
+        return Ok(());
+    }
+    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    if auto_vacuum != 2 {
+        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    }
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [JOURNAL_AUTO_VACUUM_META_KEY],
+    )?;
+    Ok(())
 }
 
 fn require_resource_effect_pepper_id(
