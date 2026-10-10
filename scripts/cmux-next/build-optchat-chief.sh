@@ -91,6 +91,16 @@ command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build op
 # toolchain cmux-tui pins, which the fleet already has for acpmux.
 toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo_root/cmux-tui/rust-toolchain.toml")"
 [[ -n "$toolchain" ]] || { echo "error: cannot read cmux-tui/rust-toolchain.toml" >&2; exit 1; }
+fleet_target_helper=""
+if [[ "${CMUX_FLEET_WORKER_TRUSTED:-0}" == 1 ]]; then
+  fleet_target_helper="$repo_root/scripts/ci/fleet-rust-cache.sh"
+  [[ -r "$fleet_target_helper" ]] || {
+    echo "error: managed worker is missing the reviewed Rust target resolver" >&2
+    exit 78
+  }
+  # shellcheck disable=SC1090
+  source "$fleet_target_helper"
+fi
 targets=()
 for arch in $archs; do targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"); done
 if command -v rustup >/dev/null 2>&1; then
@@ -103,11 +113,16 @@ slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
   # A persistent target dir under the crate keeps later fleet builds incremental.
+  target_dir="$crate/target/app"
+  if [[ -n "$fleet_target_helper" ]]; then
+    target_dir="$(fleet_rust_target_dir chief "$target" "$repo_root/cmux-tui")"
+    mkdir -p "$target_dir"
+  fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$crate/target/app" \
+  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
-  slice="$crate/target/app/$target/release/optchat-chief"
+  slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")
 done

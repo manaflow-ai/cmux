@@ -13,6 +13,7 @@ use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
+use crate::state::agent_message_store::{self, AgentMessageFilter, NewAgentMessage};
 use crate::state::closed_history::ReopenRequest;
 use crate::state::closed_history_delete::DeleteRequest;
 use crate::state::store::StateCommit;
@@ -99,6 +100,9 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogAppend
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
+            | Op::AgentMessageSend
+            | Op::AgentMessageList
+            | Op::AgentMessageMark
     )
 }
 
@@ -743,6 +747,53 @@ pub(crate) fn dispatch(
                     expected_revision(fields)?,
                     selectors,
                     change,
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // Agent messages (plans/feat-agent-rooms/DESIGN.md)
+        Op::AgentMessageList => {
+            let filter = AgentMessageFilter {
+                recipient: string(fields, "recipient"),
+                sender: string(fields, "sender"),
+                thread_id: string(fields, "thread_id"),
+                state: string(fields, "state"),
+                oldest_first: fields.get("oldest_first").and_then(Value::as_bool).unwrap_or(false),
+            };
+            let limit = index(fields, "limit").unwrap_or(50);
+            mux.agent_message_list(selectors, &filter, limit).map(Value::Array)
+        }
+        Op::AgentMessageSend => {
+            let message = NewAgentMessage {
+                sender: string(fields, "sender")
+                    .unwrap_or_else(|| agent_message_store::CLI_SENDER.to_owned()),
+                sender_name: string(fields, "sender_name"),
+                recipients: strings(fields, "recipients"),
+                body: string(fields, "body").unwrap_or_default(),
+                thread_id: string(fields, "thread_id"),
+                in_reply_to: string(fields, "in_reply_to"),
+            };
+            let commit = mux
+                .agent_message_send(
+                    &mutation(&request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    message,
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::AgentMessageMark => {
+            let commit = mux
+                .agent_message_mark(
+                    &mutation(&request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    &strings(fields, "ids"),
+                    &string(fields, "recipient").unwrap_or_default(),
+                    &string(fields, "state").unwrap_or_default(),
+                    string(fields, "via").as_deref(),
+                    string(fields, "error").as_deref(),
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)

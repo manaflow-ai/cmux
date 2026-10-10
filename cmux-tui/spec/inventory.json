@@ -4,6 +4,9 @@
   "mux_protocol": 12,
   "resource_operations": [
     "agent.list",
+    "agent.message.list",
+    "agent.message.mark",
+    "agent.message.send",
     "agent.report",
     "browser.activate",
     "browser.attach",
@@ -447,6 +450,7 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-search",
+      "history-search",
       "conversation-op",
       "conversation-typing",
       "conversation-bind",

@@ -7,7 +7,7 @@
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
-//   /history/ /apps/ /cloud/ /keybindings/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
+//   /history/ /apps/ /settings/ ...  React pages (src/pages/<page>/index.html, DEV_PAGES); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
@@ -268,7 +268,18 @@ function agentPaneHost(): Plugin {
 
 /// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
 /// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
-const DEV_PAGES = ["history", "apps", "coderouter", "cloud", "keybindings"];
+// The React pages under src/pages/<page>/index.html (scripts/cmux-next/build-pages-web.sh PAGES).
+const DEV_PAGES = [
+  "history",
+  "apps",
+  "coderouter",
+  "cloud",
+  "keybindings",
+  "icon-picker",
+  "settings",
+  "passwords",
+  "changelog",
+];
 
 function pagesHost(): Plugin {
   return {
@@ -284,7 +295,7 @@ function pagesHost(): Plugin {
         const pageURL = `/src/pages/${page}`;
         try {
           let html = fs.readFileSync(path.join(webviewsRoot, "src/pages", page, "index.html"), "utf8");
-          html = html.replace(/(\bsrc=")\.\//g, `$1${pageURL}/`);
+          html = html.replace(/(\b(?:src|href)=")\.\//g, `$1${pageURL}/`);
           html = await server.transformIndexHtml(`${pageURL}/index.html`, html, request.originalUrl);
           send(response, 200, "text/html; charset=utf-8", html);
         } catch (error) {
