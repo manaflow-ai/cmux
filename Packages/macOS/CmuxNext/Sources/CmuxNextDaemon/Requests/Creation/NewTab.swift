@@ -49,6 +49,17 @@ public struct SpawnOptions: Sendable, Hashable {
         self.keep = keep
     }
 
+    /// Drops what a daemon does not serve: the caller-chosen terminal id
+    /// (`terminal-placement-env-v1`) and the client-minted pane and tab ids
+    /// (`split-client-keys-v1`).
+    mutating func drop(callerTerminal: Bool, clientKeys: Bool) {
+        if callerTerminal { terminalID = nil }
+        if clientKeys {
+            paneID = nil
+            tabID = nil
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case cwd, cols, rows, argv, command, name, env, keep, terminalID
         case shellArgs = "shell_args"
