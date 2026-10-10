@@ -485,3 +485,37 @@ Not done on Windows yet: the session reset of a host root
 (`workspace_registry` `prepare_terminal_host_root_for_reset` still refuses
 on non-Unix), named terminal jobs for a restarted daemon's process reads
 (handoff item 8), and the GPUI banner (cmux2-gpui, after the pin moves).
+
+## Handoff (2026-10-10, after the rebase on feat-cmux-next 8cdf94c1ce0)
+
+State: the Windows host runtime is done for v1. Hosted CI (`cmux-tui.yml`
+full) is green on Windows for every behavior test in
+`tests/windows_terminal_hosts.rs`: restart survival, `breakaway_denied` in
+a kill-on-close job without breakaway (closing that job ends the shell), a
+plain job without breakaway (no notice, survives a fenced restart, the shell
+survives the job closing), and a hosted terminal without fallback.
+
+- Run 38027999303 at 1c212543be7 (before the rebase): test (windows) green,
+  4/4 host tests pass.
+- Rebase on 8cdf94c1ce0 (859 commits): conflicts in the workflow (kept the
+  new acpmux check and the host test step), spec/commands.md (kept the
+  remote-terminal paragraph), the generated bindings (regenerated with
+  `bindings/codegen/generate.py --write`, `--check` clean), tree_json.rs
+  (`merge_surface_fields` on the new remote-terminal code), the respawn
+  rework (`RespawnDecision`, `plan_terminal_respawn_locked`,
+  `start_terminal_respawn`: built on Windows as before), surface/input.rs
+  (`send_hosted_input` built on Windows), terminal_loss_log.rs (upstream
+  removed the test module). Run 38071367009 at 3175a26cbe8: four Windows
+  build errors (detached-terminal helpers, record-removal wait) and rustfmt.
+- 308c5df647d fixes them. Run 38072195088 at 308c5df647d: test (windows)
+  green, 4/4 host tests pass; lint (linux) green; Windows release build
+  green. Reds not from this branch (its diff touches none of them): test
+  (linux) `transport_path_coverage_tests::every_safe_transport_operation_has_a_noun_first_path`
+  (the new `settings.*` operations), macOS clippy `tests/cli/chief.rs:264`
+  (E0308), and the hosted verification job that sums them.
+
+Next: a gate receipt (`gate-run.sh`) at the head and a push to
+feat-cmux-next with a relayed token (CORE). Still not done on Windows: the
+session reset of a host root, named terminal jobs for a restarted daemon's
+process reads (handoff item 8), the GPUI banner (cmux2-gpui, after the pin
+moves).
