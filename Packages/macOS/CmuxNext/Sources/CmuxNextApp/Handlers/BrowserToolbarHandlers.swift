@@ -147,10 +147,10 @@ enum BrowserToolbarHandlers {
         }
         if !entries.isEmpty { entries.append(.separator) }
         entries += [
-            .action("newTab"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
+            .action("newTab.default"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
             .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
             .action("bookmark.manager"), .action("browserShowHistory"),
-            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.newTab")]),
+            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
             .action("browser.downloads.showFolder"), .action("browser.extensions.manage"), .action("passwords.open"),
             .action("history.clear"), .separator,
             .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,

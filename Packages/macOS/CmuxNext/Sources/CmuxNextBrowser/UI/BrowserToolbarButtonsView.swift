@@ -134,9 +134,11 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private func render() {
         let facts = currentFacts()
         if facts.zoom != zoom {
-            let wasShown = BrowserToolbarButton.zoom.isShown(at: collapse, zoom: zoom)
+            // Whether the button takes room at all, whatever the collapse
+            // level: leaving 100 % at level 2 may let level 0 fit again.
+            let wasZoomed = BrowserToolbarButton.zoom.isShown(at: 0, zoom: zoom)
             zoom = facts.zoom
-            if BrowserToolbarButton.zoom.isShown(at: collapse, zoom: zoom) != wasShown { relayoutChrome() }
+            if BrowserToolbarButton.zoom.isShown(at: 0, zoom: zoom) != wasZoomed { relayoutChrome() }
         }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
