@@ -239,6 +239,13 @@ fn classic_discovery_verbs_ask_the_app() {
         assert!(methods.iter().any(|sent| sent == method), "{args:?}: sent {methods:?}");
         assert!(stdout.contains(method), "{args:?}: {stdout}");
     }
+    let names = Names::new("classic-help");
+    for args in [&["identify", "--help"][..], &["help", "identify"][..]] {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains("cmux identify | ping | capabilities"), "{args:?}: {stdout}");
+    }
 }
 
 /// Each scope `cmux --help` lists answers `<scope> --help` and `help <scope>`

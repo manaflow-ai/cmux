@@ -51,6 +51,10 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        // The classic `cmux identify|ping|capabilities` are `cmux app …`.
+        ["identify" | "ping" | "capabilities"] => {
+            return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
+        }
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
