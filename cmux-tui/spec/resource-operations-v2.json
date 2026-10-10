@@ -8619,6 +8619,36 @@
       },
       "extra": false
     },
+    "ProjectSourceSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The source id."
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the user has the source on."
+        },
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many projects the source reports."
+        }
+      },
+      "extra": false
+    },
     "ProjectSourceSeen": {
       "kind": "object",
       "fields": {
@@ -8752,6 +8782,17 @@
             }
           },
           "description": "Pinned first (by order), then the most recently used."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSourceSummary"
+            }
+          },
+          "description": "Every source seen or turned off, with its project count (Settings)."
         }
       },
       "extra": false
@@ -15959,6 +16000,63 @@
         "extra": false,
         "constraints": [
           "A project a source still reports is hidden (so a resync does not bring it back); any other one is deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.source.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (claude-code, codex, codex-app, vscode, cursor, zed, t3code, conductor, ...); not user."
+          },
+          "enabled": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "On: its reports count again (an editor or app source is read at once). Off: it leaves every project and its reports are ignored."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The user source is validation.invalid; an edited project keeps its edits when its last source goes off."
         ]
       },
       "result": {

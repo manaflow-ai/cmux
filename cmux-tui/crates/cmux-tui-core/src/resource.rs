@@ -370,6 +370,8 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "project.source.update")]
+    ProjectSourceUpdate,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]
@@ -632,12 +634,14 @@ mod journal;
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
 mod scope;
+mod tab_identity;
 mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
 use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
+pub use tab_identity::TabResourceIdentity;
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -766,39 +770,6 @@ public_id!(FrontendProjectionPublicId, "projection");
 public_id!(PairingRequestPublicId, "pairing");
 public_id!(SidebarViewPublicId, "sidebar_view");
 public_id!(SidebarPluginPublicId, "sidebar_plugin");
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TabResourceIdentity {
-    pub tab_id: TabPublicId,
-    pub content_id: ContentPublicId,
-}
-
-impl TabResourceIdentity {
-    pub fn new(tab_id: TabPublicId, content_id: ContentPublicId) -> Self {
-        Self { tab_id, content_id }
-    }
-
-    pub fn persisted_terminal(tab_id: TabPublicId, terminal_id: TerminalPublicId) -> Self {
-        Self::new(tab_id, ContentPublicId::Terminal(terminal_id))
-    }
-
-    pub fn persisted_browser(tab_id: TabPublicId, browser_id: BrowserPublicId) -> Self {
-        Self::new(tab_id, ContentPublicId::Browser(browser_id))
-    }
-
-    pub fn terminal(terminal_id: Option<TerminalPublicId>) -> Result<Self, ResourceError> {
-        let terminal_id = match terminal_id {
-            Some(terminal_id) => terminal_id,
-            None => TerminalPublicId::random()?,
-        };
-        Ok(Self::persisted_terminal(TabPublicId::random()?, terminal_id))
-    }
-
-    pub fn browser() -> Result<Self, ResourceError> {
-        Ok(Self::persisted_browser(TabPublicId::random()?, BrowserPublicId::random()?))
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "lowercase")]

@@ -108,7 +108,8 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectAdd
         | Op::ProjectUpdate
         | Op::ProjectRemove
-        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSync
+        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet

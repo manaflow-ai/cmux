@@ -131,6 +131,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "project.update"
                         | "project.remove"
                         | "project.sync"
+                        | "project.source.update"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"

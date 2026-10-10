@@ -73,7 +73,7 @@ The editor adapters (VS Code family, Zed, JetBrains, later t3code and Conductor)
 - `project.observe {source, entries: [{path, last_used_ms}], complete?}` (acpmux and the editor adapters; at most 10000 entries, a `complete` source sends everything in one batch; a re-observe with the same times changes nothing).
 - `project.sync {existing?, gone?}` (app activation; the app's disk facts, at most 10000 paths).
 - `project.add {path}` (source `user`), `project.update {path, rename?, pinned?, hidden?, order?}`, `project.remove {path}` (drops `user`, sets `hidden` for a path a source still reports, so it does not come back).
-- `project.sources.get` / settings: per-source on/off lives in `settings.projects.sources` (schema, generated), read by the store.
+- `project.source.update {source, enabled}` (landed): per-source on/off lives in the store (table `project_sources_off`), and `project.list` returns `sources: [{id, enabled, projects}]` for the Settings page. Off: the source leaves every project (one with no other source and no user edit goes) and its reports are ignored. On: an editor or app source is read again at once; a chat-index source returns with the app's next relay. Decision: the store, not `settings.projects.sources`, because the off state must hold against every writer (the app relay, the daemon's own import, a CLI `project.observe`) at the one place that merges; the Settings page writes it through this op.
 - Typed rejects: `invalid_path`, `refused_path`, `unknown_project`.
 - Events: `session.events` `state_upsert` for the `projects` resource, as `sidebar_layout` does.
 

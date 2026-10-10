@@ -4,6 +4,9 @@
 declare namespace Cmux {
   type AddressId = string
   type AgentId = string
+  type AgentMessageDelivery = { recipient: string; state: Cmux.AgentMessageState; attempts: string; updated_at_ms: string; via: string | null; error: string | null }
+  type AgentMessageSnapshot = { id: string; session_id: string /* session_… */; thread_id: string; kind: "message" | "reply"; sender: string; sender_name: string | null; recipients: Array<string>; body: string; created_at_ms: string; in_reply_to: string | null; references: Array<string>; deliveries: Array<Cmux.AgentMessageDelivery> }
+  type AgentMessageState = "queued" | "delivered" | "acknowledged" | "failed"
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
@@ -224,11 +227,12 @@ declare namespace Cmux {
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
   type ProjectChange = { changed: Array<string> }
-  type ProjectList = { projects: Array<Cmux.ProjectSnapshot> }
+  type ProjectList = { projects: Array<Cmux.ProjectSnapshot>; sources: Array<Cmux.ProjectSourceSummary> }
   type ProjectObservation = { path: string; last_used_ms: string }
   type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
   type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
   type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
+  type ProjectSourceSummary = { id: string; enabled: boolean; projects: number }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
   type PushToken = string
@@ -396,6 +400,14 @@ interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
     list: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; state?: Cmux.AgentState }, Array<Cmux.AgentSnapshot>>
+    message: {
+      /** `agent.message.list` (read, scope `agent:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; recipient?: string; sender?: string; thread_id?: string; state?: Cmux.AgentMessageState; limit?: number; oldest_first?: boolean }, Array<Cmux.AgentMessageSnapshot>>
+      /** `agent.message.mark` (mutation, scope `agent:write`) */
+      mark: CmuxOp<{ machine?: string; session?: string; ids: Array<string>; recipient: string; state: "delivered" | "acknowledged" | "failed"; via?: string; error?: string; expected_revision?: string }, Cmux.MutationResult<Array<Cmux.AgentMessageSnapshot>>>
+      /** `agent.message.send` (mutation, scope `agent:write`) */
+      send: CmuxOp<{ machine?: string; session?: string; recipients?: Array<string>; body: string; sender?: string; sender_name?: string; thread_id?: string; in_reply_to?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentMessageSnapshot>>
+    }
     /** `agent.report` (mutation, scope `agent:write`) */
     report: CmuxOp<{ machine?: string; session?: string; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket"; source_session?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AgentSnapshot>>
   }
@@ -1034,6 +1046,10 @@ interface CmuxGlobal {
     observe: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.ProjectObservation>; complete?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.remove` (mutation, scope `project:write`) */
     remove: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    source: {
+      /** `project.source.update` (mutation, scope `project:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; source: string; enabled: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
+    }
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
