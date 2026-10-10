@@ -172,6 +172,14 @@ extension WebKitDriver {
         // WebKit hit-tests the wheel at the wrong element.
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        guard let event = NSEvent(cgEvent: cg) else { return nil }
+        if event.window === window { return event }
+        // AppKit often leaves a synthesized scroll's window nil (the app's
+        // debug.mouse scroll meets the same). Its locationInWindow is then
+        // the Quartz point read as a Cocoa screen point, which WebKit takes
+        // as the window point: place the event so that it reads `location`.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        cg.location = CGPoint(x: location.x, y: primaryHeight - location.y)
         return NSEvent(cgEvent: cg)
     }
 }
