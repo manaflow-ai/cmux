@@ -786,8 +786,15 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     #[cfg(windows)]
     {
         use std::io::Write;
-        let mut f = crate::owner_only::create_new(&tmp)
-            .with_context(|| format!("write {}", tmp.display()))?;
+        // A file a crashed process left under a reused pid is stale.
+        let mut f = match crate::owner_only::create_new(&tmp) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(&tmp)
+            }
+            other => other,
+        }
+        .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
