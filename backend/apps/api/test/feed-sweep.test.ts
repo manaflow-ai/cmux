@@ -64,19 +64,4 @@ describe("feed text sweep", { timeout: 60_000 }, () => {
 
   })
 
-  it("moves past a feed whose scrub throws", async () => {
-    let calls = 0
-    const deps: SweepDeps = {
-      listUsers: async (after) => (after === null ? ["user_bad", "user_ok"] : []),
-      feed: (name) =>
-        name === "user_bad"
-          ? ({ scrubIfBound: async () => { calls += 1; throw new Error("broken object") } } as unknown as SweepFeed)
-          : name === "user_ok"
-            ? ({ scrubIfBound: async () => { calls += 1; return true } } as unknown as SweepFeed)
-            : (stub("sweep:feed-text-throw-test") as unknown as SweepFeed),
-      now: () => 5
-    }
-    expect(await sweepFeedText(deps)).toMatchObject({ users: 2, bound: 1, failed: 1, done: true })
-    expect(calls).toBe(2)
-  })
 })

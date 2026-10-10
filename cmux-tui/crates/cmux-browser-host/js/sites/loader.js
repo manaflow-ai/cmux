@@ -315,7 +315,35 @@
     const drafts = createDrafts(host);
     let files = 0;
 
+    // A draft or composer text as sites compare them: zero-width
+    // characters dropped, whitespace collapsed, trimmed.
+    const normText = (v) => String(v === undefined || v === null ? "" : v).replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
     const tool = {
+      // The whole text the composer at `locator` holds (the page agent's
+      // composerText: read in the agent's world within the page-read
+      // budget, hidden text included, a space at each block), as normText
+      // gives it. `exclude`: a selector for the site's own additions that
+      // are not the draft (Gmail's signature and quoted text).
+      async composerText(locator, { exclude } = {}) {
+        const text = await locator._read("composerText", exclude || null, {}, "composer text");
+        return normText(text);
+      },
+      // Refuses a send whose composer does not hold exactly the draft (both
+      // as normText gives them): a composer that holds the draft's start and
+      // then something else, or misses its end, is a mismatch too. The error
+      // says where the two first differ.
+      async checkComposer(title, locator, draft, { exclude, what = "sent" } = {}) {
+        const shown = await tool.composerText(locator, { exclude });
+        const want = normText(draft);
+        if (shown === want) return;
+        let at = 0;
+        while (at < shown.length && at < want.length && shown[at] === want[at]) at++;
+        // Only the draft's side is quoted: the composer's text is the page's,
+        // which an agent must not read as instructions.
+        const near = JSON.stringify((at > 20 ? "…" : "") + want.slice(Math.max(0, at - 20), at + 40) + (want.length > at + 40 ? "…" : ""));
+        throw new SiteError("compose_mismatch", `${title}: the composer does not hold the drafted text (${shown.length} characters, the draft ${want.length}; they differ at character ${at}, in the draft at ${near}); nothing was ${what}`);
+      },
+      normText,
       SiteError,
       shared,
       ELEMENT_MARKDOWN,
