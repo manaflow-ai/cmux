@@ -72,7 +72,7 @@ rust-file	cmux-tui/crates/cmux-tui-machine-protocol/src/lib.rs	2169	70
 rust-file	cmux-tui/crates/cmux-tui-platform/src/platform.rs	1361	86
 rust-file	cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs	1687	72
 rust-file	cmux-tui/crates/cmux-tui/src/agent_hook_install.rs	3937	139
-rust-file	cmux-tui/crates/cmux-tui/src/app.rs	1211	12
+rust-file	cmux-tui/crates/cmux-tui/src/app.rs	987	10
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4304	141
