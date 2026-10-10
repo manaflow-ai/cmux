@@ -19,6 +19,7 @@ mod driver;
 mod evaluate;
 mod fetch;
 mod fetch_runs;
+mod incognito_backups;
 mod input;
 pub mod keys;
 mod navigation;
