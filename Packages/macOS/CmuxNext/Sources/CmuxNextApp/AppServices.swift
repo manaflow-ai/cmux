@@ -326,6 +326,9 @@ final class AppServices {
             // A click ends a creation's key hold into what was clicked (cx-wb5.76).
             self?.keyRouter.creationInputCoordinator.mouseDown(in: event.window)
         }
+        (NSApp as? CmuxApplication)?.mouseDownWillDispatch = { [weak self] _ in
+            self?.keyRouter.creationInputCoordinator.mouseDownWillDispatch()
+        }
     }
     // MARK: Lookup
     /// The tab with durable id `id` and the pane that holds it.

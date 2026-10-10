@@ -107,7 +107,9 @@ enum PaneHandlers {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
+                #if DEBUG
                 if ctx.services.keyRouter.creationInputCoordinator.takeInjectedFailure() { throw PaneSplitFailure() }
+                #endif
                 let created = if let provisional {
                     try await command.sendIntended(on: daemon, provisional: provisional)
                 } else {
