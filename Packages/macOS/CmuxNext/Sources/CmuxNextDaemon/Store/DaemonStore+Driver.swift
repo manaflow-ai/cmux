@@ -57,8 +57,8 @@ final class EventInbox: Sendable {
             // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
         case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled:
-            // Not part of the tree snapshot a resync refetches.
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
+            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
             state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }

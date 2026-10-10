@@ -632,7 +632,11 @@ after its first), and at most one per 30 s interval. No such capture starts
 while `shutdown-daemon` is ending terminals, and a daemon that is shutting
 down or handing off its hosts captures none, so those gaps stay in the tail
 until a later checkpoint. A restore from an older checkpoint reports the
-gap as unsupported until a later checkpoint exists. Consumers must not claim byte-exact output history
+gap as unsupported until a later checkpoint exists. A terminal whose shell
+was lost with its host and that the owner respawns under the same terminal id
+(a new incarnation) gets the same required gap with reason `host_respawn` at
+the start of its new generation, because output the lost host had read but
+not delivered is not in the journal. Consumers must not claim byte-exact output history
 across an unplanned no-tap interval until a durable host spool exists.
 
 ## Version compatibility

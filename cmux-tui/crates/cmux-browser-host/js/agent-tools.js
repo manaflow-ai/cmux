@@ -1050,6 +1050,18 @@
     // ---- downloads -------------------------------------------------------------
     const downloads = [];
     const downloadsById = new Map();
+    // At most MAX_DOWNLOAD_RECORDS: past it the oldest finished or failed
+    // record goes (the oldest running one when none has ended), and a
+    // dropped id is gone from both, so a late event for it changes nothing.
+    const MAX_DOWNLOAD_RECORDS = 1000;
+    function keepDownload(d) {
+      downloads.push(d);
+      downloadsById.set(d.id, d);
+      if (downloads.length <= MAX_DOWNLOAD_RECORDS) return;
+      const ended = downloads.findIndex((x) => x.state !== "started");
+      const [dropped] = downloads.splice(ended < 0 ? 0 : ended, 1);
+      if (downloadsById.get(dropped.id) === dropped) downloadsById.delete(dropped.id);
+    }
 
     // ---- recording -------------------------------------------------------------
     let recorder = null;
@@ -1117,8 +1129,7 @@
       afterEvent(event, p) {
         if (event === "download.started") {
           const d = { id: p.downloadId, url: p.url, suggestedFilename: p.suggestedFilename, tab: p.targetId, state: "started", path: null, error: null, startedAt: new Date(session.now()).toISOString() };
-          downloads.push(d);
-          downloadsById.set(p.downloadId, d);
+          keepDownload(d);
           trace({ t: d.startedAt, tab: p.targetId, event: "download", url: p.url, suggestedFilename: p.suggestedFilename });
         } else if (event === "download.finished") {
           const d = downloadsById.get(p.downloadId);

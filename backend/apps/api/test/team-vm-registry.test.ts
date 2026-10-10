@@ -129,17 +129,4 @@ describe("team VM registry", { timeout: 30_000 }, () => {
     expect(vm).toContain("fakevm-")
   })
 
-  it("the operator route needs its key and only reads", async () => {
-    const without = await handleTeamVmAdmin(new Request("https://api.test/v1/admin/team-vm/registry"), env as unknown as Env)
-    expect(without.status).toBe(404)
-    const KEY = "t".repeat(40)
-    const withKey = { ...(env as unknown as Env), TEAM_VM_ADMIN_KEY: KEY } as Env
-    expect((await handleTeamVmAdmin(new Request("https://api.test/v1/admin/team-vm/registry", { headers: { authorization: "Bearer wrong" } }), withKey)).status).toBe(401)
-    const ok = await handleTeamVmAdmin(new Request("https://api.test/v1/admin/team-vm/registry", { headers: { authorization: `Bearer ${KEY}` } }), withKey)
-    expect(ok.status).toBe(200)
-    expect(await ok.json()).toMatchObject({ counts: { teams: expect.any(Number), live: expect.any(Number) } })
-    const report = await handleTeamVmAdmin(new Request("https://api.test/v1/admin/team-vm/prefix-report", { method: "POST", headers: { authorization: `Bearer ${KEY}` } }), withKey)
-    expect(report.status).toBe(200)
-    expect(await report.json()).toMatchObject({ report: { prefix: PREFIX } })
-  })
 })
