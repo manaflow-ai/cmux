@@ -271,7 +271,9 @@ struct RightSidebarToolPanelView: View {
                 MachinesPanelView(
                     chromeBackgroundColor: resolvedChromeBackgroundColor,
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
-                    tabManager: tabManager
+                    tabManager: tabManager,
+                    activationCoordinator: AppDelegate.shared?.cloudActivationCoordinator
+                        ?? CloudActivationCoordinator.unconfigured()
                 )
             }
         case .feed, .dock, .customSidebar:

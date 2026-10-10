@@ -41,6 +41,9 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
     public var optionAsAlt: GhosttyOptionAsAlt
     /// Scrollback memory limit per terminal, in bytes.
     public var scrollbackLimitBytes: Int
+    /// Whether a middle click pastes the selection (`middle-click-action`).
+    /// Ghostty pastes when unset.
+    public var middleClickPaste: Bool
 
     /// Ghostty's defaults, as seen when no config file sets any of these keys.
     public static let defaults = GhosttyTerminalOptions(directives: [:])
@@ -85,6 +88,13 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         scrollbackLimitBytes = Self.fold(values(.scrollbackLimit)) { value in
             Int(value.replacingOccurrences(of: "_", with: "")).flatMap { $0 >= 0 ? $0 : nil }
         } ?? Self.defaultScrollbackLimitBytes
+        middleClickPaste = Self.fold(values(.middleClickAction)) { value in
+            switch value {
+            case "primary-paste": return true
+            case "ignore": return false
+            default: return nil
+            }
+        } ?? true
     }
 
     /// The options after `change` is written to the last-loaded config file.
@@ -101,6 +111,7 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         case .backgroundBlurEnabled(let enabled): updated.backgroundBlurEnabled = enabled
         case .optionAsAlt(let option): updated.optionAsAlt = option
         case .scrollbackLimitBytes(let bytes): updated.scrollbackLimitBytes = bytes
+        case .middleClickPaste(let pastes): updated.middleClickPaste = pastes
         }
         return updated
     }

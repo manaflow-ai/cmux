@@ -9,8 +9,11 @@ The relay on the remote host authenticates but does not trust:
 (`Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/`) denies
 every method by default and only forwards an allowlist, scoped to objects the
 remote session owns. Command-bearing params (`initial_command`, `command`,
-`tmux_start_command`, `pane_start_command`) are denied on every method, with no
-exceptions.
+`tmux_start_command`, `pane_start_command`) are denied on every method. The one
+key that is not a command is `command` inside the `effects` patch of
+`notification.create_for_target`: a flat object of known effect names with JSON
+boolean values, where `command` only toggles the user's own
+`notifications.command`. Any other shape of that object is still denied.
 
 The `surface.resume.*` methods are not relay methods: a resume binding holds a
 command that runs on the Mac, and no remote flow needs to read, write or clear

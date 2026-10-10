@@ -20,6 +20,8 @@ const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Result arrays are capped by the embedded resource-operation catalog.
+pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -1872,6 +1874,21 @@ impl WorkspaceRegistry {
         Ok(applied)
     }
 
+    /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
+    /// enabled hook: the dispatcher's next retry deadline.
+    pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
+        let next: Option<i64> = self.connection.query_row(
+            "SELECT MIN(d.next_attempt_at_ms)
+             FROM journal_hook_deliveries d
+             JOIN journal_hooks h
+               ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+             WHERE h.enabled = 1 AND d.state = 'scheduled'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
+    }
+
     pub(crate) fn pending_journal_hook_deliveries(
         &self,
         now_ms: u64,
@@ -2376,10 +2393,11 @@ impl WorkspaceRegistry {
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
                     sha256, created_at_ms
              FROM journal_checkpoints
-             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
+             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC
+             LIMIT ?1",
         )?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -2448,10 +2466,10 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     uncompressed_bytes, sha256, sealed_at_ms
-             FROM journal_segments ORDER BY start_sequence ASC",
+             FROM journal_segments ORDER BY start_sequence ASC LIMIT ?1",
         )?;
         statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,

@@ -46,7 +46,6 @@ final class NewCloudWorkspaceShortcutTests {
 
     private var originalFileStore: KeyboardShortcutSettingsFileStore?
     private var originalCloudOptIn: Any?
-    private var originalCloudRemoteOverride: Bool?
     private var originalBrowserDisabled: Any?
 
     init() {
@@ -55,10 +54,6 @@ final class NewCloudWorkspaceShortcutTests {
         originalCloudOptIn = defaults.object(forKey: Self.cloudOptInKey)
         originalBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-        if let definition = Self.cloudRemoteFlag {
-            originalCloudRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
-            CmuxFeatureFlags.shared.setOverride(false, for: definition)
-        }
     }
 
     // Explicit cleanup keeps shared settings restored before the serialized test finishes.
@@ -79,24 +74,15 @@ final class NewCloudWorkspaceShortcutTests {
         } else {
             defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
         }
-        if let definition = Self.cloudRemoteFlag {
-            CmuxFeatureFlags.shared.setOverride(originalCloudRemoteOverride, for: definition)
-        }
 #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif
     }
 
     private static let cloudOptInKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
-    private static var cloudRemoteFlag: CmuxFeatureFlagDefinition? {
-        CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" }
-    }
 
     private func setCloudMachinesEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.cloudOptInKey)
-        if let definition = Self.cloudRemoteFlag {
-            CmuxFeatureFlags.shared.setOverride(enabled, for: definition)
-        }
         #expect(CloudMachinesFeature.isEnabled == enabled)
     }
 
@@ -343,13 +329,21 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(presenter.presentCount == 1)
     }
 
-    @Test func testSharedActionDoesNotPresentSheetWhenFeatureIsOff() {
+    @Test func testSharedActionRoutesToActivationBeforePresentingSheet() {
         defer { restoreState() }
         setCloudMachinesEnabled(false)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter)
-        #expect(!appDelegate.performNewCloudMachineAction(debugSource: "test.featureOff"))
+        defer {
+            NSApp.windows.first {
+                $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+            }?.close()
+        }
+        #expect(appDelegate.performNewCloudMachineAction(debugSource: "test.activationOff"))
+        #expect(NSApp.windows.contains {
+            $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+        })
         #expect(presenter.presentCount == 0)
     }
 

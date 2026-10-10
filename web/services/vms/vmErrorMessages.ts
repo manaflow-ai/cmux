@@ -116,6 +116,37 @@ export async function vmRecreateRequiredCopy(locale: Locale): Promise<VmRequires
   };
 }
 
+/** Localized guidance when the provider account's network rule capacity is exhausted. */
+export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.networkRuleCapacity",
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
+/** Localized copy for a stored network policy apply failure code. */
+export async function vmNetworkPolicyStatusMessage(
+  code: "network_rule_capacity" | "apply_failed",
+  locale: Locale,
+): Promise<string> {
+  if (code === "network_rule_capacity") {
+    const copy = await vmNetworkRuleCapacityCopy(locale);
+    return `${copy.message} ${copy.action}`;
+  }
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.networkPolicyStatus",
+  }) as unknown as (key: string) => string;
+  return translator("applyFailed");
+}
+
 /** Localized, user-safe guidance when guest Cloud VM setup does not complete. */
 export type VmGuestInstallCopy = VmRequiresProCopy & { readonly reason: string };
 export async function vmGuestInstallCopy(locale: Locale): Promise<VmGuestInstallCopy> {
@@ -198,7 +229,30 @@ export async function vmGoLimitCopy(
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }
 
-/** Copy returned when an account's shared Cloud VM resource pool is full. */
+/** Localized copy for a create, resume, resize, or fork that does not fit the shared pool. */
+export async function vmResourcePoolCopy(
+  locale: Locale,
+  values: {
+    readonly resource: "memoryMb" | "vcpus";
+    readonly used: number;
+    readonly pool: number;
+    readonly requested: number;
+    readonly canUpgrade: boolean;
+  },
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.resourcePool",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  const numbers = { used: values.used, pool: values.pool, requested: values.requested };
+  return {
+    title: t("title"),
+    message: t(values.resource === "memoryMb" ? "memoryMessage" : "vcpuMessage", numbers),
+    action: t(values.canUpgrade ? "upgradeAction" : "action"),
+  };
+}
+
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

@@ -176,6 +176,31 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         }
     }
 
+    func testSolidFillDarkModeRowUsesChosenColorWhenBrighteningDisabled() {
+        let customHex = "#0E151B"
+        let brightened = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        XCTAssertNotEqual(brightened.color?.hexString(), customHex)
+
+        let unchanged = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil,
+            brightenInDarkMode: false
+        )
+        XCTAssertEqual(unchanged.color?.hexString(), customHex)
+        XCTAssertEqual(unchanged.opacity, brightened.opacity, accuracy: 0.001)
+    }
+
     func testInactiveWindowSelectionIsNeutralAndIncreaseContrastIsStronger() {
         for scheme in [ColorScheme.light, .dark] {
             let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: false)
@@ -2435,6 +2460,68 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
     }
 
+    func testSettingsFileStoreResolvesWorkspaceColorsBrightenInDarkMode() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": "no"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
@@ -2678,6 +2765,77 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement), .end)
+    }
+
+    func testSettingsFileStoreParsesGoToWorkspaceOrder() throws {
+        let defaults = UserDefaults.standard
+        let orderKey = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        let tabBarVisibilityKey = AppCatalogSection().tabBarVisibility.userDefaultsKey
+        let previousOrder = defaults.object(forKey: orderKey)
+        let previousTabBarVisibility = defaults.object(forKey: tabBarVisibilityKey)
+        defer {
+            if let previousOrder {
+                defaults.set(previousOrder, forKey: orderKey)
+            } else {
+                defaults.removeObject(forKey: orderKey)
+            }
+
+            if let previousTabBarVisibility {
+                defaults.set(previousTabBarVisibility, forKey: tabBarVisibilityKey)
+            } else {
+                defaults.removeObject(forKey: tabBarVisibilityKey)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "recent"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "goToWorkspaceOrder": "nope",
+                "tabBarVisibility": "multiple-tabs"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.tabBarVisibility),
+            .multipleTabs
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -3275,6 +3433,44 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class WorkspaceSwitcherOrderSettingsTests: XCTestCase {
+    func testCurrentOrderDefaultsToSidebarWhenUnset() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
+    }
+
+    func testCurrentOrderReadsRecentAndFallsBackForInvalidValues() {
+        let suiteName = "WorkspaceSwitcherOrderSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let key = SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey
+        defaults.set(WorkspaceSwitcherOrder.recent.rawValue, forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .recent
+        )
+
+        defaults.set("nope", forKey: key)
+        XCTAssertEqual(
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.goToWorkspaceOrder),
+            .sidebar
+        )
     }
 }
 
@@ -4242,6 +4438,34 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertNotEqual(rendered.hexString(), originalHex)
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
+
+    func testDisplayColorDarkModeKeepsOriginalHexWhenBrighteningDisabled() {
+        XCTAssertTrue(SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue)
+        let originalHex = "#0E151B"
+        let rendered = WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .dark,
+            brightenInDarkMode: false
+        )
+
+        XCTAssertEqual(rendered?.hexString(), originalHex)
+    }
+
+    func testDisplayColorForceBrightStillBrightensWhenDarkModeBrighteningDisabled() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark,
+                  forceBright: true,
+                  brightenInDarkMode: false
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
 }
 
 
@@ -4978,7 +5202,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
-    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() throws {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
@@ -4987,6 +5211,10 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        // A missing local cwd resolves to its nearest existing parent (#16248),
+        // so the requested directory must exist for the split to inherit it.
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         guard let sourcePanel = workspace.newTerminalSurface(
             inPane: sourcePaneId,
             focus: false,
@@ -7494,12 +7722,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
-    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() {
+    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() throws {
         let workspace = Workspace()
-        let leftLiveDirectory = "/repo/left/live"
-        let rightFocusedDirectory = "/repo/right/focused"
-        let leftFocusedDirectory = "/repo/left/focused"
-        let rightRequestedDirectory = "/repo/right/requested"
+        // New splits resolve local cwds against the filesystem (#16248), so
+        // the inherited directories must exist.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-dirs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let leftLiveDirectory = root.appendingPathComponent("left/live", isDirectory: true).path
+        let rightFocusedDirectory = root.appendingPathComponent("right/focused", isDirectory: true).path
+        let leftFocusedDirectory = root.appendingPathComponent("left/focused", isDirectory: true).path
+        let rightRequestedDirectory = root.appendingPathComponent("right/requested", isDirectory: true).path
+        for directory in [leftLiveDirectory, rightFocusedDirectory, leftFocusedDirectory, rightRequestedDirectory] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        }
 
         guard let leftPanelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")

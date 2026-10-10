@@ -21,8 +21,8 @@ struct CloudTreeDisclosureIntentTests {
         let tree = try tree(fixture)
         var refreshes = 0
         fixture.coordinator.nodeActions.refreshMachine = { _ in refreshes += 1 }
-        tree.outline.expandItem(tree.resources)
-        tree.outline.collapseItem(tree.ports)
+        tree.outline.expandItem(tree.folder)
+        tree.outline.collapseItem(tree.otherFolder)
         let events = Counter()
         let token = NotificationCenter.default.addUserDefaultsObserver(object: fixture.defaults) { events.count += 1 }
         defer { NotificationCenter.default.removeObserver(token) }
@@ -32,25 +32,26 @@ struct CloudTreeDisclosureIntentTests {
         #expect(fixture.defaults.object(forKey: "cloudTree.collapsedMachineIDs") == nil)
         let restored = CloudTreeExpansionStore(defaults: fixture.defaults)
         #expect(restored.isExpanded(tree.machine))
-        #expect(restored.isExpanded(tree.resources))
-        #expect(!restored.isExpanded(tree.ports))
+        #expect(restored.isExpanded(tree.folder))
+        #expect(!restored.isExpanded(tree.otherFolder))
         tree.outline.expandItem(tree.section)
         #expect(events.count == 2)
         #expect(tree.outline.isItemExpanded(tree.machine))
-        #expect(tree.outline.isItemExpanded(tree.resources))
-        #expect(!tree.outline.isItemExpanded(tree.ports))
+        #expect(tree.outline.isItemExpanded(tree.folder))
+        #expect(!tree.outline.isItemExpanded(tree.otherFolder))
         #expect(refreshes == 0, "Revealing an already-open group is not a new discovery request")
 
-        tree.outline.selectRowIndexes(IndexSet(integer: tree.outline.row(forItem: tree.ports)), byExtendingSelection: false)
+        tree.outline.selectRowIndexes(IndexSet(integer: tree.outline.row(forItem: tree.otherFolder)), byExtendingSelection: false)
         fixture.coordinator.performDisclosure(.expand)
-        #expect(refreshes == 1, "An explicit Ports expansion still discovers ports")
+        #expect(tree.outline.isItemExpanded(tree.otherFolder))
+        #expect(refreshes == 0, "A workspace folder asks for no refresh; Ports and Displays refresh when their tab opens")
     }
 
     @Test func explicitRecursiveActionsPersistEachChangedKeyOnce() throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try tree(fixture)
-        tree.outline.expandItem(tree.resources)
+        tree.outline.expandItem(tree.folder)
         let events = Counter()
         let token = NotificationCenter.default.addUserDefaultsObserver(object: fixture.defaults) { events.count += 1 }
         defer { NotificationCenter.default.removeObserver(token) }
@@ -61,16 +62,16 @@ struct CloudTreeDisclosureIntentTests {
         #expect(events.count == 3, "Machine, collapsed-node and expanded-node keys each change once")
         let collapsed = CloudTreeExpansionStore(defaults: fixture.defaults)
         #expect(!collapsed.isExpanded(tree.machine))
-        #expect(!collapsed.isExpanded(tree.ports))
-        #expect(!collapsed.isExpanded(tree.resources))
+        #expect(!collapsed.isExpanded(tree.otherFolder))
+        #expect(!collapsed.isExpanded(tree.folder))
         events.count = 0
         tree.outline.expandItem(tree.section, expandChildren: true)
         #expect(events.count == 3)
-        #expect(refreshes == 1, "Ports and Displays share one machine discovery request")
+        #expect(refreshes == 0, "Workspace folders request no machine refresh")
         let expanded = CloudTreeExpansionStore(defaults: fixture.defaults)
         #expect(expanded.isExpanded(tree.machine))
-        #expect(expanded.isExpanded(tree.ports))
-        #expect(expanded.isExpanded(tree.resources))
+        #expect(expanded.isExpanded(tree.otherFolder))
+        #expect(expanded.isExpanded(tree.folder))
     }
 
     @Test func nativeDisclosureControlPersistsOnlyTheClickedItem() throws {
@@ -117,7 +118,7 @@ struct CloudTreeDisclosureIntentTests {
 
     private func tree(_ fixture: CloudSidebarOrderingFixture) throws -> (
         outline: CloudTreeNSOutlineView, section: CloudTreeNode, machine: CloudTreeNode,
-        ports: CloudTreeNode, resources: CloudTreeNode
+        otherFolder: CloudTreeNode, folder: CloudTreeNode
     ) {
         fixture.coordinator.update(inputs: .init(
             machines: [], snapshot: fixture.snapshot(), source: .cloudWithDevicesSection
@@ -125,9 +126,11 @@ struct CloudTreeDisclosureIntentTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let section = try #require(fixture.coordinator.nodes.first)
         let machine = try #require(section.children.first)
-        let ports = try #require(machine.children.first { $0.structureTag == "portsGroup" })
-        let resources = try #require(machine.children.first { $0.structureTag == "resourcesPool" })
-        return (outline, section, machine, ports, resources)
+        // The workspace folders start closed under the machine; Ports,
+        // Terminals, Displays and Resources are tabs on the machine's tab row.
+        let folders = machine.children.filter { $0.structureTag == "workspace" }
+        try #require(folders.count == 2)
+        return (outline, section, machine, folders[1], folders[0])
     }
 
     @MainActor private final class Counter { var count = 0 }

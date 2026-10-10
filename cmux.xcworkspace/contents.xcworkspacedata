@@ -75,6 +75,9 @@
          location = "group:CmuxMobileAnalytics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileBilling">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileBrowser">
       </FileRef>
       <FileRef
@@ -179,6 +182,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudResizeCore">
       </FileRef>
       <FileRef
          location = "group:CmuxCloudTui">

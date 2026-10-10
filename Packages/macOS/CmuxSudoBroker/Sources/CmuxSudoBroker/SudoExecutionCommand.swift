@@ -36,7 +36,8 @@ struct SudoExecutionCommand: Sendable, Equatable {
     static func sudo(
         approvedScriptURL: URL,
         reviewedScript: Data,
-        privilegedHelperExecutableURL: URL,
+        privilegedHelper: SudoVerifiedHelper,
+        staging: SudoHelperStagingCommand = SudoHelperStagingCommand(),
         deadline: Date,
         currentDirectoryURL: URL,
         outputURL: URL,
@@ -46,9 +47,10 @@ struct SudoExecutionCommand: Sendable, Equatable {
         let transport = SudoReviewedScriptTransport(
             reviewedScript: reviewedScript,
             approvedScriptURL: approvedScriptURL,
-            privilegedHelperExecutableURL: privilegedHelperExecutableURL,
+            privilegedHelper: privilegedHelper,
+            staging: staging,
             deadline: deadline,
-            controlToken: controlMarkers.token
+            controlMarkers: controlMarkers
         )
         return SudoExecutionCommand(
             executableURL: URL(fileURLWithPath: "/usr/bin/script"),

@@ -399,7 +399,7 @@ exit 97
                          str(self.root / 'canonical' / 'derived-data-compile-admission'))
         # The CAS path is a compiler argument: a different one than admission
         # passes invalidates every compile the seed carries.
-        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas', admission)
+        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas', admission)
         self.assertEqual(values['CMUX_E2E_COMPILATION_CACHE'],
                          str(self.root / 'canonical' / 'compile-admission-cas'))
 

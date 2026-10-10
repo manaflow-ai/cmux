@@ -128,17 +128,25 @@ public enum SyntheticKeyEventFactory {
 
     /// Builds an `NSEvent` backed by a real `CGEvent` so WebKit text input can
     /// safely interpret it. Callers choose their own direct delivery target.
+    ///
+    /// - Parameter marksBrowserAutomation: Marks the event as a key browser
+    ///   automation delivers to a web view (``NSEvent/isBrowserAutomationKeyEvent``),
+    ///   so the app can drop WebKit's resend of it to the key window.
     public static func keyEvent(
         specification: SyntheticKeySpecification,
         keyDown: Bool,
         timestamp: TimeInterval,
-        characters: String? = nil
+        characters: String? = nil,
+        marksBrowserAutomation: Bool = false
     ) -> NSEvent? {
         guard let cgEvent = CGEvent(
             keyboardEventSource: nil,
             virtualKey: specification.keyCode,
             keyDown: keyDown
         ) else { return nil }
+        if marksBrowserAutomation {
+            cgEvent.setIntegerValueField(.eventSourceUserData, value: NSEvent.browserAutomationKeyMark)
+        }
         cgEvent.flags = cgFlags(specification.modifierFlags)
         cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
         if let characters {

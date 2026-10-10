@@ -12,8 +12,9 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
+import { classifyCodexCanaryOutcome } from "./canaryOutcome.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -27,6 +28,14 @@ const paid = rest.includes("--paid");
 // no route token on disk, the injected token reaches coderouter, and one
 // codex turn completes through the edge.
 const edgeCheck = rest.includes("--edge-check");
+// --snapshot-check (needs --create) takes one snapshot of the smoke machine
+// twice with the same Idempotency-Key, requires the same snapshot id both
+// times, then deletes that snapshot before the machine is destroyed.
+const snapshotCheck = rest.includes("--snapshot-check");
+if (snapshotCheck && !rest.includes("--create")) {
+  console.error("--snapshot-check requires --create");
+  process.exit(2);
+}
 // --claude-check extends --edge-check to the Claude leg: the smoke team gets an
 // Anthropic API key upstream (CMUX_SMOKE_CLAUDE_API_KEY, never logged) through
 // PUT /api/coderouter/claude-upstream, then one `claude -p` turn runs in the
@@ -405,14 +414,7 @@ try {
         ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
-      // codex echoes the prompt, so only a line that is exactly the answer counts.
-      const codexPong = !zeroToken && codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
-      // The edge delivered the token but the team has no upstream subscription:
-      // a real outcome on staging teams, reported rather than failed. In
-      // zero-token mode it is the only passing outcome.
-      const codexOutcome = /codex-missing/.test(codexOut)
-        ? "failed"
-        : codexPong ? "answered" : /"error":\s*"no_usable_account"/.test(codexOut) ? "no_account" : "failed";
+      const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
       edge = {
         hostsSteered: steered,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
@@ -449,6 +451,38 @@ try {
         stage = "coderouter";
       }
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")} :: ${JSON.stringify(edge)}`);
+    }
+
+    if (snapshotCheck) {
+      stage = "snapshot";
+      const snapshotStartedAt = performance.now();
+      const snapshotKey = `smoke-snapshot-${suffix}`;
+      const takeSnapshot = async () => {
+        const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/snapshot`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": snapshotKey },
+          body: JSON.stringify({ name: "smoke-idempotency" }),
+        });
+        const text = await response.text();
+        if (response.status !== 200) throw new Error(`POST /api/vm/${vmId}/snapshot expected 200, got ${response.status}: ${text}`);
+        const parsed = JSON.parse(text);
+        if (!parsed.snapshotId) throw new Error("snapshot response missing snapshotId");
+        return parsed.snapshotId;
+      };
+      const firstSnapshot = await takeSnapshot();
+      const secondSnapshot = await takeSnapshot();
+      if (firstSnapshot !== secondSnapshot) {
+        throw new Error(`same Idempotency-Key made two snapshots: ${firstSnapshot} and ${secondSnapshot}`);
+      }
+      const removeSnapshot = await fetchWithTimeout(
+        `${targetUrl}/api/vm/${encodeURIComponent(vmId)}/snapshots/${encodeURIComponent(firstSnapshot)}`,
+        { method: "DELETE", headers: authHeaders },
+      );
+      if (removeSnapshot.status !== 200) {
+        throw new Error(`DELETE snapshot ${firstSnapshot} expected 200, got ${removeSnapshot.status}: ${await removeSnapshot.text()}`);
+      }
+      result.snapshotIdempotent = true;
+      timings.snapshotMs = Math.round(performance.now() - snapshotStartedAt);
     }
 
     stage = "destroy";

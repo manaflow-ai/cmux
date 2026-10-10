@@ -18,8 +18,13 @@ extension AppDelegate {
     @MainActor
     @discardableResult
     func openCloudVPNSetup(preferredWindow: NSWindow? = nil, bringWindowForward: Bool = false) -> CloudVPNSetupPanel? {
-        guard !ManagedDevicePolicy().isEnforced(.disableCloud),
+        guard CloudMachinesFeature.isAvailable,
+              !ManagedDevicePolicy().isEnforced(.disableCloud),
               let manager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        guard CloudMachinesFeature.isEnabled else {
+            _ = focusRightSidebarInActiveMainWindow(mode: .machines)
             return nil
         }
         if bringWindowForward {
@@ -64,8 +69,7 @@ extension AppDelegate {
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         let tunnelManager = VMTunnelManager()
         let activation = CloudActivationPolicy.live(
-            browserTunnel: tunnelManager,
-            remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
+            browserTunnel: tunnelManager
         )
         let coordinator = CloudTunnelCoordinator.live(
             consumers: CloudTunnelAppConsumers(),

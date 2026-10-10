@@ -12,12 +12,13 @@ import Testing
 @testable import cmux
 #endif
 
-/// The Cloud tab's section headers carry hover-only trailing actions: My
-/// Devices' ⋯ options menu and Cloud Machines' New Machine "+". The action
-/// host is always laid out and stays in the hit-test and accessibility trees;
-/// only its alpha follows hover, so the header title and count never shift.
+/// The Cloud tab's section headers carry trailing actions: My Devices' ⋯
+/// options menu and Cloud Machines' New Machine "+" appear on hover, while
+/// CodeRouter's guide is visible at rest. The action host is always laid out
+/// and stays in the hit-test and accessibility trees; only its alpha follows
+/// hover, so the header title and count never shift.
 @MainActor
-@Suite("Cloud sidebar: hover-only section header actions")
+@Suite("Cloud sidebar: section header actions")
 struct CloudTreeHeaderActionsTests {
     @Test("My Devices' ⋯ appears only while its header is hovered and stays clickable at rest", arguments: [220.0, 380.0])
     func devicesOptionsMenuIsHoverOnly(width: Double) throws {
@@ -101,6 +102,24 @@ struct CloudTreeHeaderActionsTests {
         #expect(plus.alphaValue == 0)
         #expect(menu.alphaValue == 0)
         #expect(title.frame == restingTitleFrame)
+    }
+
+    @Test("Section headers carry their refresh icon after the count, not with the hover buttons")
+    func sectionRefresh() {
+        let idle = CloudTreeNode.Kind.cloudMachinesSection(canCreateMachine: false, refresh: CloudTreeSectionRefresh())
+        #expect(CloudTreeRowContentView.sectionRefresh(for: idle) == CloudTreeSectionRefresh(), "a plan at its limit still refreshes")
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: idle))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .cloudMachinesSection(canCreateMachine: true)) == nil,
+                "no refresh while Cloud is off")
+        let running = CloudTreeNode.Kind.devicesSection(CloudTreeDevicesSection(isRefreshing: true))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: running)?.isRefreshing == true)
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .devicesSection(CloudTreeDevicesSection()))?.isRefreshing == false)
+    }
+
+    @Test("CodeRouter guide is discoverable before setup")
+    func coderouterGuideShowsAtRest() {
+        let coderouter = CloudTreeNode.Kind.coderouterSection(count: 0, refresh: CloudTreeSectionRefresh())
+        #expect(CloudTreeRowHoverButtons.showsAtRest(for: coderouter))
     }
 
     /// The header renders while Cloud Machines is off too; there it has nothing
@@ -200,7 +219,7 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other Macs yet", then both independent actions in every state.
+        // "No other devices yet", then both independent actions in every state.
         let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
         let style = tree.outline.treeStyle
         // Each inline row plus the 2 pt top and bottom inset, nothing more.
@@ -236,7 +255,8 @@ struct CloudTreeHeaderActionsTests {
 
         NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
         tree.move(to: tree.devicesSection)
-        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == 0)
+        // Machine rows keep their buttons at rest, dimmed until hovered.
+        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == CloudTreeCellView.restingButtonsAlpha)
         #expect(try Self.controls(in: tree.cell(for: tree.devicesSection)).alphaValue == 1)
     }
 

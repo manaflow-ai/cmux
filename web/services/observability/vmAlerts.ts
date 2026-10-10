@@ -6,6 +6,7 @@ import { cloudDb } from "../../db/client";
 import { cloudVmAlertStates, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
 import { reportError } from "./report";
+import { readFreestyleTlsRuleUsage, tlsRuleCapacityAlert, TLS_RULE_CAPACITY_ALERT_KEY, type TlsRuleUsage } from "./providerRuleCapacity";
 
 const CREATE_FAILURE_EVENT_TYPES = ["vm.create.failed", "vm.base.create.failed"] as const;
 const DROPPED_ALERT_REPORT_TIMEOUT_MS = 2_000;
@@ -25,6 +26,8 @@ export type VmAlertSummary = {
   readonly createFailures: VmAlertCheckSummary;
   readonly stuckProvisioning: VmAlertCheckSummary;
   readonly expiredUnrevokedLeases: VmAlertCheckSummary;
+  /** Account-wide provider TLS rule usage; null when no provider could be read. */
+  readonly tlsRuleCapacity: (VmAlertCheckSummary & { readonly limit: number }) | null;
   /**
    * Whether a Slack sink exists at all, and how many triggered alerts were
    * dropped for lack of one during this run. Surfaced in the cron response so
@@ -51,6 +54,7 @@ export async function runVmAlertChecks(options: {
   readonly fetch?: AlertFetch;
   readonly sendAlert?: SendAlert;
   readonly alertStateStore?: VmAlertStateStore;
+  readonly readTlsRuleUsage?: (env: Record<string, string | undefined>) => Promise<TlsRuleUsage | null>;
 } = {}): Promise<VmAlertSummary> {
   const db = options.db ?? cloudDb();
   const env = options.env ?? process.env;
@@ -76,6 +80,7 @@ export async function runVmAlertChecks(options: {
   const createFailures = await countCreateFailures(db, createFailureSince);
   const stuckProvisioning = await listStuckProvisioningVms(db, stuckProvisioningBefore);
   const expiredLeases = await listExpiredUnrevokedLeases(db, now);
+  const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage, env, alertStateStore, now);
 
   const triggeredAlerts: AlertInput[] = [];
   if (createFailures.count >= createFailureThreshold) {
@@ -118,6 +123,8 @@ export async function runVmAlertChecks(options: {
     });
   }
 
+  triggeredAlerts.push(...tlsRuleCapacity.alerts);
+
   const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
   for (const key of [
     "vm-create-failure-spike",
@@ -126,6 +133,7 @@ export async function runVmAlertChecks(options: {
   ]) {
     if (!triggeredKeys.has(key)) await clearAlertState(alertStateStore, key, now);
   }
+
   for (const alert of triggeredAlerts) {
     const claim = await claimAlertDelivery(alertStateStore, alert, now);
     if (!claim) continue;
@@ -154,11 +162,41 @@ export async function runVmAlertChecks(options: {
       triggered: expiredLeases.count > expiredLeaseThreshold,
       count: expiredLeases.count,
     },
+    tlsRuleCapacity: tlsRuleCapacity.summary,
     alertSink: {
       configured: alertsConfigured,
       droppedAlerts: droppedAlerts.length,
     },
   };
+}
+
+/**
+ * Read the provider's account-wide TLS rule usage and decide its alert. A
+ * failed read is reported and skipped so it never fails the other checks, and
+ * it keeps the last alert state: a provider blip must not clear a live
+ * capacity alert and re-page on the next run. A healthy read clears it.
+ */
+async function checkTlsRuleCapacity(
+  read: ((env: Record<string, string | undefined>) => Promise<TlsRuleUsage | null>) | undefined,
+  env: Record<string, string | undefined>,
+  store: VmAlertStateStore,
+  now: Date,
+): Promise<{ readonly alerts: AlertInput[]; readonly summary: VmAlertSummary["tlsRuleCapacity"] }> {
+  let usage: TlsRuleUsage | null;
+  try {
+    usage = await (read ?? readFreestyleTlsRuleUsage)(env);
+  } catch (error) {
+    reportError(
+      error,
+      { subsystem: "cloud_vm_alerts", code: "tls_rule_usage_unreadable" },
+      { fingerprint: ["cmux-vm-alerts", "tls_rule_usage_unreadable"] },
+    );
+    usage = null;
+  }
+  if (!usage) return { alerts: [], summary: null };
+  const alert = tlsRuleCapacityAlert(usage);
+  if (!alert) await clearAlertState(store, TLS_RULE_CAPACITY_ALERT_KEY, now);
+  return { alerts: alert ? [alert] : [], summary: { triggered: alert !== null, count: usage.count, limit: usage.limit } };
 }
 
 /**
@@ -363,7 +401,12 @@ function formatAge(start: Date, now: Date): string {
   return `${minutes}m old`;
 }
 
-function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAlertStateStore {
+/**
+ * Postgres-backed alert dedupe keyed by alert key: a claim succeeds when the
+ * alert is new, escalated, or its last delivery is older than the 24-hour
+ * reminder window. Shared by every cron alert that must not repeat each run.
+ */
+export function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAlertStateStore {
   return {
     claim: async (input, now) => {
       const reminderBefore = new Date(now.getTime() - VM_ALERT_REMINDER_WINDOW_MS);

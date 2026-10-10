@@ -34,7 +34,6 @@ struct PaneResizeShortcutTests {
             defer { window.performClose(nil) }
             let manager = try #require(delegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
-            let controller = workspace.bonsplitController
             // createMainWindow copies the size of the current main window, and
             // earlier tests in the host leave 320-point windows behind. Split
             // admission then correctly refuses a side-by-side split, so give
@@ -47,6 +46,7 @@ struct PaneResizeShortcutTests {
             workspace.bonsplitController.setContainerFrame(
                 CGRect(x: 0, y: 0, width: 1000, height: 1000)
             )
+            let controller = workspace.bonsplitController
             let first = try #require(workspace.focusedPanelId)
             let horizontal = direction == "left" || direction == "right"
             let second = try #require(workspace.newTerminalSplit(

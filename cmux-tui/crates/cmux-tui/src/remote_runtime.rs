@@ -351,6 +351,18 @@ pub struct DaemonRuntimeHandle {
     info: DaemonRuntimeInfo,
     shutdown: watch::Sender<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
+    finished: Arc<AtomicBool>,
+}
+
+/// Marks the daemon runtime finished and wakes the headless owner loop when
+/// the runtime thread's work ends.
+struct FinishedSignal(Arc<AtomicBool>);
+
+impl Drop for FinishedSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+        crate::wake_headless();
+    }
 }
 
 impl DaemonRuntimeHandle {
@@ -359,7 +371,7 @@ impl DaemonRuntimeHandle {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
+        self.finished.load(Ordering::Acquire)
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
@@ -1167,24 +1179,42 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<BootstrapError>().is_some_and(BootstrapError::is_retryable_carrier_failure)
 }
 
+/// Returns when the owner asks the runtime to stop or a termination signal
+/// arrives. Both are events; this used to re-check them every 50 ms.
 async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) {
+    let mut signal_available = true;
     loop {
         if crate::shutdown_requested()
             || shutdown.as_ref().is_some_and(|receiver| *receiver.borrow())
         {
             return;
         }
-        if let Some(receiver) = &mut shutdown {
-            tokio::select! {
-                result = receiver.changed() => {
-                    if result.is_err() {
-                        shutdown = None;
-                    }
-                }
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        let owner = async {
+            match &mut shutdown {
+                Some(receiver) => receiver.changed().await.is_err(),
+                None => std::future::pending().await,
             }
-        } else {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let signal = async {
+            if signal_available {
+                crate::wait_for_shutdown_signal_peek_async().await.is_err()
+            } else {
+                std::future::pending().await
+            }
+        };
+        let (owner_closed, signal_unavailable) = tokio::select! {
+            owner_closed = owner => (owner_closed, false),
+            signal_unavailable = signal => (false, signal_unavailable),
+        };
+        if owner_closed {
+            shutdown = None;
+        }
+        if signal_unavailable {
+            signal_available = false;
+        }
+        if shutdown.is_none() && !signal_available {
+            // Nothing left that can request a stop.
+            std::future::pending::<()>().await;
         }
     }
 }
@@ -1981,9 +2011,14 @@ fn start_daemon_runtime_with_timeout(
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let owner_shutdown = shutdown_tx.clone();
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let finished = Arc::new(AtomicBool::new(false));
+    let thread_finished = finished.clone();
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
+            // The headless owner loop blocks until this runtime ends, on
+            // every return path including a failed runtime build.
+            let _finished = FinishedSignal(thread_finished);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
             let result = runtime.block_on(run_daemon(
                 mux_socket,
@@ -2013,7 +2048,7 @@ fn start_daemon_runtime_with_timeout(
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
-    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread) })
+    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread), finished })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2065,6 +2100,10 @@ async fn run_daemon(
             pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
             persist_daemon_lifecycle_fence(&state_dir)?;
             lifecycle_fenced = true;
+        }
+        #[cfg(unix)]
+        if lifecycle_fenced {
+            recover_inactive_predecessor_state(&state_dir, &link_socket, &admin_socket).await?;
         }
         verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
         if !lifecycle_fenced {
@@ -2333,6 +2372,88 @@ async fn run_daemon(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+#[cfg(unix)]
+async fn recover_inactive_predecessor_state(
+    state_dir: &Path,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context(catalog().remote.snapshot_runtime_for_recovery)?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let Some(runtime) = initial_runtime
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    let Some(lifecycle_id) = runtime.lifecycle_id.as_deref().filter(|id| !id.is_empty()) else {
+        // Legacy and malformed lifecycle metadata must continue through the
+        // existing explicit migration/recovery paths.
+        return Ok(());
+    };
+    let outcome = initial_outcome
+        .as_deref()
+        .map(decode_shutdown_outcome)
+        .transpose()
+        .context(catalog().remote.verify_previous_finalization)?;
+    let stale = match outcome {
+        Some(outcome) if outcome.status == DaemonShutdownStatus::Succeeded => {
+            outcome.lifecycle_id != lifecycle_id
+        }
+        Some(_) => false,
+        None => true,
+    };
+    if !stale {
+        return Ok(());
+    }
+
+    // The authorization lease is held by the caller. Probe every socket from
+    // the recorded lifecycle and the current defaults before treating its
+    // evidence as stale; a live predecessor must remain an explicit handoff.
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    let Some(runtime) = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    if runtime.lifecycle_id.as_deref() != Some(lifecycle_id) {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+    remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
+        .context("could not remove stale remote daemon lifecycle evidence")?;
+    Ok(())
 }
 
 async fn load_daemon_auth_during_handoff(
@@ -4130,15 +4251,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_startup_requires_exact_modern_predecessor_authorization_finalization() {
-        for (case, outcome_lifecycle) in [("missing", None), ("stale", Some("different-lifecycle"))]
-        {
+    fn daemon_startup_recovers_inactive_modern_predecessor_state() {
+        for (case, outcome) in [
+            ("missing", None),
+            (
+                "stale",
+                Some(DaemonShutdownOutcome {
+                    version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                    lifecycle_id: "different-lifecycle".into(),
+                    status: DaemonShutdownStatus::Succeeded,
+                }),
+            ),
+        ] {
             let directory = tempfile::tempdir_in("/tmp").unwrap();
             let state_root = directory.path().join("state");
             let session = format!("modern-predecessor-{case}");
             let (state_dir, link_socket, admin_socket) =
                 daemon_paths(&session, Some(&state_root)).unwrap();
             fs::create_dir_all(&state_dir).unwrap();
+            drop(
+                AuthDatabase::load_or_create(state_dir.join("auth"), &session, true)
+                    .expect("could not seed authorization state"),
+            );
+            persist_daemon_lifecycle_fence(&state_dir).unwrap();
             persist_runtime_info(
                 &state_dir,
                 &DaemonRuntimeInfo {
@@ -4155,19 +4290,11 @@ mod tests {
                 },
             )
             .unwrap();
-            if let Some(lifecycle_id) = outcome_lifecycle {
-                persist_shutdown_outcome(
-                    &state_dir,
-                    &DaemonShutdownOutcome {
-                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
-                        lifecycle_id: lifecycle_id.into(),
-                        status: DaemonShutdownStatus::Succeeded,
-                    },
-                )
-                .unwrap();
+            if let Some(outcome) = outcome {
+                persist_shutdown_outcome(&state_dir, &outcome).unwrap();
             }
 
-            let result = start_daemon_runtime(
+            let runtime = start_daemon_runtime(
                 directory.path().join("missing-mux.sock"),
                 DaemonRuntimeOptions {
                     session,
@@ -4184,16 +4311,88 @@ mod tests {
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
                 },
+            )
+            .unwrap_or_else(|error| {
+                panic!("{case}: daemon did not recover stale evidence: {error:#}")
+            });
+            runtime.shutdown().unwrap();
+            assert_eq!(
+                load_shutdown_outcome(&state_dir)
+                    .expect("replacement daemon did not finalize authorization")
+                    .status,
+                DaemonShutdownStatus::Succeeded,
+                "{case}: replacement daemon did not publish a successful finalization"
             );
-            let error = match result {
-                Err(error) => error,
-                Ok(runtime) => {
-                    runtime.shutdown().unwrap();
-                    panic!("daemon started with {case} predecessor finalization evidence");
-                }
-            };
-            assert!(error.to_string().contains("authorization finalization"), "{case}: {error:#}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_preserves_failed_finalization_ack_fence() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "failed-modern-predecessor";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed authorization state"),
+        );
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+        persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "failed-predecessor".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("failed-lifecycle".into()),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "failed-lifecycle".into(),
+                status: DaemonShutdownStatus::Failed,
+            },
+        )
+        .unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("failed finalization bypassed its explicit acknowledgement fence");
+            }
+        };
+        assert!(error.to_string().contains("acknowledge-failed-finalization"), "{error:#}");
+        assert!(state_dir.join("runtime.json").exists());
+        assert!(state_dir.join("shutdown.json").exists());
     }
 
     #[cfg(unix)]
@@ -5233,6 +5432,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
+                maximum_duration: None,
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5396,6 +5596,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5471,6 +5672,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),

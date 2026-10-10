@@ -47,6 +47,10 @@ protocol SurfaceProvider: AnyObject {
     /// already published. Their panes are placeholders until the provider
     /// materializes them, and no later publish is guaranteed to follow.
     func projectionsRestored()
+    /// Rebind only projections that became resolvable during the latest publication.
+    /// The default keeps providers that do not maintain a targeted reprojection path compatible.
+    /// Rebinds only the restored resources that became available in a publication.
+    func projectionsRestored(resources: Set<SurfaceResourceID>)
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
@@ -104,6 +108,8 @@ extension SurfaceProvider {
     }
 
     func projectionsRestored() {}
+
+    func projectionsRestored(resources: Set<SurfaceResourceID>) { projectionsRestored() }
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, at: destination, focus: focus)

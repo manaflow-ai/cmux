@@ -8,6 +8,7 @@ import SwiftUI
 final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
     private let resolveHostWindow: @MainActor (NSWindow?) -> NSWindow?
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private weak var hostWindow: NSWindow?
     /// Identifies the current sheet, so a late finish from an earlier sheet
     /// cannot close this one.
@@ -46,7 +47,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
         // window when the sheet ends, which breaks the cycle.
         // Return can reach both the field and the default button, so only
         // the call that closes the sheet creates a team.
-        let controller = NSHostingController(rootView: CloudCreateTeamSheet(
+        let sheet = CloudSheetWindow(rootView: CloudCreateTeamSheet(
             accountFlow: accountFlow,
             initialName: initialName,
             onCreate: { [self] name in
@@ -55,19 +56,19 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
             },
             onCancel: { [self] in dismiss(sessionID) }
         ))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
+        let window = sheet.window
         window.styleMask = [.titled, .closable]
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloudCreateTeam")
         window.delegate = self
         window.title = String(localized: "cloud.teamPicker.createSheet.title", defaultValue: "Create Team")
         window.isReleasedWhenClosed = false
+        sheetController = sheet
         sheetWindow = window
 
         let host = resolveHostWindow(preferredWindow ?? NSApp.keyWindow)
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { [self] _ in
+            sheet.beginSheet(on: host) { [self] _ in
                 // Also runs when AppKit ends the sheet on its own.
                 dismiss(sessionID)
             }
@@ -75,8 +76,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
             // The window delegate sends the close button and Close shortcut
             // through the same session cleanup as Cancel.
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
     }
 
@@ -94,6 +94,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
     }
 
     private func reset() {
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         sessionID = nil

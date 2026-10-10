@@ -11,6 +11,9 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
+# The configuration xcodebuild builds and the app it produces (Release: cmux.app).
+BUILD_CONFIGURATION="Debug"
+PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -664,8 +667,9 @@ if [[ -n "\$SOCKET_ARG" ]]; then
     if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
       # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
       # which is not the per-tag default when tags share one.
-      TAG_CLI_SUFFIX="Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      for TAG_CLI in "/tmp/cmux-\$TAG/\$TAG_CLI_SUFFIX" "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/\$TAG_CLI_SUFFIX"; do
+      TAG_CLI_SUFFIX="cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      for TAG_CLI in "/tmp/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX" \
+        "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG"/Build/Products/{Debug,Release}/"\$TAG_CLI_SUFFIX"; do
         # /tmp is shared, so only trust a CLI this user owns.
         [[ -O "\$TAG_CLI" ]] || continue
         if live_cli_bundle "\$TAG_CLI" >/dev/null; then
@@ -909,6 +913,9 @@ Options:
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
+  --release              Build the Release configuration (optimized, no DEBUG) of
+                         this tagged app, for dogfooding real performance. The
+                         debug.* socket commands are compiled out.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -1012,6 +1019,29 @@ set_plist_url_scheme() {
   local scheme="$2"
   /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 \"${scheme}\"" "$plist" 2>/dev/null \
     || true
+}
+
+# Prints the selected Xcode's version ("26.3"), or nothing when xcodebuild cannot say.
+selected_xcode_version() {
+  xcodebuild -version 2>/dev/null | awk 'NR == 1 && $1 == "Xcode" { print $2 }' || true
+}
+
+# Whether this reload skips the app's separate Swift module emission, given the
+# selected Xcode's version. CMUX_RELOAD_APP_EMIT_MODULE decides when it is set: 1
+# emits the module, 0 skips it. Unset, the module is skipped except on Xcode 26.2
+# and 26.3, where the build without it stops at the module merge with "type
+# mismatch of function ... but used in a swift module as ..." on SwiftUI views
+# whose body goes through an opaque return type.
+reload_skips_app_module_emission() {
+  local xcode_version="${1:-}"
+  case "${CMUX_RELOAD_APP_EMIT_MODULE:-}" in
+    1) return 1 ;;
+    0) return 0 ;;
+  esac
+  case "$xcode_version" in
+    26.2|26.2.*|26.3|26.3.*) return 1 ;;
+  esac
+  return 0
 }
 
 tagged_derived_data_path() {
@@ -1132,7 +1162,7 @@ tag_build_cleanup_paths() {
     derived="$(readlink "$link" 2>/dev/null || true)"
   fi
   if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
-    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app" "${derived%/}/Build/Products/Release/cmux DEV ${tag}.app"
     [[ -d "$own" ]] || return 0
   fi
   printf '%q ' "$own"
@@ -1173,7 +1203,7 @@ print_tag_cleanup_reminder() {
       continue
     fi
     # Only surface stale debug tag builds.
-    if [[ ! -d "$path/Build/Products/Debug" ]]; then
+    if [[ ! -d "$path/Build/Products/Debug" && ! -d "$path/Build/Products/Release" ]]; then
       continue
     fi
     if [[ "$seen" == *" $tag "* ]]; then
@@ -1252,6 +1282,10 @@ while [[ $# -gt 0 ]]; do
       PROD_AUTH=1
       shift
       ;;
+    --release)
+      BUILD_CONFIGURATION="Release"
+      shift
+      ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
       if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1326,12 +1360,20 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# Release's product is cmux.app, which the tag step stages as the tagged app. It
+# bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
+# entitlements need a signing team, and the tagged app is signed ad hoc.
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  PRODUCT_APP_NAME="cmux"
+  export CMUX_NEXT_TUI_MODE=tree
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
 # can be executing from. Refuse that shape before any cleanup or build starts.
-if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$BASE_APP_NAME" ]]; then
-  echo "error: --build-only cannot use --name '$BASE_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
+if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$PRODUCT_APP_NAME" ]]; then
+  echo "error: --build-only cannot use --name '$PRODUCT_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
   exit 1
 fi
 
@@ -1476,9 +1518,9 @@ XCODEBUILD_TAG_APP_PATH=""
 TAG_APP_FINAL_PATH=""
 TAG_APP_STAGING_PATH=""
 if [[ -n "$DERIVED_DATA" ]]; then
-  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
+  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}"
   if [[ -n "$TAG" ]]; then
-    XCODEBUILD_SOURCE_APP_NAME="$BASE_APP_NAME"
+    XCODEBUILD_SOURCE_APP_NAME="$PRODUCT_APP_NAME"
   fi
   XCODEBUILD_SOURCE_APP_PATH="${BUILD_PRODUCTS_DEBUG_DIR}/${XCODEBUILD_SOURCE_APP_NAME}.app"
   if [[ -n "$TAG" && "$APP_NAME" != "$XCODEBUILD_SOURCE_APP_NAME" ]]; then
@@ -1616,7 +1658,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
-  -configuration Debug
+  -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
 if [[ -n "$DERIVED_DATA" ]]; then
@@ -1636,6 +1678,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
+fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
 # app the user is dogfooding instead of falling back to the untagged product.
@@ -1674,7 +1719,7 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
 fi
-if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
+if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
   # which reload never builds) and no Objective-C includes its generated header.
   # Xcode's integrated driver still emits the module in a separate job that
@@ -1683,7 +1728,8 @@ if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
   # cmuxTests; the app's Debug configuration generates no Objective-C header.
   # Settings are per target, so packages and the CLI are unchanged. App edits
   # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
-  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again.
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again. Xcode 26.2
+  # and 26.3 emit it without being asked; see reload_skips_app_module_emission.
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   XCODEBUILD_ARGS+=(
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
@@ -1866,22 +1912,22 @@ if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   exit 65
 fi
 
-FALLBACK_APP_NAME="$BASE_APP_NAME"
+FALLBACK_APP_NAME="$PRODUCT_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
 APP_EXECUTABLE_NAME="$SEARCH_APP_NAME"
 if [[ -n "$TAG" ]]; then
-  SEARCH_APP_NAME="$BASE_APP_NAME"
-  APP_EXECUTABLE_NAME="$BASE_APP_NAME"
+  SEARCH_APP_NAME="$PRODUCT_APP_NAME"
+  APP_EXECUTABLE_NAME="$PRODUCT_APP_NAME"
 fi
 if [[ -n "$DERIVED_DATA" ]]; then
-  APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${SEARCH_APP_NAME}.app"
+  APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app"
   if [[ ! -d "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
-    APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${FALLBACK_APP_NAME}.app"
+    APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app"
     APP_EXECUTABLE_NAME="$FALLBACK_APP_NAME"
   fi
 else
   APP_BINARY="$(
-    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
+    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
     | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
     | sort -nr \
     | head -n 1 \
@@ -1892,7 +1938,7 @@ else
   fi
   if [[ -z "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
     APP_BINARY="$(
-      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
+      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
       | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
       | sort -nr \
       | head -n 1 \
@@ -2115,7 +2161,7 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
-  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
+  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   pkill -f "$TAG_PROCESS_PATTERN" || true
   for _ in {1..20}; do
     if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
@@ -2289,7 +2335,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     # the user chooses Quit. A loaded plist with KeepAlive=false still survives
     # the invoking terminal/automation process, while a normal exit stays exited.
     # It also avoids LaunchServices reusing stale LSEnvironment values.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
+    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1

@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCloudTui
 import Foundation
 
@@ -105,55 +106,6 @@ public actor CloudWireGuardHub {
         public let routes: [String]
     }
 
-    public struct Configuration: Sendable {
-        public init(
-            enroll: @escaping @Sendable () async throws -> Enrollment,
-            refreshEnrollment: (@Sendable () async throws -> Enrollment)? = nil,
-            clientURL: URL,
-            socketURL: URL,
-            spawner: any CloudWireGuardHubSpawning,
-            waitUntilReady: @escaping @Sendable (_ socketPath: String) async throws -> Void,
-            sleep: @escaping @Sendable (Duration) async throws -> Void,
-            restartBackoff: [Duration],
-            idleGrace: Duration,
-            now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
-        ) {
-            self.enroll = enroll
-            self.refreshEnrollment = refreshEnrollment
-            self.clientURL = clientURL
-            self.socketURL = socketURL
-            self.spawner = spawner
-            self.waitUntilReady = waitUntilReady
-            self.sleep = sleep
-            self.restartBackoff = restartBackoff
-            self.idleGrace = idleGrace
-            self.now = now
-        }
-
-        /// Enrolls the app tunnel identity with the control plane and writes the
-        /// WireGuard config (``VMTunnelManager/enroll(client:deviceName:)`` with the
-        /// terminal role in production).
-        public let enroll: @Sendable () async throws -> Enrollment
-        public let refreshEnrollment: (@Sendable () async throws -> Enrollment)?
-        /// The cmux-tui client binary that provides `wg hub`.
-        public let clientURL: URL
-        /// Where the hub's SOCKS5 unix socket lives; the parent directory is 0700.
-        public let socketURL: URL
-        public let spawner: any CloudWireGuardHubSpawning
-        /// Resolves once `socketPath` accepts a connection; throws on timeout.
-        public let waitUntilReady: @Sendable (_ socketPath: String) async throws -> Void
-        /// Cancellable delay; production uses `ContinuousClock`.
-        public let sleep: @Sendable (Duration) async throws -> Void
-        /// Delays before each restart after an unexpected exit; its count bounds the attempts.
-        public let restartBackoff: [Duration]
-        /// How long the hub outlives its last lease, so a re-link does not pay a fresh handshake.
-        public let idleGrace: Duration
-        public let now: @Sendable () -> ContinuousClock.Instant
-
-        static let defaultRestartBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16)]
-        static let defaultIdleGrace: Duration = .seconds(10)
-    }
-
     private enum State {
         case stopped
         case starting(generation: UInt64, task: Task<Ready, Error>)
@@ -169,6 +121,9 @@ public actor CloudWireGuardHub {
     /// Retained after completion: one automatic sequence per Cloud activation, not per fleet poll.
     private var preparationTask: Task<Void, Never>?
     private var pinnedByExternalClient = false
+    /// The authenticated account/team that produced the running enrollment.
+    /// Activation refreshes preserve the carrier when this scope is unchanged.
+    private var activeTeamScope: AuthenticatedTeamScope?
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
     /// that was stopped on purpose.
     private var generation: UInt64 = 0
@@ -275,8 +230,18 @@ public actor CloudWireGuardHub {
 
     /// Keeps one account claim even if startup fails. Explicit link demand can
     /// recover later without losing the Cloud activation's keep-ready policy.
-    public func prewarm() async throws -> Ready {
+    public func prewarm(
+        allowWhenCloudDisabled: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil
+    ) async throws -> Ready {
         try Task.checkCancellation()
+        if allowWhenCloudDisabled, activeTeamScope != expectedTeamScope {
+            // Activation is the account-fenced handoff from a disabled local
+            // marker. Drop any stale carrier before enrolling with the scope
+            // captured by this attempt; a running hub cannot be assumed to
+            // belong to the current account after sign-out/team changes.
+            stop()
+        }
         if prewarmLease == nil {
             let lease = Lease(id: UUID())
             leases.insert(lease)
@@ -284,7 +249,10 @@ public actor CloudWireGuardHub {
             idleStopTask?.cancel()
             idleStopTask = nil
         }
-        return try await ensureRunning()
+        return try await ensureRunning(
+            allowWhenCloudDisabled: allowWhenCloudDisabled,
+            expectedTeamScope: expectedTeamScope
+        )
     }
 
     /// Releases the account-level preparation claim when its owner no longer needs it.
@@ -323,6 +291,7 @@ public actor CloudWireGuardHub {
         leases.removeAll()
         prewarmLease = nil
         pinnedByExternalClient = false
+        activeTeamScope = nil
         if case .starting(_, let task) = state { task.cancel() }
         state = .stopped
         processID = nil
@@ -356,7 +325,10 @@ public actor CloudWireGuardHub {
 
     private var wanted: Bool { !leases.isEmpty || pinnedByExternalClient }
 
-    private func ensureRunning() async throws -> Ready {
+    private func ensureRunning(
+        allowWhenCloudDisabled: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil
+    ) async throws -> Ready {
         switch state {
         case .running(let ready):
             return ready
@@ -366,7 +338,13 @@ public actor CloudWireGuardHub {
             break
         }
         let startGeneration = generation
-        let task = Task<Ready, Error> { try await self.startWithRecovery(generation: startGeneration) }
+        let task = Task<Ready, Error> {
+            try await self.startWithRecovery(
+                generation: startGeneration,
+                allowWhenCloudDisabled: allowWhenCloudDisabled,
+                expectedTeamScope: expectedTeamScope
+            )
+        }
         state = .starting(generation: startGeneration, task: task)
         do {
             let ready = try await task.value
@@ -403,7 +381,11 @@ public actor CloudWireGuardHub {
     /// Enrollment and startup recovery belong to the one shared startup task.
     /// Explicit opens and background warmup await the same final result; no
     /// caller can fail early while another caller is still recovering it.
-    private func startWithRecovery(generation startGeneration: UInt64) async throws -> Ready {
+    private func startWithRecovery(
+        generation startGeneration: UInt64,
+        allowWhenCloudDisabled: Bool,
+        expectedTeamScope: AuthenticatedTeamScope?
+    ) async throws -> Ready {
         let delays = Array(configuration.restartBackoff.prefix(3))
         for attempt in 0...delays.count {
             try Task.checkCancellation()
@@ -413,7 +395,12 @@ public actor CloudWireGuardHub {
             // process identity no longer matches the replacement.
             pendingStartupExit = nil
             do {
-                return try await start(generation: startGeneration)
+                return try await start(
+                    generation: startGeneration,
+                    allowWhenCloudDisabled: allowWhenCloudDisabled,
+                    expectedTeamScope: expectedTeamScope,
+                    refreshEnrollment: attempt > 0
+                )
             } catch {
                 try Task.checkCancellation()
                 guard generation == startGeneration else { throw CancellationError() }
@@ -425,8 +412,32 @@ public actor CloudWireGuardHub {
         throw HubError.notReady("hub startup failed without a reported error")
     }
 
-    private func start(generation startGeneration: UInt64) async throws -> Ready {
-        let enrollment = try await configuration.enroll()
+    private func start(
+        generation startGeneration: UInt64,
+        allowWhenCloudDisabled: Bool,
+        expectedTeamScope: AuthenticatedTeamScope?,
+        refreshEnrollment: Bool
+    ) async throws -> Ready {
+        let enrollment: Enrollment
+        if refreshEnrollment {
+            // A hub process can reject a previously written config without
+            // producing a useful enrollment error. Recovery must replace that
+            // state before retrying, otherwise every retry starts the same
+            // dead child and the shared socket never becomes ready.
+            if allowWhenCloudDisabled, let refresh = configuration.refreshEnrollmentWhenCloudDisabled {
+                enrollment = try await refresh(expectedTeamScope)
+            } else if let refresh = configuration.refreshEnrollment {
+                enrollment = try await refresh()
+            } else if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
+                enrollment = try await activationEnrollment(expectedTeamScope)
+            } else {
+                enrollment = try await configuration.enroll()
+            }
+        } else if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
+            enrollment = try await activationEnrollment(expectedTeamScope)
+        } else {
+            enrollment = try await configuration.enroll()
+        }
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()
@@ -486,6 +497,7 @@ public actor CloudWireGuardHub {
             pendingStartupExit = nil
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)
         }
+        activeTeamScope = expectedTeamScope
         lastError = nil
         return Ready(socketPath: socketPath, routes: enrollment.routes)
     }

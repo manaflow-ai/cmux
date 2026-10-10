@@ -43,3 +43,5 @@ final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
         return session
     }
 }
+
+#endif

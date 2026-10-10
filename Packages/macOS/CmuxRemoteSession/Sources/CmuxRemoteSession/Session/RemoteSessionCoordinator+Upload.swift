@@ -59,7 +59,9 @@ extension RemoteSessionCoordinator {
         var uploadedRemotePaths: [String] = []
         do {
             try operation.throwIfCancelled()
-            try prepareRemotePasteDirectoryLocked()
+            // Mark before preparing: a failed prepare may still leave the directory.
+            hasTouchedRemotePasteDirectory = true
+            let remoteHomeDirectory = try prepareRemotePasteDirectoryLocked()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
@@ -67,7 +69,10 @@ extension RemoteSessionCoordinator {
                     throw RemoteDropUploadError.invalidFileURL
                 }
 
-                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(
+                    for: normalizedLocalURL,
+                    homeDirectory: remoteHomeDirectory
+                )
                 uploadedRemotePaths.append(remotePath)
                 // SCP's stream is a batch protocol; a remote PTY would corrupt
                 // its framing even when an interactive workspace requested one.
@@ -126,7 +131,7 @@ extension RemoteSessionCoordinator {
         )
     }
 
-    private func prepareRemotePasteDirectoryLocked() throws {
+    private func prepareRemotePasteDirectoryLocked() throws -> String {
         let command = "sh -c \(remotePastePolicy.maintenanceScript().shellSingleQuoted)"
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
@@ -137,6 +142,12 @@ extension RemoteSessionCoordinator {
                 ?? "ssh exited \(result.status)"
             throw RemoteDropUploadError.uploadFailed(detail)
         }
+        guard let remoteHomeDirectory = remotePastePolicy.remoteHomeDirectory(
+            fromMaintenanceOutput: result.stdout
+        ) else {
+            throw RemoteDropUploadError.uploadFailed("remote home directory unavailable")
+        }
+        return remoteHomeDirectory
     }
 
     private func finalizeRemotePasteFileLocked(_ remotePath: String) throws {

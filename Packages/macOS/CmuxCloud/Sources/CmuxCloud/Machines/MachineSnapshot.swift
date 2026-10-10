@@ -16,6 +16,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         slug: String? = nil,
         freeAccess: FreeAccessState = .unrestricted,
         stats: VMStats? = nil,
+        resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil,
+        usesResourcePool: Bool = true,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
         isPinned: Bool = false
@@ -32,6 +35,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.slug = slug
         self.freeAccess = freeAccess
         self.stats = stats
+        self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
+        self.usesResourcePool = usesResourcePool
         self.usage = usage
         self.privateAddress = privateAddress
         self.isPinned = isPinned
@@ -72,13 +78,25 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// on its own and on control planes that do not send an author.
     public let createdBy: VMCreator?
     /// User-chosen label; nil when the machine has no label.
-    public let label: String?
+    /// User-chosen label; mutable for the sidebar's in-flight optimistic rename.
+    public var label: String?
     /// Server-generated three-word name; nil for machines older than naming.
     public var slug: String? = nil
     /// Free-plan access window position; `.unrestricted` on paid plans.
     public var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     public var stats: VMStats?
+    /// The server-recorded compute share used for subscription pool decisions.
+    /// Guest stats remain the display fallback while this value is unavailable.
+    public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to the plan's aggregate usage counters. Legacy
+    /// rows can claim the provider maximum until reconciliation; this is kept
+    /// separate from the live grow-only shape above.
+    public var resourcePoolClaim: CloudVMResourceReservation?
+    /// Whether the list status says this machine currently draws from the
+    /// shared pool. Paused/stopped machines must fit as a new allocation when
+    /// a resize wakes them.
+    public var usesResourcePool: Bool
     /// Coderouter spend over the usage window; nil until the team usage
     /// payload names this machine (and nil forever on backends without it).
     public var usage: MachineUsageSnapshot?
@@ -88,6 +106,13 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var privateAddress: String?
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
+    /// Coding-agent update setting; nil when the server predates it.
+    public var agentUpdates: CloudAgentUpdates?
+
+    /// Whether a new Cloud workspace can be created here. A machine past its
+    /// free-access window is locked (the backend refuses access verbs), so it
+    /// is never a workspace destination until the plan is upgraded.
+    public var acceptsNewWorkspaces: Bool { freeAccess != .expired }
 
     /// The label when set, else the generated name, else the machine id.
     public var displayName: String {

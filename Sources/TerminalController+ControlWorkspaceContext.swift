@@ -243,7 +243,8 @@ extension TerminalController: ControlWorkspaceContext {
         guard let outcome = tabManager.handlePromptSubmit(
             workspaceId: workspaceID,
             message: message,
-            iMessageModeEnabled: iMessageModeEnabled
+            iMessageModeEnabled: iMessageModeEnabled,
+            surfaceId: routing.surfaceID?.uuidString
         ) else {
             return .notFound
         }
@@ -678,6 +679,7 @@ extension TerminalController: ControlWorkspaceContext {
                 explicitAgentSocketPath: agentSocketPath,
                 explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
             ),
+            agentSocketPathOverrideIsSet: hasExplicitAgentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,

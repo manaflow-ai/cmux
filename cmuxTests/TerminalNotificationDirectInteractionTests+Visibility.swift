@@ -10,6 +10,60 @@ import CmuxTerminalCore
 #endif
 
 extension TerminalNotificationDirectInteractionTests {
+    func testPresentedRendererSkipsRedundantDeferredRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
+        defer { livePortalWorkspace.tearDown() }
+
+        let surface = TerminalSurface(
+            tabId: livePortalWorkspace.id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        waitForRuntimeSurface(surface, file: #filePath, line: #line)
+        guard surface.surface != nil else { return }
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.isRendererPresented },
+            "Expected the visible renderer to present before testing the reveal policy"
+        )
+        drainMainQueue()
+
+        surface.resetDebugForceRefreshCount()
+        // A renderer can present after a reveal queues its fallback but before
+        // the callback runs. Exercise that callback's current-health guard.
+        hostedView.scheduleVisibilityRevealRefresh(transition: .reveal)
+        XCTAssertTrue(
+            hostedView.hasVisibilityRevealRefreshScheduled,
+            "Expected a pending callback to exercise the deferred refresh guard"
+        )
+        drainMainQueue()
+        XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled)
+        XCTAssertEqual(surface.debugForceRefreshCount(), 0)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
         try assertInactiveVisibilityRestoreRefreshCount(
@@ -22,12 +76,12 @@ extension TerminalNotificationDirectInteractionTests {
 #endif
     }
 
-    func testWarmVisibilityRestoreSkipsRefreshWhileTerminalIsInactive() throws {
+    func testWarmVisibilityRestoreRefreshesAfterRendererLossWhileTerminalIsInactive() throws {
 #if DEBUG
         try assertInactiveVisibilityRestoreRefreshCount(
             presentedFrameBeforeReveal: true,
-            expected: 0,
-            "A renderer that already presented a frame keeps it across the hide; revealing it must not force a blocking redraw"
+            expected: 1,
+            "A historical frame must not suppress the reveal redraw after the renderer is no longer presented"
         )
 #else
         throw XCTSkip("Debug-only regression test")
@@ -35,9 +89,10 @@ extension TerminalNotificationDirectInteractionTests {
     }
 
 #if DEBUG
-    /// Whether a reveal forces a redraw depends on whether the renderer has
-    /// presented a frame (#14044). The test pins that state while the portal
-    /// is hidden instead of inheriting whatever the GPU presented during setup.
+    /// The reveal fallback depends on whether the renderer is currently
+    /// presented, rather than on whether it presented a historical frame
+    /// (#14044). The test pins that historical state while the portal is hidden
+    /// instead of inheriting whatever the GPU presented during setup.
     private func assertInactiveVisibilityRestoreRefreshCount(
         presentedFrameBeforeReveal: Bool,
         expected: Int,
@@ -78,30 +133,31 @@ extension TerminalNotificationDirectInteractionTests {
 
         hostedView.setActive(false)
         hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue(file: file, line: line)
 
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-        if expected == 0 {
-            // The deferred refresh re-checks the presented frame, so a wrongly
-            // scheduled one would not show up in the refresh count below.
-            XCTAssertFalse(
-                hostedView.hasVisibilityRevealRefreshScheduled,
-                "A warm reveal must not schedule a deferred refresh",
-                file: file,
-                line: line
-            )
-        }
-        drainMainQueue()
-        if expected > 0 {
-            // The reveal redraw runs on a later main-queue turn; wait for it.
-            _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
-        } else {
-            // Give a wrongly scheduled deferred redraw the same turns to land.
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            drainMainQueue()
-        }
+        // Revealing asks the surface to present again and can create a new
+        // presentation probe. Pin the fixture after that transition too, so a
+        // late probe acknowledgement cannot race the deferred callback.
+        surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
+        XCTAssertEqual(surface.hasPresentedFrame, presentedFrameBeforeReveal, file: file, line: line)
+        XCTAssertFalse(surface.isRendererPresented, file: file, line: line)
+        XCTAssertTrue(
+            hostedView.hasVisibilityRevealRefreshScheduled,
+            "An unpresented renderer must schedule the reveal fallback",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(), 0,
+            "The reveal must defer its redraw until after the visibility update",
+            file: file,
+            line: line
+        )
+        drainMainQueue(file: file, line: line)
+        XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled, file: file, line: line)
 
         XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
     }

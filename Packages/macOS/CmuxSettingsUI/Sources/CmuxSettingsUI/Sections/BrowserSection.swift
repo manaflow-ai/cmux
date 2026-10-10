@@ -24,6 +24,7 @@ public struct BrowserSection: View {
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var defaultZoom: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
+    @State private var showLinkHoverURL: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
@@ -72,6 +73,7 @@ public struct BrowserSection: View {
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
+        _showLinkHoverURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showLinkHoverURL))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
@@ -101,7 +103,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, askWhereToSaveDownloads, showLinkHoverURL, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -241,6 +243,19 @@ public struct BrowserSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsBrowserAskWhereToSaveDownloadsToggle")
+            }
+            SettingsCardDivider()
+
+            // Link Hover URL
+            SettingsCardRow(
+                configurationReview: .json("browser.showLinkHoverURL"),
+                String(localized: "settings.browser.showLinkHoverURL", defaultValue: "Show Link URLs on Hover"),
+                subtitle: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus.")
+            ) {
+                Toggle("", isOn: Binding(get: { showLinkHoverURL.current }, set: { showLinkHoverURL.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserShowLinkHoverURLToggle")
             }
             SettingsCardDivider()
 
@@ -642,7 +657,7 @@ public struct BrowserSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
                         .cmuxFont(size: 12.5, weight: .semibold)
-                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
+                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Choose a browser to import bookmarks, history, and cookies. Already-imported entries are deduped automatically."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -75,10 +75,11 @@ final class CloudSurfaceDropGateView: NSView {
         update(sender)
     }
 
+    /// Updates feedback and forwards the native drag event to the current pane.
     private func update(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let rejection = rejection(for: sender.draggingPasteboard)
         feedback.update(rejection, over: self)
-        let destination = rejection == nil ? destinationBeneath(sender) : nil
+        let destination = rejection == nil ? stableDestinationBeneath(sender) : nil
         if destination !== forwardedDestination || sender.draggingSequenceNumber != forwardedSequenceNumber {
             forwardedDestination?.draggingExited(sender)
             forwardedDestination = destination
@@ -92,6 +93,43 @@ final class CloudSurfaceDropGateView: NSView {
             return destination?.draggingEntered(sender) ?? []
         }
         return destination?.draggingUpdated(sender) ?? []
+    }
+
+    /// Keep forwarding to the pane that owns the pointer while AppKit's hit
+    /// test tree is being rearranged underneath a portal-hosted browser. A
+    /// browser pane can briefly report one of its portal ancestors during a
+    /// cloud row drag; treating that transient result as a new destination
+    /// sends an exit/enter pair and makes the drop preview flicker.
+    private func stableDestinationBeneath(_ sender: any NSDraggingInfo) -> NSView? {
+        if let forwardedDestination,
+           destinationContainsDragLocation(forwardedDestination, sender: sender) {
+            return forwardedDestination
+        }
+        return destinationBeneath(sender)
+    }
+
+    /// Returns whether a forwarded destination still owns the pointer and drag type.
+    @MainActor
+    func destinationContainsDragLocation(
+        _ destination: NSView,
+        sender: any NSDraggingInfo
+    ) -> Bool {
+        guard let window,
+              destination.window === window,
+              !destination.isHiddenOrHasHiddenAncestor,
+              destination.alphaValue > 0,
+              destination.registeredDraggedTypes.contains(where: { registered in
+                  sender.draggingPasteboard.types?.contains { dragged in
+                      if dragged == registered { return true }
+                      guard let draggedType = UTType(dragged.rawValue),
+                            let registeredType = UTType(registered.rawValue) else { return false }
+                      return draggedType.conforms(to: registeredType)
+                  } ?? false
+              }) else {
+            return false
+        }
+        let point = destination.convert(sender.draggingLocation, from: nil)
+        return destination.bounds.contains(point)
     }
 
     /// The nearest registered drag destination at the drag location with this

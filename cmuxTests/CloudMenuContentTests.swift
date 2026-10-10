@@ -138,6 +138,11 @@ struct CloudMenuContentTests {
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
                              "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
 
+        // Freestyle: no native fork, but the backend forks through snapshot + create.
+        var snapshotForked = Self.machine("snap")
+        snapshotForked.capabilities = VMCapabilities(snapshot: true, restore: true, fork: false)
+        #expect(recorder.actions.machine.submenuEntries(snapshotForked).contains { $0.id == "machine.snap.fork" })
+
         var desktop = Self.machine("desk", isDesktop: true)
         desktop.privateAddress = "100.64.0.9"
         let desktopEntries = recorder.actions.machine.submenuEntries(desktop)
@@ -145,13 +150,63 @@ struct CloudMenuContentTests {
         try Self.perform("machine.desk.copyIP", in: desktopEntries)
         try Self.perform("machine.desk.checkpoint", in: desktopEntries)
         try Self.perform("machine.desk.newWorkspace", in: desktopEntries)
-        #expect(recorder.log == ["copy:100.64.0.9", "run:desk:vm snapshot", "newWorkspace:desk"])
+        // Fork goes to the shared create coordinator (pending row), never a raw CLI launch.
+        try Self.perform("machine.desk.fork", in: desktopEntries)
+        #expect(recorder.log == ["copy:100.64.0.9", "run:desk:vm snapshot", "newWorkspace:desk", "fork:desk"])
 
         var expired = Self.machine("locked")
         expired.freeAccess = .expired
         let openIDs = recorder.actions.machine.openEntries(expired).compactMap(Self.actionID)
         #expect(openIDs == ["machine.locked.upgrade"])
         #expect(CloudMenuTone(expired) == .locked)
+    }
+
+    @Test("Delete routes the current machine display name, including after a rename")
+    func deleteMenuUsesCurrentDisplayName() throws {
+        var confirmedIDs: [String] = []
+        var confirmedNames: [String] = []
+        let verbs = CloudMachineMenuVerbs(
+            openShell: { _ in }, newWorkspace: { _ in }, openDesktop: { _ in },
+            runCommand: { _, _ in }, promptRename: { _ in }, copyToPasteboard: { _ in },
+            confirmDelete: {
+                confirmedIDs.append($0.id)
+                confirmedNames.append($0.displayName)
+            }, promptUpgrade: {}
+        )
+        let initial = MachineSnapshot(id: "vm-opaque-16336", provider: "freestyle", image: "cmux-devbox", isDesktop: false, activity: .ready, slug: "crisp-rose-piglet")
+        let renamed = MachineSnapshot(id: initial.id, provider: initial.provider, image: initial.image, isDesktop: false, activity: .ready, label: "new-cloud-name", slug: initial.slug)
+        for machine in [initial, renamed] {
+            let entry = try #require(verbs.deleteEntries(machine).first)
+            guard case .action(let action) = entry else { Issue.record("Delete entry should be an action"); return }
+            action.perform()
+        }
+        #expect(confirmedIDs == [initial.id, renamed.id])
+        #expect(confirmedNames == [initial.displayName, renamed.displayName])
+    }
+
+    @Test("Delete title uses a named machine and falls back for a blank name")
+    func deleteConfirmationTitleUsesReadableName() {
+        let format = String(localized: "machines.delete.title", defaultValue: "Delete machine “%@”?")
+        let named = MachineSnapshot(
+            id: "vm-opaque-16336",
+            provider: "freestyle",
+            image: "cmux-devbox",
+            isDesktop: false,
+            activity: .ready,
+            slug: "crisp-rose-piglet"
+        )
+        #expect(MachineRowActions.deleteConfirmationTitle(for: named) == String(format: format, "crisp-rose-piglet"))
+
+        let blank = MachineSnapshot(
+            id: named.id,
+            provider: named.provider,
+            image: named.image,
+            isDesktop: named.isDesktop,
+            activity: named.activity,
+            label: " ",
+            slug: "\t"
+        )
+        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, "vm-opaque-16336"))
     }
 
     @Test("Status item renders machines with a status dot and dimmed state")
@@ -272,10 +327,11 @@ struct CloudMenuContentTests {
                     newWorkspace: { self.log.append("newWorkspace:\($0)") },
                     openDesktop: { self.log.append("desktop:\($0)") },
                     runCommand: { self.log.append("run:\($0):\($1.joined(separator: " "))") },
-                    promptRename: { id, _ in self.log.append("rename:\(id)") },
+                    promptRename: { machine in self.log.append("rename:\(machine.id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
-                    confirmDelete: { self.log.append("delete:\($0)") },
-                    promptUpgrade: { self.log.append("upgradeMachine") }
+                    confirmDelete: { self.log.append("delete:\($0.id)") },
+                    promptUpgrade: { self.log.append("upgradeMachine") },
+                    fork: { self.log.append("fork:\($0.id)") }
                 )
             )
         }

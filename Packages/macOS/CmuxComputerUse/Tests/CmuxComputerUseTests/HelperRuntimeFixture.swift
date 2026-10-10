@@ -9,6 +9,10 @@ struct HelperRuntimeFixture {
     let nestedHelper: URL
     let paths: ComputerUseRuntimePaths
 
+    /// Treats the unsigned fixture helpers as Developer ID signed, for tests
+    /// of the install transaction itself; no real release app is consulted.
+    static let trustingEveryHelper = ComputerUseHelperTrust(isSigned: { _ in true }, installedCandidates: { [] })
+
     init() throws {
         files = try HelperBundleFixture()
         let host = files.root.appendingPathComponent("Host.app")

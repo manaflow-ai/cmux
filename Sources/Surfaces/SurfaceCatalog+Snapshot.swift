@@ -29,9 +29,12 @@ extension SurfaceCatalog {
     /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
         let displayCreationMachines = Set(machines.keys.filter { machine in
-            guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
-                  provider.supportsDisplayCreation else { return false }
-            return !provider.displayCoordinator.hasAttemptedDiscovery || provider.displayCoordinator.canCreate
+            guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else { return false }
+            // Keep the action live after a failed or stale discovery. The
+            // provider retries the guest probe when the user clicks New
+            // Display, instead of converting a transient probe failure into a
+            // permanently disabled row.
+            return provider.supportsDisplayCreation
         })
         return SurfaceCatalogSnapshot(
             machines: machines.values.map(authoritativeMachineInfo).sorted {
@@ -42,6 +45,7 @@ extension SurfaceCatalog {
             projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
             staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys),
             displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines,
+            pendingDisplayCreations: activeDisplayCreations.isEmpty ? nil : activeDisplayCreations,
             cloudDisplayMemberships: cloudDisplayMemberships()
         )
     }

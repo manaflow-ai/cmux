@@ -42,6 +42,33 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func feedBubbleQuotesDefaultsToEnabledWithoutAWrite() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(settings.feedBubbleQuotes)
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") == nil)
+    }
+
+    @Test func feedBubbleQuotesPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.feedBubbleQuotes = false
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") as? Bool == false)
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+
+        settings.feedBubbleQuotes = true
+        #expect(MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
+    @Test func feedBubbleQuotesReadsLegacyDebugPreference() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesLegacy")
+        defaults.set(false, forKey: "cmux.mobile.debug.feedBubbleQuotes.v1")
+
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
     @Test func showMissingFilesDefaultsToFalseWithoutAWrite() throws {
         let defaults = try makeDefaults("showMissingFilesDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)

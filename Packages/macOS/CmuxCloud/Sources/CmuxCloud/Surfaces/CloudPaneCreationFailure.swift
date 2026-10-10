@@ -18,15 +18,19 @@ public struct CloudPaneCreationFailure: Identifiable, Equatable {
         id = UUID()
         self.machine = machine
         self.sourcePanelID = sourcePanelID
-        displayTitle = title ?? String(localized: "cloudPane.newTerminalFailed.shortTitle", defaultValue: "Couldn’t open terminal")
+        let isSSH = machine.isSSH
+        displayTitle = title ?? String(
+            localized: isSSH ? "sshPane.newTerminalFailed.shortTitle" : "cloudPane.newTerminalFailed.shortTitle",
+            defaultValue: isSSH ? "Couldn’t open SSH terminal" : "Couldn’t open terminal"
+        )
         self.title = title ?? displayTitle
-        errorText = Self.errorMessage(error)
+        errorText = Self.errorMessage(error, isSSH: isSSH)
         diagnosticReference = context.map {
             "operation=\($0.operationID.uuidString.lowercased()) trace=\($0.traceID)"
         }
         self.recoveryText = recoveryText ?? String(
-            localized: "cloudPane.newTerminalFailed.recovery",
-            defaultValue: "Check that the machine is connected, then retry this request."
+            localized: isSSH ? "sshPane.newTerminalFailed.recovery" : "cloudPane.newTerminalFailed.recovery",
+            defaultValue: isSSH ? "Check the SSH connection, then retry this request." : "Check that the machine is connected, then retry this request."
         )
     }
 
@@ -37,7 +41,9 @@ public struct CloudPaneCreationFailure: Identifiable, Equatable {
 
     /// Only known, structured errors may supply detail. A process response can
     /// contain terminal content or credentials, so never copy arbitrary error text.
-    private static func errorMessage(_ error: Error) -> String {
-        return CloudDiagnosticFailure.classify(error).label
+    private static func errorMessage(_ error: Error, isSSH: Bool) -> String {
+        guard isSSH else { return CloudDiagnosticFailure.classify(error).label }
+        return String(localized: "sshPane.newTerminalFailed.detail",
+                      defaultValue: "The SSH connection could not be established.")
     }
 }

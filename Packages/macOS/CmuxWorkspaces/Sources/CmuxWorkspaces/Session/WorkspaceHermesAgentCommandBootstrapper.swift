@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 struct WorkspaceHermesAgentCommandBootstrapper {
@@ -50,6 +51,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
         if let localTmuxCommand = LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand) {
             return localTmuxCommand
+        }
+        if let localZellijCommand = LocalZellijRestoreCommandPolicy().restorableCommand(rawCommand) {
+            return localZellijCommand
         }
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
@@ -319,16 +323,6 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     }
 
     private func terminalCommandLooksLikeOMXHud(_ command: String) -> Bool {
-        let lowered = command.lowercased()
-        guard terminalCommandTextContainsWord(lowered, word: "hud") else {
-            return false
-        }
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
-    }
-
-    private func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {
-        let escapedWord = NSRegularExpression.escapedPattern(for: word)
-        let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
-        return command.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        OMXHudCommandMatcher().matches(command: command)
     }
 }

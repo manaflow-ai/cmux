@@ -1,8 +1,9 @@
 import AppKit
 import CmuxCloudMachines
 
-/// Resolves a machine drag against the frozen, displayed roots. Descendants
-/// are hover targets for their machine's trailing edge, never new parents.
+/// Resolves a machine drag against the frozen, displayed machine rows (the
+/// roots, or the Cloud Machines section's children). Descendants are hover
+/// targets for their machine's trailing edge, never new parents.
 struct CloudMachineReorderDrop {
     let machineID: String
     let move: CloudMachineMove
@@ -12,8 +13,6 @@ struct CloudMachineReorderDrop {
         sourceID: String, nodes: [CloudTreeNode], proposedItem: CloudTreeNode?,
         proposedChildIndex: Int, dropAfterItem: Bool
     ) {
-        guard let source = nodes.first(where: { $0.id == sourceID }),
-              let machineID = source.machineOrderID else { return nil }
         let proposedIndex: Int
         if let proposedItem {
             guard let rootIndex = nodes.firstIndex(where: {
@@ -26,13 +25,29 @@ struct CloudMachineReorderDrop {
             guard (0...nodes.count).contains(proposedChildIndex) else { return nil }
             proposedIndex = proposedChildIndex
         }
+        self.init(sourceID: sourceID, nodes: nodes, proposedIndex: proposedIndex)
+    }
 
+    /// A drop at `slot` among the source's peers (its pin tier, without the
+    /// source), as the lifted drag lays them out.
+    init?(sourceID: String, nodes: [CloudTreeNode], slot: Int) {
+        guard let source = nodes.first(where: { $0.id == sourceID }) else { return nil }
+        let peers = nodes.indices.filter {
+            nodes[$0].canReorderMachine && nodes[$0].isPinned == source.isPinned && nodes[$0].id != sourceID
+        }
+        guard (0...peers.count).contains(slot), let last = peers.last else { return nil }
+        self.init(sourceID: sourceID, nodes: nodes, proposedIndex: slot < peers.count ? peers[slot] : last + 1)
+    }
+
+    private init?(sourceID: String, nodes: [CloudTreeNode], proposedIndex: Int) {
+        guard let source = nodes.first(where: { $0.id == sourceID }),
+              let machineID = source.machineOrderID else { return nil }
         let peerIndices = nodes.indices.filter {
             nodes[$0].canReorderMachine && nodes[$0].isPinned == source.isPinned
         }
         guard let first = peerIndices.first, let last = peerIndices.last else { return nil }
         // Match workspace reordering: crossing a pin boundary clamps the
-        // destination into the original tier, including the painted line.
+        // destination into the original tier.
         let index = min(max(proposedIndex, first), last + 1)
         let peers = peerIndices.map { nodes[$0] }
         let remaining = peers.filter { $0.id != sourceID }

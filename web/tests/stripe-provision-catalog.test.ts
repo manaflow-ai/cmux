@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 
-// Every run shells out once per catalog Price (nine, including the
+// Every run shells out once per catalog Price (ten, including the
 // grandfathered ones) through a mock curl, so the 5s default is too tight
 // on a loaded machine.
 const PROVISION_TEST_TIMEOUT_MS = 30_000;
@@ -47,14 +47,14 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
-  test("offers only monthly prices in the plan-switch portal", async () => {
+  test("offers current monthly and yearly prices in the plan-switch portal", async () => {
     const result = await runProvision("test", "portal-switch-exists");
     expect(result.exitCode).toBe(0);
     const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
     expect(update).toBeDefined();
-    expect(update!.args.join("\n")).not.toContain("price_pro_year_480");
     expect(update!.args.join("\n")).toContain("price_pro_month_50");
     expect(update!.args.join("\n")).toContain("price_max_month_200");
+    expect(update!.args.join("\n")).toContain("price_max_year_1920");
   });
 
   test("sends credentials through stdin instead of process arguments", async () => {
@@ -103,7 +103,19 @@ describe("Stripe catalog provisioning", () => {
     ).toBe(true);
   });
 
-  test("provisions the monthly-only Max price and the Pro/Max plan switch portal", async () => {
+  test("sets the checkout description of each plan to the Cloud VM limits", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const description = (productId: string) => result.calls
+      .find((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
+      ?.args.find((argument) => argument.startsWith("description="));
+    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
+    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+  });
+
+  test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -114,9 +126,7 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
-    expect(
-      result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
-    ).toBe(false);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-max-yearly-1920")))).toBe(true);
     const portalCreate = result.calls.find(
       (call) =>
         call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
@@ -131,6 +141,7 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
+    expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
@@ -392,6 +403,12 @@ const prices = {
     interval: "month",
     product: "max",
   },
+  "cmux-max-yearly-1920": {
+    id: "price_max_year_1920",
+    unit_amount: 192000,
+    interval: "year",
+    product: "max",
+  },
   "cmux-team-monthly-60": {
     id: "price_team_month_60",
     unit_amount: 6000,
@@ -512,6 +529,8 @@ if (url.endsWith("/prices") && !isPost) {
           ? "prod_new_go"
           : "prod_new_team",
   });
+} else if (url.includes("/products/prod_") && isPost) {
+  respond({ id: url.split("/").at(-1) });
 } else if (url.endsWith("/billing_portal/configurations") && !isPost) {
   if (args.includes("is_default=true")) {
     respond({

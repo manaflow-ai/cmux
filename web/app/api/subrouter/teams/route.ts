@@ -22,6 +22,7 @@ import {
   serviceUnavailableResponse,
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import { reportError } from "../../../../services/observability/report";
 import { getStackServerApp } from "../../../lib/stack";
 import {
   billingCatalogTeams,
@@ -72,10 +73,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   } catch (error) {
     if (isSubrouterAuthorizationError(error)) {
-      console.error("Subrouter team creation authorization unavailable", {
-        errorType: error.name,
-      });
-      return serviceUnavailableResponse();
+      return authorizationUnavailableResponse(error, "create_team");
     }
     throw error;
   }
@@ -89,16 +87,19 @@ export async function PATCH(request: Request): Promise<Response> {
   ) return jsonResponse({ error: "forbidden" }, 403);
   try {
     return await withSubrouterAuthorizationDeadline(async (signal) => {
-      const user = await verifySubrouterRequest(request, signal, {
-        allowCookie: true,
-        listAllTeams: true,
-      });
-      if (!user) return unauthorized();
-
       const payload = await request.json().catch(() => null) as { teamId?: unknown } | null;
       const teamId = typeof payload?.teamId === "string"
         ? payload.teamId.trim()
         : "";
+      const user = await verifySubrouterRequest(request, signal, {
+        allowCookie: true,
+        // Selection only needs to authorize the requested team. Listing the
+        // caller's complete membership adds a paginated Stack round trip
+        // to every switch, which is especially visible on the first request.
+        requestedTeamId: teamId,
+      });
+      if (!user) return unauthorized();
+
       if (!teamId || (!user.teamIds.includes(teamId) && teamId !== user.id)) {
         return jsonResponse({ error: "team_not_found" }, 403);
       }
@@ -110,17 +111,14 @@ export async function PATCH(request: Request): Promise<Response> {
     });
   } catch (error) {
     if (isSubrouterAuthorizationError(error)) {
-      console.error("Subrouter team selection authorization unavailable", {
-        errorType: error.name,
-      });
-      return serviceUnavailableResponse();
+      return authorizationUnavailableResponse(error, "select_team");
     }
     throw error;
   }
 }
 
 export async function organizationsGet(request: Request,
-  listTeams: (user: AuthedUser) => readonly CatalogTeam[] | Promise<readonly CatalogTeam[]> = authorizedSubrouterTeams,
+  listTeams: (user: AuthedUser, signal: AbortSignal) => readonly CatalogTeam[] | Promise<readonly CatalogTeam[]> = authorizedSubrouterTeams,
   authenticate: typeof authenticateRequestRouteToken = authenticateRequestRouteToken,
 ): Promise<Response> {
   if (
@@ -143,7 +141,7 @@ export async function organizationsGet(request: Request,
       });
       if (!user) return unauthorized();
 
-      const authorized = await listTeams(user);
+      const authorized = await listTeams(user, signal);
       let selectedTeamId: string | null = null;
       let stackSelectedTeamId: string | null = null;
       const teams = [];
@@ -175,13 +173,28 @@ export async function organizationsGet(request: Request,
     });
   } catch (error) {
     if (isSubrouterAuthorizationError(error)) {
-      console.error("Subrouter authorization unavailable", {
-        errorType: error.name,
-      });
-      return serviceUnavailableResponse();
+      return authorizationUnavailableResponse(error, "list_organizations");
     }
     throw error;
   }
+}
+
+/** Report a Stack authorization failure (deadline, outage, or misconfiguration)
+ * and answer 503. One Sentry issue per operation and error class, linked to
+ * the request's trace. */
+function authorizationUnavailableResponse(
+  error: Error,
+  operation: "create_team" | "select_team" | "list_organizations",
+): Response {
+  reportError(error, {
+    subsystem: "coderouter",
+    operation,
+    errorType: error.name,
+  }, {
+    fingerprint: ["subrouter-teams-authorization-unavailable", operation, error.name],
+    tags: { subsystem: "coderouter", operation },
+  });
+  return serviceUnavailableResponse();
 }
 
 /** Billing fields ride along only when the catalog source computed them. */

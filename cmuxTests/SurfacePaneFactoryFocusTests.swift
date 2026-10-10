@@ -83,6 +83,38 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// Opening a sidebar resource splits the focused pane. When split admission
+    /// has no room left, the factory reports `noSpace` and the sidebar gesture
+    /// opens the resource as a tab in that pane instead of failing with
+    /// "Could not create the pane: noSpace".
+    @Test func splitWithNoRoomOpensAsTabInTheTargetPane() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let narrow = CGSize(width: 400, height: 700)
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        window.setContentSize(narrow)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: narrow))
+        let first = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplitOutcome(from: first, orientation: .horizontal).panel != nil)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let paneCount = workspace.bonsplitController.allPaneIds.count
+        let destination = SurfaceDestination.split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right)
+
+        // Layout replay and socket callers still see the refusal.
+        #expect(throws: SurfacePaneFactory.FactoryError.self) {
+            try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: true)
+        }
+        let created = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+            try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: target, focus: true)
+        }
+
+        #expect(created.workspaceID == workspace.id)
+        #expect(workspace.bonsplitController.allPaneIds.count == paneCount)
+        #expect(workspace.paneId(forPanelId: created.panelID) == paneID)
+    }
+
     @Test("Cloud terminal input reasserts the active pane")
     func cloudTerminalInputReassertsActivePane() throws {
         let harness = try Harness()
@@ -132,13 +164,17 @@ import SwiftUI
         let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
         #expect(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false) == cloudPanel.id)
         manager.selectWorkspace(destination)
-        #expect(destination.focusedPanelId != cloudPanel.id)
+        // Bonsplit selects a tab it creates, so an unfocused attach into the
+        // destination's only pane still leaves the moved panel selected there.
+        // Put the destination's own terminal in front before typing.
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanel(localDestinationPanel)
+        #expect(destination.focusedPanelId == localDestinationPanel)
         cloudPanel.surface.onExplicitInput?()
         #expect(destination.focusedPanelId == cloudPanel.id)
 
         // A stopped session must not steal focus if its panel is later reused.
         sessionActive = false
-        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
         destination.focusPanelFromTerminalInput(localDestinationPanel)
         cloudPanel.surface.onExplicitInput?()
         #expect(destination.focusedPanelId == localDestinationPanel)

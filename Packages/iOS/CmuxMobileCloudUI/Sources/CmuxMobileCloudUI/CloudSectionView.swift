@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileBilling
+import CmuxMobileBillingUI
 public import CmuxMobileCloud
 import CmuxMobileSupport
 import Foundation
@@ -179,7 +181,11 @@ struct CloudCreateMachineSheet: View {
     let limits: CloudMachineLimits?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    /// App Store billing; when present, upgrade actions open the in-app plans
+    /// sheet instead of the web pricing page.
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
+    @State private var isPlansSheetPresented = false
 
     init(
         controller: CloudSessionController,
@@ -262,12 +268,21 @@ struct CloudCreateMachineSheet: View {
                     }
                 }
 
-                if let machineUsageText {
+                if machineUsageText != nil || poolUsageText != nil {
                     Section {
-                        Text(machineUsageText)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("CloudCreateMachineUsage")
+                        if let machineUsageText {
+                            Text(machineUsageText)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("CloudCreateMachineUsage")
+                        }
+                        if let poolUsageText {
+                            Text(poolUsageText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("CloudCreateMachinePoolUsage")
+                        }
                     }
                 }
 
@@ -333,6 +348,13 @@ struct CloudCreateMachineSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(isPresented: $isPlansSheetPresented, onDismiss: {
+            // A new plan changes the size ladder and machine limits.
+            controller.refreshMachines()
+        }) {
+            MobilePlansSheet(entryPoint: .cloudUpgrade)
+                .environment(billing)
+        }
     }
 
     private static let pricingURL = URL(string: "https://cmux.com/pricing")!
@@ -429,6 +451,22 @@ struct CloudCreateMachineSheet: View {
         )
     }
 
+    /// The shared pool's usage, "16 of 20 vCPUs · 32 of 40 GB RAM in use";
+    /// nil for plans without a pool and control planes that predate it.
+    private var poolUsageText: String? {
+        guard let pool = limits?.resourcePool else { return nil }
+        return String(
+            format: L10n.string(
+                "cloud.pool.usage",
+                defaultValue: "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+            ),
+            Int64(pool.usedVcpus),
+            Int64(pool.poolVcpus),
+            Int64(pool.usedMemoryMb / 1024),
+            Int64(pool.poolMemoryMb / 1024)
+        )
+    }
+
     private func sizeMenuTitle(_ memoryMb: Int) -> String {
         let format = L10n.string(
             "mobile.cloud.create.size.menu",
@@ -507,8 +545,12 @@ struct CloudCreateMachineSheet: View {
     }
 
     private func openUpgradePage(planID: String?) {
-        // The mobile app has no native billing checkout surface. Keep the
-        // locked size visible and use the same pricing entrypoint as macOS.
+        // App Store builds sell plans in app (Guideline 3.1.1); the web
+        // pricing page remains only for hosts without a billing model.
+        if billing != nil {
+            isPlansSheetPresented = true
+            return
+        }
         guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
             openURL(Self.pricingURL)
             return

@@ -78,7 +78,10 @@ struct CloudMachineDeleteOptimismTests {
         coordinator.expansionStore.setExpanded(false, node: collapsed)
         coordinator.apply(nodes: fixture.nodes())
         let outline = try #require(coordinator.outlineView)
-        let child = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") }?.children.first)
+        // Cloud workspaces start collapsed; open ws_1 so its terminal has a row.
+        let folder = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") })
+        outline.expandItem(folder)
+        let child = try #require(folder.children.first)
         try #require(outline.row(forItem: child) >= 0)
         outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: child)), byExtendingSelection: false)
         coordinator.selectedNodeID = child.id

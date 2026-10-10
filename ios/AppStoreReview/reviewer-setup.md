@@ -130,8 +130,17 @@ Optional permissions:
 - Notifications are optional and can be enabled or disabled from the app.
 
 Payments:
-- This App Store build has no purchase, upgrade, checkout, or billing-management
-  links. Existing paid access from web or desktop accounts is read-only.
+- cmux Go, Pro, and Max are monthly auto-renewable subscriptions in the
+  subscription group "cmux Plans", sold only through In-App Purchase.
+- To review them, open Settings > Account > Plan (or Cloud > Upgrade). The plans
+  screen shows each plan with its App Store price, Restore Purchases, Manage
+  Subscription, the auto-renewal terms, and links to the Terms of Use and
+  Privacy Policy.
+- Purchases use the Sandbox Apple Account on the review device. The server
+  verifies the signed transaction and grants the plan to the signed-in cmux
+  account. The demo account has no web subscription, so the purchase buttons
+  are enabled.
+- The app has no Stripe, external checkout, or external billing links.
 
 Support during review:
 - Contact <REVIEW_CONTACT_EMAIL> or <REVIEW_CONTACT_PHONE> if the prepared Mac

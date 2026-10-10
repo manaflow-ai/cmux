@@ -29,7 +29,7 @@ import {
   initialFooterCollapseState,
   type FooterCollapseState,
 } from "../shared/footerCollapse";
-import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
+import { renderMarkdownFragment, renderPlainTextHTML } from "../shared/markdown";
 import { promptTextWithAttachments } from "../shared/promptAttachments";
 import { promptTextWithAutoContext } from "../shared/promptMentions";
 import { promptTextWithPlanMode } from "../shared/promptModes";
@@ -1085,14 +1085,7 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       return h(
         "div",
         { className: "codex-assistant-turn group flex min-w-0 flex-col" },
-        h(
-          "div",
-          {
-            className:
-              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
-            dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
-          },
-        ),
+        h(AssistantMarkdown, { text: entry.text }),
         entry.text.trim().length > 0
           ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text })
           : null,
@@ -1110,6 +1103,22 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       return h(ToolActivityTurn, { copy, entry });
   }
 });
+
+/// Inserts sanitized markdown as DOM nodes so the sanitized tree is never
+/// re-serialized and re-parsed by the live document.
+function AssistantMarkdown({ text }: { text: string }) {
+  const attachMarkdown = useCallback(
+    (element: HTMLDivElement | null) => {
+      element?.replaceChildren(renderMarkdownFragment(text, element.ownerDocument));
+    },
+    [text],
+  );
+  return h("div", {
+    className:
+      "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
+    ref: attachMarkdown,
+  });
+}
 
 function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
   "use no memo";

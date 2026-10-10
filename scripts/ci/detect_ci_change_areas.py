@@ -869,6 +869,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-in-console-session.sh",
+    "scripts/ci/app-host-isolation.sh",
     "scripts/ci/require_selected_test_execution.sh",
     # The Python product lane consumes these alongside the host-free bundle.
     "scripts/ci/run_python_test_lane.py",

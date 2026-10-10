@@ -26,6 +26,7 @@ debug.browser.address_bar_focused
 debug.browser.favicon
 debug.canvas.command_scroll_hint
 debug.cloudtree.gallery
+debug.cloudtree.rows
 debug.cloudtree.spacing
 debug.command_palette.rename_input.delete_backward
 debug.command_palette.rename_input.interact
@@ -51,6 +52,7 @@ debug.panel_snapshot
 debug.panel_snapshot.reset
 debug.portal.stats
 debug.pro_welcome_checklist.show
+debug.native_pricing.show
 debug.right_sidebar.focus
 debug.session_snapshot_benchmark
 debug.session_snapshot_seed_scrollback

@@ -189,6 +189,14 @@ extension CMUXCLI {
             } else {
                 nil
             }
+        let transcriptTargetWorkingDirectory = normalizedRestoreWorkingDirectory(
+            record.forkArgumentsWorkingDirectory
+        ) ?? effectiveWorkingDirectory
+        try await seedClaudeTranscriptForForkIfNeeded(
+            record: record,
+            targetWorkingDirectory: transcriptTargetWorkingDirectory,
+            processEnvironment: processEnvironment
+        )
         let request = AgentRestoreRequest(
             mode: .forkAgent,
             kind: record.kind,
@@ -287,6 +295,44 @@ extension CMUXCLI {
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
         )
+    }
+
+    /// Prepares provider state required for a Claude fork without exposing filesystem details to users.
+    private func seedClaudeTranscriptForForkIfNeeded(
+        record: RestoreRecord,
+        targetWorkingDirectory: String?,
+        processEnvironment: [String: String]
+    ) async throws {
+        guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "claude",
+              let sessionID = record.checkpointID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty,
+              let targetWorkingDirectory = targetWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !targetWorkingDirectory.isEmpty else { return }
+
+        let launchEnvironment = record.launchCommand?.environment ?? [:]
+        let rawConfigRoot = record.environment["CLAUDE_CONFIG_DIR"]
+            ?? launchEnvironment["CLAUDE_CONFIG_DIR"]
+            ?? processEnvironment["CLAUDE_CONFIG_DIR"]
+            ?? ((NSHomeDirectory() as NSString).appendingPathComponent(".claude"))
+        let configRoot = ClaudeConfigDirectoryPath.preferredPath(rawConfigRoot)
+        let request = ClaudeTranscriptForkSeedRequest(
+            sessionID: sessionID,
+            sourceWorkingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory,
+            targetWorkingDirectory: targetWorkingDirectory,
+            configDirectory: configRoot,
+            sourceConfigDirectories: [
+                ((NSHomeDirectory() as NSString).appendingPathComponent(".claude"))
+            ]
+        )
+        do {
+            try await ClaudeTranscriptForkSeeder().seed(request)
+        } catch {
+            throw loggedForkError(
+                .providerSetupFailed,
+                stage: "provider.transcript-seed",
+                detail: String(reflecting: type(of: error))
+            )
+        }
     }
 
     private func legacyForkCommand(for record: RestoreRecord) -> String? {

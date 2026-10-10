@@ -21,8 +21,18 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omx_hud_command_match.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
+
+[[test]]
+path = "tests/test_remote_tmux_et_conformance.py"
+lane = "macos-shell"
+serial = true
 
 [[test]]
 path = "tests/test_cli_vm_transfer_progress.py"
@@ -81,7 +91,17 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_workspace_mutation_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_browser_input_files_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_browser_repl_cli_io.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -122,6 +142,10 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_mcp_smoke.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
@@ -191,6 +215,10 @@ path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cli_codex_teams_informational.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -211,6 +239,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_claude_teams_integration_disabled.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_claude_teams_main_vertical.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -222,6 +255,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_cli_claude_teams_tmux_sequence.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_tmux_compat_session_lookup.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -450,6 +488,10 @@ path = "tests/test_ci_app_host_pipe_capture.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_host_socket_evidence.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_test_output.py"
 lane = "linux-guard"
 
@@ -523,6 +565,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
 [[test]]
@@ -730,6 +776,10 @@ path = "tests/test_lan_product_source.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cloud_upgrade_rollout_retirement.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
@@ -771,6 +821,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_defaults.py"
 lane = "linux-guard"
 
 [[test]]
@@ -943,6 +997,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_are_bounded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_have_no_path_filters.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1310,6 +1372,10 @@ path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_take_canonical_root.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cli_workflow_catalog.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1336,6 +1402,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_publication_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1463,6 +1533,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_api_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1480,6 +1554,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_claude_hook_spool.py"
+lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_hooks_setup_arguments.py"
 lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
@@ -1541,10 +1620,6 @@ path = "tests/test_ci_manual_dispatch_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_fast_guard_status.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
@@ -1554,4 +1629,66 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_frame_pacing_summary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_notarization_recovery_manifest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reverse_test_impact_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_poll_notary_submission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_opencode_v2_tui_bridge.py"
+lane = "manual"
+reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture and is run by the OpenCode regression verification command."
+
+[[test]]
+path = "tests/test_nightly_resume_tracks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notarization_poll_loop.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_surface_task_local_reservations.py"
+lane = "manual"
+reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned macOS 26 Xcode, whose back-deployed TaskLocal fallback it exercises; newer toolchains no longer emit that path."
+
+[[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testbox_source_mtimes.py"
 lane = "linux-guard"

@@ -12,7 +12,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud VPN setup", .serialized, .timeLimit(.minutes(1)))
+@Suite("Cloud VPN setup", .serialized, .exclusiveAppContext, .timeLimit(.minutes(1)))
 struct CloudVPNSetupTests {
     private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
 
@@ -142,6 +142,13 @@ struct CloudVPNSetupTests {
     /// Ports is already inside it.
     @Test("Ports and Settings open one Cloud VPN pane instead of a window")
     func entryPointsOpenOnePane() throws {
+        let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+        let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
+        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
+        defer {
+            if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey) }
+            else { UserDefaults.standard.removeObject(forKey: cloudMarkerKey) }
+        }
         let previous = AppDelegate.shared
         let previousActive = TerminalController.shared.activeTabManagerForCallerNotification()
         let app = AppDelegate()
@@ -178,7 +185,7 @@ struct CloudVPNSetupTests {
         let original = try #require(manager.selectedWorkspace)
         let ports = CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
                 resizeMemory: { _, _ in }, promptUpgrade: {}),
             nodeActions: CloudTreeNodeActions(project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
                 projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },

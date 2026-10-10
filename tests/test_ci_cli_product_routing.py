@@ -94,8 +94,8 @@ class CLIProductRoutingTests(unittest.TestCase):
                     result = run_step(job, "Check routed macOS jobs", env)
                     self.assertNotEqual(result.returncode, 0, (macos, name, outcome))
 
-    def test_outer_tests_gate_requires_targeted_workflow(self):
-        job = self.caller["tests"]
+    def test_outer_platform_gate_requires_targeted_workflow(self):
+        job = self.caller["ci-status"]
         step = next(step for step in job["steps"] if "macos_work_required" in step.get("run", ""))
         for macos in ("false", "true"):
             for outcome in ("success", "skipped", "failure", "cancelled"):

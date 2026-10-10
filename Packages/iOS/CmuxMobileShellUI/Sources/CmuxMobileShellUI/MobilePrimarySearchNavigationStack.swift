@@ -22,6 +22,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
                 ))
                 .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
         }
+        .mobileInlineNavigationTitle()
         .searchable(text: searchText, isPresented: searchPresentation, prompt: prompt)
         .onSubmit(of: .search) {
             selection = searchCoordinator.commitSubmit()

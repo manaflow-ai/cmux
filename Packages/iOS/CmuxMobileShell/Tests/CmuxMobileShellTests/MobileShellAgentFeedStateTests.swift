@@ -7,6 +7,25 @@ import Testing
 @MainActor
 @Suite("Mobile shell agent feed state")
 struct MobileShellAgentFeedStateTests {
+    @Test("Background snapshot decoding preserves payloads and cancellation")
+    func backgroundSnapshotDecoding() async throws {
+        let payload: [String: Any] = ["revision": 7, "items": [
+            row(id: "whole-seconds"),
+            row(id: "fractional-seconds", createdAt: "2026-08-14T11:00:00.123Z")
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let expected = try MobileAgentFeedListResponse.decode(data)
+        #expect(try await MobileShellComposite.decodeAgentFeedSnapshot(data) == expected)
+
+        // This task cannot start on MainActor until the current actor turn
+        // suspends, so cancellation is established before decoding starts.
+        let cancelled = Task { @MainActor in
+            try await MobileShellComposite.decodeAgentFeedSnapshot(data)
+        }
+        cancelled.cancel()
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+    }
+
     private func response(
         revision: Int,
         rows: [[String: Any]]
@@ -163,6 +182,65 @@ struct MobileShellAgentFeedStateTests {
             displayName: "Desk Mac"
         ))
         #expect(store.agentFeedItems.map(\.itemID) == ["good"])
+    }
+
+    @Test("Notification history rows stay out of the Agent Feed projection")
+    func notificationRowsAreExcludedBeforeProjection() throws {
+        let store = MobileShellComposite()
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [
+                row(
+                    id: "notification-row",
+                    kind: "assistantMessage",
+                    status: "telemetry",
+                    requestID: nil,
+                    extra: ["source": "notification"]
+                ),
+                row(id: "agent-row"),
+            ]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedItems.map(\.itemID) == ["agent-row"])
+        #expect(store.agentFeedNeedsInputCount == 1)
+    }
+
+    @Test("A capable Mac keeps Feed available beside an older pairing")
+    func capableMacHidesMixedVersionWarning() async throws {
+        let capableRouter = RoutingHostRouter()
+        let legacyRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: capableRouter,
+            hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "legacy-mac",
+            router: legacyRouter
+        )
+        store.agentFeedSuccessfulMacIDs.insert("test-mac")
+
+        #expect(store.resolvedAgentFeedStatus() == .ready)
+    }
+
+    @Test("Cached Feed rows do not turn into an upgrade banner")
+    func cachedRowsStayReadyWhenCapabilityDisappears() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [row(id: "cached")]),
+            macDeviceID: "test-mac",
+            displayName: "Desk Mac"
+        ))
+
+        // The connection remains present but has fallen back to a Mac build
+        // that cannot refresh the Feed. Retained agent rows still render as a
+        // normal Feed, rather than an inline "Update cmux" prompt.
+        store.supportedHostCapabilities = []
+        #expect(store.resolvedAgentFeedStatus() == .ready)
     }
 
     @Test("Recorded terminal replies mark their row and survive refreshes")

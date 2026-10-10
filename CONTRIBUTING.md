@@ -52,6 +52,11 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
   tagged build expects the maintainers' shared backend and stops. See
   [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md) for cache
   reuse and Release variants.
+- `reload.sh` skips emitting the app's Swift module to make rebuilds a little
+  faster, except on Xcode 26.2 and 26.3, where that build stops at the module merge
+  with `error: type mismatch of function ... but used in a swift module as ...`.
+  If you see that error on another Xcode, rerun with
+  `CMUX_RELOAD_APP_EMIT_MODULE=1`.
 - After pulling changes to setup or the merge drivers, rerun
   `./scripts/install-git-hooks.sh`. With a custom `core.hooksPath` it prints the
   `pre-commit` and `post-merge` lines to add yourself; wire both.

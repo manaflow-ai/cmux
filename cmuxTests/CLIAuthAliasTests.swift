@@ -971,6 +971,7 @@ struct CLICoderouterAliasTests {
     @Test("only exact top-level agent names use socket handoff")
     func routedCommandClassificationIsExact() throws {
         #expect(launchPolicy.commandRequiresHandoff(["codex"]))
+        #expect(launchPolicy.commandRequiresHandoff(["add", "codex"]))
         #expect(launchPolicy.commandRequiresHandoff(["opencode", "--help"]))
         #expect(launchPolicy.commandRequiresHandoff(["pi", "arg"]))
         #expect(!launchPolicy.commandRequiresHandoff([]))

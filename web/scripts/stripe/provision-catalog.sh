@@ -313,6 +313,8 @@ ensure_personal_plan_switch_portal() {
   local pro_monthly_price_id max_monthly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
+  local max_yearly_price_id
+  max_yearly_price_id="$(price_id_for_lookup_key "cmux-max-yearly-1920")"
   local -a feature_args=(
     -d "features[subscription_update][enabled]=true"
     -d "features[subscription_update][default_allowed_updates][]=price"
@@ -322,6 +324,7 @@ ensure_personal_plan_switch_portal() {
     -d "features[subscription_update][products][0][adjustable_quantity][enabled]=false"
     -d "features[subscription_update][products][1][product]=${max_product_id}"
     -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"
+    -d "features[subscription_update][products][1][prices][]=${max_yearly_price_id}"
     -d "features[subscription_update][products][1][adjustable_quantity][enabled]=false"
     -d "features[subscription_cancel][enabled]=true"
     -d "features[subscription_cancel][mode]=at_period_end"
@@ -369,13 +372,30 @@ echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
 
+# Checkout shows the product description. Keep it on the plan limits in
+# web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per paid seat sharing
+# vCPU and RAM pools: 20 vCPU / 40 GB per paid seat, pooled across a Team, or
+# 80 vCPU / 160 GB on Max). Updating a description is
+# idempotent, so every run converges on this copy.
+ensure_product_description() {
+  local product_id="$1"
+  local description="$2"
+  stripe_post "/products/${product_id}" \
+    --data-urlencode "description=${description}" >/dev/null
+  echo "Set description for ${product_id}." >&2
+}
+ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
+ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
+
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
 # Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
-# Max is monthly only (no yearly Price on purpose).
+# Max is sold monthly or yearly at the same 20% annual discount as Pro.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
+ensure_price "$max_product_id" "cmux-max-yearly-1920" "192000" "year" "cmux Max Yearly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
@@ -385,9 +405,11 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
-# Retired annual offers remain valid for existing subscribers; never advertise
-# them as checkout or portal switch targets.
-ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly (Legacy \$480)"
+# Pro and Max are sold yearly at 20% off their monthly prices.
+ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+
+# Retired annual offer; valid for existing subscribers only, never advertised
+# as a checkout or portal switch target.
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"

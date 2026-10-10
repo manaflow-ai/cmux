@@ -24,14 +24,6 @@ export type FeatureFlagDefinition = {
 };
 
 export const FEATURE_FLAGS = {
-  proUpgradeUI: {
-    key: "pro-upgrade-ui-enabled-release",
-    owner: "lawrencecchen",
-    description:
-      "Shows public Pro/pricing navigation and in-app upgrade entrypoints. Off in release until checkout dogfood is approved.",
-    reviewBy: "2027-01-19",
-    defaultWhenUnavailable: false,
-  },
   iosArtifactChip: {
     key: "ios-artifact-chip-enabled-release",
     owner: "lawrencecchen",

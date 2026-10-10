@@ -20,7 +20,7 @@ struct AgentHookDeliveryQueueTests {
         let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
             "agent": "claude",
             "subcommand": "stop",
-            "payload": #"{"session_id":"sess-1","transcript_path":"/Users/leo/.ssh/id_ed25519"}"#,
+            "payload": #"{"session_id":"sess-1","transcript_path":"/Users/dev/.ssh/id_ed25519"}"#,
             "relay_backed": true,
             "workspace_id": workspaceID,
             "surface_id": surfaceID,

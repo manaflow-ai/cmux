@@ -13,7 +13,8 @@ extension SocketClient {
         includeCapability: Bool = true,
         capabilityEnvironment: [String: String]? = nil,
         validateRawResponse: ((String) -> Bool)? = nil,
-        strictFrameMaximumRawBytes: Int? = nil
+        strictFrameMaximumRawBytes: Int? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
         let requestIdentifier = requestID ?? UUID().uuidString
         // One total deadline includes every server-directed backoff and retry.
@@ -28,11 +29,12 @@ extension SocketClient {
                 params: params,
                 requestID: requestIdentifier,
                 responseTimeout: responseTimeout,
-                deadline: operationDeadline,
+                deadline: waitUntilCompletion ? deadline : operationDeadline,
                 includeCapability: includeCapability,
                 capabilityEnvironment: capabilityEnvironment,
                 validateRawResponse: validateRawResponse,
-                strictFrameMaximumRawBytes: strictFrameMaximumRawBytes
+                strictFrameMaximumRawBytes: strictFrameMaximumRawBytes,
+                waitUntilCompletion: waitUntilCompletion
             )
 
             if let ok = response["ok"] as? Bool, ok {
@@ -56,7 +58,8 @@ extension SocketClient {
                     isStructuredProtocolResponse: true,
                     v2Retryable: data?["retryable"] as? Bool == true,
                     vmBackendCode: data?["backend_code"] as? String,
-                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
+                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue,
+                    v2Method: method
                 )
                 // Admission rejects these before dispatch: `rate_limited` for
                 // polling reads, and `overloaded` for any method (the server
@@ -109,7 +112,8 @@ extension SocketClient {
         includeCapability: Bool = true,
         capabilityEnvironment: [String: String]? = nil,
         validateRawResponse: ((String) -> Bool)? = nil,
-        strictFrameMaximumRawBytes: Int? = nil
+        strictFrameMaximumRawBytes: Int? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
         let requestIdentifier = requestID ?? UUID().uuidString
         guard !requestIdentifier.isEmpty,
@@ -168,7 +172,8 @@ extension SocketClient {
                 responseTimeout: responseTimeout,
                 deadline: deadline,
                 includeCapability: includeCapability,
-                capabilityEnvironment: capabilityEnvironment
+                capabilityEnvironment: capabilityEnvironment,
+                waitUntilCompletion: waitUntilCompletion
             )
         }
         if let validateRawResponse, !validateRawResponse(raw) {
@@ -228,6 +233,12 @@ extension SocketClient {
         reason: String? = nil,
         details: String? = nil
     ) -> String {
+        // Every field comes from the app on the socket; see CLITerminalText.
+        let code = CLITerminalText.printable(code)
+        let message = CLITerminalText.printable(message, keepingLineBreaks: true)
+        let action = action.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let reason = reason.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let details = details.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
         let header: String
         if code == "vm_error" {
             header = message

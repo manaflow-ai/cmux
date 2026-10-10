@@ -16,7 +16,9 @@ final class MobileBrowserDirtyMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         let body = message.body as? [String: Any]
         let editableFocused = body?["editable_focused"] as? Bool
-        MainActor.assumeIsolated {
+        // WebKit's main-thread callback does not guarantee a Swift MainActor
+        // executor token, so hop explicitly instead of assuming isolation.
+        Task { @MainActor in
             receive(editableFocused)
         }
     }

@@ -35,7 +35,7 @@ struct CloudSidebarSurfaceRegressionTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).contains { $0.contains("Directory unavailable") })
+        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).allSatisfy { !$0.contains("Directory unavailable") })
         #expect(snapshot.compactGitBranchSummaryText == nil)
         #expect(snapshot.branchDirectoryLines.allSatisfy { $0.branch == nil })
         #expect(snapshot.pullRequestRows.isEmpty)
@@ -179,6 +179,20 @@ struct CloudSidebarSurfaceRegressionTests {
         })
     }
 
+    @Test("Terminals stays visible while a cloud machine is connecting")
+    func terminalsBeforeSessionSnapshot() throws {
+        let terminalGroup = try #require(nodes(link: .connecting, desktop: false).first {
+            if case .terminalsPool = $0.kind { return true }
+            return false
+        })
+        #expect(terminalGroup.children.count == 1)
+        guard case .placeholder(_, let placeholder) = terminalGroup.children[0].kind else {
+            Issue.record("Connecting terminals must explain that no terminals are available yet")
+            return
+        }
+        #expect(placeholder.text == "No terminals yet")
+    }
+
     @Test("Ports distinguish loading, error, asleep, and a successful empty scan", arguments: [SurfaceLinkState.connecting, .error, .asleep, .connected])
     func emptyPortsStayVisible(link: SurfaceLinkState) throws {
         let group = try #require(nodes(link: link, desktop: false).first {
@@ -217,6 +231,10 @@ struct CloudSidebarSurfaceRegressionTests {
             let presentation = CloudPortsStatusPresentation.make(info: info)
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
+            if state == .loading {
+                #expect(presentation.title == "Discovering ports…")
+                #expect(presentation.message.isEmpty)
+            }
             if state != .loading && state != .unsupported && state != .empty(.noListeningService) {
                 #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
             }

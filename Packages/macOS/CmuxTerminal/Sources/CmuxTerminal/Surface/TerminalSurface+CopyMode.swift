@@ -56,6 +56,18 @@ extension TerminalSurface {
         return try callbackContext.withRuntimeClipboardPasteIntent(body)
     }
 
+    /// Marks a native pointer dispatch so its clipboard writes count as copy-on-select.
+    @MainActor
+    public func withPointerSelectionCopyIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let callbackContext = surfaceCallbackContext?
+            .takeUnretainedValue() else {
+            return try body()
+        }
+        return try callbackContext.withPointerSelectionCopyIntent(body)
+    }
+
     /// Performs an internal binding action without treating it as user input.
     @MainActor
     @discardableResult

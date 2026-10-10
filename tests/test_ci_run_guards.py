@@ -78,6 +78,13 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertLessEqual(set(run_ci_guards.PORTABLE_SUBSTITUTES), names)
         self.assertLessEqual(run_ci_guards.EVENT_CONDITION_STEPS, names)
 
+    def test_a_local_run_is_not_a_manual_dispatch(self) -> None:
+        history = [u for u in self.units if u.job == "workflow-guard-history"]
+        self.assertTrue(history)
+        names = {step.name for unit in history for step in unit.steps}
+        self.assertNotIn("Fetch main history for a manual dispatch", names)
+        self.assertIn("Validate SwiftPM lockfile policy", names)
+
     def test_expressions_are_resolved(self) -> None:
         for unit in self.units:
             for step in unit.steps:
@@ -102,7 +109,10 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
     def test_groups_that_pass_state_between_steps_run_in_order(self) -> None:
         by_group = {unit.group or unit.job: unit for unit in self.units}
         # agent-chat's bun install feeds its bun test (working-directory).
-        self.assertTrue(run_ci_guards.is_stateful(by_group["preflight"]))
+        self.assertTrue(run_ci_guards.is_stateful(by_group["preflight-agent-chat"]))
+        # The remaining static preflight checks are independent and can be
+        # scheduled by verify-local without carrying Bun state between steps.
+        self.assertFalse(run_ci_guards.is_stateful(by_group["preflight"]))
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
 
@@ -195,14 +205,12 @@ class PortableSubstitutes(unittest.TestCase):
         self.assertIn("unrecognized line", result.stderr)
 
 
-class FastWorkflowReportsOnEveryPullRequest(unittest.TestCase):
-    def test_no_path_filter_and_the_shared_command(self) -> None:
+class FastWorkflowReportsOnMainPush(unittest.TestCase):
+    def test_main_push_keeps_the_standalone_last_green_guard(self) -> None:
         workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
         triggers = workflow.get("on") or workflow.get(True)
-        # A required check that a path filter skips never reports.
-        self.assertIn("pull_request", triggers)
-        self.assertFalse((triggers.get("pull_request") or {}).get("paths"))
-        self.assertIn("merge_group", triggers)
+        self.assertNotIn("pull_request", triggers)
+        self.assertNotIn("merge_group", triggers)
         self.assertEqual(triggers["push"]["branches"], ["main"])
         job = workflow["jobs"]["fast-guards"]
         self.assertEqual(job["name"], "CI fast guards")

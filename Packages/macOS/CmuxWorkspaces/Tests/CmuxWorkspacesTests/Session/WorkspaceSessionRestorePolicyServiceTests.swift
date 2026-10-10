@@ -345,7 +345,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
-            tmuxStartCommand: "oh-my-codex hud"
+            tmuxStartCommand: "oh-my-codex hud --watch"
         ))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
@@ -357,10 +357,43 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
-        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud  ") == "oh-my-codex hud")
+        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud --watch  ") == "oh-my-codex hud --watch")
         #expect(service.restorableTmuxStartCommand("omx run") == nil)
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
-        #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
+        #expect(service.restorableTmuxStartCommand("omx hud --watch") == "omx hud --watch")
+    }
+
+    @Test("the commands OMX starts its HUD pane with are restorable", arguments: [
+        "node /opt/oh-my-codex/dist/omx.js hud --watch",
+        "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch",
+        "exec env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch focused",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1' exec env OMX_SESSION_ID=s '/usr/local/bin/node' '/opt/oh my codex/omx.js' hud --watch",
+        "/usr/local/bin/omx hud --watch",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; exec env OMX_TMUX_HUD_OWNER=1 OMX_TMUX_HUD_LEADER_PANE='%1' node /repo/dist/cli/omx.js hud --watch",
+    ])
+    func restorableTmuxStartCommandKeepsOmxHudInvocations(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == command)
+    }
+
+    /// Restore runs whatever this accepts, so text that only mentions OMX and a
+    /// HUD must not pass for the HUD invocation.
+    @Test("commands that only mention OMX and a HUD are not restorable", arguments: [
+        "echo omx hud",
+        "echo 'notomx hud'",
+        "echo omx hud --watch",
+        "omx hud",
+        "oh-my-codex hud",
+        "omx hud --watch; rm -rf build",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; codex",
+        "touch marker; export A; omx hud --watch",
+        "omx hud --watch\nrm -rf build",
+        "X=\"$(touch /tmp/marker)\" omx hud --watch",
+        "cd /tmp && omx hud --watch",
+        "vim notes-about-omx-hud.md --watch",
+        "node /opt/tools/report.js hud --watch",
+    ])
+    func restorableTmuxStartCommandRejectsLooseOmxHudText(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == nil)
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")
@@ -422,6 +455,88 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         )
 
         #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("cmux-generated local zellij attach commands are restorable")
+    func localZellijAttachCommandIsRestorable() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.shouldReplaySessionScrollback(hasRestorableAgent: false, tmuxStartCommand: command) == false)
+        #expect(service.localTmuxStartCommand("/usr/bin/env CMUX_LOCAL_ZELLIJ=1 zellij attach work") == nil)
+    }
+
+    @Test("local zellij restore rejects commands cmux did not generate")
+    func localZellijRestoreRejectsTamperedCommands() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'work'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'work'", with: "'wo\u{0007}rk'"),
+            command.replacingOccurrences(of: "'work'", with: "'$(touch /tmp/pwn)'"),
+            command.replacingOccurrences(of: "'work'", with: "work"),
+            command.replacingOccurrences(of: "'work'", with: "'-work'"),
+            command.replacingOccurrences(of: "/local-zellij/sock'", with: "/local-zellij/other'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "'relative/sock'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "/Users/$(id -u)/sock"),
+            command.replacingOccurrences(of: "'/opt/homebrew/bin/zellij'", with: "'/opt/homebrew/bin/../bin/zellij'"),
+            command.replacingOccurrences(of: "'detach'", with: "'quit'"),
+            command + " ; touch /tmp/pwn",
+            command + "\ntouch /tmp/pwn",
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil, "\(malformed)")
+        }
+    }
+
+    @Test("local zellij restore accepts quoted apostrophes in paths")
+    func localZellijRestoreAcceptsApostrophePaths() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/o'brien/.cmux/local-zellij/sock",
+            executable: "/Users/o'brien/bin/zellij",
+            sessionName: "dev_1"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("local zellij restore accepts Unicode format characters inside quoted paths")
+    func localZellijRestoreAcceptsFormatCharactersInPaths() {
+        let service = makeService()
+        // U+200D joins emoji such as 👨‍💻; inside single quotes it is plain data.
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/\u{1F468}\u{200D}\u{1F4BB}/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work-3f2a9c1d"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command + "\u{2028}touch /tmp/pwn") == nil, "line separators stay rejected")
+    }
+
+    private func localZellijAttachCommand(
+        socketDirectory: String,
+        executable: String,
+        sessionName: String
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let arguments = ["attach", sessionName, "options", "--on-force-close", "detach"]
+            .map(quote)
+            .joined(separator: " ")
+        return "/usr/bin/env ZELLIJ_SOCKET_DIR=\(quote(socketDirectory)) CMUX_LOCAL_ZELLIJ=1 \(quote(executable)) \(arguments)"
     }
 
     private func localTmuxAttachCommand(

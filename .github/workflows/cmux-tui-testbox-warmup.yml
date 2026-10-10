@@ -1,4 +1,7 @@
 name: cmux-tui Rust Testbox setup
+# The run title names the box, so the cmux-ci-testbox-approver App can bind a
+# waiting run to its registered Testbox before a runner takes the job.
+run-name: cmux-tui Rust Testbox setup ${{ inputs.testbox_id }}
 
 # Main-controlled broker. This workflow runs only from refs/heads/main and
 # hydrates only main, so no candidate branch can edit the guards that run
@@ -30,9 +33,13 @@ jobs:
     if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
-      # Configure this environment with required reviewers, no secrets, and a
-      # deployment branch rule of exactly `main`. Approval is evaluated before
-      # the first step, so it precedes begin-testbox.
+      # The environments API shows (2026-10-06): one custom deployment
+      # protection rule, the cmux-ci-testbox-approver App; no required
+      # reviewers; no secrets or variables; and a deployment branch policy
+      # that allows only the branch `main`. Human approval of Testbox runs was
+      # removed on purpose on 2026-10-05, so a missing reviewer is expected.
+      # The gate is evaluated before the first step, so it precedes
+      # begin-testbox.
       name: blacksmith-testbox-trusted
     permissions:
       contents: read
@@ -41,7 +48,7 @@ jobs:
     # keepalive releases the runner after an idle timeout clamped to 15
     # minutes, so this is only a hard ceiling for one continuously active
     # session (observed sessions run 10-60 minutes).
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       # Every check here is main-controlled. `blacksmith testbox warmup`
       # resolves both this file and the hydrated source from the same --ref, so
@@ -78,7 +85,7 @@ jobs:
         with:
           testbox_id: ${{ inputs.testbox_id }}
 
-      # main can move while a reviewer approves the deployment. Record which
+      # main can move while the deployment gate waits. Record which
       # commit this job actually hydrates and fail closed if the dispatch ref
       # changed under it.
       - name: Revalidate broker identity after token exposure
@@ -202,6 +209,63 @@ jobs:
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Rust gates on the box run `cargo nextest run`: one process per test,
+      # and the cmux-tui workspace suite ran in 72 s against 137 s under
+      # `cargo test` on a warm box (2026-10-09). Pinned release binary,
+      # checked against the release's published SHA-256 before it is used.
+      - name: Install pinned cargo-nextest
+        env:
+          NEXTEST_VERSION: 0.9.148
+          NEXTEST_SHA256: 223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 \
+            --output "$archive" \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict -
+          bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin_dir"
+          tar -xzf "$archive" -C "$bin_dir" cargo-nextest
+          rm -f "$archive"
+          [[ "$(cargo nextest --version | head -n 1)" == "cargo-nextest ${NEXTEST_VERSION} "* ]] || {
+            echo "::error::cargo-nextest ${NEXTEST_VERSION} is not the active cargo nextest" >&2
+            exit 1
+          }
+
+      # Warm Cargo target dir. Every box clones the latest committed snapshot
+      # of this one key (last write wins), so a box starts incremental instead
+      # of compiling the workspace cold. The disk is committed by the post
+      # step only when no step failed or was cancelled, and `blacksmith
+      # testbox stop` destroys the VM before post steps run. So a commit
+      # happens only when the keepalive ends cleanly: on idle, or on the
+      # release marker that scripts/blacksmith-testbox-release.sh writes. The
+      # keepalive prunes the dir to a size bound first.
+      #
+      # Trust: the snapshot holds build output of whatever candidate code ran
+      # on an earlier box. Only this Testbox job mounts the key; no CI,
+      # release, or nightly workflow may (tests/test_ci_testbox_broker_guard.py
+      # enforces that), so nothing that ships reads it.
+      - name: Mount warm cmux-tui target dir
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-target-v1
+          path: cmux-tui/target
+
+      # Cargo judges workspace crates and build scripts by mtime, and this
+      # checkout made every source new. Give each file that is byte-identical
+      # to the one the snapshot was built from its recorded mtime back;
+      # changed files stay new, so Cargo rebuilds exactly what changed. It also
+      # drops ghostty-vt-sys output built for another host CPU (zig native
+      # target), which would otherwise die with SIGILL here.
+      - name: Restore source mtimes recorded with the warm target dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/blacksmith-testbox-source-mtimes.py restore \
+            "$GITHUB_WORKSPACE" cmux-tui/target/.cmux-testbox-source-mtimes.tsv
 
       - name: Fetch Cargo dependencies without compiling
         working-directory: cmux-tui

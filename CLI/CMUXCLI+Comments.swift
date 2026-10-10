@@ -106,6 +106,23 @@ extension CMUXCLI {
         }
     }
 
+    /// Parses receipt timestamps with or without fractional seconds; a bare
+    /// `ISO8601DateFormatter` rejects `2026-09-30T22:44:53.481Z`. One parser
+    /// is made per ledger read so its formatters are reused across receipts.
+    private struct ReviewTimestampParser {
+        private let fractionalSeconds: ISO8601DateFormatter
+        private let wholeSeconds = ISO8601DateFormatter()
+
+        init() {
+            fractionalSeconds = ISO8601DateFormatter()
+            fractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        }
+
+        func date(from value: String) -> Date? {
+            fractionalSeconds.date(from: value) ?? wholeSeconds.date(from: value)
+        }
+    }
+
     private struct ReviewReceipt {
         let id: String
         let payload: [String: Any]
@@ -201,7 +218,8 @@ extension CMUXCLI {
 
     private func reviewValidateReceiptPayload(
         _ payload: [String: Any],
-        fileName: String
+        fileName: String,
+        timestampParser: ReviewTimestampParser
     ) throws -> Date {
         func invalid(_ detail: String) -> CLIError {
             CLIError(message: String.localizedStringWithFormat(
@@ -254,7 +272,7 @@ extension CMUXCLI {
         try reviewValidateBrief(brief, invalid: invalid)
 
         guard let createdAt = reviewNonemptyString(payload["created_at"]),
-              let createdAtDate = ISO8601DateFormatter().date(from: createdAt) else {
+              let createdAtDate = timestampParser.date(from: createdAt) else {
             throw invalid("created_at must be an ISO-8601 timestamp")
         }
 
@@ -687,6 +705,7 @@ extension CMUXCLI {
             ))
         }
 
+        let timestampParser = ReviewTimestampParser()
         var receipts: [ReviewReceipt] = []
         for file in files where file.pathExtension.lowercased() == "json" {
             let data: Data
@@ -714,7 +733,8 @@ extension CMUXCLI {
             }
             let createdAtDate = try reviewValidateReceiptPayload(
                 payload,
-                fileName: file.lastPathComponent
+                fileName: file.lastPathComponent,
+                timestampParser: timestampParser
             )
 
             receipts.append(ReviewReceipt(

@@ -90,6 +90,7 @@ extension Workspace {
                 restorableAgentIndex: restorableAgentIndex
             )
         }
+        pruneClaudeBackgroundViewerObservations()
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -321,6 +322,15 @@ extension Workspace {
             return (panel.id, panel)
         }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
+        claudeBackgroundAttachRestoresByStablePanelID = AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        )
+            ? Self.claudeBackgroundAttachRestores(
+                panels: snapshot.panels.compactMap { panelSnapshotsById[$0.id] },
+                skipsRemoteTerminals: remoteTerminalStartupCommand() != nil
+            )
+            : [:]
+        defer { claudeBackgroundAttachRestoresByStablePanelID = nil }
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -422,6 +432,7 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        trackRestoredAgentNotifications(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
         // Record the identity remap for the agent journal: events journaled
         // against the previous run's runtime workspace/panel UUIDs re-attach
         // to the restored panels during replay through these aliases.
@@ -590,6 +601,7 @@ extension Workspace {
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
@@ -682,7 +694,10 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
+                claudeBackgroundViewer: localTmuxStartCommand == nil
+                    ? claudeBackgroundViewerForSnapshot(panelId: panelId, terminal: terminalPanel)
+                    : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -792,6 +807,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .coderouterGuide:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            coderouterGuideSnapshot = SessionCoderouterGuidePanelSnapshot()
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
@@ -836,6 +855,7 @@ extension Workspace {
             agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
+            coderouterGuide: coderouterGuideSnapshot,
             notificationsPanel: notificationsPanelSnapshot
         )
     }
@@ -1589,7 +1609,6 @@ extension Workspace {
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1617,6 +1636,24 @@ extension Workspace {
                 persistedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            // A Claude background session lives on in Claude's daemon. One pane
+            // reattaches its viewer; no pane starts `claude --resume` as a
+            // second writer. A workspace restore pass plans every pane up
+            // front; a single reopened or Dock-restored panel is planned here.
+            let claudeBackgroundRestore = autoResumeAgentSessions &&
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                restoredHibernation == nil &&
+                snapshot.terminal?.isRemoteTerminal != true
+                ? (claudeBackgroundAttachRestoresByStablePanelID ?? Self.claudeBackgroundAttachRestores(
+                    panels: [snapshot],
+                    skipsRemoteTerminals: remoteStartupCommand != nil
+                ))[snapshot.id]
+                : nil
+            let claudeBackgroundAttach = claudeBackgroundRestore?.attach
+            let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
+                !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
             // snapshot available for manual continuation, but never let the
@@ -1673,6 +1710,7 @@ extension Workspace {
                 stablePanelHasUncertainProcess
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
+                suppressesResumeForBackgroundSession ||
                 restoreStartupBlocked ||
                 liveSessionOwner != nil ||
                 stablePanelHasLiveProcess ||
@@ -1746,6 +1784,7 @@ extension Workspace {
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
                     !stablePanelHasLiveProcess &&
+                    !suppressesResumeForBackgroundSession &&
                     restorableAgent == nil && restoredBindingLaunch == nil
                     ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                     : nil)
@@ -1883,7 +1922,8 @@ extension Workspace {
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
-                    restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
+                    restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil ||
+                    claudeBackgroundAttach != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: remoteConfiguration?.configuredRemoteCommand)
@@ -1894,7 +1934,8 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput)
+                    deferredAgentResumeStartupInput ??
+                    claudeBackgroundAttach?.startupInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
@@ -2092,13 +2133,16 @@ extension Workspace {
                 panel: terminalPanel,
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
-                manualResumeAvailable: restorableAgent != nil,
+                // The daemon still owns the session; offering a manual resume
+                // would invite a second writer.
+                manualResumeAvailable: restorableAgent != nil && !suppressesResumeForBackgroundSession,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
+                    suppressesResumeForBackgroundSession ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
@@ -2115,6 +2159,19 @@ extension Workspace {
                     processID: liveSessionOwner.processID
                 )
             }
+            if let claudeBackgroundRestore {
+                StartupBreadcrumbLog.append(
+                    "session.restore.panel.claudeBackgroundAttach",
+                    fields: [
+                        "workspace": id.uuidString,
+                        "panel": terminalPanel.id.uuidString,
+                        "session": String(claudeBackgroundRestore.registration.sessionID.prefix(8)),
+                        "daemonPid": String(claudeBackgroundRestore.registration.processID),
+                        "attach": claudeBackgroundAttach == nil ? "0" : "1",
+                        "viewer": snapshot.terminal?.claudeBackgroundViewer == nil ? "0" : "1"
+                    ]
+                )
+            }
             if deferredAgentResumeAdmission {
                 deferAgentResumeRestore(
                     panelId: terminalPanel.id,
@@ -2122,6 +2179,7 @@ extension Workspace {
                         stablePanelID: snapshot.id,
                         restorableAgent: restorableAgent,
                         resumeBinding: resumeBinding,
+                        tmuxStartCommand: localTmuxStartCommand,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
@@ -2278,6 +2336,11 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .coderouterGuide:
+            guard snapshot.coderouterGuide != nil,
+                  let guidePanel = newCoderouterGuideSurface(inPane: paneId, focus: false) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: guidePanel.id)
+            return guidePanel.id
         case .notifications:
             guard snapshot.notificationsPanel != nil,
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
@@ -2545,7 +2608,7 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
         ) {
@@ -2589,7 +2652,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2612,8 +2674,18 @@ extension Workspace {
             panelId: panelId,
             currentProcessIdentity: currentAgentProcessIdentity
         )
+        if restorableAgent.resumeCommand == nil,
+           panelShellActivityStates[panelId] == .commandRunning {
+            // A non-resumable agent snapshot is retired once the restored shell
+            // accepts a new command. Generic shell activity still never proves
+            // that a resumable agent is alive.
+            return false
+        }
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: panelShellActivityStates[panelId] == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
@@ -3033,6 +3105,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Transient labels an automation session puts in front of a panel's
+    /// title (`<label> · <title>`); never persisted, and a custom title wins.
+    var panelAutomationLabels: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -3087,6 +3162,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// writer wins), so two panes running the same agent would otherwise hide
     /// each other; the row resolves the most urgent pane from these instead.
     var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
+    var programStatusStoresByPanelId: [UUID: ProgramStatusRecordStore] = [:]
+    var programStatusUrgencyByPanelId: [UUID: Int] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -3109,6 +3186,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var panelGitBranches: [UUID: SidebarGitBranchState] {
         get { sidebarMetadata.panelGitBranches }
         set { sidebarMetadata.panelGitBranches = newValue }
+    }
+    var panelPrompts: [UUID: SidebarPanelPromptState] {
+        get { sidebarMetadata.panelPrompts }
+        set { sidebarMetadata.panelPrompts = newValue }
     }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
@@ -3313,6 +3394,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Restored notifications of panes whose agent died with the previous app
+    /// process; pruned by `pruneOrphanedRestoredAgentNotifications(store:)`.
+    var restoredAgentNotificationIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
@@ -4897,7 +4981,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+        repairRetiredRemoteTmuxContainerPanelsAfterDetach()
         return true
+    }
+
+    /// A window mirror retires its outer container panel after it mounts the
+    /// mirror-owned pane surface. If the workspace is later kept open while the
+    /// mirror detaches, that container remains in the bonsplit tree with a
+    /// permanently closed TerminalSurface. Remove it before the workspace is
+    /// presented as a local tab, and provide a fresh shell when nothing usable
+    /// remains. This closes the stale blank-tab path without touching live
+    /// panels (for example a user-created browser split).
+    private func repairRetiredRemoteTmuxContainerPanelsAfterDetach() {
+        let retiredPanelIDs = panels.values.compactMap { panel -> UUID? in
+            guard let terminalPanel = panel as? TerminalPanel,
+                  terminalPanel.surface.runtimeUnavailableReason == .closing else {
+                return nil
+            }
+            return terminalPanel.id
+        }
+        for panelID in retiredPanelIDs {
+            _ = closePanel(panelID, force: true)
+        }
+        guard panels.isEmpty, !isRetiredFromOwningTabManager else { return }
+        _ = createReplacementTerminalPanel()
     }
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
         remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
@@ -5514,7 +5621,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !custom.isEmpty {
             return custom
         }
+        if let label = panelAutomationLabels[panelId] {
+            let format = String(localized: "browser.repl.sessionTabTitle", defaultValue: "%1$@ · %2$@")
+            return String(format: format, label, fallbackTitle)
+        }
         return fallbackTitle
+    }
+
+    /// Sets or clears (`nil`/empty) the automation label shown before a
+    /// panel's title, and refreshes its tab.
+    func setPanelAutomationLabel(panelId: UUID, label: String?) {
+        guard let panel = panels[panelId] else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let next: String? = trimmed.isEmpty ? nil : trimmed
+        guard panelAutomationLabels[panelId] != next else { return }
+        panelAutomationLabels[panelId] = next
+        _ = applyFocusedPanelTitle(panelId: panelId)
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -6141,7 +6266,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        if state == .promptIdle {
+            _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            dropTransientProgramStatus(panelId: panelId)
+        }
         // The restored agent's resume state may have just changed (for
         // example, completed when the shell prompt returned).
         syncTerminalTabAgentIconAsset(forPanelId: panelId)
@@ -6607,6 +6735,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
+        programStatusStoresByPanelId.removeAll()
+        programStatusUrgencyByPanelId.removeAll()
         // The failed-wake row mirrors banners that are still up.
         refreshAgentWakeFailureStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
@@ -6619,6 +6749,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         progress = nil
         gitBranch = nil
         panelGitBranches.removeAll()
+        panelPrompts.removeAll()
         pullRequest = nil
         manualPullRequest = nil
         panelPullRequests.removeAll()
@@ -6666,6 +6797,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
+        for panelId in Array(programStatusStoresByPanelId.keys) where !validSurfaceIds.contains(panelId) {
+            clearProgramStatusPanel(panelId: panelId)
+        }
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
@@ -6681,6 +6815,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
+        panelPrompts = panelPrompts.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
@@ -6701,6 +6836,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        programStatusStoresByPanelId = programStatusStoresByPanelId.filter { validSurfaceIds.contains($0.key) }
+        programStatusUrgencyByPanelId = programStatusUrgencyByPanelId.filter { validSurfaceIds.contains($0.key) }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -6719,6 +6856,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredAgentNotificationIdsByPanelId = restoredAgentNotificationIdsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
@@ -6813,12 +6953,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
+    /// Records a submitted prompt for the workspace, and for one panel when the
+    /// caller knows which surface it came from.
+    ///
+    /// A `nil` `panelId` — an unresolved or absent hook `surface_id` — updates
+    /// only the workspace-level fields, so callers without surface routing keep
+    /// their previous behaviour.
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
+    func recordSubmittedMessage(_ message: String?, panelId: UUID? = nil) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
+        let submittedAt = Date()
         latestSubmittedMessage = preview
-        latestSubmittedAt = Date()
+        latestSubmittedAt = submittedAt
+        if let panelId {
+            panelPrompts[panelId] = SidebarPanelPromptState(
+                message: preview,
+                submittedAt: submittedAt
+            )
+        }
         return true
     }
 
@@ -6875,8 +7028,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         syncRemoteRelayIDAliasesToController()
     }
+
+    /// Set on the "Sign in to <host>" workspace cmux opens by itself when a remote-tmux
+    /// reconnect cannot authenticate.
+    ///
+    /// It exists to run one `ssh` and is meaningless afterwards: a restored terminal is a
+    /// fresh shell, so a restored copy cannot authenticate anything. Worse, a restored copy
+    /// is invisible to the per-host "one login at a time" rule, which tracks the workspace
+    /// it created — so the next outage adds another, once per relaunch.
+    var isRemoteTmuxAuthLogin: Bool = false
+
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxAuthLogin { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
@@ -8564,6 +8728,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// libproc-backed default, which requires a live foreground process on the
     /// pane's surface; injecting a substitute decouples callers from libproc.
     var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
+
+    /// Last `claude attach` viewer check per panel, keyed by the foreground PID
+    /// so autosave reads a pane's argv once per foreground process.
+    var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
+
+    /// Background-session reattach decisions for the workspace restore pass in
+    /// progress; nil outside a pass, where `createPanel` plans its one panel.
+    var claudeBackgroundAttachRestoresByStablePanelID: [UUID: ClaudeBackgroundAttachRestore]?
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).
@@ -11395,6 +11567,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
+        if let promptState = detached.promptState {
+            panelPrompts[detached.panelId] = promptState
+        } else {
+            panelPrompts.removeValue(forKey: detached.panelId)
+        }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted
             ?? (detached.panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
             ?? false
@@ -11431,10 +11608,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
+            panelAutomationLabels.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
+            panelPrompts.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
@@ -11453,6 +11632,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bindSurface(newTabId, toPanelId: detached.panelId)
         detached.panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         panels[detached.panelId] = detached.panel
+        restoreProgramStatusStore(detached.programStatusStore, panelId: detached.panelId)
         if let restoredPanelTitleBoundary = detached.restoredPanelTitleBoundary {
             restoredPanelTitleBoundariesByPanelId[detached.panelId] = restoredPanelTitleBoundary
         } else {
@@ -13588,6 +13768,7 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(
         for tabId: TabID,
         nameOverride: String? = nil,
+        agentName: String? = nil,
         dontAskAgain: CloseWarningKinds
     ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -13609,7 +13790,13 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let agentName {
+            let format = String(
+                localized: "dialog.closeTab.agentWorking",
+                defaultValue: "%@ is still working. This will close the current tab."
+            )
+            message = String(format: format, locale: .current, agentName)
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -13815,6 +14002,8 @@ extension Workspace: BonsplitDelegate {
         let activationIntent = focusIntent ?? activationPanel.preferredFocusIntentForActivation()
         activationPanel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
+        // The user reached this pane, so its finished OSC 7501 records have been seen.
+        dismissCompletedProgramStatus(panelId: panelId)
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
@@ -14131,6 +14320,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Closing an unselected tab must not move selection to its
+            // neighbor: keep the tab the user was already using so an
+            // automation caller cleaning up another agent cannot steal
+            // keyboard input. Bonsplit itself keeps the selection here.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14302,9 +14502,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
+            source: confirmationSource,
+            isAgentSession: agentWarning != nil
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -14333,14 +14535,22 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
+                    let confirmed = await self.confirmClosePanel(
+                        for: tabId,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId),
+                        dontAskAgain: warningKinds
+                    )
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return
                     }
 
                     self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    if !self.bonsplitController.closeTab(tabId) {
+                        // didCloseTab never runs for a rejected close, so drop the
+                        // bypass here or the next close would skip the warning.
+                        self.forceCloseTabIds.remove(tabId)
+                    }
                 }
             }
             return false
@@ -14437,6 +14647,8 @@ extension Workspace: BonsplitDelegate {
                     : nil,
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
+                promptState: panelPrompts[panelId],
+                programStatusStore: programStatusStoresByPanelId[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
@@ -14534,6 +14746,7 @@ extension Workspace: BonsplitDelegate {
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
+            // selectTab also focuses the pane, so only call it for the focused pane.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
@@ -14572,6 +14785,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        cloudLayoutDidChange()
         // A remote tmux mirror tab reorder propagates to tmux window order.
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
@@ -14631,6 +14845,7 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
+        cloudLayoutDidChange()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -15213,6 +15428,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Before deferral: a graph event queued behind this edit must not re-apply the old tree.
+        if !deviceLayoutExternal { cloudLayoutDidChange() }
         // Capture the user's arrangement before deferred delivery: an incoming
         // remote snapshot must not replace the intent while this event waits.
         let deviceLayoutSnapshot = !deviceLayoutExternal
