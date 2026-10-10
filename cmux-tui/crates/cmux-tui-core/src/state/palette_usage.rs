@@ -34,6 +34,8 @@ pub(crate) const MAX_KEY_CHARS: usize = 512;
 /// A row or pick decayed below this is forgotten at the next use (about
 /// 20 half-lives: two months for a row, five months for a pick).
 pub(crate) const FORGET_BELOW: f64 = 1e-6;
+/// Rows that may be hidden at once.
+pub(crate) const MAX_HIDDEN: usize = 2048;
 /// The largest score an imported row keeps (a damaged former history must
 /// not overflow the sum to infinity, which would not serialize).
 pub(crate) const MAX_IMPORTED_SCORE: f64 = 1e6;
@@ -59,6 +61,9 @@ pub(crate) struct Document {
     /// Sources already imported, so each imports once.
     #[serde(default)]
     pub(crate) imported: Vec<String>,
+    /// Rows the user hid from the palette (shown again only by an explicit show).
+    #[serde(default)]
+    pub(crate) hidden: std::collections::BTreeSet<String>,
     /// Keys a newer daemon wrote, kept verbatim (L5).
     #[serde(flatten)]
     pub(crate) extra: BTreeMap<String, Value>,
@@ -194,6 +199,55 @@ pub(crate) fn record(
         picks.last = key.to_string();
     }
     evict(&mut next.picks, MAX_PICK_PREFIXES, newest);
+    next.revision = document.revision + 1;
+    Ok(next)
+}
+
+/// Hides row `key` from the palette, or shows it again. Hiding an already
+/// hidden row (or showing a shown one) changes nothing.
+pub(crate) fn set_hidden(document: &Document, key: &str, hidden: bool) -> Result<Document, Reject> {
+    check_key(key)?;
+    if document.hidden.contains(key) == hidden {
+        return Ok(document.clone());
+    }
+    let mut next = document.clone();
+    if hidden {
+        insert_bounded(&mut next.hidden, key);
+    } else {
+        next.hidden.remove(key);
+    }
+    next.revision = document.revision + 1;
+    Ok(next)
+}
+
+fn insert_bounded(set: &mut std::collections::BTreeSet<String>, key: &str) {
+    if set.len() < MAX_HIDDEN {
+        set.insert(key.to_string());
+    }
+}
+
+/// Reset Ranking: forgets every use and learned pick of row `key`. A row
+/// with no history changes nothing.
+pub(crate) fn forget(document: &Document, key: &str) -> Result<Document, Reject> {
+    check_key(key)?;
+    let has_picks = document.picks.values().any(|picks| picks.rows.contains_key(key));
+    if !document.entries.contains_key(key) && !has_picks {
+        return Ok(document.clone());
+    }
+    let mut next = document.clone();
+    next.entries.remove(key);
+    next.picks.retain(|_, picks| {
+        picks.rows.remove(key);
+        if picks.last == key {
+            picks.last = picks
+                .rows
+                .iter()
+                .max_by_key(|(_, entry)| entry.last_used_ms)
+                .map(|(row, _)| row.clone())
+                .unwrap_or_default();
+        }
+        !picks.rows.is_empty()
+    });
     next.revision = document.revision + 1;
     Ok(next)
 }
