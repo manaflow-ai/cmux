@@ -488,7 +488,7 @@ impl UnixWorkspaceRoot {
     fn expand_symlink(
         &self,
         base: &[OsString],
-        target: &std::ffi::OsStr,
+        target: &OsStr,
     ) -> Result<VecDeque<OsString>, RpcError> {
         let target = Path::new(target);
         if target.is_absolute() {
@@ -748,7 +748,7 @@ fn reject_resolved_tilde_component(root: &Path, resolved: &Path) -> Result<(), R
 }
 
 #[cfg(unix)]
-fn component_cstring(component: &std::ffi::OsStr) -> Result<CString, RpcError> {
+fn component_cstring(component: &OsStr) -> Result<CString, RpcError> {
     CString::new(component.as_bytes()).map_err(|_| invalid_path("path contains a NUL byte"))
 }
 
