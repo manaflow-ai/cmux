@@ -91,7 +91,7 @@ async fn dispatch_request(
                 "agentInfo": {"name": "acpmux", "title": "acpmux", "version": VERSION},
                 "agentCapabilities": {
                     "loadSession": true,
-                    "promptCapabilities": {"image": true, "document": true, "audio": false, "embeddedContext": true},
+                    "promptCapabilities": {"image": true, "audio": false, "embeddedContext": true},
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
@@ -103,7 +103,7 @@ async fn dispatch_request(
                 "person": conn.is_person(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -888,6 +888,13 @@ async fn dispatch_request(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
+        }
+        method::MUX_QUEUE_REMOVE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = str_param(&params, "promptId")
+                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            let removed = hub.remove_queued(&s, prompt_id);
+            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;

@@ -83,9 +83,20 @@ impl Translator {
                                     }
                                     document
                                 }
-                                Some("resource") | Some("resource_link") => {
-                                    json!({"type": "text", "text": resource_text(b)})
+                                Some("resource") => {
+                                    let resource = b.get("resource").unwrap_or(b);
+                                    let mime = resource.get("mimeType").and_then(Value::as_str).unwrap_or("");
+                                    if mime == "application/pdf" {
+                                        let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": mime, "data": resource.get("blob").and_then(Value::as_str).unwrap_or("")}});
+                                        if let Some(uri) = resource.get("uri").and_then(Value::as_str).filter(|uri| !uri.is_empty()) {
+                                            document["title"] = json!(uri.strip_prefix("attachment://").unwrap_or(uri));
+                                        }
+                                        document
+                                    } else {
+                                        json!({"type": "text", "text": resource_text(b)})
+                                    }
                                 }
+                                Some("resource_link") => json!({"type": "text", "text": resource_text(b)}),
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();

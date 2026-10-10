@@ -37,8 +37,9 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
-import { FileDoc } from "./conversation/icons";
+import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
@@ -113,6 +114,10 @@ type Props = {
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
   onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
   onStop(): void;
+  /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
+  onQueueRemove?(promptId: string): Promise<boolean>;
+  /// Withdraws a queued prompt and puts its text back in the prompt.
+  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -180,6 +185,8 @@ export function Composer({
   chips: Chips,
   onSend,
   onStop,
+  onQueueRemove,
+  onQueueEdit,
   draft,
   leading,
   accessory,
@@ -789,7 +796,7 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue queue={snapshot.queue} t={t} />
+        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
         {contextFirst && context}
         <input
           ref={importInput}
@@ -1032,30 +1039,121 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    const source = `data:application/pdf;base64,${attachment.data}`;
-    return (
-      <div
-        className="acpmux-attachment acpmux-attachment-document"
-        title={attachment.name}
-        data-page-count={attachment.pageCount ?? undefined}
-      >
-        <iframe className="acpmux-attachment-document-preview" src={source} title={attachment.name} tabIndex={-1} />
-        <span className="acpmux-attachment-document-meta">
-          <FileDoc size={15} />
-          <span className="acpmux-attachment-document-name">{attachment.name}</span>
-          {attachment.pageCount !== undefined && (
-            <span className="acpmux-attachment-document-pages">{attachment.pageCount}p</span>
-          )}
-        </span>
-        {remove}
-      </div>
-    );
+    return <PdfAttachmentChip attachment={attachment} remove={remove} />;
   }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>
       {remove}
     </div>
+  );
+}
+
+function PdfAttachmentChip({
+  attachment,
+  remove,
+}: {
+  attachment: ComposerAttachment & { kind: "document"; data: string };
+  remove: React.ReactNode;
+}) {
+  const t = useT();
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const close = useRef<HTMLButtonElement>(null);
+  // `frame-src` intentionally excludes data/blob URLs. Keep the inline preview deterministic and
+  // open the original bytes in a native browser tab from the modal instead of weakening CSP.
+  const [pdfUrl, setPdfUrl] = useState<string>();
+  useEffect(() => {
+    if (!pdfOpen) {
+      setPdfUrl(undefined);
+      return;
+    }
+    try {
+      const bytes = Uint8Array.from(atob(attachment.data), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      setPdfUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch {
+      setPdfUrl(undefined);
+      return;
+    }
+  }, [attachment.data, pdfOpen]);
+  const pageLabel = attachment.pageCount === undefined ? "PDF" : `${attachment.pageCount}p`;
+  return (
+    <>
+      <div
+        className="acpmux-attachment acpmux-attachment-document"
+        title={attachment.name}
+        data-page-count={attachment.pageCount ?? undefined}
+      >
+        <button
+          type="button"
+          className="acpmux-attachment-document-open"
+          aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
+          onClick={() => setPdfOpen(true)}
+        >
+          <PdfSheetPreview />
+        </button>
+        <span className="acpmux-attachment-document-meta">
+          <FileDoc size={15} />
+          <span className="acpmux-attachment-document-name">{attachment.name}</span>
+          <span className="acpmux-attachment-document-pages">{pageLabel}</span>
+        </span>
+        {remove}
+      </div>
+      <Dialog
+        open={pdfOpen}
+        onOpenChange={setPdfOpen}
+        label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
+        className="acpmux-pdf-viewer"
+        initialFocus={close}
+      >
+        <div className="acpmux-pdf-viewer-bar">
+          <span className="acpmux-image-viewer-title">{attachment.name}</span>
+          <span className="acpmux-image-viewer-count">{pageLabel}</span>
+          <button
+            type="button"
+            className="acpmux-image-viewer-action"
+            ref={close}
+            aria-label={t("image.close")}
+            title={t("image.close")}
+            onClick={() => setPdfOpen(false)}
+          >
+            <Close />
+          </button>
+        </div>
+        <div className="acpmux-pdf-viewer-preview">
+          <PdfSheetPreview large />
+        </div>
+        {pdfUrl && (
+          <a
+            className="acpmux-pdf-viewer-open"
+            href={pdfUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
+          >
+            <FileDoc size={15} />
+            <span>{attachment.name}</span>
+          </a>
+        )}
+      </Dialog>
+    </>
+  );
+}
+
+/** A CSP-safe PDF thumbnail; the original bytes remain available via the modal's open link. */
+function PdfSheetPreview({ large = false }: { large?: boolean }) {
+  return (
+    <span className={`acpmux-pdf-sheet${large ? " is-large" : ""}`} aria-hidden="true">
+      <span className="acpmux-pdf-sheet-fold" />
+      <span className="acpmux-pdf-sheet-mark">PDF</span>
+      <span className="acpmux-pdf-sheet-lines">
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+    </span>
   );
 }
 

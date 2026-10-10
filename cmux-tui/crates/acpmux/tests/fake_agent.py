@@ -87,11 +87,13 @@ def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
-    documents = [b for b in blocks if isinstance(b, dict) and b.get("type") == "document"]
+    documents = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource"]
     if documents:
         text += " " + " ".join(
-            "document:{name}:{mime}:{data}".format(
-                name=b.get("name", ""), mime=b.get("mimeType", ""), data=b.get("data", "")
+            "resource:{name}:{mime}:{data}".format(
+                name=(b.get("resource") or {}).get("uri", "").removeprefix("attachment://"),
+                mime=(b.get("resource") or {}).get("mimeType", ""),
+                data=(b.get("resource") or {}).get("blob", "")
             )
             for b in documents
         )

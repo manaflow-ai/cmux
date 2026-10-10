@@ -7,8 +7,11 @@
 //! - [`Mirror`]: a read-only copy of the session tree with typed deltas,
 //!   plus the personal workspace groups and sidebar order and the session's
 //!   tab groups.
-//! - [`DaemonEvent::BookmarksChanged`]: `bookmarks-changed` from a
-//!   protocol-12 `subscribe` stream, when the daemon has `bookmarks-v1`.
+//! - [`DaemonEvent::BookmarksChanged`] and [`DaemonEvent::PersonalChanged`]:
+//!   `bookmarks-changed` and `personal-changed` from a protocol-12
+//!   `subscribe` stream, when the daemon has `bookmarks-v1` or `profiles-v1`.
+//! - [`spaces`]: the spaces of a `list-personal` reply and which spaces show
+//!   a workspace (the membership rule of data-model.md 3.2).
 //! - [`attach`]: the terminal byte attachment seam; [`DaemonAttacher`]
 //!   implements it on protocol-12 byte mode (`cmux::raw::ByteAttachment`),
 //!   one reader thread per attached view.
@@ -25,13 +28,14 @@
 //! the event stream) happens on it; the caller's thread never blocks except
 //! in [`DaemonClient::stop`] / `Drop`, which wait for the worker to exit
 //! (bounded by the request and ensure deadlines). While connected to a daemon
-//! with `bookmarks-v1` (and `DaemonConfig::bookmark_events`), the worker owns
-//! a second thread, `cmux-daemon-client-bookmarks`, that reads the
-//! `bookmarks-changed` stream; the worker closes and joins it before it
+//! with `bookmarks-v1` or `profiles-v1` (and `DaemonConfig::bookmark_events`
+//! or `personal_events`), the worker owns a second thread,
+//! `cmux-daemon-client-subscribe`, that reads the `bookmarks-changed` and
+//! `personal-changed` stream; the worker closes and joins it before it
 //! reports the connection's `Disconnected`.
 //!
 //! The event callback runs **on the worker thread** (or, for
-//! `BookmarksChanged`, on its bookmark thread), sequentially, never
+//! `BookmarksChanged` and `PersonalChanged`, on its subscribe thread), sequentially, never
 //! concurrently, once per [`DaemonEvent`] in order, with a borrow of the
 //! mirror as of that event. The worker holds the mirror lock while the
 //! callback runs, so the callback must return quickly: post the event to the
@@ -58,6 +62,7 @@ pub mod launcher;
 pub mod mirror;
 mod mirror_state;
 pub mod reattach;
+pub mod spaces;
 
 pub use attach::{
     AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
@@ -71,3 +76,4 @@ pub use cmux;
 pub use daemon_attach::{DaemonAttacher, DaemonAttachment};
 pub use mirror::{Applied, Change, Mirror, MirrorChange, MirrorError};
 pub use reattach::{GenerationWait, MirrorWatch, reattach};
+pub use spaces::{DEFAULT_SPACE, PROFILES_CAPABILITY, Space, Spaces, WorkspaceRef};

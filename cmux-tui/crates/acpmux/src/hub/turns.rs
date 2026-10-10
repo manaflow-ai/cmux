@@ -3,6 +3,31 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// ACP v1 does not define a `document` content block. Keep PDFs as a standard
+/// embedded resource on the wire so strict ACP adapters (including Codex) do
+/// not reject the prompt. Claude's translator turns the PDF resource back into
+/// its native document block.
+fn acp_prompt_blocks(blocks: &[Value]) -> Vec<Value> {
+    blocks
+        .iter()
+        .map(|block| {
+            if block.get("type").and_then(Value::as_str) != Some("document") {
+                return block.clone();
+            }
+            let name = block.get("name").and_then(Value::as_str).unwrap_or("document.pdf");
+            let uri = format!("attachment://{name}");
+            json!({
+                "type": "resource",
+                "resource": {
+                    "uri": uri,
+                    "mimeType": block.get("mimeType").and_then(Value::as_str).unwrap_or("application/pdf"),
+                    "blob": block.get("data").and_then(Value::as_str).unwrap_or("")
+                }
+            })
+        })
+        .collect()
+}
+
 impl Hub {
     // --------------------------------------------------------------- turns
 
@@ -127,6 +152,12 @@ impl Hub {
                     ended = Some(rec.msg);
                     return false;
                 }
+                ("queue_removed", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
                 _ => {}
             }
             true
@@ -201,7 +232,7 @@ impl Hub {
             // The turn may end between this check and the agent: without
             // steerOnly the message then becomes the next prompt, as before.
             let fallback = (!opts.steer_only).then(|| blocks.clone());
-            let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
+            let mut params = json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(&blocks)});
             params["_meta"] = json!({"steer": true});
             let mut r =
                 match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
@@ -228,35 +259,26 @@ impl Hub {
         let turn_id = uuid::Uuid::now_v7().to_string();
         let waiting = session.turn().is_some() || session.queued() > 0;
         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-        if waiting {
-            session.queue.lock().unwrap().push(QueuedPrompt {
-                prompt_id: prompt_id.clone(),
-                turn_id: turn_id.clone(),
-                client: client.to_owned(),
-                preview: short_text(&text, 200),
-                queued_at: now_ms(),
-            });
-            // Tell every client right away; the turn itself starts when the lock frees.
-            self.append(
-                session,
-                "mux",
-                "queued",
-                json!({"text": text, "client": client, "position": position, "promptId": prompt_id, "turnId": turn_id}),
-            );
+        let withdraw = waiting.then(|| {
+            let withdraw = self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
             );
-        }
-        let guard = session.turn_lock.lock().await;
-        session.queued.fetch_sub(1, Ordering::SeqCst);
-        if waiting {
-            session.queue.lock().unwrap().retain(|q| q.turn_id != turn_id);
-            self.append(
-                session,
-                "mux",
-                "dequeued",
-                json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
-            );
+            withdraw
+        });
+        // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
+        let guard = match withdraw {
+            Some(withdraw) => tokio::select! {
+                guard = session.turn_lock.lock() => guard,
+                () = withdraw.notified() => return Ok(super::queue::withdrawn_reply(&prompt_id, &turn_id)),
+            },
+            None => session.turn_lock.lock().await,
+        };
+        if !waiting {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+        } else if let Some(withdrawn) = self.take_queued(session, &prompt_id, &turn_id) {
+            drop(guard);
+            return Ok(withdrawn);
         }
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
@@ -367,7 +389,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(&blocks)}),
             &turn_id,
             false,
         )
@@ -420,7 +442,7 @@ impl Hub {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(&blocks)}),
                                 )
                                 .await;
                         }

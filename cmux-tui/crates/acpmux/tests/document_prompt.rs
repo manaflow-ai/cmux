@@ -1,5 +1,5 @@
-//! Document prompts at the daemon boundary. A PDF must remain an ACP document
-//! for ACP harnesses and become an Anthropic document block for Claude Code.
+//! Document prompts at the daemon boundary. A PDF must remain a binary resource
+//! for strict ACP harnesses and become an Anthropic document block for Claude Code.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -90,7 +90,7 @@ async fn pdf_reaches_codex_and_claude_as_a_document() {
     codex_prompt["sessionId"] = json!(codex_session);
     let (reply, echoed) = codex.call_text("session/prompt", codex_prompt).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    assert!(echoed.contains("document:report.pdf:application/pdf:JVBERi0xLjQ="), "{echoed}");
+    assert!(echoed.contains("resource:report.pdf:application/pdf:JVBERi0xLjQ="), "{echoed}");
 
     let mut claude = client(&hub);
     let claude_session = claude.new_session("fakeclaude").await;
