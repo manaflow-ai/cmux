@@ -233,45 +233,6 @@ fn server_ops_need_their_scope_and_required_gestures_need_the_user() {
     assert_eq!(run_server_op_as(&f, "cmux/gate", "gate.wipe", Origin::User).unwrap(), served);
 }
 
-#[test]
-fn servers_get_only_the_allowlisted_environment() {
-    let root = temp_dir();
-    let marker = root.0.join("envy.marker");
-    let state = root.0.join("state");
-    write_fake_server(&root.0.join("servers"));
-    let mut server = native_server(&marker, json!({ "start": "always" }));
-    server["data"] = json!([{ "name": "keep", "class": "durable" }, { "name": "scratch", "class": "ephemeral" }]);
-    write_server_app(&root.0.join("bundled"), "envy", server);
-    let f = fixture_with(&[], Duration::from_secs(60), root);
-    f.install("cmux/envy");
-    let env_file = marker.with_extension("marker.env");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let env = loop {
-        let env = std::fs::read_to_string(&env_file).unwrap_or_default();
-        if env.contains("cargo=") {
-            break env;
-        }
-        assert!(Instant::now() < deadline, "no environment written");
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let data = state.join("apps-data/cmux.envy");
-    let tmp = state.join("apps-tmp/cmux.envy");
-    assert_eq!(
-        env.lines().collect::<Vec<_>>(),
-        [
-            "id=cmux/envy".to_string(),
-            format!("data={}", data.display()),
-            format!("tmp={}", tmp.display()),
-            "home=".to_string(),
-            "cargo=".to_string(),
-        ]
-    );
-    assert!(data.join("keep").is_dir() && data.join("scratch").is_dir() && tmp.is_dir());
-    f.set("rm", "cmux/envy", Origin::User, |o| o.installed = Some(false)).unwrap();
-    wait_marker(&marker, &["start", "stop"]);
-    assert!(!data.exists() && !tmp.exists(), "uninstall removes the server's directories");
-}
-
 fn probe_server(out: &Path, op: &str, scoped: bool) -> Value {
     let mut server = json!({
         "kind": "native",

@@ -2,7 +2,7 @@ import CoreFoundation
 import Darwin
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
