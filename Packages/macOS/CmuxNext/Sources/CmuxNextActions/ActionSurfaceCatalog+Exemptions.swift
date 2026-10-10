@@ -241,8 +241,8 @@ nonisolated extension ActionSurfaceCatalog {
             "cloudCopyPort", "cloudCopyMachineID",
         ],
         // `tab new` (newTab.default) already gives scripts the selected tab's kind, and a pane's tab
-        // whatever its tab bar (New Horizontal Tab).
-        .duplicateOfDefault: ["newTab.ofKind", "newTab.horizontal"],
+        // whatever its tab bar (New Horizontal Tab), which a script moves where it wants (New Tab to the Right).
+        .duplicateOfDefault: ["newTab.ofKind", "newTab.horizontal", "newTab.toRight"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],
