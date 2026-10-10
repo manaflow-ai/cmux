@@ -120,6 +120,37 @@ final class DeviceDirectory {
 
     var isRunning: Bool { presenceTask != nil }
 
+    /// What a team switch carries into the next team's directory so My Devices
+    /// keeps its rows while the new team's sources load. Membership is the
+    /// account's (the per-user directory), so only team-scoped reads restart.
+    /// Live presence is not carried: it comes from the new team's stream.
+    struct CarriedState: Sendable {
+        var records: [DeviceDirectoryRecord]
+        var registryDevices: [DeviceRegistryDirectoryClient.Device]
+        var authenticatedMacs: [DeviceDiscoveredMac]
+        var owners: [String: String]
+        var ownersKnown: Bool
+        var hasLoadedRegistry: Bool
+    }
+
+    func carriedState() -> CarriedState {
+        CarriedState(records: records, registryDevices: registryDevices, authenticatedMacs: authenticatedMacs,
+            owners: owners, ownersKnown: ownersKnown, hasLoadedRegistry: hasLoadedRegistry)
+    }
+
+    /// Seeds a not-yet-started directory for the same account from the
+    /// previous team's directory. Ignored once started.
+    func adopt(_ carried: CarriedState) {
+        guard presenceTask == nil else { return }
+        records = carried.records
+        registryDevices = carried.registryDevices
+        authenticatedMacs = carried.authenticatedMacs
+        owners = carried.owners
+        ownersKnown = carried.ownersKnown
+        hasLoadedRegistry = carried.hasLoadedRegistry
+        notifyChanged()
+    }
+
     func start() {
         guard presenceTask == nil else { return }
         pairingObserver = NotificationCenter.default.addObserver(

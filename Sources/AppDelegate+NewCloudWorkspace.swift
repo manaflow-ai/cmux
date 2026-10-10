@@ -16,35 +16,74 @@ extension AppDelegate {
     ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
-              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else { return false }
+              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else {
+            return performNewCloudMachineAction(
+                tabManager: preferredTabManager,
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).fallback"
+            )
+        }
         guard let context = preferredTabManager.flatMap({ mainWindowContext(for: $0) })
             ?? preferredWindow.flatMap({ contextForMainWindow($0) })
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource) else { return false }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource) else {
+            return performNewCloudMachineAction(
+                tabManager: preferredTabManager,
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).fallback"
+            )
+        }
         let manager = context.tabManager
         manager.recordCloudWorkspaceSelection()
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+                guard let self, !Task.isCancelled else { return }
+                _ = self.performNewCloudMachineAction(
+                    tabManager: manager,
+                    preferredWindow: self.resolvedWindow(for: context),
+                    debugSource: "\(debugSource).fallback"
+                )
+            }
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = manager.map { reveals.begin(in: $0) }
-            try await reveals.revealing(token) {
-                do {
+            var accessBecameUnavailable = false
+            do {
+                try await reveals.revealing(token) {
                     guard let workspaceID = try await coordinator.createOnResolvedMachine(
-                        selection: selection, windowID: windowID, scopeID: scopeID
-                    ), !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
+                        selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
+                    ) else {
+                        accessBecameUnavailable = !coordinator.isAvailable
+                            || coordinator.scopeIdentifier != scopeID
+                        return nil
+                    }
+                    // A successful create is already committed on the Cloud
+                    // machine. Availability can change while the result is
+                    // being projected into the sidebar; that must not turn a
+                    // completed workspace into a spurious New Machine flow.
+                    guard !Task.isCancelled else { return nil }
                     destination?.apply(workspaceID: workspaceID)
                     return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
-                } catch CloudWorkspaceCreationError.noMachines {
-                    guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return nil }
-                    self?.presentNoCloudMachineAvailableAlert(windowID: windowID)
-                    return nil
                 }
+                if accessBecameUnavailable {
+                    fallbackToNewMachine()
+                }
+            } catch CloudWorkspaceCreationError.noMachines {
+                guard !Task.isCancelled else { return }
+                fallbackToNewMachine()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Creation failures are reported by the operation controller.
+                // New Machine is reserved for a missing or unusable Cloud
+                // context, never for an arbitrary provider error.
+                throw error
             }
         }
     }
 
-    /// Creates on the machine explicitly selected by Cmd+N and configured New Workspace.
+    /// Creates on the machine explicitly selected by a context-following New Workspace action.
     @discardableResult
     func performNewCloudWorkspaceOnCurrentMachineAction(
         tabManager: TabManager,
@@ -61,8 +100,10 @@ extension AppDelegate {
                 referenceWorkspaceId: target.referenceWorkspaceId, initialWorkspaceId: nil
             )
         }
-        let request = CloudWorkspaceCreationRequest(machineID: vmID, scopeID: scopeID, windowID: context.windowId)
         let revision = tabManager.cloudWorkspaceSelection.revision
+        let request = CloudWorkspaceCreationRequest(
+            machineID: vmID, scopeID: scopeID, windowID: context.windowId, selectionRevision: revision
+        )
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = tabManager.map { reveals.begin(in: $0) }
@@ -101,27 +142,13 @@ extension AppDelegate {
         return manager.selectedTabId == workspace.id ? workspace : nil
     }
 
-    private func presentNoCloudMachineAvailableAlert(windowID: UUID) {
-        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }),
-              let window = resolvedWindow(for: context) else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(localized: "machines.empty.title", defaultValue: "No machines yet")
-        alert.informativeText = String(
-            localized: "machines.workspace.noMachines",
-            defaultValue: "Create a machine with New Cloud Machine, then try again."
-        )
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        alert.beginSheetModal(for: window)
-    }
-
     /// Places a machine's reservation immediately; later provisioning cannot undo user navigation.
     @discardableResult
     func performNewCloudMachineAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         preferredWindow: NSWindow? = nil,
-        debugSource: String = "newCloudWorkspace",
+        debugSource: String = "newCloudMachine",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         if CloudMachinesFeature.isAvailable, !CloudMachinesFeature.isEnabled {

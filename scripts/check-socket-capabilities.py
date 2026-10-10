@@ -41,6 +41,7 @@ debug.empty_panel.count
 debug.empty_panel.reset
 debug.flash.count
 debug.flash.reset
+debug.global_search.query
 debug.layout
 debug.mobile.transport.disconnect
 debug.mobile.transport.reconnect_loop

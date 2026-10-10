@@ -4,6 +4,7 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import { getVmNetworkPolicy, updateVmNetworkPolicy } from "../../../../../services/vms/workflows";
 import { networkPolicyResponseBody, parseNetworkPolicyBody } from "../../../../../services/vms/networkPolicyRoute";
 
@@ -30,7 +31,7 @@ export async function GET(
         callerPlanId: account.entitlements.planId,
       }), { request });
       if (!run.ok) return run.response;
-      return jsonResponse(networkPolicyResponseBody(run.value));
+      return jsonResponse(await networkPolicyResponseBody(run.value, vmRequestLocale(request)));
     },
   );
 }
@@ -72,7 +73,7 @@ export async function PUT(
         policy: parsed.policy,
       }), { request });
       if (!run.ok) return run.response;
-      return jsonResponse(networkPolicyResponseBody(run.value));
+      return jsonResponse(await networkPolicyResponseBody(run.value, vmRequestLocale(request)));
     },
   );
 }

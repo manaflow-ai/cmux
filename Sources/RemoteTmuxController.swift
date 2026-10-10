@@ -333,6 +333,9 @@ final class RemoteTmuxController {
     /// `workspaceName` semantics. It must be host-scoped because the stream publishes sessions
     /// asynchronously after the attach call returns.
     var pendingMultiplexWorkspaceNamesByHost: [String: String] = [:]
+    /// An explicit CLI attach restricts a multiplexed host to one remote session.
+    /// Bulk `ssh-tmux` attaches clear this filter before reconciling the view.
+    var requestedMultiplexSessionByHost: [String: String] = [:]
 
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
