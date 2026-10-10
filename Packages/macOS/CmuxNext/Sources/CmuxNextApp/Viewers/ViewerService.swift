@@ -68,8 +68,9 @@ final class ViewerService {
 
     /// A diff tab for `directory` in `pane`; the diff host records the
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
-    func openDiff(_ directory: String, in pane: PaneController, focus: Bool) async throws {
-        try await diffViewer.openDiff(directory: directory, in: pane, focus: focus)
+    func openDiff(_ directory: String, in pane: PaneController, focus: Bool,
+                  created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
+        try await diffViewer.openDiff(directory: directory, in: pane, focus: focus, created: created)
     }
 
     /// The picker's folder mode for the diff viewer.

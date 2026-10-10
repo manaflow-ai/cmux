@@ -126,7 +126,7 @@ fn acp_and_claude_shapes() {
 fn remote_origins_isolated_presets_and_strict_mcp_sessions_get_nothing() {
     let none = BTreeMap::new();
     assert!(left_out(true, &none, &[]));
-    assert_eq!(acp_servers_for(true, &none), json!([]));
+    assert_eq!(acp_servers_for(true, &none, "s1"), json!([]));
     assert!(claude_args_for(true, &none, &[], "s").is_empty());
     let isolated = BTreeMap::from([(SWITCH_ENV.to_owned(), "0".to_owned())]);
     assert!(left_out(false, &isolated, &[]));

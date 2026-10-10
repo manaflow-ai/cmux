@@ -239,6 +239,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         apply(snapshot())
     }
 
+    /// Selects `surface`'s tab in this pane once the store reports it, and
+    /// moves no keyboard focus: an agent's tab opened beside its chat.
+    func selectWhenReportedKeepingFocus(surface: SurfaceID) {
+        pendingSelectSurface = surface
+        apply(snapshot())
+    }
+
     /// Same, for a tab named by its resource id (a reopened tab).
     func selectWhenReported(tab: String) {
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }

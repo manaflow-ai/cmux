@@ -7,7 +7,9 @@ import os
 ///
 /// Params: `action` (id or CLI name; with `cli: true` only a CLI name of an
 /// action marked for the CLI), `target`, `args`, `wait` (default true),
-/// `idempotency_key`, `confirm` via args, `after` (read barrier).
+/// `idempotency_key`, `confirm` via args, `after` (read barrier), `caller`
+/// (the agent session or terminal that sent it: an agent's browser or diff
+/// with no target opens beside its chat, ControlCaller).
 ///
 /// With `wait`, the reply comes after every daemon command the action sent
 /// has replied, the store applied their echoes, and the control snapshot
@@ -22,8 +24,9 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+        var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        try Self.placeBesideCaller(&given, action: action, params: call.params, topology: call.snapshot.topology)
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {

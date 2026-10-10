@@ -519,7 +519,10 @@ impl Hub {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
-                    .request(method::SESSION_LOAD, self.acp_params(&meta, profile, Some(&sid)))
+                    .request(
+                        method::SESSION_LOAD,
+                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                    )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 match res {
@@ -540,8 +543,9 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res =
-                child.request(method::SESSION_NEW, self.acp_params(&meta, profile, None)).await?;
+            let res = child
+                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
+                .await?;
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)

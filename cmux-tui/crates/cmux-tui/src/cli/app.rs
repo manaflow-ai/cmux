@@ -680,6 +680,41 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
+/// The app methods that place a new tab or report where the caller is: the
+/// app opens an agent's tabs in the column right of its chat
+/// (`beside_caller`) and marks the caller in `snapshot.get` and
+/// `system.identify`.
+const CALLER_METHODS: [&str; 4] =
+    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+
+/// Who calls, from the environment: the acpmux agent session
+/// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
+/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
+    let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    if let Some(session) = set("CMUX_AGENT_SESSION") {
+        return Some(json!({ "agent_session": session }));
+    }
+    set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
+}
+
+/// `params` with the caller added for a [`CALLER_METHODS`] method that names
+/// none. `browser.open_split` names a terminal with its own `terminal_id`
+/// and refuses unknown params, so it gets only an agent caller.
+fn with_caller(method: &str, mut params: Value) -> Value {
+    if !CALLER_METHODS.contains(&method) {
+        return params;
+    }
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return params };
+    if method == "browser.open_split" && caller.get("agent_session").is_none() {
+        return params;
+    }
+    if let Some(object) = params.as_object_mut() {
+        object.entry("caller").or_insert(caller);
+    }
+    params
+}
+
 /// `timeout: None` reads until the app answers or closes the connection.
 pub(super) fn request(
     stream: &mut UnixStream,
@@ -687,7 +722,7 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    exchange(stream, method, with_read_barrier(params), timeout)
+    exchange(stream, method, with_read_barrier(with_caller(method, params)), timeout)
 }
 
 /// One request with exactly `params` (no read barrier) and its response.

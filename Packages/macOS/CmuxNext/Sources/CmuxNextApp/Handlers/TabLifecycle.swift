@@ -248,6 +248,10 @@ enum TabLifecycle {
             opener = target
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
+        // An agent's tab beside its chat: selected there, focus stays in the chat (AgentBesidePlacement).
+        if invocation.besideCaller, let controller = ctx.services.paneController(for: opener) {
+            return AgentBesidePlacement.openBrowser(invocation, url: url, engine: engine, in: controller, then: then)
+        }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
             if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }

@@ -194,11 +194,19 @@ pub(crate) fn harness_command(
     crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+    // The daemon's own terminal (it may have started in a cmux terminal) is
+    // not the agent's: a stale id would open the agent's tabs beside it.
+    for key in crate::agent_tools::INHERITED_CALLER_ENV {
+        cmd.env_remove(key);
+    }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
-            .env("ACPMUX_SOCKET", crate::config::socket_path());
+            .env("ACPMUX_SOCKET", crate::config::socket_path())
+            // The caller the cmux CLI names to the app: its tabs open in the
+            // column right of this session's chat (beside_caller).
+            .env(crate::agent_tools::AGENT_SESSION_ENV, id);
     }
     cmd.args(args)
         .envs(env.iter())
