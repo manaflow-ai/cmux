@@ -18,7 +18,7 @@ use super::*;
 /// every PTY child as a session leader, and a leader cannot leave its
 /// process group), so signaling its group signals exactly the session.
 #[derive(Debug)]
-pub(super) struct AdoptedChild {
+pub(crate) struct AdoptedChild {
     pid: libc::pid_t,
     pidfd: Option<Arc<OwnedFd>>,
 }

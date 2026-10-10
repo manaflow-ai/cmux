@@ -13,6 +13,7 @@ pub(crate) mod host_parser;
 pub(crate) mod host_refusal;
 pub(crate) mod host_serve;
 pub(crate) mod host_shared;
+pub(crate) mod host_start;
 pub(crate) mod host_state;
 pub(crate) mod metric_commits;
 pub(crate) mod records;
