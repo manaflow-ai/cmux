@@ -34,8 +34,9 @@ pub const CHIEF_MUX_HOME_ENV: &str = "ACPMUX_CHIEF_MUX_HOME";
 pub const SUBAGENT_PINNED_KEYS: [&str; 6] = [
     "CMUX_TUI_SOCKET",
     "CMUX_MUX_SOCKET",
-    // A credential-bearing socket of the Chief's owner daemon: only when
-    // this daemon itself was started with it.
+    // The socket path of the Chief's owner daemon: a route, not a
+    // credential (any same-uid process can reach that socket); copied only
+    // when this daemon itself was started with it.
     "CMUX_CHIEF_OWNER_SOCKET",
     "CMUX_BUNDLED_CLI_PATH",
     "CMUX_SOCKET_PATH",
