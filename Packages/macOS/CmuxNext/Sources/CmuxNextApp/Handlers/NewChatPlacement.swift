@@ -97,7 +97,7 @@ extension NewChatPlacement {
 
     /// Focuses the pane that shows tab `key` once the layout has it outside
     /// `source`, the pane it moved from (the store may still list it there).
-    @MainActor private static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
+    @MainActor static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
                                                   leaving source: LayoutPaneID, services: AppServices) {
         func pane() -> LayoutPaneID? {
             guard let model = services.locateTab(key)?.1,

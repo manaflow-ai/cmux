@@ -30,6 +30,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
             ),
+            // New Horizontal Tab (cx-soza): a tab in the focused pane, turning its tab bar on first,
+            // where Cmd-T opens a workspace from a pane that hides it. No default key (Cmd-N stays
+            // New Workspace until Lawrence decides).
+            ActionDescriptor(
+                id: "newTab.horizontal",
+                title: String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module),
+                keywords: ["tab", "tab bar", "strip", "horizontal", "inside", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.pane]
+            ),
             ActionDescriptor(
                 id: "newTab.submit",
                 title: String(localized: "action.newTab.submit", defaultValue: "New Tab from Text", table: "NewTabActions", bundle: .module),

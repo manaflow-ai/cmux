@@ -60,7 +60,9 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting, and so
     /// does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false).
-    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true) {
+    /// `inStrip` (New Horizontal Tab) adds a tab even where Cmd-T would open a workspace.
+    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
+                                 inStrip: Bool = false) {
         // A named tab or pane that resolves to nothing is refused by the
         // lookup. Without one, a missing focused pane is not a refusal yet:
         // the active workspace may still be empty (below).
@@ -102,13 +104,13 @@ enum TabLifecycle {
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
         let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
-        // The user's Cmd-T follows the focus (cx-xt5k): a pane with a tab strip gets a tab; an
-        // agent chat or a pane without a strip gets a new workspace in the current group (New
-        // Workspace, on the New Tab page). The strip's + names its pane and always adds a tab;
-        // with `tabs.swapCmdTAndCmdN` on, this action is Cmd-N and always adds a tab.
-        if user, followsSetting, !named, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false), let controller,
-           controller.view.hidesStrip
-            || (onAgentTab && !(selectedID.map(ctx.services.agentTabs.isNewTabPage) ?? false)) {
+        // The user's Cmd-T follows the tab bar (cx-xt5k, cx-soza): a pane that shows its tab bar
+        // gets a tab; one that hides it (`PaneTabBar`: an agent chat alone by default) gets a new
+        // workspace in the current group (New Workspace, on the New Tab page). The strip's + names
+        // its pane and always adds a tab; with `tabs.swapCmdTAndCmdN` on, this action is Cmd-N and
+        // always adds a tab.
+        if user, followsSetting, !named, !inStrip, !(ctx.services.settings?.snapshot.swapCmdTAndCmdN ?? false),
+           let controller, controller.view.hidesStrip {
             var workspace = ActionInvocation(origin: .user)
             workspace.keyContext = invocation.keyContext
             _ = ctx.registry.perform("newTab", invocation: workspace)
