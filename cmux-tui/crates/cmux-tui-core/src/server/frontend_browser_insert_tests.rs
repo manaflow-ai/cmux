@@ -109,18 +109,27 @@ fn a_child_of_a_grouped_opener_joins_the_group_in_its_slot() {
     assert_eq!(active_tab(&mux, pane), 0, "the opener stays active");
 }
 
-/// The child of the group's last tab joins the group at its end; the child
-/// of an ungrouped tab stays ungrouped.
+/// The child of the group's last tab joins the group at its end.
 #[test]
-fn only_a_grouped_openers_child_is_grouped() {
-    let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-edge");
+fn the_child_of_a_groups_last_tab_joins_at_its_end() {
+    let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-end");
     mux.create_tab_group(&[opener, middle], None, Some("green".into()), Some("g1".into()), None)
         .unwrap();
-    let grouped = open_after(&mux, pane, middle, true);
-    let ungrouped = open_after(&mux, pane, last, false);
-    assert_eq!(tabs(&mux, pane), vec![opener, middle, grouped, last, ungrouped]);
-    assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle, grouped]]);
+    let child = open_after(&mux, pane, middle, true);
+    assert_eq!(tabs(&mux, pane), vec![opener, middle, child, last]);
+    assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle, child]]);
     assert_eq!(active_tab(&mux, pane), 2, "the foreground child is active");
+}
+
+/// The child of an ungrouped tab stays ungrouped.
+#[test]
+fn the_child_of_an_ungrouped_tab_stays_ungrouped() {
+    let (mux, pane, [opener, middle, last]) = pane_with_three_tabs("group-outside");
+    mux.create_tab_group(&[opener, middle], None, Some("green".into()), Some("g1".into()), None)
+        .unwrap();
+    let child = open_after(&mux, pane, last, false);
+    assert_eq!(tabs(&mux, pane), vec![opener, middle, last, child]);
+    assert_eq!(group_runs(&mux, pane), vec![vec![opener, middle]]);
 }
 
 /// The keyed (idempotent) creation takes the slot too.
