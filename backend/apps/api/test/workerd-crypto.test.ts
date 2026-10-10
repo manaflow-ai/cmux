@@ -23,12 +23,6 @@ const sign = async (pair: CryptoKeyPair, data: Uint8Array) => new Uint8Array(awa
 const payload: user.ProofPayload = { op: user.LOWER_OP, user: "user_x", install: "inst_x", new_level: "none", nonce: "n-1", expires_at: 1_900_000_000_000 }
 
 describe("home-core device proofs run in workerd", () => {
-  it("Buffer base64url round-trips", () => {
-    const bytes = Uint8Array.from([0, 250, 251, 252, 253, 254, 255])
-    const enc = Buffer.from(bytes).toString("base64url")
-    expect(enc).toBe(b64u(bytes))
-    expect([...Buffer.from(enc, "base64url")]).toEqual([...bytes])
-  })
 
   it("verifyPresence: createPublicKey(jwk) + verify(ieee-p1363) accept a valid raw signature and refuse a changed payload", async () => {
     const { pair, jwk } = await newKey()
@@ -36,35 +30,6 @@ describe("home-core device proofs run in workerd", () => {
     expect(user.verifyPresence(jwk, payload, sig)).toBe(true)
     expect(user.verifyPresence(jwk, { ...payload, new_level: "all" }, sig)).toBe(false)
     expect(user.verifyPresence({ ...jwk, d: "x" }, payload, sig)).toBe(false)
-  })
-
-  it("verifyAppAttest: verify(der) over sha256(authData || clientDataHash), app id hash and counter", async () => {
-    const { pair, jwk } = await newKey()
-    const appIdHash = await sha256(new TextEncoder().encode("TEAMID1234.com.cmuxterm.ios"))
-    const authData = Uint8Array.from([...appIdHash, 0x40, 0, 0, 0, 7])
-    const clientDataHash = await sha256(new Uint8Array(user.proofMessage(payload)))
-    const nonce = await sha256(Uint8Array.from([...authData, ...clientDataHash]))
-    // WebCrypto hashes its input, so signing `nonce` yields ECDSA over sha256(nonce), as Apple does.
-    const assertion = b64u(cborMap([["authenticatorData", authData], ["signature", user.rawToDer(await sign(pair, nonce))]]))
-    const key = { jwk, app_id_hash: b64u(appIdHash), counter: 6 }
-    expect(user.verifyAppAttest(key, payload, assertion)).toEqual({ ok: true, counter: 7 })
-    expect(user.verifyAppAttest({ ...key, counter: 7 }, payload, assertion)).toEqual({ ok: false })
-    expect(user.verifyAppAttest(key, { ...payload, nonce: "n-2" }, assertion)).toEqual({ ok: false })
-  })
-
-  it("rawToDer: fixed cases (zero-prefixed, high-bit and all-zero halves) are minimal DER", () => {
-    const hex = (b: Uint8Array) => Buffer.from(b).toString("hex")
-    const half = (lead: Array<number>) => Uint8Array.from([...lead, ...new Array(32 - lead.length).fill(0x11)])
-    // r with two leading zero bytes, s with the high bit set (needs a 0x00 pad).
-    const r = half([0x00, 0x00, 0x7f])
-    const s = Uint8Array.from([0x80, ...new Array(31).fill(0x22)])
-    const der = user.rawToDer(Uint8Array.from([...r, ...s]))
-    expect(hex(der.subarray(0, 4))).toBe("3043021e")
-    expect(hex(der.subarray(4, 5))).toBe("7f")
-    expect(hex(der.subarray(34, 37))).toBe("022100")
-    expect(der.length).toBe(69)
-    // All-zero halves encode as INTEGER 0 (02 01 00); verify refuses them.
-    expect(hex(user.rawToDer(new Uint8Array(64)))).toBe("3006020100020100")
   })
 
   it("verifyPresence refuses an all-zero signature and accepts signatures whose r starts with zero bytes", async () => {

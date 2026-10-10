@@ -219,11 +219,7 @@ final class AppServices {
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
         }
-        cache.machineBadge = { [weak self] key, url in
-            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
-            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
-        }
+        cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery, crashReporting] in
@@ -273,6 +269,7 @@ final class AppServices {
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
+            attachMachineBadgeMenu(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

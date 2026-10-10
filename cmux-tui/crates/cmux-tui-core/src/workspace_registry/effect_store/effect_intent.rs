@@ -283,9 +283,20 @@ impl WorkspaceRegistry {
         &self,
         intent: &EffectCommitIntent,
     ) -> anyhow::Result<EffectCommitReceipt> {
+        self.commit_effect_intent_locally_with(intent, None)
+    }
+
+    /// [`Self::commit_effect_intent_locally`] with `extra` in the same
+    /// transaction.
+    pub(crate) fn commit_effect_intent_locally_with(
+        &self,
+        intent: &EffectCommitIntent,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<EffectCommitReceipt> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let receipt = intent.apply(&tx)?;
+        extra.map_or(Ok(()), |extra| extra(&tx))?;
         tx.commit()?;
         drop(db);
         self.connection.write_path_stats().request_effect_committed();

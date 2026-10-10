@@ -1040,6 +1040,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1476,6 +1484,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-conversation",
+ "cmux-feed-core",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
