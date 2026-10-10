@@ -22,7 +22,7 @@ final class GroupHeaderRowView: SidebarRowView {
     let glyph = SidebarIconView()
     private let pill = CALayer()
     /// The more button (⋮): the group editor. Shows on hover and while the editor is open.
-    let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
+    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
@@ -120,9 +120,8 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     private static func chevronImage(collapsed: Bool) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold)
-        return NSImage(systemSymbolName: collapsed ? "chevron.down" : "chevron.up", accessibilityDescription: nil)?
-            .withSymbolConfiguration(config)
+        NSImage.icon(collapsed ? .disclosureExpanded : .navPreviousMatch,
+                     size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
     }
 
     override var titleFrame: NSRect { name.frame }

@@ -556,6 +556,11 @@ fn run_connect(
     if preset_route.is_some() {
         flags.route = preset_route;
     }
+    // A client with its own state directory (the app's link, cx-fdjq) keeps
+    // its client log there, as `remote-link --state-dir` does (cx-bduj).
+    if let Some(root) = flags.state_dir.as_deref() {
+        crate::client_log::use_path(root.join("client.log"));
+    }
     connect_with_flags(flags, load_config)
 }
 

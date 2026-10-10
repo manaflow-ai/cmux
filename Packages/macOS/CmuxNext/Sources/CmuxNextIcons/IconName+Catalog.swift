@@ -25,6 +25,7 @@ extension IconName {
         .actionRestart,
         .actionResume,
         .actionReview,
+        .actionShare,
         .actionShow,
         .actionSnooze,
         .actionStop,
@@ -120,6 +121,7 @@ extension IconName {
         .grant,
         .groupCollapsedDot,
         .groupNew,
+        .groupUngroup,
         .history,
         .historyRecent,
         .home,
@@ -272,6 +274,7 @@ extension IconName {
         .unreadDot,
         .viewGrid,
         .viewList,
+        .windowNew,
         .workspace,
         .workspaceNew
     ]
