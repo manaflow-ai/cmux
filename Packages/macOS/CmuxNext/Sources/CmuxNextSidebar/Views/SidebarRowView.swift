@@ -100,13 +100,6 @@ class SidebarRowView: NSView {
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
 
-    /// AppKit applies `clipsToBounds` to the layer lazily, so an opening
-    /// row's first frames could show its full title over the row below
-    /// (cx-ai79): the layer clips in the same transaction instead.
-    override var clipsToBounds: Bool {
-        didSet { layer?.masksToBounds = clipsToBounds }
-    }
-
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
     var targetSize: NSSize? {
