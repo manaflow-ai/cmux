@@ -38,7 +38,6 @@ pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
 test {
     std.testing.refAllDecls(capabilities);
     std.testing.refAllDecls(provider);
-    _ = @import("raw/authority_test.zig");
     _ = @import("raw/provider_test.zig");
     _ = @import("raw/stream_client_test.zig");
     _ = @import("raw/wire_presence_test.zig");

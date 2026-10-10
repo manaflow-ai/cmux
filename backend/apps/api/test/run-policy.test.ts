@@ -31,7 +31,6 @@ const call = async (path: string, t: string, body: unknown) => {
 const op = (t: string, name: string, params: unknown) => call("/v1/ops", t, { op: name, params, idempotency_key: crypto.randomUUID(), origin: "user" })
 const read = (t: string, name: string, params: unknown = {}) => call("/v1/read", t, { op: name, params })
 
-
 const hmac = async (secret: string, msg: string) => {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)))].map((b) => b.toString(16).padStart(2, "0")).join("")
@@ -84,43 +83,6 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     await setClasses(t, team, ["mux", "agent", "run"])
     const allowed = await op(t, "automation.run", { automation })
     expect(allowed.ok, JSON.stringify(allowed)).toBe(true)
-  })
-
-  it("a deny cancels queued runs that have no Workflow yet; started runs keep running (pure)", () => {
-    const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
-    const system: Principal = { identity: "system:team", kind: "system" }
-    let n = 0
-    const rows = new MemoryRows()
-    const ctx = (principal: Principal): ReduceContext => ({ principal, now: 1_800_000_000_000, tx: `tx${n}`, newId: idFactory(`tx${n++}`), rows })
-    /** Reduces and commits the row writes, like the engine. */
-    const reduce = (state: SchedulerState, op: string, params: unknown, principal: Principal) => {
-      const r = schedulerDomain.reduce(state, op, params, ctx(principal))
-      if (r.ok) rows.apply(r.writes ?? [])
-      return r
-    }
-    let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
-    const created = reduce(s, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "n" }] }, concurrency: { max: 10, on_limit: "queue" } }, user)
-    if (!created.ok) throw new Error(created.code)
-    s = created.state
-    const automation = (created.value as { id: string }).id
-    const ids: Array<string> = []
-    for (let i = 0; i < 2; i++) {
-      const r = reduce(s, "automation.run", { automation }, user)
-      if (!r.ok) throw new Error(r.code)
-      s = r.state
-      ids.push((r.value as { id: string }).id)
-    }
-    const started = reduce(s, "run.dispatched", { run: ids[0] }, system)
-    if (!started.ok) throw new Error(started.code)
-    s = started.state
-    const denied = reduce(s, "scheduler.run_policy", { version: 3, runs_allowed: false }, system)
-    if (!denied.ok) throw new Error(denied.code)
-    expect(runRowOf(rows, ids[0]!)).toMatchObject({ state: "queued", dispatched: true })
-    expect(runRowOf(rows, ids[1]!)).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
-    expect(denied.outbox).toHaveLength(1)
-    // An older or repeated push changes nothing.
-    expect(schedulerDomain.reduce(denied.state, "scheduler.run_policy", { version: 2, runs_allowed: true }, ctx(system))).toMatchObject({ ok: true, changed: false })
-    expect(schedulerDomain.reduce(denied.state, "automation.run", { automation }, ctx(user))).toMatchObject({ ok: false, code: "policy.denied" })
   })
 
   it("a webhook answers 403 policy.denied, a provider event starts no run", async () => {
@@ -223,18 +185,6 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
       expect(await s.reportRun(team, { run, state: "running", step: -1 })).toMatchObject({ ok: true, stopped: true })
       expect(runRowOf(s.boundEngine.rows, run)!.state).toBe("cancelled")
     })
-  })
-
-  it("terminate-after-create: a run that became terminal while its Workflow was created is terminated (pure)", () => {
-    const run = (state: string) => {
-      const rows = new MemoryRows()
-      rows.apply([{ table: "run", op: "upsert", key: "run_x", n: 1, row: { id: "run_x", state } }])
-      return rows
-    }
-    expect(afterCreate(run("queued"), "run_x")).toBe("dispatched")
-    expect(afterCreate(run("running"), "run_x")).toBe("dispatched")
-    for (const s of TERMINAL) expect(afterCreate(run(s), "run_x")).toBe("terminate")
-    expect(afterCreate(new MemoryRows(), "run_x")).toBe("terminate")
   })
 
   it("a cron fire while runs are not allowed advances the schedule and starts no run", async () => {

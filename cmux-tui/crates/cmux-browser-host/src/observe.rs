@@ -34,6 +34,7 @@ pub const OBSERVE_AGENT_METHODS: &[&str] = &[
     "checkStates",
     "rect",
     "contentBox",
+    "framePosition",
     "iframeHandles",
     "retarget",
     "read",

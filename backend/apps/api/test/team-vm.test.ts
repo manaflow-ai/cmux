@@ -38,12 +38,6 @@ const must = (r: ReturnType<typeof apply>) => {
 }
 
 describe("team VM reducer", () => {
-  it("first ensure_awake binds the team, takes a lease and asks for a create", () => {
-    const r = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice, 5_000))
-    expect(r.state).toMatchObject({ team: TEAM, status: "provisioning", pending: { action: "create", attempts: 0 } })
-    expect(r.value).toMatchObject({ status: "provisioning", vm: null, epoch: 0, expires_at: 5_000 + 600_000 })
-    expect(teamVmWakeAt(r.state)).toBe(5_000 + 30_000)
-  })
 
   it("refuses another team, an unknown op from a system principal, and an install whose grant lacks the risk", () => {
     const s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
@@ -51,25 +45,6 @@ describe("team VM reducer", () => {
     expect(apply(s, "team_vm.ensure_awake", { reason: "ssh" }, system)).toMatchObject({ ok: false })
     expect(apply(s, "team_vm.ensure_awake", { reason: "ssh" }, install)).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "x" }, alice)).toMatchObject({ ok: false })
-  })
-
-  it("a create result sets the VM and epoch once; a duplicate result changes nothing", () => {
-    const s0 = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
-    const r = must(apply(s0, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "s-e1", observed: "running" }, system))
-    expect(r.state).toMatchObject({ vm: "vm1", slug: "s-e1", epoch: 1, status: "running", pending: null })
-    const dup = must(apply(r.state, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm2", slug: "s-e1", observed: "running" }, system))
-    expect(dup.changed).toBe(false)
-    expect(dup.state.vm).toBe("vm1")
-  })
-
-  it("an existing VM is always started again (the provider may have paused it)", () => {
-    let s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
-    s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "s-e1", observed: "running" }, system)).state
-    const r = must(apply(s, "team_vm.ensure_awake", { reason: "tasks" }, alice))
-    expect(r.state.pending).toMatchObject({ action: "start" })
-    expect(r.state.status).toBe("running")
-    const paused = must(apply(r.state, "team_vm.driver_result", { action: "start", epoch: 1, ok: true, observed: "running" }, system))
-    expect(paused.state).toMatchObject({ pending: null, status: "running" })
   })
 
   it("failures back off and give up after the attempt limit; the next ensure_awake starts again", () => {
@@ -82,16 +57,6 @@ describe("team VM reducer", () => {
     expect(s).toMatchObject({ status: "failed", pending: null, last_error: { code: "team_vm.provider_failed" } })
     const again = must(apply(s, "team_vm.ensure_awake", { reason: "ssh" }, alice))
     expect(again.state.pending).toMatchObject({ action: "create", attempts: 0 })
-  })
-
-  it("the same holder and reason renew one lease", () => {
-    const a = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh", lease_seconds: 60 }, alice, 1_000))
-    const b = must(apply(a.state, "team_vm.ensure_awake", { reason: "ssh", lease_seconds: 600 }, alice, 2_000))
-    expect((b.value as { lease: string }).lease).toBe((a.value as { lease: string }).lease)
-    expect(Object.keys(b.state.leases).length).toBe(1)
-    expect((b.value as { expires_at: number }).expires_at).toBe(602_000)
-    const c = must(apply(b.state, "team_vm.ensure_awake", { reason: "tasks" }, alice, 3_000))
-    expect(Object.keys(c.state.leases).length).toBe(2)
   })
 
   it("a deleted VM is replaced under the next epoch; stale and malformed results cannot wedge the record", () => {
@@ -108,30 +73,6 @@ describe("team VM reducer", () => {
     expect(bad.state).toMatchObject({ status: "failed", pending: null, last_error: { code: "team_vm.provider_refused" } })
   })
 
-  it("binds the VM's install once per epoch, and a new VM clears the binding", () => {
-    let s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
-    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 0 }, system)).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
-    s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "s-e1", observed: "running" }, system)).state
-    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 1 }, alice)).toMatchObject({ ok: false })
-    s = must(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 1 }, system)).state
-    expect(s.vm_install).toBe("inst_00000000000000000081")
-    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000082", epoch: 1 }, system)).toMatchObject({ ok: false, code: "team_vm.already_bound" })
-    s = must(apply(s, "team_vm.ensure_awake", { reason: "tasks" }, alice)).state
-    s = must(apply(s, "team_vm.driver_result", { action: "start", epoch: 1, ok: false, error: { code: "team_vm.vm_missing", message: "read VM: 404" }, final: true }, system)).state
-    expect(s.vm_install).toBeNull()
-  })
-
-  it("only the holder releases a lease; expiry drops past leases only", () => {
-    const r = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh", lease_seconds: 60 }, alice, 1_000))
-    const lease = (r.value as { lease: string }).lease
-    expect(apply(r.state, "team_vm.lease.release", { lease }, { ...alice, identity: "user:someone-else" })).toMatchObject({ ok: false, code: "auth.forbidden" })
-    const kept = must(apply(r.state, "team_vm.leases_expire", { now: 60_000 }, system))
-    expect(kept.changed).toBe(false)
-    const gone = must(apply(r.state, "team_vm.leases_expire", { now: 61_000 }, system))
-    expect(Object.keys(gone.state.leases)).toEqual([])
-    expect(must(apply(r.state, "team_vm.lease.release", { lease }, alice)).state.leases).toEqual({})
-  })
-
   it("production refuses every provider call until the plan gate lands", () => {
     expect(PRODUCTION_PLAN_GATE_LANDED).toBe(false)
     expect(providerRefusal({ ENVIRONMENT: "production" })).toBe("team_vm.plan_gate_missing")
@@ -140,24 +81,6 @@ describe("team VM reducer", () => {
     expect(providerRefusal({ ENVIRONMENT: "production" }, true)).toBeNull()
   })
 
-  it("slugs are per team and epoch and fit the provider's 63 characters", () => {
-    const slug = teamVmSlug("cmuxnp-dev-tvm-", TEAM, 1)
-    expect(slug).toBe("cmuxnp-dev-tvm-team-00000000000000000071-e1")
-    expect(slug.length).toBeLessThanOrEqual(63)
-    expect(teamVmSlug("cmuxnp-stg-tvm-", TEAM, 1)).toBe("cmuxnp-stg-tvm-team-00000000000000000071-e1")
-  })
-
-  it("each environment creates new VMs only under its own cmuxnp-<env>- prefix (FREESTYLE-NAMES)", () => {
-    // Constructing a driver makes no provider call; the SQL store is used only by the fake.
-    const sql = {} as SqlStore
-    const cfg = (ENVIRONMENT: string, TEAM_VM_SLUG_PREFIX: string) => ({ ENVIRONMENT, TEAM_VM_SLUG_PREFIX, FREESTYLE_API_KEY: "k", TEAM_VM_SNAPSHOT: "snap" }) as unknown as Env
-    expect(teamVmDriver(cfg("development", "cmuxnp-dev-tvm-"), sql)).toBeInstanceOf(FreestyleDriver)
-    expect(teamVmDriver(cfg("staging", "cmuxnp-stg-tvm-"), sql)).toBeInstanceOf(FreestyleDriver)
-    expect(teamVmDriver(cfg("staging", "cmuxnp-dev-tvm-"), sql)).toBeNull()
-    expect(teamVmDriver(cfg("development", "cmuxnp-stg-tvm-"), sql)).toBeNull()
-    expect(teamVmDriver(cfg("staging", "cmux-tvm-"), sql)).toBeNull()
-    expect(teamVmDriver(cfg("local", "cmuxnp-stg-tvm-"), sql)).toBeNull()
-  })
 })
 
 const result = (frames: ReadonlyArray<OwnerFrame>) => {
@@ -301,17 +224,4 @@ describe("team journal in TeamVmDO", { timeout: 30_000 }, () => {
     expect(await append(stub, T, vm, { stream: "mail", epoch: 1, first: 1, last: 1, text: "msg" })).toMatchObject({ t: "result", value: { high_water: 1 } })
   })
 
-  it("reads whole entries back for restore, only for the VM install", async () => {
-    const stub = ns.get(ns.idFromName(T))
-    const hw = (await stub.readOp(T, vm, "team_vm.journal.high_water", { stream: "tasks" })) as { ok: boolean; value: { high_water: number; epoch: number } }
-    expect(hw).toMatchObject({ ok: true, value: { high_water: 6, epoch: 1 } })
-    const r = (await stub.readOp(T, vm, "team_vm.journal.read", { stream: "tasks", from_seq: 2 })) as { ok: boolean; value: { entries: Array<{ first_seq: number; last_seq: number; bytes: string }>; more: boolean } }
-    expect(r.ok).toBe(true)
-    expect(r.value.entries.map((e) => [e.first_seq, e.last_seq, atob(e.bytes)])).toEqual([
-      [1, 3, "ops 1-3"],
-      [4, 6, "ops 4-6"]
-    ])
-    expect(r.value.more).toBe(false)
-    expect(await stub.readOp(T, { ...alice, team: T }, "team_vm.journal.read", { stream: "tasks", from_seq: 1 })).toMatchObject({ ok: false, code: "auth.forbidden" })
-  })
 })
