@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The store for tests and previews.
 nonisolated final class InMemoryHTTPCredentialStore: BrowserHTTPCredentialStoring {
