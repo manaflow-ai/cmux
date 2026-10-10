@@ -46,12 +46,10 @@ nonisolated final class DaemonHomeSource: HomeSource {
             publish(.connection(.offline(since: Date())))
             return
         }
-        // task-owner: one inbox read per connection; ends with its reply
-        Task { [weak self] in
-            guard let self else { return }
-            publish(.connection(.online))
-            if let inbox = try? await inbox() { publish(.inbox(inbox)) }
-        }
+        publish(.connection(.online))
+        // The same serial read as an event's reread, so an older reply never
+        // replaces a newer inbox (the Chief conversation created meanwhile).
+        rereadInbox()
     }
 
     func publish(_ event: HomeEvent) {

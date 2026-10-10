@@ -67,7 +67,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// H17: offline the user can type, but Send and tapbacks are off.
+    /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
