@@ -150,7 +150,17 @@ logical-window screenshot plus accessibility tree. Its string
 `element_index` values are valid only for the current app snapshot. Mutating
 actions return a compact acknowledgement; perception is explicit through
 `get_app_state`, so one host turn can perform several safe actions and then
-take one authoritative screenshot/tree refresh.
+take one authoritative screenshot/tree refresh. `click` and `drag` accept the
+per-call `delivery_mode` values `background` (the default) and `foreground`.
+Retry a coordinate click rejected with `background_occluded` using
+`delivery_mode:"foreground"`; the helper briefly fronts the snapshotted window,
+dispatches the click, and restores the prior app. macOS reports WindowServer
+rectangles for system surfaces such as the Dock, so that error is a safety stop
+and does not prove that the app screenshot visibly shows an obstruction.
+Background coordinate drags are unavailable on macOS and return
+`background_unavailable`; use `delivery_mode:"foreground"` when a real drag is
+needed. The separate drag report in issue #18595 has not been independently
+reproduced.
 
 Claude Code continues to receive the broader native cmux contract. It uses
 pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
@@ -190,5 +200,9 @@ toolchain on the build machine:
 
 The pinned source is cached under `~/Library/Caches/cmux/cmux-cua`; after
 the first successful build no network access is needed until the pinned
-commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
-checkout (it must still be at the pinned commit).
+commit changes. The build applies the checked-in
+`scripts/cmux-cua-codex-delivery-mode.patch` after the SHA check because the
+pinned native engine has the delivery ladder while its Codex adapter does not
+forward that field. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
+checkout (it must still be at the pinned commit); the same patch is applied
+idempotently there.

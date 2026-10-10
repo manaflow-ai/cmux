@@ -2223,7 +2223,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
-            || hasSudoApprovalRuntime
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
@@ -2248,7 +2247,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // server to say it heard us. Everything after this stops transports, which is
                 // what would otherwise swallow the goodbye.
                 await self.remoteTmuxController.detachAllAwaitingExit()
-                await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
@@ -2267,8 +2265,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 self.terminateCleanupPhase = .freshSnapshot
                 let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
-                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
-                    ttyDeviceBindings: ttyDeviceBindings
+                // A complete census is useful when it is already warm, but it is
+                // not worth holding AppKit's terminate-later run loop for a slow
+                // process table. The cached shared index is still checked by the
+                // exact PID-generation and ownership validation before any agent
+                // receives a signal.
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: ttyDeviceBindings,
+                    processSnapshotService: self.processSnapshotService,
+                    deadline: .milliseconds(750)
+                )
+                let indexesForQuit = resumeIndexes ?? ProcessDetectedResumeIndexes.cached(
+                    restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+                )
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.freshSnapshot",
+                    fields: [
+                        "source": resumeIndexes == nil ? "cached" : "fresh",
+                        "deadline_ms": "750",
+                    ]
                 )
                 guard !Task.isCancelled else { return }
                 self.mainWindowLifecycleCoordinator
@@ -2276,13 +2291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let savedForQuit = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
-                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                    restorableAgentIndex: indexesForQuit.restorableAgentIndex,
+                    surfaceResumeBindingIndex: indexesForQuit.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
                 self.terminateCleanupPhase = .agentTermination
                 if savedForQuit {
-                    await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                    await self.terminateAgentProcessesBeforeQuit(index: indexesForQuit.restorableAgentIndex)
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
@@ -2384,6 +2399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         computerUseUXCoordinator.teardownForTermination()
+        // Sudo broker observation and recovery must be released, but a slow
+        // recovery join must not delay session persistence or AppKit termination.
+        sudoApprovalCoordinator?.stopInBackgroundForTermination()
         // The terminate-later cleanup loads the authoritative agent index off-main and
         // persists it immediately before replying to AppKit.
         // The hard AppKit watchdog is armed immediately before the terminate
@@ -2446,9 +2464,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let buildFlavor = BuildFlavor.current
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
-        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
         let quitReason: QuitRequestReason = isRelaunchingForUpdate ? .updateRelaunch : Self.currentQuitRequestReason()
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode,
+            quitReason: quitReason
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2456,6 +2482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
+                "dirtyWorkspaceScan": shouldEvaluateDirtyWorkspaces ? "performed" : "skipped",
                 "quitReason": Self.breadcrumbName(for: quitReason),
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
@@ -2665,7 +2692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         // Warms the New Machine sheet's plan and network catalog per signed-in
-        // account so Cmd+Y never waits on the network.
+        // account so Cmd+Shift+Y never waits on the network.
         NewMachineSheetDataCache.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         TeamsClient.bootstrap(auth: auth.coordinator)
@@ -3886,7 +3913,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return nil
         case .unusable:
-            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+            // Session data exists but cannot be restored: never start empty
+            // while the backup or an archived launch can still be restored.
+            if let backup = loadManualRestoreSessionSnapshotPruningCrashDiagnostics() {
+                return backup
+            }
+            guard let recovered = sessionSnapshotStore.newestRestorableHistorySnapshot({
+                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
+            }) else {
+                return nil
+            }
+            // The launch baseline came from files that could not be read;
+            // hold poorer saves back against the layout actually restored.
+            if let overwriteGuard = sessionSnapshotOverwriteGuard,
+               overwriteGuard.baseline < recovered.richness {
+                sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(
+                    baseline: recovered.richness,
+                    launchDate: overwriteGuard.launchDate
+                )
+            }
+            return recovered
         }
     }
 
@@ -8482,6 +8528,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
+        // This is the context-following path used by configured/sidebar
+        // actions. The primary Cmd-N/File/palette controls call
+        // `performNewLocalWorkspaceAction` so they always stay local.
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
@@ -8502,6 +8551,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             placementOverride: placementOverride,
             debugSource: debugSource
         )
+    }
+
+    /// Creates a local workspace on this Mac, independent of the selected
+    /// Cloud or remote workspace context.
+    @discardableResult
+    func performNewLocalWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newLocalWorkspace"
+    ) -> Bool {
+        let manager = preferredTabManager
+            ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource)?.tabManager }
+            ?? preferredMainWindowContextForWorkspaceCreation(
+                event: event,
+                debugSource: debugSource
+            )?.tabManager
+        return performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: manager,
+            event: event,
+            debugSource: debugSource,
+            skipConfiguredAction: true,
+            inheritWorkingDirectoryOverride: manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
+        )
+    }
+
+    private func shouldInheritWorkingDirectoryForLocalWorkspace(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace else { return true }
+        guard isLocalWorkspaceForLocalCreation(workspace) else { return false }
+
+        // Group creation inherits from the live anchor, which can differ from
+        // the selected member after a group is reordered or its anchor is
+        // promoted. Keep a local Cmd-N local when that anchor is Cloud or
+        // remote, even if the selected member itself is local.
+        guard let groupID = workspace.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
+              let anchorID = group.liveAnchorWorkspaceId,
+              let anchor = tabManager.tabs.first(where: { $0.id == anchorID }) else {
+            return true
+        }
+        return isLocalWorkspaceForLocalCreation(anchor)
+    }
+
+    private func isLocalWorkspaceForLocalCreation(_ workspace: Workspace) -> Bool {
+        workspace.cloudVMBinding == nil
+            && workspace.remoteConfiguration == nil
+            && workspace.deviceMachineForNewWorkspace == nil
     }
 
     /// Empty-area double-click in the sidebar. A configured
@@ -8723,7 +8819,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
+        skipConfiguredAction: Bool = false,
+        inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8750,11 +8848,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
+                    if !skipConfiguredAction {
+                        _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                            in: context,
+                            debugSource: debugSource,
+                            replacingInitialWorkspace: initialWorkspace
+                        )
+                    }
                 case .browser:
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
@@ -8804,6 +8904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+           !skipConfiguredAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -8824,7 +8925,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                inheritWorkingDirectory: inheritWorkingDirectoryOverride
             ) else {
                 return false
             }
@@ -8843,6 +8945,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else { return false }
@@ -8861,6 +8964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             placementOverride: placementOverride,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectoryOverride ?? true,
             event: event,
             debugSource: debugSource
         ) {
@@ -10015,6 +10119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
@@ -10074,6 +10179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
@@ -10083,6 +10189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title, titleSource: titleSource,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
@@ -10091,12 +10198,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
+                inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
                 placementOverride: placementOverride
             )
@@ -14789,10 +14898,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        let buildFlavor = BuildFlavor.current
+        let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
+        let confirmQuitMode = quitConfirmationStore.confirmQuitMode
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
             isQuitWarningConfirmed: false,
-            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            isDevBuild: BuildFlavor.current == .dev
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
+        if !quitConfirmationStore.shouldShowConfirmation(
+            isQuitWarningConfirmed: false,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            isDevBuild: buildFlavor == .dev
         ) {
             Self.requestApplicationTermination()
             return true
@@ -15491,7 +15611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
             return true
         }
 
@@ -15509,7 +15629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return performNewCloudWorkspaceOnResolvedMachineAction(
                 preferredWindow: mainWindowForShortcutEvent(event),
-                debugSource: "shortcut.cmdShiftY"
+                debugSource: "shortcut.cmdY"
             )
         }
 
@@ -15517,7 +15637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudMachine \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudMachineAction(event: event, debugSource: "shortcut.cmdY")
+            return performNewCloudMachineAction(event: event, debugSource: "shortcut.cmdShiftY")
         }
 
         // New Window: Cmd+Shift+N
@@ -16298,25 +16418,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // intentionally reuses nextSurface/prevSurface for Dock ownership so
         // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectNextSurface,
-                action: .nextSurface,
+            stepTabOrWorkspace(
+                forward: true,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
+            )
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            if performFocusedDockShortcut(
-                .selectPreviousSurface,
-                action: .prevSurface,
+            stepTabOrWorkspace(
+                forward: false,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                 event: event
-            ) {
-                return true
-            }
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
+            )
             return true
         }
 

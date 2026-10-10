@@ -27,6 +27,26 @@ enum ClaudeBackgroundAttachRestore: Sendable {
 struct ClaudeBackgroundViewerObservation: Sendable {
     let processID: Int
     let viewer: ClaudeBackgroundSessionViewer?
+
+    /// Observes the `claude attach <id|name>` viewer running as `processID`.
+    ///
+    /// The argv read happens once per foreground process: `previous` is reused
+    /// while the same PID stays in the foreground. Workspace and Dock panes
+    /// share this rule.
+    static func observe(
+        processID: Int,
+        previous: ClaudeBackgroundViewerObservation?,
+        processArguments: (Int) -> CmuxTopProcessArguments?
+    ) -> ClaudeBackgroundViewerObservation {
+        if let previous, previous.processID == processID { return previous }
+        let viewer = processArguments(processID).flatMap {
+            ClaudeBackgroundSessionAttach.viewer(
+                arguments: $0.arguments,
+                environment: $0.environment
+            )
+        }
+        return ClaudeBackgroundViewerObservation(processID: processID, viewer: viewer)
+    }
 }
 
 /// Restores panes that were viewing a Claude Code background session.
@@ -54,21 +74,13 @@ extension Workspace {
             claudeBackgroundViewerObservationsByPanelId.removeValue(forKey: panelId)
             return nil
         }
-        if let observation = claudeBackgroundViewerObservationsByPanelId[panelId],
-           observation.processID == processID {
-            return observation.viewer
-        }
-        let viewer = processArguments(processID).flatMap {
-            ClaudeBackgroundSessionAttach.viewer(
-                arguments: $0.arguments,
-                environment: $0.environment
-            )
-        }
-        claudeBackgroundViewerObservationsByPanelId[panelId] = ClaudeBackgroundViewerObservation(
+        let observation = ClaudeBackgroundViewerObservation.observe(
             processID: processID,
-            viewer: viewer
+            previous: claudeBackgroundViewerObservationsByPanelId[panelId],
+            processArguments: processArguments
         )
-        return viewer
+        claudeBackgroundViewerObservationsByPanelId[panelId] = observation
+        return observation.viewer
     }
 
     /// Drops viewer observations for panels that no longer exist.

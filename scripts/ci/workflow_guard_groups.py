@@ -34,6 +34,7 @@ JOB_HEADER = re.compile(r"  ([A-Za-z0-9_-]+):\s*$")
 
 GROUPS = (
     "preflight",
+    "preflight-agent-chat",
     "ci",
     "app-host-execution",
     "app-host-watchdog",
@@ -78,7 +79,7 @@ PATH_OWNERS = {
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
-    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
+    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),

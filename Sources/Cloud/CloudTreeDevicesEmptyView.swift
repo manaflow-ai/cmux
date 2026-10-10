@@ -60,8 +60,11 @@ struct CloudTreeDevicesEmptyView: View {
                 title: control.title, titleDimmed: !hovered
             ) {
                 if control.isOn {
-                    Image(systemName: "checkmark")
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                    CmuxSystemSymbolImage(
+                        magnified: "checkmark",
+                        pointSize: style.detailSize,
+                        tint: Color(nsColor: .labelColor)
+                    )
                         .accessibilityHidden(true)
                 }
             }
