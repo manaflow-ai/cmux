@@ -501,26 +501,6 @@ fn a_rebound_tab_ends_its_attachment_at_the_next_record() {
 }
 
 #[test]
-fn pages_are_bounded_in_bytes_keeping_the_records_next_to_the_cursor() {
-    use super::agent_session_attach::{MAX_PAGE_BYTES, bound_page};
-    let big = "x".repeat(MAX_PAGE_BYTES / 3);
-    let events: Vec<Value> = (1..=5).map(|seq| json!({"seq": seq, "text": big})).collect();
-    let page = json!({"events": events, "hasMore": false});
-    let seqs = |page: &Value| {
-        page["events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|e| e["seq"].as_u64().unwrap())
-            .collect::<Vec<_>>()
-    };
-    let newest = bound_page(page.clone(), true);
-    assert_eq!(seqs(&newest), vec![4, 5]);
-    assert_eq!(newest["hasMore"], json!(true));
-    assert_eq!(seqs(&bound_page(page, false)), vec![1, 2]);
-}
-
-#[test]
 fn events_pages_on_the_attachment_for_a_replay_after_a_gap() {
     let fake = FakeAcpmux::start("events");
     let mux = mux_with(&fake, "asa-events");

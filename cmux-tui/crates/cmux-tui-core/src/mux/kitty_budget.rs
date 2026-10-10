@@ -527,37 +527,4 @@ impl Mux {
         }
         surface.set_kitty_graphics_limits_until(limits, deadline)
     }
-
-    #[cfg(test)]
-    pub(super) fn wait_for_kitty_image_budget_idle_for_test(&self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        let mut budget = self.kitty_image_budget.lock().unwrap();
-        loop {
-            let target = kitty_image_limits_for_capacity(budget.capacity);
-            let idle = !budget.worker_running
-                && budget.entries.values().all(|entry| {
-                    entry.surface.is_some()
-                        && !entry.removing
-                        && entry.applied
-                            == if entry.owns_quota {
-                                target
-                            } else {
-                                KittyGraphicsLimits::disabled()
-                            }
-                });
-            if idle {
-                return true;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            let (next, timed_out) =
-                self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
-            budget = next;
-            if timed_out.timed_out() && Instant::now() >= deadline {
-                return false;
-            }
-        }
-    }
 }

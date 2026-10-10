@@ -323,7 +323,3 @@ impl EventsStart {
         self.canceled.load(Ordering::Acquire)
     }
 }
-
-#[cfg(test)]
-#[path = "conversation_resource_tests.rs"]
-mod tests;

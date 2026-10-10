@@ -105,12 +105,6 @@ pub unsafe fn take_tools_socket_from_env() {
     let _ = TAKEN.set(value);
 }
 
-/// Whether this daemon can forward (the brain's tools socket is configured).
-#[cfg(all(test, unix))]
-pub(super) fn configured() -> bool {
-    tools_socket().is_some()
-}
-
 /// The taken value; a library user that never took it reads the environment.
 pub(super) fn tools_socket() -> Option<PathBuf> {
     match TAKEN.get() {

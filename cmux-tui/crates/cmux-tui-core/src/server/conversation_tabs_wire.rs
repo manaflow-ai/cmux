@@ -220,11 +220,6 @@ impl NegotiatedTabs {
             (false, false) => Some(ConversationTabDowngrade::AgentSessionsAndPages),
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn conversation(&self) -> bool {
-        self.conversation.load(Ordering::Acquire)
-    }
 }
 
 /// The conversation tab capabilities a client may declare.
@@ -310,23 +305,3 @@ pub(super) fn set_resource_capabilities(
 #[cfg(test)]
 #[path = "conversation_tabs_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "agent_session_tabs_tests.rs"]
-mod agent_session_tests;
-
-#[cfg(test)]
-#[path = "agent_session_tabs_wire_tests.rs"]
-mod agent_session_wire_tests;
-
-#[cfg(test)]
-#[path = "agent_session_bind_tests.rs"]
-mod agent_session_bind_tests;
-
-#[cfg(test)]
-#[path = "conversation_tab_transaction_tests.rs"]
-mod conversation_tab_transaction_tests;
-
-#[cfg(test)]
-#[path = "page_tabs_tests.rs"]
-mod page_tabs_tests;

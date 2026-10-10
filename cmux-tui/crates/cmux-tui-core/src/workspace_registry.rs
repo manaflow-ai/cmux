@@ -106,10 +106,6 @@ pub use presentation_store::{
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
-#[cfg(test)]
-pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
-#[cfg(test)]
-pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
     AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookPendingFailure, AgentHookProjectionState,
@@ -3045,22 +3041,6 @@ impl WorkspaceRegistry {
         let result = close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
         tx.commit()?;
         Ok(result)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_terminal_close_failure(&self, enabled: bool) -> anyhow::Result<()> {
-        if enabled {
-            self.connection.get().execute_batch(
-                "CREATE TEMP TRIGGER cmux_test_fail_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_hosts
-                 BEGIN SELECT RAISE(ABORT, 'forced terminal close failure'); END;",
-            )?;
-        } else {
-            self.connection
-                .get()
-                .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_close")?;
-        }
-        Ok(())
     }
 
     pub fn terminal_events_after(

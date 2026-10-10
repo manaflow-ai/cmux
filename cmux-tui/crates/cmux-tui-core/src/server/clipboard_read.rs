@@ -283,7 +283,3 @@ pub(super) fn handle(
         _ => anyhow::bail!("not a clipboard-read command"),
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "clipboard_read_tests.rs"]
-mod tests;

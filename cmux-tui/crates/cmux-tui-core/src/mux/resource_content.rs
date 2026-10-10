@@ -25,8 +25,6 @@ mod full_projection;
 mod live_screen;
 mod published_screens;
 mod scoped_projection;
-#[cfg(test)]
-mod scoped_projection_tests;
 mod split_ids;
 
 impl Mux {

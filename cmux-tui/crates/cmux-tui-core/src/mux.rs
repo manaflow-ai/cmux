@@ -8,8 +8,6 @@ use terminal_exit_snapshot::{
     terminal_output_read_result,
 };
 mod terminal_records;
-#[cfg(test)]
-use terminal_records::commit_terminal_workspace;
 use terminal_records::{
     commit_terminal_transition, is_template_terminal, template_terminal_launch_spec,
     terminal_create_fingerprint, terminal_launch_spec, terminal_lifecycle_name,
@@ -29,8 +27,6 @@ use terminal_runtime_index::{
     validate_terminal_hex,
 };
 mod restore;
-#[cfg(test)]
-use restore::expected_panes_by_screen;
 use restore::{restore_layout_node_from_known_splits, restore_resource_state};
 mod tree_edit;
 use tree_edit::{
@@ -46,14 +42,6 @@ use kitty_budget_state::KITTY_IMAGE_BUDGET_OWNER_LIMIT;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_INITIAL;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
-#[cfg(test)]
-use kitty_budget_state::KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE;
-#[cfg(test)]
-use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
-#[cfg(test)]
-use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
-#[cfg(test)]
-use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
@@ -62,8 +50,6 @@ pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
 use kitty_budget_state::kitty_image_budget_capacity;
 use kitty_budget_state::kitty_image_limits_for_capacity;
-#[cfg(test)]
-use kitty_budget_state::kitty_surface_byte_reservation;
 mod cell_pixel_state;
 use cell_pixel_state::CELL_PIXEL_RETRY_MAX_ATTEMPTS;
 #[cfg(test)]
@@ -173,8 +159,6 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
-#[cfg(test)]
-use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
@@ -239,8 +223,6 @@ mod registry_viewport;
 mod resource_content;
 mod resource_effects;
 mod resource_tab_deltas;
-#[cfg(test)]
-mod resource_tab_deltas_tests;
 mod resource_topology;
 mod resource_workspace;
 mod rows;
@@ -353,13 +335,9 @@ use crate::browser_provider::{
 };
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::journal_reducers::{DirectHookTransition, HookFence, JournalHookTransition};
-#[cfg(test)]
-use crate::layout::layout_screen_with_viewport;
 use crate::layout::{
     LayoutResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, layout_screen,
 };
-#[cfg(test)]
-use crate::model::ViewportColumn;
 use crate::model::{
     LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, Screen, State, Workspace,
 };
@@ -830,23 +808,9 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().surfaces.remove(&id)
-    }
-
-    #[cfg(test)]
     pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
         let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
         assert!(previous.is_none(), "test surface id already exists");
-    }
-
-    #[cfg(test)]
-    pub(crate) fn remove_terminal_catalog_for_test(
-        &self,
-        terminal_id: &TerminalPublicId,
-    ) -> Option<Arc<Surface>> {
-        let mut state = self.state.lock().unwrap();
-        state.remove_catalog_terminal(terminal_id)
     }
 
     /// Run `f` with the session state.

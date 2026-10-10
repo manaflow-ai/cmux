@@ -160,17 +160,4 @@ impl WorkspaceRegistry {
         (fold.revision == head)
             .then(|| fold.values.get(&(resource.to_string(), id.to_string())).cloned())
     }
-
-    /// The value the journal states for one topology resource, after
-    /// catching up; `None` while the fold is unseeded.
-    #[cfg(test)]
-    pub(crate) fn stated_topology_value_for_test(
-        &mut self,
-        resource: &str,
-        id: &str,
-    ) -> Option<Option<Value>> {
-        self.catch_up_public_fold();
-        let fold = self.public_fold.as_ref()?;
-        Some(fold.values.get(&(resource.to_string(), id.to_string())).cloned())
-    }
 }

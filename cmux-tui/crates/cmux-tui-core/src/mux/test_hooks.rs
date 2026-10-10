@@ -3,35 +3,6 @@
 use super::*;
 
 impl Mux {
-    #[cfg(test)]
-    pub(super) fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
-        *self.client_resize_before_apply.lock().unwrap() = hook;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_client_rollback_before_wait(
-        &self,
-        hook: Option<Arc<dyn Fn() + Send + Sync>>,
-    ) {
-        *self.client_rollback_before_wait.lock().unwrap() = hook;
-    }
-
-    #[cfg(test)]
-    pub(super) fn set_terminal_move_before_projection(
-        &self,
-        hook: Option<Arc<dyn Fn() + Send + Sync>>,
-    ) {
-        *self.terminal_move_before_projection.lock().unwrap() = hook;
-    }
-
-    #[cfg(test)]
-    pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
-        self.resource_mutation_metrics
-            .lock()
-            .unwrap()
-            .expect("resource mutation did not record metrics")
-    }
-
     #[cfg(all(test, unix))]
     pub(crate) fn seed_launching_terminal_for_test(
         &self,
@@ -129,10 +100,5 @@ impl Mux {
             serde_json::json!({}),
         )?;
         Ok(surface.id)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
     }
 }

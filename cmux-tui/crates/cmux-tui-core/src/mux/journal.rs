@@ -236,17 +236,6 @@ impl Mux {
         self.started_at.elapsed()
     }
 
-    #[cfg(test)]
-    pub(crate) fn hold_workspace_registry_for_test(
-        &self,
-        entered: SyncSender<()>,
-        release: Receiver<()>,
-    ) {
-        let _registry = self.workspace_registry.lock().unwrap();
-        entered.send(()).unwrap();
-        release.recv().unwrap();
-    }
-
     /// Holds the registry connection lock (the journal writer's only lock)
     /// until `release` fires.
     #[cfg(test)]

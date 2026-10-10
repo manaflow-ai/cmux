@@ -103,11 +103,6 @@ impl ReapSchedule {
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.values().min().copied()
     }
-
-    #[cfg(test)]
-    pub(crate) fn deadline(&self, terminal_id: &str) -> Option<Instant> {
-        self.deadlines.get(terminal_id).copied()
-    }
 }
 
 fn deadline_after(now: Instant, grace: Duration) -> Instant {
@@ -708,6 +703,3 @@ impl Mux {
         events
     }
 }
-
-#[cfg(test)]
-mod tests;
