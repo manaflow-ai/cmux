@@ -211,6 +211,20 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("A freshly forwarded listener keeps the logical URL before navigation bookkeeping")
+    func displayURLMapsCurrentListenerBeforeNavigationIsRecorded() async throws {
+        let model = makeModel(forward: { _ in 51_629 }, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let logical = URL(string: "http://localhost:3000/")!
+        state.configure(model: model, url: logical)
+        model.connect()
+        #expect(await wait { model.phase == .forwarded(51_629) })
+
+        let listener = URL(string: "http://127.0.0.1:51629/")!
+        #expect(state.displayURL(listener) == logical)
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {
