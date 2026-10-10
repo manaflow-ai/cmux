@@ -250,6 +250,8 @@ impl ProviderEngine {
                     None
                 };
                 open.insert("engine".into(), Value::String(self.engine.clone()));
+                // One deadline for the open and its navigation.
+                let deadline = std::time::Instant::now() + crate::protocol::timeout_of(params);
                 announce();
                 let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
@@ -259,10 +261,13 @@ impl ProviderEngine {
                     }
                     self.provider.opened(self.subscription, target);
                     if let Some(url) = navigate {
-                        let mut go = json!({"targetId": target, "url": url, "waitUntil": "commit"});
-                        if let Some(timeout) = params.get("timeoutMs") {
-                            go["timeoutMs"] = timeout.clone();
-                        }
+                        let left = deadline.saturating_duration_since(std::time::Instant::now());
+                        let go = json!({
+                            "targetId": target,
+                            "url": url,
+                            "waitUntil": "commit",
+                            "timeoutMs": left.as_millis().max(1) as u64,
+                        });
                         self.call_with("tab.navigate", &go, &mut || {}, false)?;
                     }
                 }
@@ -437,9 +442,10 @@ impl Driver for ProviderEngine {
     /// no other session drives; not a tab only other sessions drive (every
     /// session gets every tab's events).
     fn drives_tab(&self, target_id: &str) -> bool {
-        self.created_tabs().contains(target_id)
-            || self.driven.lock().unwrap_or_else(PoisonError::into_inner).contains(target_id)
-            || !self.provider.driven_by_others(self.subscription, target_id)
+        // One lock at a time (the event thread calls this).
+        let created = self.created_tabs().contains(target_id);
+        let driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner).contains(target_id);
+        created || driven || !self.provider.driven_by_others(self.subscription, target_id)
     }
 
     /// The session's filter on the tabs it drives, where the source can
