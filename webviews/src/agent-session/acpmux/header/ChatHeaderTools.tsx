@@ -9,6 +9,7 @@ import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import { useHeaderState } from "./headerState";
 import { useQuickActions, type QuickActionMode } from "./quickActions";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
@@ -80,6 +81,9 @@ export function ChatHeaderTools({
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const actions = useQuickActions();
+  const { lit } = useHeaderState();
+  // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
+  const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {tabTools &&
@@ -103,6 +107,7 @@ export function ChatHeaderTools({
               type="button"
               className="acpmux-header-tool"
               aria-label={t("header.terminal")}
+              aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
               title={withShortcut(t("header.terminal"), terminalKey)}
               onClick={() => onTerminal(mode)}
             >
@@ -114,6 +119,7 @@ export function ChatHeaderTools({
               type="button"
               className="acpmux-header-tool"
               aria-label={t("header.browser")}
+              aria-pressed={on(HEADER_ACTIONS.browser, mode)}
               title={withShortcut(t("header.browser"), browserKey)}
               onClick={() => onBrowser(mode)}
             >

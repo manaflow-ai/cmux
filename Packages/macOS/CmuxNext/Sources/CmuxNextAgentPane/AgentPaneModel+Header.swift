@@ -3,11 +3,12 @@ import Foundation
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
 /// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
 /// toggles a quick action's split (`mode: "toggle"`: close the one it opened, else open),
-/// and reads the tab's state the "..." menu's labels show (`{pinned}`).
+/// and reads the header's state (``AgentPaneHeaderState``: the pin the "..." menu's labels show,
+/// whether the panes beside the chat show, and which toggles are lit).
 public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
     public var toggle: @MainActor (String, String?) -> Void
-    public var tabState: @MainActor () -> [String: Any]
+    public var tabState: @MainActor () -> AgentPaneHeaderState
     /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
     public var openSide: @MainActor (String) -> Void
     /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
@@ -16,7 +17,7 @@ public struct AgentPaneHeaderHooks {
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
-                tabState: @escaping @MainActor () -> [String: Any],
+                tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil }) {
         self.run = run
@@ -39,7 +40,7 @@ extension AgentPaneModel {
     static let sideTabsAction = "sideTabs"
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
-    /// reads the tab's pin; `chat.archive` tags the pane's session and, archiving, closes its tab.
+    /// reads the header's state; `chat.archive` tags the pane's session and, archiving, closes its tab.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .paneAction(Self.sideTabsAction, _, _):
@@ -59,7 +60,7 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.tabState())
+            return AgentPaneReply.success(header.tabState().reply)
         case .archive(let archived):
             return await archive(archived)
         case .sideChat(let fork):
