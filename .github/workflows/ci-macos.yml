@@ -960,7 +960,8 @@ jobs:
               return 1
             }
             wait_seconds=0
-            while [ "$wait_seconds" -lt 60 ] && compile_workers_running; do
+            worker_wait_limit="${CMUX_CI_COMPILE_WORKER_WAIT_SECONDS:-60}"
+            while [ "$wait_seconds" -lt "$worker_wait_limit" ] && compile_workers_running; do
               wait_seconds=$((wait_seconds + 1))
               sleep 1
             done
@@ -974,7 +975,9 @@ jobs:
               "$PWD/.ci-source-packages"; then
               if [ "$disable_explicit_modules" -eq 1 ]; then
                 export CMUX_CI_DISABLE_EXPLICIT_MODULES=1
+                export CMUX_CI_DISABLE_COMPILATION_CACHE=1
                 echo "::warning::module dependency resolution remained broken after cleanup; retrying with explicit modules disabled"
+                echo "::warning::module dependency recovery is uncached to rebuild package modules from source"
               fi
               if compile_once; then
                 status=0

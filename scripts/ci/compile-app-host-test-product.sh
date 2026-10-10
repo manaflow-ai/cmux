@@ -267,6 +267,9 @@ build() {
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
   fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
+  fi
   # Owned minis carry the fleet-cas node installed by glaeda. Its settings
   # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
   # runners simply keep the local CAS path above. The helper is probed once
@@ -297,6 +300,9 @@ build() {
         esac
       done <<< "$fleet_settings"
     fi
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    fleet_cache_setting=()
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
