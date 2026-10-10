@@ -1,1 +1,0 @@
-{ "manifestVersion": 1, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^1" }, "contributes": { "paneKinds": [{ "id": "p", "title": "P", "render": "r", "web": "w.html" }] } }

@@ -70,7 +70,7 @@ enum AgentPaneTheme {
         // The New Tab page is transparent: its pane paints the background, or the previous
         // content blurred and dimmed under it (PaneContentView+NewTabBackdrop).
         if surface == .newTabPage { return tokens.surfaceBackground.withAlpha(0) }
-        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
+        return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
 
     /// The color WebKit shows behind and around the page, the same as the
