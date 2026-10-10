@@ -39,6 +39,8 @@ final class BookmarkService {
     @ObservationIgnored var lastFolder: [String: String] = [:]
     /// Live browser chromes, by tab key, for the star and bar fan-out.
     @ObservationIgnored var chromes: [String: WeakChrome] = [:]
+    /// Chromium's bookmark models follow the trees (chrome.bookmarks bridge).
+    @ObservationIgnored var chromium: BookmarkChromiumSync?
     @ObservationIgnored var showsBar = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
 
@@ -65,6 +67,7 @@ final class BookmarkService {
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
+        chromium = BookmarkChromiumSync(service: self)
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
@@ -108,6 +111,10 @@ final class BookmarkService {
     }
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
+
+    /// `profile`'s tree is the stored one, not an empty placeholder: with the
+    /// daemon, only its reply (or a local edit on top of it) sets the tree.
+    func isLoaded(_ profile: String) -> Bool { usesDaemon ? trees[profile] != nil : fileLoaded }
 
     /// The folder a new bookmark goes to: the last one used, else the bar.
     func defaultFolder(profile: String) -> String {
@@ -167,6 +174,7 @@ final class BookmarkService {
         generation &+= 1
         refreshChromes(profiles: profiles)
         services.bookmarkPages.reload(profiles: profiles)
+        chromium?.treesChanged(profiles)
     }
 
     /// A browser profile was deleted: its bookmarks go too (the daemon
