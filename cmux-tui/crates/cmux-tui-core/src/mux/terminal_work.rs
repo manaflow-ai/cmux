@@ -211,7 +211,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .terminal_record(&terminal_id.to_hex())?
                         .is_some() =>
                 {

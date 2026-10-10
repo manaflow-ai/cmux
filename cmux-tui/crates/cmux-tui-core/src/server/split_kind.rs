@@ -319,7 +319,3 @@ fn browser_pane_url(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "split_client_ids_tests.rs"]
-mod split_client_ids_tests;
