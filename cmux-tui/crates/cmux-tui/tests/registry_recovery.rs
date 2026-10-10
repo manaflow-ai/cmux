@@ -41,6 +41,8 @@ fn command(dir: &Path) -> Command {
 /// registry exits on its own.
 fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
     let socket = dir.join("mux.sock");
+    // A stopped owner can leave its socket file behind; only a new one counts.
+    let _ = fs::remove_file(&socket);
     let mut child = command(dir)
         .args(["--headless", "--session", session, "--socket"])
         .arg(&socket)
