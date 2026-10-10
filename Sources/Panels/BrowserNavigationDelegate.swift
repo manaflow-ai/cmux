@@ -358,6 +358,8 @@ import WebKit
            let owner, owner.owningWorkspaceRoutesThroughSSHTui,
            let model = owner.cloudAccess.model,
            model.route == .loopback,
+           let serviceURL = owner.sshLoopbackServiceURL(for: url),
+           owner.cloudAccess.owns(serviceURL),
            let listenerURL = model.url(for: url),
            listenerURL != url {
             // A service may redirect back to its canonical localhost origin.

@@ -120,7 +120,7 @@ final class CloudBrowserAccessState {
     private func observeRoute() {
         observationGeneration &+= 1
         let generation = observationGeneration
-        guard let model, navigate != nil else { return }
+        guard let model, navigate != nil || navigateRequest != nil else { return }
         withObservationTracking {
             _ = model.phase
         } onChange: { [weak self] in
