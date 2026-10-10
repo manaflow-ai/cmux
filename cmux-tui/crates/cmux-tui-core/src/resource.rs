@@ -11,8 +11,10 @@ use serde_json::{Value, json};
 
 mod error;
 mod idempotency;
+mod request_id;
 pub use error::*;
 pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
+pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -20,7 +22,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -337,6 +338,8 @@ pub enum ResourceOperation {
     OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
     #[serde(rename = "window_record.list")]
@@ -479,28 +482,6 @@ pub enum OperationClass {
     Local,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LocalOperation {
-    #[serde(rename = "sidebar_plugin.list")]
-    SidebarPluginList,
-    #[serde(rename = "sidebar_plugin.install")]
-    SidebarPluginInstall,
-    #[serde(rename = "sidebar_plugin.use")]
-    SidebarPluginUse,
-    #[serde(rename = "sidebar_plugin.update")]
-    SidebarPluginUpdate,
-    #[serde(rename = "sidebar_plugin.remove")]
-    SidebarPluginRemove,
-    #[serde(rename = "sidebar_plugin.use_builtin")]
-    SidebarPluginUseBuiltin,
-}
-
-impl LocalOperation {
-    pub const fn class(self) -> OperationClass {
-        OperationClass::Local
-    }
-}
-
 impl ResourceOperation {
     pub const fn class(self) -> OperationClass {
         if matches!(
@@ -613,7 +594,7 @@ impl ResourceOperation {
 
 mod envelope;
 mod journal;
-mod request_id;
+mod local_operation;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -623,7 +604,7 @@ mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
-pub use request_id::RequestId;
+pub use local_operation::LocalOperation;
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
