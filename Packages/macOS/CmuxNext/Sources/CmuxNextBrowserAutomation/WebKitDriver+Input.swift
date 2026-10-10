@@ -82,6 +82,10 @@ extension WebKitDriver {
             }
         default: webView.keyUp(with: event)
         }
+        // A script round trip after the key: the web process handles its
+        // messages in order, so the key is handled before this returns, and
+        // text the next call inserts (an emoji, IME text) cannot pass it.
+        if let tab = try? target(params).0 { _ = try? await run("return 0;", [:], nil, AgentWorld.hostWorld, tab) }
         return .null
     }
 
