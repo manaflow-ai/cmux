@@ -161,6 +161,19 @@ struct CloudPortRoutePlanTests {
         #expect(replayed.httpMethod == "POST")
         #expect(replayed.httpBody == Data("name=cmux".utf8))
         #expect(replayed.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+
+        // A later user navigation replaces the replay template, so recovery
+        // cannot resurrect the earlier form submission.
+        let followUp = URLRequest(url: URL(string: "http://10.0.0.7:3000/other")!)
+        state.rememberNavigationRequest(followUp)
+        listenerPort = 46_905
+        model.retry()
+        #expect(await wait { navigations.count == 3 })
+        let latest = try #require(navigations.last)
+        #expect(latest.url?.port == 46_905)
+        #expect(latest.url?.path == "/other")
+        #expect(latest.httpMethod == "GET")
+        #expect(latest.httpBody == nil)
         await model.retire()
     }
 

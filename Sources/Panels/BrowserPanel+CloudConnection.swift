@@ -234,6 +234,7 @@ extension BrowserPanel {
         guard PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return nil }
         if let listenerPort = cloudAccess.model?.localAddress
             .flatMap({ Int($0.split(separator: ":").last ?? "") }),
+           url.scheme?.lowercased() == "http",
            url.port == listenerPort { return nil }
         return privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) ?? url
     }
