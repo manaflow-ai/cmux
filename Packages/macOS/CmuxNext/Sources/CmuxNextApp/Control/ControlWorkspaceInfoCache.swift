@@ -8,6 +8,11 @@ import Synchronization
 /// only the workspaces that changed since the last one, instead of every
 /// workspace, screen, pane and tab on each settled frame (cx-9c8m).
 ///
+/// Entries hold only daemon-mirror facts (all @Observable). App facts that
+/// Observation does not track (the tab a window shows for a pane, app-only
+/// page tabs, page titles) are applied on every publish by
+/// `ControlTopologyMapper.applyAppFacts`, as before the cache.
+///
 /// Each entry is built inside its own Observation tracking; the first change
 /// to anything the build read (the workspace, its panes and tabs, the pane's
 /// shown tab, page facts) marks the entry stale synchronously, inside the
@@ -26,7 +31,7 @@ final class ControlWorkspaceInfoCache {
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var nextGeneration: UInt64 = 0
     /// Generations whose tracking fired; written inside the mutation.
-    private let stale = Mutex<Set<UInt64>>([])
+    private nonisolated let stale = Mutex<Set<UInt64>>([])
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
     var onStale: @MainActor () -> Void = {}
@@ -41,8 +46,8 @@ final class ControlWorkspaceInfoCache {
         if let old = entries[key] { stale.withLock { _ = $0.remove(old.generation) } }
         nextGeneration += 1
         let generation = nextGeneration
-        let info = withObservationTracking { build(model) } onChange: { [stale, weak self] in
-            stale.withLock { _ = $0.insert(generation) }
+        let info = withObservationTracking { build(model) } onChange: { [weak self] in
+            self?.stale.withLock { _ = $0.insert(generation) }
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.onStale() }
         }

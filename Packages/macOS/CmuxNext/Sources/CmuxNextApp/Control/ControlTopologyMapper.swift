@@ -42,10 +42,42 @@ enum ControlTopologyMapper {
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
         topology.workspaces = store.workspaces.map { model in
-            guard let cache else { return workspace(from: model, selectedTab: selectedTab, pages: pages) }
-            return cache.info(for: model) { workspace(from: $0, selectedTab: selectedTab, pages: pages) }
+            cachedWorkspace(from: model, cache: cache, selectedTab: selectedTab, pages: pages)
         }
         return topology
+    }
+
+    /// `model`'s control value: the daemon facts from `cache` (built without
+    /// app facts), then the app facts applied fresh; no cache maps it whole.
+    static func cachedWorkspace(from model: WorkspaceModel, cache: ControlWorkspaceInfoCache?,
+                                selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> ControlWorkspaceInfo {
+        guard let cache else { return workspace(from: model, selectedTab: selectedTab, pages: pages) }
+        var info = cache.info(for: model) { workspace(from: $0, selectedTab: { _ in nil }, pages: ControlPageFacts()) }
+        applyAppFacts(&info, model: model, selectedTab: selectedTab, pages: pages)
+        return info
+    }
+
+    /// Sets the facts the app owns and Observation does not track: each
+    /// pane's shown tab and app-only page tabs, and store page tab titles.
+    /// O(panes + page tabs), matched by id.
+    static func applyAppFacts(_ info: inout ControlWorkspaceInfo, model: WorkspaceModel,
+                              selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) {
+        let screens = Dictionary(model.screens.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for s in info.screens.indices {
+            guard let screen = screens[info.screens[s].id] else { continue }
+            let panes = Dictionary(screen.panes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for p in info.screens[s].panes.indices {
+                guard let pane = panes[info.screens[s].panes[p].id] else { continue }
+                info.screens[s].panes[p].selectedTabID = selectedTab(pane)
+                info.screens[s].panes[p].pageTabs = pages.appOnlyTabs(pane)
+                guard pane.tabs.contains(where: { $0.page != nil }) else { continue }
+                let tabs = Dictionary(pane.tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for t in info.screens[s].panes[p].tabs.indices where info.screens[s].panes[p].tabs[t].page != nil {
+                    guard let tab = tabs[info.screens[s].panes[p].tabs[t].id] else { continue }
+                    info.screens[s].panes[p].tabs[t].title = pages.title(tab) ?? tab.displayTitle
+                }
+            }
+        }
     }
 
     static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?,

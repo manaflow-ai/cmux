@@ -110,12 +110,9 @@ final class ControlSnapshotPublisher {
             let session = ControlSessions.key(daemon)
             topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                let build = { (model: WorkspaceModel) in
-                    ControlTopologyMapper.workspace(from: model, selectedTab: { [services] pane in
-                        services.paneController(for: pane)?.selectedTab?.id
-                    }, pages: services.controlPageFacts)
-                }
-                var info = cache.map { $0.info(for: model, build: build) } ?? build(model)
+                var info = ControlTopologyMapper.cachedWorkspace(from: model, cache: cache, selectedTab: { [services] pane in
+                    services.paneController(for: pane)?.selectedTab?.id
+                }, pages: services.controlPageFacts)
                 info.sessionID = session
                 info.machine = daemon.machineID
                 return info
