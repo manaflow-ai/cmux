@@ -28,6 +28,17 @@ extension OmniboxConfiguration {
     }
 }
 
+extension OmnibarGlassLook {
+    /// Pure: cmux.json's address bar look keys as the browser module's value.
+    init(_ setting: BrowserOmnibarSetting) {
+        self.init(material: Material(rawValue: setting.glass) ?? .regular,
+                  tint: Tint(rawValue: setting.glassTint) ?? .background,
+                  tintStrength: setting.glassTintStrength,
+                  cornerRadius: setting.cornerRadius.map { $0.isFinite ? $0 : 999 },
+                  shadow: setting.shadow)
+    }
+}
+
 /// Every suggestion engine (each browser profile's and incognito's) follows
 /// every loaded snapshot's address bar keys; engines made later start from
 /// the newest (`TabContentCache.omniboxConfiguration`).
@@ -48,6 +59,8 @@ enum BrowserOmnibarPreference {
                     logger.fault("browser.searchEngine is custom without a usable browser.customSearchEngine.search; searching with Google")
                 }
                 reported = resolved.invalidCustomEngine ? setting : nil
+                let look = OmnibarGlassLook(setting)
+                if OmnibarGlassAppearance.shared.look != look { OmnibarGlassAppearance.shared.look = look }
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
             }

@@ -59,13 +59,14 @@ nonisolated enum OmnibarSettingsSchema {
                 help: SettingsText.keyed("settings.browser.omnibar.calculator.help", "Shows the answer to arithmetic you type. Return copies it."),
                 kind: .toggle, default: .bool(fallback.calculator), keywords: ["calculator", "math", "answer", "omnibox"]
             ),
-        ]
+        ] + OmnibarLookSettingsSchema.descriptors
     }
 
     /// Agents may change how many rows show and inline completion; the
     /// engine and remote suggestions decide what leaves the machine.
     static var agentSettableKeys: Set<String> {
-        ["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator"]
+        Set(["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator"])
+            .union(OmnibarLookSettingsSchema.agentSettableKeys)
     }
 
     static var privacyKeys: [String] {
@@ -81,6 +82,9 @@ nonisolated enum OmnibarSettingsSchema {
         case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
             "expected a web address with %s or {searchTerms} where the typed text goes, or \"\""
         case .url: "expected a web address or \"\""
+        case .choiceOrNumber(let choices, let number):
+            "expected one of " + choices.map { "\"\($0.value)\"" }.joined(separator: ", ")
+                + " or a number from \(Int(number.range.lowerBound)) to \(Int(number.range.upperBound))"
         default: "invalid value"
         }
     }

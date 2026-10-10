@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 import AppKit
+public import Observation
 
 /// How the omnibar's bar draws its material: Liquid Glass on macOS 26 and
 /// later (`GlassPanelView`, which falls back to `NSVisualEffectView` before
@@ -7,9 +8,10 @@ import AppKit
 /// background, or its accent only when the theme names one (no blue
 /// otherwise). Reduce Transparency always draws the flat fill.
 ///
-/// Slice 1 (cx-gkz5): the look comes from the TEMPORARY Debug
-/// Settings design picker `browser.omnibar.glassDesign`. Slice 2 maps the
-/// `browser.omnibar.glass*` settings onto this struct.
+/// The look comes from cmux.json (`browser.omnibar.glass`, `glassTint`,
+/// `glassTintStrength`, `cornerRadius`, `shadow`; the App writes
+/// `OmnibarGlassAppearance.shared`), unless the TEMPORARY Debug Settings
+/// design picker `browser.omnibar.glassDesign` (cx-gkz5) overrides it.
 public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     public enum Material: String, Sendable, CaseIterable {
         /// The flat theme fill (the look before glass).
@@ -49,8 +51,10 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     /// Regular glass tinted from the theme background, theme radius, no shadow.
     public static let standard = OmnibarGlassLook()
 
-    /// The look in effect now (the design picker; slice 2: the settings).
-    public static var current: OmnibarGlassLook { OmnibarGlassDesign.tunable.value.look }
+    /// The look in effect now: the design picker's pick, else the settings.
+    @MainActor public static var current: OmnibarGlassLook {
+        OmnibarGlassDesign.tunable.value.look ?? OmnibarGlassAppearance.shared.look
+    }
 
     /// The bar's corner radius at `barHeight`.
     @MainActor func resolvedCornerRadius(barHeight: CGFloat) -> CGFloat {
@@ -75,6 +79,8 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
 /// the picker and the losers go, and the winner becomes the settings
 /// default.
 public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The cmux.json settings decide (no override).
+    case settings
     /// The flat theme fill, as before glass.
     case flat
     /// Regular glass, theme background tint 35%, theme radius 8, no shadow.
@@ -86,6 +92,7 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
 
     public var tunableTitle: String {
         switch self {
+        case .settings: "Follow Settings"
         case .flat: "Flat (no glass)"
         case .glass: "Glass (regular, radius 8)"
         case .capsule: "Capsule (regular, shadow)"
@@ -93,8 +100,10 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
         }
     }
 
-    public var look: OmnibarGlassLook {
+    /// The variation's look; nil follows the settings.
+    public var look: OmnibarGlassLook? {
         switch self {
+        case .settings: nil
         case .flat: OmnibarGlassLook(material: .off)
         case .glass: .standard
         case .capsule: OmnibarGlassLook(material: .regular, tint: .background, tintStrength: 0.2, cornerRadius: 999, shadow: true)
@@ -104,6 +113,16 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
 
     public static let tunable = Tunable<OmnibarGlassDesign>.choice(
         "browser.omnibar.glassDesign", .glass, "Omnibar glass design",
-        help: "TEMPORARY (cx-gkz5 vote): Flat, Glass, Capsule or Clear.",
-        default: .glass, code: "OmnibarGlassDesign.tunable")
+        help: "TEMPORARY (cx-gkz5 vote): Follow Settings, or force Flat, Glass, Capsule or Clear.",
+        default: .settings, code: "OmnibarGlassDesign.tunable")
+}
+
+/// The look cmux.json asks for, written by the App on every settings load
+/// (`BrowserOmnibarPreference`) and read by every omnibar
+/// (`OmnibarGlassLook.current`), which follows it live.
+@MainActor @Observable
+public final class OmnibarGlassAppearance {
+    public static let shared = OmnibarGlassAppearance()
+    public var look = OmnibarGlassLook.standard
+    public init() {}
 }
