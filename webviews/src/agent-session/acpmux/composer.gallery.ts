@@ -297,7 +297,9 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.hover({ text: /^Once the retries land/ });
+        // Target the queue row itself so the pointer enters the span that owns the truncation
+        // check; a text target can resolve to the row or a parent in the gallery driver.
+        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
       },
     },
