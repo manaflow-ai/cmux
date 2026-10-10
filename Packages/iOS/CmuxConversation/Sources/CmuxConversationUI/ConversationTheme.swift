@@ -96,9 +96,8 @@ enum ConversationTheme {
     /// A timestamp separates messages this far apart.
     static let timestampGap: TimeInterval = 60 * 60
     static let reactionBadgeSize: CGFloat = 32
-    /// A row grows this much when its first tapback lands (measured on iOS
-    /// 26 Messages); the badge sits in that space above the bubble.
-    static let reactionRowGrowth: CGFloat = 33
+    /// A reacted bubble sits this much lower (ConversationTapbackGeometry.rowGrowth).
+    static let reactionRowGrowth: CGFloat = ConversationTapbackGeometry.rowGrowth
     /// A lone emoji shows at 72 pt, two or three at 48 pt.
     static let singleEmojiFontSize: CGFloat = 72
     static let emojiOnlyFontSize: CGFloat = 48

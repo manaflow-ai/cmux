@@ -1155,8 +1155,22 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
         // Gaps run body to body; the previous row's tail hangs into this one.
-        let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+        let width = collectionView.bounds.width
+        let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
+        let overhang = previousLayout.tailOverhang
         let gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // A tapback badge that clears the bubble above sideways rises beside
+        // it instead of pushing this bubble down (Messages, iOS 27.0: "Ha ha"
+        // under a narrower bubble keeps the plain 10 pt gap).
+        if !model.reactionKinds.isEmpty, let anchor = layoutCache.layout(for: model, width: width, margin: layoutMargin).reactionAnchor {
+            let corner = CGRect(x: anchor.x - (model.isOutgoing ? 0 : 1), y: anchor.y, width: 1, height: 1)
+            let platter = ConversationTapbackGeometry.platterFrame(forBody: corner, onTrailingCorner: !model.isOutgoing)
+            let badge = ReactionBadgeView.frame(count: model.reactionKinds.count, platter: platter, pointsLeft: model.isOutgoing)
+            let above = previousLayout.contentFrame
+            if badge.maxX <= above.minX || badge.minX >= above.maxX {
+                return gap - overhang - ConversationTheme.reactionRowGrowth
+            }
+        }
         return max(0, gap - overhang)
     }
 

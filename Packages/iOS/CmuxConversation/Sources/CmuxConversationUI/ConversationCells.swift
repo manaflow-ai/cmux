@@ -222,13 +222,13 @@ final class MessageCell: UICollectionViewCell {
         if let anchor = layout.reactionAnchor {
             reactionBadge.isHidden = false
             let kinds = model.reactionKinds
-            // Messages: the badge's center sits 3 pt inside the bubble's top
-            // corner and 10 pt above it; its dots trail outward, away from the bubble.
+            // ChatKit's platter on the body's top corner opposite the tail,
+            // its dots trailing outward (ConversationTapbackGeometry).
             reactionBadge.pointsLeft = model.isOutgoing
             reactionBadge.configure(reactions: kinds, mine: model.hasMyReaction && kinds.count == 1)
-            let size = ReactionBadgeView.size(count: kinds.count)
-            let x = model.isOutgoing ? anchor.x + 3 - ReactionBadgeView.dotInset - ConversationTheme.reactionBadgeSize / 2 : anchor.x - 3 - size.width + ReactionBadgeView.dotInset + ConversationTheme.reactionBadgeSize / 2
-            reactionBadge.frame = CGRect(x: x, y: anchor.y - 10 - ConversationTheme.reactionBadgeSize / 2, width: size.width, height: size.height)
+            let corner = CGRect(x: anchor.x - (model.isOutgoing ? 0 : 1), y: anchor.y, width: 1, height: 1)
+            let platter = ConversationTapbackGeometry.platterFrame(forBody: corner, onTrailingCorner: !model.isOutgoing)
+            reactionBadge.frame = ReactionBadgeView.frame(count: kinds.count, platter: platter, pointsLeft: model.isOutgoing)
         } else {
             reactionBadge.isHidden = true
         }
@@ -338,6 +338,7 @@ final class MessageCell: UICollectionViewCell {
     /// Keeps outgoing bubbles' screen-anchored gradient in step with scrolling.
     func updateScreenGradients() {
         bubble.updateScreenGradient()
+        if !reactionBadge.isHidden { reactionBadge.updateScreenGradient() }
     }
 
     override func layoutSubviews() {
@@ -747,7 +748,10 @@ final class ConversationStartCell: UICollectionViewCell {
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
         let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!
-        let attachment = NSMutableAttributedString(attachment: NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal)))
+        let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
+        // A ~7 x 9 pt lock on the baseline, as measured for the compose screen.
+        lockAttachment.bounds = CGRect(x: 0, y: -0.5, width: 7, height: 9)
+        let attachment = NSMutableAttributedString(attachment: lockAttachment)
         attachment.addAttributes([.font: ConversationTheme.timestampFont, .paragraphStyle: centered], range: NSRange(location: 0, length: attachment.length))
         text.append(attachment)
         text.append(NSAttributedString(string: " " + subtitle, attributes: [
