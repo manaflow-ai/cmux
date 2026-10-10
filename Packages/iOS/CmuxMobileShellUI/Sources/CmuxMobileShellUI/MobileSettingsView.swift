@@ -6,6 +6,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
@@ -24,6 +25,8 @@ struct MobileSettingsView: View {
     @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
     /// Optional so previews and hosts without the app root still render; the
     /// Connection Method section is hidden when absent.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
@@ -82,7 +85,7 @@ struct MobileSettingsView: View {
     /// can navigate to any screen (terminal, chat) and watch it play there.
     @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
     #endif
-
+    /// Renders the settings form, including the terminal keyboard correction control.
     var body: some View {
         @Bindable var displaySettings = displaySettings
         #if DEBUG
@@ -92,13 +95,11 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
-
                 // Plan and App Store subscription, for a signed-in account.
                 // Renders nothing when the host injected no billing model.
                 if authManager.isAuthenticated {
                     MobileSettingsPlanSection()
                 }
-
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is
                 // dismissed (HIG: keep skippable onboarding-style content
@@ -119,7 +120,6 @@ struct MobileSettingsView: View {
                         .accessibilityIdentifier("MobileSettingsWhatsNewRow")
                     }
                 }
-
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
                 // checkmark on the current one — so every team is visible at a glance
@@ -160,7 +160,6 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
-
                 // One row per connected Mac: transport is per computer (each
                 // dials its own configured method), so the old single "Active
                 // Transport" row became a per-row trailing label, and a row
@@ -307,6 +306,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
+                    MobileKeyboardCorrectionsToggle(isEnabled: keyboardCorrectionPreference.isEnabled, setEnabled: { keyboardCorrectionPreference.isEnabled = $0 })
                     Button {
                         showingShortcuts = true
                     } label: {

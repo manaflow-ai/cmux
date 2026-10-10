@@ -223,6 +223,7 @@ struct cmuxApp: App {
             feedPerformanceObserver: Self.root.analytics.feedPerformanceReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            keyboardCorrectionPreference: Self.root.keyboardCorrectionPreference,
             featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,

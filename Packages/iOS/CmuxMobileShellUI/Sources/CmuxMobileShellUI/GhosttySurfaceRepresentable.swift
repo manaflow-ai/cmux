@@ -14,6 +14,8 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    var keyboardCorrectionPreference
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
@@ -69,7 +71,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
     /// Called when the shared-sizing chip on the terminal is tapped.
     var onSharedSizingChipTapped: @MainActor () -> Void = {}
-
     /// Who answers terminal queries: the Mac (mirror), the server's
     /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
     static func localEmulation(store: CMUXMobileShellStore, surfaceID: String) -> TerminalLocalEmulation {
@@ -79,7 +80,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         case false?: .authoritative
         }
     }
-
+    /// Creates the host controller and injects the shared keyboard preference.
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
         do {
@@ -102,7 +103,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize,
             terminalTheme: terminalTheme,
-            terminalConfigTheme: terminalConfigTheme
+            terminalConfigTheme: terminalConfigTheme,
+            keyboardCorrectionPreference: keyboardCorrectionPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.useLegacyTerminalSizing = useLegacyTerminalSizing
@@ -153,7 +155,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         )
         return GhosttySurfaceHostViewController(hostView: host)
     }
-
+    /// Applies SwiftUI updates to the mounted terminal host.
     func updateUIViewController(_ controller: UIViewController, context: Context) {
         let uiView = controller.view
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
@@ -229,7 +231,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // width's wrapping. No-op when closed or when the height is unchanged.
         context.coordinator.remeasureComposerForLayoutChange()
     }
-
     static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
         (controller.view as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
@@ -239,7 +240,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         coordinator.releaseGateUIProbe?.terminalDidUnmount(surfaceID: coordinator.surfaceID)
         #endif
     }
-
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
@@ -251,6 +251,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
         var artifactFilesEnabled: Bool
         var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
@@ -387,11 +388,12 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         /// (previews, isolated harnesses). Lazy so production mounts, which
         /// receive the composition root's tracker, never build one.
         lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
-
         init(
             workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
+            keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+                MobileTerminalKeyboardCorrectionPreference(),
             terminalPresentationIsActive: Bool = true,
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
@@ -411,6 +413,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
+            self.keyboardCorrectionPreference = keyboardCorrectionPreference
             self.terminalPresentationIsActive = terminalPresentationIsActive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
@@ -432,7 +435,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             self.viewportReportRetryClock = viewportReportRetryClock
             super.init()
         }
-
         func attach(surfaceView: GhosttySurfaceView) {
             if let currentSurfaceView = self.surfaceView,
                currentSurfaceView !== surfaceView {
@@ -447,7 +449,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 resetRestartFailure: true
             )
         }
-
         private func startMountedTasks(
             surfaceView: GhosttySurfaceView,
             resetRestartFailure: Bool = false
@@ -873,7 +874,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             outputStartMinimumViewportReportID =
                 surfaceView.requestViewportReportForMount()
         }
-
         /// Called by the recovery alert's Retry action. A retry is an explicit
         /// ownership boundary, so it may clear the persistent failure latch and
         /// register a fresh stream while the UIKit surface stays mounted.
@@ -889,7 +889,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 resetRestartFailure: true
             )
         }
-
         /// Reclaims a consumer whose stream ended while its UIKit surface stayed
         /// mounted. The stream's continuation is the authoritative ownership
         /// edge, so a fresh consumer also requests a cold replay and restores
@@ -1603,6 +1602,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
             let view = TerminalComposerView(
                 store: store,
+                keyboardCorrectionPreference: keyboardCorrectionPreference,
                 terminalID: surfaceID,
                 requestHeightRemeasure: { [weak self] in
                     // Content changed (a line added/removed, or cleared after send): live

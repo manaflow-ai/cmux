@@ -32,10 +32,11 @@ import UIKit
 /// dictation-placeholder methods on a real (non-cleared) `UITextInput` conformer
 /// let recognized text arrive through ``insertText(_:)`` as one block.
 ///
-/// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
-/// be enabled: they require the field to retain the in-progress word, which is
-/// incompatible with forwarding every keystroke to a remote terminal.
+/// Autocorrect and predictive text are disabled by default because terminal
+/// commands must remain literal. The injected keyboard-correction preference
+/// can opt into those system traits without changing the raw input transport.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -863,7 +864,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    init() {
+    /// Creates a documentless terminal responder using the shared keyboard setting.
+    /// - Parameter keyboardCorrectionPreference: The persisted correction preference.
+    init(
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: .zero)
         backgroundColor = .clear
         tintColor = .clear
@@ -879,6 +886,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             selector: #selector(handleAccessoryConfigurationChanged),
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardCorrectionPreferenceChanged),
+            name: MobileTerminalKeyboardCorrectionPreference.didChangeNotification,
+            object: keyboardCorrectionPreference
         )
     }
 
@@ -1616,24 +1629,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     #endif
 }
 
-// MARK: - UITextInputTraits
-
-extension TerminalInputTextView {
-    // Autocorrect/predictive/smart substitutions are all off: the view forwards
-    // each keystroke to the remote terminal and keeps no in-progress word for the
-    // keyboard to correct against. Returning these as computed properties (rather
-    // than the `UITextView` stored traits the old design used) keeps the keyboard
-    // from offering corrections it could never apply.
-    var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
-    var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
-    var spellCheckingType: UITextSpellCheckingType { get { .no } set {} }
-    var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
-    var smartDashesType: UITextSmartDashesType { get { .no } set {} }
-    var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
-    var keyboardType: UIKeyboardType { get { .default } set {} }
-    var returnKeyType: UIReturnKeyType { get { .default } set {} }
-}
-
 // MARK: - UITextInput (documentless conformance + delete-repeat anchor)
 
 // This view owns no editable document. It implements `UITextInput` to unlock two
@@ -1718,20 +1713,21 @@ extension TerminalInputTextView {
         return document.substring(with: clamped)
     }
 
-    /// Commit text delivered through a range replacement.
+    /// Handles replacement requests without duplicating already-sent terminal text.
     ///
     /// Most committed input arrives via ``insertText(_:)``, but some system paths
     /// (text replacement, certain dictation/suggestion commits) deliver it by
-    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. The view
-    /// holds no addressable document, so the range itself is ignored, but the
-    /// *text* must still reach the terminal — route it through the same commit
-    /// path as ``insertText(_:)``. A replacement of the marked region supersedes
-    /// the in-progress IME composition, so clear it first. An empty replacement is
-    /// a pure deletion of the marked composition (no committed text to send).
+    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. A
+    /// zero-length range is a new commit and is forwarded; a non-empty range
+    /// would rewrite bytes already sent to the terminal, so it is ignored unless
+    /// an active marked composition is the pending source of truth.
     func replace(_ range: UITextRange, withText text: String) {
         TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
         if markedText != nil {
-            withMarkedTextChange { markedText = nil }
+            withMarkedTextChange { self.markedText = nil }
+        } else {
+            guard let inputRange = range as? TerminalInputTextRange,
+                  inputRange.nsRange.length == 0 else { return }
         }
         guard !text.isEmpty else { return }
         emitCommittedText(text, source: "replace")
