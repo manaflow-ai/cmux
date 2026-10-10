@@ -69,6 +69,44 @@ pub const ENROLL_UNAVAILABLE: &str = "person.enroll_unavailable";
 /// the signed app.
 pub const ENROLL_REFUSED: &str = "person.enroll_refused";
 
+/// Where `_acpmux/permission_respond` carries who answered for the person
+/// (`_meta.acpmux.answeredBy`), and the outcome slot that carries it to the
+/// `permission_decision` record (removed before the agent gets the outcome).
+pub const ANSWERED_BY_FIELD: &str = "answeredBy";
+pub(crate) const ANSWERED_BY_SLOT: &str = "_acpmuxAnsweredBy";
+
+/// `answeredBy` (cx-aocz): the person's own app answering on behalf of a
+/// device the person answered on, `{device, feedItem}`. Only the person's
+/// connection may say so (an audit record, never a grant). Each field: 1 to
+/// 128 characters of `[A-Za-z0-9_.:-]`; no other field.
+pub fn answered_by(params: &Value) -> Result<Option<Value>, RpcError> {
+    let Some(v) =
+        params.pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}")).filter(|v| !v.is_null())
+    else {
+        return Ok(None);
+    };
+    let bad = || {
+        RpcError::invalid_params(
+            "answeredBy must be {device, feedItem}: 1 to 128 of [A-Za-z0-9_.:-] each",
+        )
+    };
+    let o = v.as_object().ok_or_else(bad)?;
+    let ok = |s: &str| {
+        (1..=128).contains(&s.len())
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+    };
+    if o.len() != 2 {
+        return Err(bad());
+    }
+    for key in ["device", "feedItem"] {
+        if !o.get(key).and_then(Value::as_str).is_some_and(ok) {
+            return Err(bad());
+        }
+    }
+    Ok(Some(v.clone()))
+}
+
 /// The only policies a client without the person may set: every tool call
 /// asks, or nothing is approved. The exact names; aliases and unknown values
 /// are refused. Shared with the remote guard's Web rule.
@@ -224,6 +262,13 @@ impl Hub {
         }
         match m {
             method::MUX_PERMISSION_RESPOND => {
+                // Who answered for the person is the person's own claim.
+                if params
+                    .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+                    .is_some_and(|v| !v.is_null())
+                {
+                    return Err(person_required("answeredBy"));
+                }
                 // No option: a cancel.
                 let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
                     return Ok(());

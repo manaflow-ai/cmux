@@ -3,7 +3,9 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextOnboarding
+import CmuxNextSettings
 import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
@@ -21,6 +23,9 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         let forks: [(ActionID, Placement)] = [
             ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
             ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
@@ -155,6 +160,40 @@ enum AgentHandlers {
         )
     }
 
+    private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
+
+    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        let scope = context.scope(invocation)
+        guard let pane = scope.pane,
+              let key = scope.tab?.id.rawValue ?? pane.currentTabKey,
+              let view = context.services.agentTabs.existingView(key) else {
+            context.refuse(MiscHandlerStrings.noAgentChat)
+            return nil
+        }
+        return view
+    }
+
+    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+        let next = min(max(current + delta,
+                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
+        context.design.agentPaneZoom = CGFloat(next)
+        view.zoom = next
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+    }
+
+    private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
+        view.zoom = AgentPaneZoomSetting.fallback
+        context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
+    }
+
     /// The pane a new agent chat opens in (New Agent Chat, Add Harness…): the invocation's pane,
     /// else, while the active workspace has no mounted pane yet (Home, a settling workspace),
     /// Cmd-T's shared path repairs or creates its first usable pane and `open` runs once its
@@ -208,6 +247,14 @@ enum AgentHandlers {
         let services = context.services
         guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
               let windowID = context.activeWindow?.state.id else { return false }
+        // Cmd-I again on a chat that has not started yet (loaded, untouched, no prompt sent):
+        // that chat is the one target, already on screen. It takes the keyboard; no second
+        // workspace, page load, loading mark or repaint (cx-vurv).
+        if let model = pane.currentTabKey.flatMap({ services.agentTabs.existingView($0) })?.model, model.sessionId == nil, model.newTab == nil,
+           model.hasHandshake, !model.userTouched, model.transport.sessions.isUnstarted {
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            return true
+        }
         let folder = pane.selectedTab?.cwd
         services.newTabKinds.record(.agent, folder: folder)
         let source = pane.agentSeedFromSelectedTab()

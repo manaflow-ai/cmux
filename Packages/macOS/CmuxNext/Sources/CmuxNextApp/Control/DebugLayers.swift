@@ -141,7 +141,7 @@ enum DebugLayers {
     /// tab drag API (the one `TabDropTargets` calls on every drag move) at
     /// `pane`'s point `at` ([fx, fy] fractions, default center), so the drop
     /// zone shows over that pane without moving the user's pointer.
-    /// `"end": true` cancels it.
+    /// `"end": true` cancels it; `"report": true` only reads its state.
     static func dropHighlight(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
@@ -155,6 +155,13 @@ enum DebugLayers {
         if params["end"]?.boolValue == true {
             layout.cancelTabDrag()
             return .object(["ended": .bool(true)])
+        }
+        // `"report": true` reads the overlay without driving it: after a real
+        // drop the ring must be gone and stay gone (cx-ohle).
+        if params["report"]?.boolValue == true {
+            return .object(["showing": .bool(layout.dropHighlightShowing),
+                            "ring_opacity": layout.dropRingOpacity.map { .number(Double($0)) } ?? .null,
+                            "style": .string(String(describing: layout.dropHighlightStyle))])
         }
         guard let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
               let frame = layout.frame(of: LayoutPaneID(pane)) else { return .object(["error": .string("no pane")]) }

@@ -10,11 +10,12 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
     static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
         keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false,
-        defaultShortcut: Shortcut? = nil
+        defaultShortcut: Shortcut? = nil, surfaces: ActionSurfaces = [.palette], requires: ActionContext = [], mainMenu: ActionMainMenu? = nil
     ) -> ActionDescriptor {
         ActionDescriptor(
             id: id, title: title, keywords: keywords, defaultShortcut: defaultShortcut, category: category, symbol: symbol,
-            surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli, startsTerminal: startsTerminal
+            surfaces: surfaces, requires: requires, arguments: arguments, targets: targets, cliName: cli,
+            mainMenu: mainMenu, startsTerminal: startsTerminal
         )
     }
 
@@ -111,11 +112,14 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.tab], cliName: "terminal clear"
             ),
             row("terminal.increaseFontSize", String(localized: "action.terminal.increaseFontSize", defaultValue: "Increase Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab]),
+                .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab],
+                defaultShortcut: Shortcut("=", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.decreaseFontSize", String(localized: "action.terminal.decreaseFontSize", defaultValue: "Decrease Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size.smaller", cli: "terminal decrease-font-size", keywords: ["font", "zoom", "smaller"], targets: [.tab]),
+                .terminal, "textformat.size.smaller", cli: "terminal decrease-font-size", keywords: ["font", "zoom", "smaller"], targets: [.tab],
+                defaultShortcut: Shortcut("-", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.resetFontSize", String(localized: "action.terminal.resetFontSize", defaultValue: "Reset Font Size", table: "LayoutActions", bundle: .module),
-                .terminal, "textformat.size", cli: "terminal reset-font-size", keywords: ["font", "zoom", "default"], targets: [.tab]),
+                .terminal, "textformat.size", cli: "terminal reset-font-size", keywords: ["font", "zoom", "default"], targets: [.tab],
+                defaultShortcut: Shortcut("0", modifiers: [.command]), surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], mainMenu: .view),
             row("terminal.sendText", String(localized: "action.terminal.sendText", defaultValue: "Send Text…", table: "LayoutActions", bundle: .module),
                 .terminal, "text.cursor", cli: "terminal send-text", keywords: ["input", "type", "paste"], targets: [.tab],
                 arguments: [CatalogArgument.textString]),
