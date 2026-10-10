@@ -13,6 +13,21 @@ import CmuxNextCompat
 /// - when this app is Team-signed (Release, NIGHTLY, RC), the peer's code, named by its audit
 ///   token (`LOCAL_PEERTOKEN`, not its pid), is Apple-anchored and signed by the same team.
 ///
+/// Another install of cmux (lead decision 2026-10-10): NIGHTLY and Release share `~/.acpmux`, so
+/// the daemon there may be the other app's. A Team-signed build accepts such a daemon only when
+/// all of these hold, and in DEV (ad hoc) the path check alone decides:
+/// 1. the peer's code satisfies `identifier "<the code-signing identifier of this app's own
+///    acpmux binary>" and anchor apple generic and certificate leaf[subject.OU] = "<team>"`
+///    (not any team-signed binary: another team tool, or an old cmux binary, is refused);
+/// 2. its `initialize` reply lists the `personChallenge` feature (cx-fcaq or later): an older
+///    signed acpmux predates the challenge proof and is refused;
+/// 3. it gets only the challenge proof, never `_acpmux/person_enroll`: enroll goes only to a
+///    daemon at this app's own executable path (``call(socketPath:method:params:executable:allowForeign:deadline:)``
+///    with `allowForeign` false). With one key per daemon such a daemon holds no key of this
+///    app, so its allows are refused; the app logs why.
+/// The pane's WebSocket listener and accepted end are accepted as another install's only when
+/// their pid passed rules 1 and 2 on the unix socket first.
+///
 /// Anything else is refused and logged once per path; the app then never sends the key there.
 ///
 /// Residual (DEV, an ad-hoc signed build): the check is the executable path only, so a same-uid
@@ -30,6 +45,7 @@ nonisolated enum AcpmuxServerPeer {
         case notTeamSigned
         case closed
         case timedOut
+        case olderDaemon
 
         var description: String {
             switch self {
@@ -39,9 +55,16 @@ nonisolated enum AcpmuxServerPeer {
             case .notTeamSigned: "the socket's peer is not signed by this app's team"
             case .closed: "the daemon closed the connection"
             case .timedOut: "the daemon did not answer in time"
+            case .olderDaemon: "the other install's acpmux predates the person challenge"
             }
         }
     }
+
+    /// What a passing peer is: the acpmux at this app's own path, or another install's.
+    enum Match: Equatable { case own, foreign }
+
+    /// Pids of another install's daemons that passed rules 1 and 2 (their WebSocket may be used).
+    private static let foreignDaemons = Mutex<Set<pid_t>>([])
 
     /// Paths already logged as refused (one line each per launch).
     private static let refusedPaths = Mutex<Set<String>>([])
@@ -52,10 +75,13 @@ nonisolated enum AcpmuxServerPeer {
     /// `initialize`, then `method` with `params`, on one connection to `socketPath` whose server
     /// peer passed ``check(descriptor:executable:)``. Nothing is written before the check.
     /// Throws ``Refusal`` or the daemon's ``AcpmuxRPCError``.
+    /// `allowForeign`: another install's daemon may answer (rules 1 to 3); never for an enroll.
     @concurrent static func call(socketPath: String, method: String, params: [String: any Sendable],
-                                 executable: URL, deadline: Duration) async throws -> [String: Any] {
+                                 executable: URL, allowForeign: Bool = false,
+                                 deadline: Duration) async throws -> [String: Any] {
         let seconds = Double(deadline.components.seconds) + Double(deadline.components.attoseconds) / 1e18
         let box = try exchange(socketPath: socketPath, method: method, params: params, executable: executable,
+                               allowForeign: allowForeign && method != "_acpmux/person_enroll",
                                until: Date().addingTimeInterval(seconds))
         return box.value
     }
@@ -66,8 +92,7 @@ nonisolated enum AcpmuxServerPeer {
         do {
             let descriptor = try connect(socketPath)
             defer { Darwin.close(descriptor) }
-            try checked(descriptor, socketPath: socketPath, executable: executable)
-            return true
+            return try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: false) == .own
         } catch {
             return false
         }
@@ -104,17 +129,21 @@ nonisolated enum AcpmuxServerPeer {
         return judge(ours.isEmpty ? [] : owners, executable: executable, what: "accepted end on port \(port)")
     }
 
-    /// Every owner passes the executable (and, Team-signed, the signature) rule; none refuses.
+    /// Every owner passes the executable (and, Team-signed, the signature) rule, or is another
+    /// install's daemon that passed rules 1 and 2 on its unix socket; none refuses.
     private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
         let wanted = executable.resolvingSymlinksInPath().path
+        let foreign = foreignDaemons.withLock { $0 }
         var refusal: Refusal?
         if owners.isEmpty { refusal = .noPeer }
         for pid in Set(owners) where refusal == nil {
             var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
             let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-            if path != wanted { refusal = .otherExecutable(path); break }
-            if let team = ownTeam, !teamSigned(pid: pid, team: team) { refusal = .notTeamSigned }
+            if path != wanted, !foreign.contains(pid) { refusal = .otherExecutable(path); break }
+            if let team = ownTeam, !teamSigned(pid: pid, team: team, identifier: path == wanted ? nil : ownIdentifier(executable)) {
+                refusal = .notTeamSigned
+            }
         }
         guard let refusal else { return true }
         if refusedPaths.withLock({ $0.insert(what).inserted }) {
@@ -172,20 +201,47 @@ nonisolated enum AcpmuxServerPeer {
         return out
     }
 
-    private static func teamSigned(pid: pid_t, team: String) -> Bool {
+    private static func teamSigned(pid: pid_t, team: String, identifier: String?) -> Bool {
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &code)
                 == errSecSuccess, let code else { return false }
+        return satisfies(code, team: team, identifier: identifier)
+    }
+
+    /// The team requirement, with the exact code-signing identifier when one is given (rule 1).
+    private static func satisfies(_ code: SecCode, team: String, identifier: String?) -> Bool {
+        var text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        if let identifier {
+            guard identifier.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) else { return false }
+            text = "identifier \"\(identifier)\" and " + text
+        }
         var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
         guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
             return false
         }
         return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
     }
 
+    /// The code-signing identifier of this app's own acpmux binary (on disk), cached per path.
+    private static let identifiers = Mutex<[String: String]>([:])
+    static func ownIdentifier(_ executable: URL) -> String? {
+        let path = executable.resolvingSymlinksInPath().path
+        if let known = identifiers.withLock({ $0[path] }) { return known }
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess, let code else {
+            return nil
+        }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let info = info as? [String: Any], let identifier = info[kSecCodeInfoIdentifier as String] as? String else {
+            return nil
+        }
+        identifiers.withLock { $0[path] = identifier }
+        return identifier
+    }
+
     /// The check on a connected unix socket.
-    static func check(descriptor: Int32, executable: URL) -> Result<Void, Refusal> {
+    static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false) -> Result<Match, Refusal> {
         var pid: pid_t = 0
         var size = socklen_t(MemoryLayout<pid_t>.size)
         guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0, pid > 1 else {
@@ -194,8 +250,10 @@ nonisolated enum AcpmuxServerPeer {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return .failure(.noPeer) }
         let peer = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-        guard peer == executable.resolvingSymlinksInPath().path else { return .failure(.otherExecutable(peer)) }
-        guard let team = ownTeam else { return .success(()) }
+        let own = peer == executable.resolvingSymlinksInPath().path
+        // DEV (ad hoc): the path alone decides; another install is never accepted.
+        guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer)) }
+        guard own || allowForeign else { return .failure(.otherExecutable(peer)) }
         var token = audit_token_t()
         var tokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
         guard getsockopt(descriptor, SOL_LOCAL, localPeerToken, &token, &tokenSize) == 0 else { return .failure(.noPeer) }
@@ -203,11 +261,11 @@ nonisolated enum AcpmuxServerPeer {
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: tokenData] as CFDictionary, [], &code)
                 == errSecSuccess, let code else { return .failure(.notTeamSigned) }
-        var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement,
-              SecCodeCheckValidity(code, [], requirement) == errSecSuccess else { return .failure(.notTeamSigned) }
-        return .success(())
+        // Another install: rule 1, the exact identifier of this app's own acpmux.
+        let identifier = own ? nil : ownIdentifier(executable)
+        if !own, identifier == nil { return .failure(.notTeamSigned) }
+        guard satisfies(code, team: team, identifier: identifier) else { return .failure(.notTeamSigned) }
+        return .success(own ? .own : .foreign)
     }
 
     /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.
@@ -223,13 +281,24 @@ nonisolated enum AcpmuxServerPeer {
         return team?.isEmpty == false ? team : nil
     }()
 
-    private static func checked(_ descriptor: Int32, socketPath: String, executable: URL) throws {
-        if case .failure(let refusal) = check(descriptor: descriptor, executable: executable) {
+    @discardableResult
+    private static func checked(_ descriptor: Int32, socketPath: String, executable: URL,
+                                allowForeign: Bool) throws -> Match {
+        switch check(descriptor: descriptor, executable: executable, allowForeign: allowForeign) {
+        case .success(let match): return match
+        case .failure(let refusal):
             if refusedPaths.withLock({ $0.insert(socketPath).inserted }) {
                 logger.error("acpmux server peer refused at \(socketPath, privacy: .public): \(refusal.description, privacy: .public); no person key goes there")
             }
             throw refusal
         }
+    }
+
+    /// The peer's pid (`LOCAL_PEERPID`).
+    private static func peerPID(_ descriptor: Int32) -> pid_t? {
+        var pid: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
     private static func connect(_ socketPath: String) throws -> Int32 {
@@ -261,10 +330,10 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     private static func exchange(socketPath: String, method: String, params: [String: any Sendable],
-                                 executable: URL, until: Date) throws -> ResultBox {
+                                 executable: URL, allowForeign: Bool, until: Date) throws -> ResultBox {
         let descriptor = try connect(socketPath)
         defer { Darwin.close(descriptor) }
-        try checked(descriptor, socketPath: socketPath, executable: executable)
+        let match = try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: allowForeign)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-person", "version": "1"], "clientCapabilities": [:]],
@@ -281,7 +350,23 @@ nonisolated enum AcpmuxServerPeer {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let result = try AcpmuxStatusClient.detailedReply(to: 2, in: line) { return ResultBox(result) }
+                // Another install's daemon: rule 2, its initialize lists personChallenge.
+                if match == .foreign, let initialize = try AcpmuxStatusClient.detailedReply(to: 1, in: line) {
+                    let features = ((initialize["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["features"] as? [String]
+                    guard features?.contains("personChallenge") == true else { throw Refusal.olderDaemon }
+                    if let pid = peerPID(descriptor) {
+                        foreignDaemons.withLock { $0.insert(pid) }
+                        logger.info("acpmux at \(socketPath, privacy: .public) is another cmux install's (pid \(pid, privacy: .public)); its allows stay refused unless this app keyed it")
+                    }
+                    continue
+                }
+                if let result = try AcpmuxStatusClient.detailedReply(to: 2, in: line) {
+                    // The reply came before the initialize check (it cannot: replies are in order).
+                    guard match == .own || foreignDaemons.withLock({ set in peerPID(descriptor).map(set.contains) ?? false }) else {
+                        throw Refusal.olderDaemon
+                    }
+                    return ResultBox(result)
+                }
             }
             guard buffer.count < 1 << 20 else { throw Refusal.closed }
             buffer += try read(from: descriptor, until: until)

@@ -113,12 +113,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
     /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
-    /// pane at another daemon's WebSocket. (The pane also checks the port's listener and the
+    /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY and Release
+    /// share `~/.acpmux`) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
+    /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
         let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
                                                      params: [:], executable: environment.executable,
-                                                     deadline: .seconds(2))
+                                                     allowForeign: true, deadline: .seconds(2))
         return try AcpmuxStatus(result).endpoint()
     }
 
