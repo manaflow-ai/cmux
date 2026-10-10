@@ -498,7 +498,8 @@ impl Acpmux {
             .spawn(move || {
                 let mut delay = Duration::from_millis(500);
                 // The host starts the daemon only before its first link: once
-                // that daemon (or the one it joined) shuts down, the host's
+                // that daemon (or the one it joined) shuts down and no next
+                // daemon takes its socket within HANDOFF_WAIT, the host's
                 // sessions ended with it, and it never starts another.
                 let mut linked = false;
                 loop {
@@ -525,6 +526,16 @@ impl Acpmux {
                     }
                     sink(AgentEvent::Down);
                     if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                        // A handoff, not an end (cx-ebm.54): the next daemon,
+                        // started by the client that handed this one off,
+                        // adopted the sessions. Join it; never start one.
+                        if crate::acpmux_daemon::await_next(
+                            &this.socket,
+                            crate::acpmux_daemon::HANDOFF_WAIT,
+                        ) {
+                            log("acpmux daemon was handed off; joining the next one");
+                            continue;
+                        }
                         log("acpmux daemon ended; the host does not start another");
                         sink(AgentEvent::Ended);
                         return;
