@@ -12,11 +12,12 @@ final class SidebarSectionHeaderView: NSView {
     let chevron = NSImageView()
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
-    var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
+    var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
     private var pointerHover: PointerHover?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         name.lineBreakMode = .byTruncatingTail
         name.maximumNumberOfLines = 1
         chevron.alphaValue = 0
@@ -62,6 +63,11 @@ final class SidebarSectionHeaderView: NSView {
         performWithTheme {
             name.textColor = Palette.textTertiary
             chevron.contentTintColor = Palette.textTertiary
+            // A click folds the section: hover shows the row hover fill (cx-qno.17).
+            if let layer {
+                layer.cornerRadius = SidebarStyle.rowCornerRadius
+                ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: window != nil)
+            }
         }
     }
 
