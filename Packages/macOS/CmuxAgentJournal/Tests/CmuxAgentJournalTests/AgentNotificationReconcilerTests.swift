@@ -118,7 +118,7 @@ struct AgentNotificationReconcilerTests {
         _ = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "new", notify: false))
 
         let lateStart = reconciler.apply(
-            event(3, .sessionStarted, source: "claude", session: "old", notify: false)
+            event(1, .sessionStarted, source: "claude", session: "old", notify: false)
         )
         #expect(lateStart.disposition == .stale)
         #expect(lateStart.invalidatedCorrelationKeys.isEmpty)
