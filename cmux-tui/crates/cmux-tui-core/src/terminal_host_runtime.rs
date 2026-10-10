@@ -487,7 +487,6 @@ mod unix {
     use super::shared::host_shared::HostShared;
     use super::shared::host_state::*;
     use super::shared::records::*;
-    use super::sys::GroupSignal;
     #[cfg(test)]
     use super::sys::{AcceptWaker, wait_for_pty_readable_or_forced_drain};
     use super::sys::{
@@ -671,50 +670,6 @@ mod unix {
         }
         crate::host_exe::hold_in_use_lock();
         host_signals::install()
-    }
-
-    /// The ProcessTree seam, Unix side (cx-ko2e table C): signal the PTY's
-    /// process groups.
-    impl HostShared {
-        pub(crate) fn signal_terminal_process_groups(&self, signal: GroupSignal) {
-            let signal = match signal {
-                GroupSignal::Hangup => libc::SIGHUP,
-                GroupSignal::Kill => libc::SIGKILL,
-            };
-            let mut groups = Vec::with_capacity(2);
-            // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. While we hold it, `!child_reaped` means the
-            // original PID/PGID is still kernel-reserved and cannot have been
-            // reused between validation and killpg.
-            let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved =
-                !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
-            if child_reserved
-                && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
-            {
-                groups.push(pid);
-            }
-            // Query the PTY each time rather than trusting the original group:
-            // a foreground job or retained descendant may own a different
-            // group by the time explicit Terminate escalates.
-            if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
-            {
-                groups.push(foreground);
-            }
-            groups.sort_unstable();
-            groups.dedup();
-            // A portable-pty child starts as a new session/process-group
-            // leader. Signal both that durable group and any foreground job
-            // group, but never risk addressing the terminal-host's own group.
-            // SAFETY: getpgrp has no preconditions.
-            let host_group = unsafe { libc::getpgrp() };
-            for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
-                // SAFETY: validated positive process-group ids owned by this
-                // PTY session; signal is a platform constant from this module.
-                let _ = unsafe { libc::killpg(group, signal) };
-            }
-        }
     }
 
     fn spawn_host_runtime(
