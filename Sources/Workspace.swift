@@ -12494,6 +12494,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Starts a browser-only follow-up so tests can observe the deferred
     /// workspace-scoped window-layout flush without a geometry pass.
     func debugBeginBrowserOnlyLayoutFollowUpForTesting(panelId: UUID) {
+        // The caller may have just exercised a geometry-enabled action. Clear
+        // those pending bits so this probe cannot accidentally take the
+        // geometry reconciliation path it is meant to distinguish.
+        layoutFollowUpNeedsGeometryPass = false
+        layoutFollowUpTerminalFocusPanelId = nil
+        layoutFollowUpBrowserExitFocusPanelId = nil
         beginEventDrivenLayoutFollowUp(
             reason: "workspace.debugBrowserOnlyLayoutFollowUp",
             browserPanelId: panelId,
