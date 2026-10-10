@@ -24,8 +24,6 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
-mod serves;
-#[cfg(unix)]
 mod egress;
 #[cfg(unix)]
 mod grants;
@@ -51,6 +49,8 @@ pub(crate) mod routing;
 mod runs;
 #[cfg(unix)]
 mod servers;
+#[cfg(unix)]
+mod serves;
 #[cfg(unix)]
 mod storage;
 #[cfg(unix)]
