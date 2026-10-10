@@ -2,6 +2,7 @@ import CmuxNextApps
 import CmuxNextDaemon
 import Foundation
 import Observation
+import os
 
 /// `AppsTransport` over the local daemon's app supervisor (`apps-v1`). The
 /// supervisor owns installs, grants and app hosts per machine; this Mac's
@@ -18,6 +19,7 @@ final class DaemonAppsTransport: AppsTransport {
     nonisolated static let capability = "apps-v1"
     /// `apps-run` waits for the app's op; everything else uses the control-plane deadline.
     static let runTimeout: Duration = .seconds(30)
+    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps")
 
     private let daemon: DaemonService
     let provider: AppsProviderChannel
@@ -143,8 +145,9 @@ final class DaemonAppsTransport: AppsTransport {
 
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         let userAllowed = await daemon.connection?.userOriginAllowed == true
-        let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey,
-                                     origin: Self.wireOrigin(origin, userOriginAllowed: userAllowed))
+        let wire = Self.wireOrigin(origin, userOriginAllowed: userAllowed)
+        Self.logger.info("apps-run \(app, privacy: .public) \(op, privacy: .public) origin=\(wire.rawValue, privacy: .public)")
+        let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire)
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
     }
 

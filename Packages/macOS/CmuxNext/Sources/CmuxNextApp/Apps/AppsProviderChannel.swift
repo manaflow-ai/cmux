@@ -179,6 +179,7 @@ final class AppsProviderChannel {
         let (ok, body) = AppsProviderCall.disabledAnswer(reason)
         for (id, call) in calls {
             call.task.cancel()
+            logger.info("apps-provider-result \(id, privacy: .public) apps.disabled (policy ended a running call)")
             // task-owner: one refusal answer for a call the policy ended
             Task { [link] in await link.answer(call.connection, id, ok, body) }
         }
@@ -212,6 +213,7 @@ final class AppsProviderChannel {
         guard let connection = link.connection() else { return }
         if let turnedOff {
             let (ok, body) = AppsProviderCall.disabledAnswer(turnedOff)
+            logger.info("apps-provider-result \(call.requestID, privacy: .public) \(call.op, privacy: .public) apps.disabled")
             // task-owner: one refusal answer while apps are turned off
             Task { [link] in await link.answer(connection, call.requestID, ok, body) }
             return
