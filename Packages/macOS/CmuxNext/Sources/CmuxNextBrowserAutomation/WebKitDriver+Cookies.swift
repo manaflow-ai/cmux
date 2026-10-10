@@ -14,12 +14,18 @@ extension WebKitDriver {
     }
 
     /// `cookies.set {cookies, targetId}`: Playwright cookies (`url`, or
-    /// `domain` and `path`) into the tab's store.
+    /// `domain` and `path`) into the tab's store. A cookie already expired
+    /// is refused: setting one deletes a cookie with no undo (use
+    /// `cookies.clear`).
     func cookiesSet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
+        let now = Date().timeIntervalSince1970
         var made: [HTTPCookie] = []
         for item in try params.array("cookies") {
             guard case .object(let fields) = item else { throw DriverError(.invalid, "cookies.set: cookies: expected an array of objects") }
+            if case .number(let expires)? = fields["expires"], expires > -1, expires <= now {
+                throw DriverError(.invalid, "cookies.set: an expired cookie would delete a cookie with no undo; use clearCookies() instead")
+            }
             made.append(try Self.httpCookie(fields))
         }
         for cookie in made { await store.setCookie(cookie) }
@@ -27,9 +33,11 @@ extension WebKitDriver {
     }
 
     /// `cookies.clear {targetId, name?, domain?, path?, all?}`: deletes the
-    /// cookies of the tab's site (its registrable domain and subdomains),
-    /// narrowed by exact name, domain and path. The cookies go to an
-    /// encrypted backup first (no backup, no clear); the answer names its
+    /// cookies the tab's host gets (its own and its parent domains') and
+    /// those of its subdomains, narrowed by exact name, domain and path.
+    /// No public suffix list is needed: a browser never stores a cookie for
+    /// a public suffix, so no clear reaches another site. The cookies go to
+    /// an encrypted backup first (no backup, no clear); the answer names its
     /// restore id. `all` is refused: the store is the person's profile.
     func cookiesClear(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, _) = try target(params)
@@ -43,27 +51,26 @@ extension WebKitDriver {
             throw DriverError(.invalid, "cookies.clear: { all: true } would clear every site in the user's browser profile, "
                 + "which a session may not do; clear the current tab's site instead")
         }
-        let url = tab.webView.url
-        guard let url, url.scheme == "http" || url.scheme == "https", let host = url.host(), !host.isEmpty else {
-            throw DriverError(.invalid, "cookies.clear: the tab (\(url?.absoluteString ?? "none")) has no site to scope to; open the site first")
+        guard let url = tab.webView.url, url.scheme == "http" || url.scheme == "https", let rawHost = url.host(), !rawHost.isEmpty else {
+            let scheme = tab.webView.url?.scheme.map { "a \($0): page" } ?? "no page"
+            throw DriverError(.invalid, "cookies.clear: the tab shows \(scheme), so it has no site to scope to; open the site first")
         }
-        let site = SiteDomain.registrable(host)
+        let host = rawHost.lowercased()
         let name = try params.optionalString("name").flatMap { $0.isEmpty ? nil : $0 }
         let domain = try params.optionalString("domain").flatMap { $0.isEmpty ? nil : $0 }
         let path = try params.optionalString("path").flatMap { $0.isEmpty ? nil : $0 }
         let store = dataStore.httpCookieStore
         let matched = await store.allCookies().filter { cookie in
-            Self.onSite(cookie.domain, site: site) && (name.map { $0 == cookie.name } ?? true)
+            Self.inScope(cookie.domain, host: host) && (name.map { $0 == cookie.name } ?? true)
                 && (domain.map { $0 == cookie.domain } ?? true) && (path.map { $0 == cookie.path } ?? true)
         }
         guard !matched.isEmpty else {
-            return .object(["cleared": .number(0), "restoreId": .null, "site": .string(site)])
+            return .object(["cleared": .number(0), "restoreId": .null, "site": .string(host)])
         }
         guard let backups = cookieBackups else {
             throw DriverError(.unsupported, "cookies.clear: this app keeps no cookie backups, so it clears nothing")
         }
-        backups.pruneExpired()
-        let record = CookieBackupRecord(site: site, profile: tab.profileID.rawValue.uuidString,
+        let record = CookieBackupRecord(site: host, profile: tab.profileID.rawValue.uuidString,
                                         createdAt: (Date().timeIntervalSince1970 * 1000).rounded(),
                                         cookies: matched.map(BackedUpCookie.init))
         let plain: Data
@@ -72,17 +79,24 @@ extension WebKitDriver {
         } catch {
             throw DriverError(.invalid, "cookies.clear: the backup could not be encoded")
         }
-        if let full = backups.full(plainBytes: plain.count) {
-            throw DriverError(.forbidden, "cookies.clear: \(full)")
-        }
-        let restoreID: String
+        // Files and the Keychain off the main actor (a Keychain prompt must not block the UI).
+        let saved: Result<String, CookieBackupError>
         do throws(CookieBackupError) {
-            restoreID = try backups.save(plain)
+            saved = try await Self.backupIO { () throws(CookieBackupError) -> Result<String, CookieBackupError> in
+                backups.pruneExpired()
+                if let full = backups.full(plainBytes: plain.count) { return .failure(CookieBackupError(full)) }
+                return .success(try backups.save(plain))
+            }
         } catch {
             throw DriverError(.unsupported, "cookies.clear: \(error.message); nothing was cleared")
         }
+        let restoreID: String
+        switch saved {
+        case .success(let id): restoreID = id
+        case .failure(let full): throw DriverError(.forbidden, "cookies.clear: \(full.message)")
+        }
         for cookie in matched { await store.deleteCookie(cookie) }
-        return .object(["cleared": .number(Double(matched.count)), "restoreId": .string(restoreID), "site": .string(site)])
+        return .object(["cleared": .number(Double(matched.count)), "restoreId": .string(restoreID), "site": .string(host)])
     }
 
     /// `cookies.restore {restoreId}` (no tab: the backup names its
@@ -94,10 +108,12 @@ extension WebKitDriver {
         guard let backups = cookieBackups else {
             throw DriverError(.unsupported, "cookies.restore: this app keeps no cookie backups")
         }
-        backups.pruneExpired()
         let record: CookieBackupRecord
         do throws(CookieBackupError) {
-            let plain = try backups.load(restoreID)
+            let plain = try await Self.backupIO { () throws(CookieBackupError) -> Data in
+                backups.pruneExpired()
+                return try backups.load(restoreID)
+            }
             guard let decoded = try? JSONDecoder().decode(CookieBackupRecord.self, from: plain) else {
                 throw CookieBackupError("the backup \(restoreID) is damaged")
             }
@@ -123,12 +139,19 @@ extension WebKitDriver {
             }
         }
         do throws(CookieBackupError) {
-            try backups.remove(restoreID)
+            try await Self.backupIO { () throws(CookieBackupError) in try backups.remove(restoreID) }
         } catch {
             throw DriverError(.invalid, "cookies.restore: \(error.message)")
         }
         return .object(["restored": .number(Double(restored)), "kept": .number(Double(kept)),
                         "expired": .number(Double(expired)), "site": .string(record.site)])
+    }
+
+    /// Runs backup file and Keychain work on a background thread.
+    nonisolated static func backupIO<T: Sendable>(
+        _ body: @escaping @Sendable () throws(CookieBackupError) -> T
+    ) async throws(CookieBackupError) -> T {
+        try await Task.detached { Result<T, CookieBackupError>(catching: body) }.value.get()
     }
 
     /// Cookie reads with no target: the session's first tab names the profile.
@@ -140,10 +163,13 @@ extension WebKitDriver {
         return tab
     }
 
-    /// Whether a cookie's Domain belongs to `site` (the site or a subdomain).
-    static func onSite(_ domain: String, site: String) -> Bool {
-        let host = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return host == site || host.hasSuffix("." + site)
+    /// Whether a clear on `host` covers a cookie of `domain`: the host's
+    /// own cookies, its parent domains' (they are sent to the host), and
+    /// its subdomains'. A sibling subdomain is not covered.
+    static func inScope(_ domain: String, host: String) -> Bool {
+        let cookieDomain = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard !cookieDomain.isEmpty else { return false }
+        return cookieDomain == host || host.hasSuffix("." + cookieDomain) || cookieDomain.hasSuffix("." + host)
     }
 
     private static func cookie(_ cookie: HTTPCookie, matches url: URL) -> Bool {
