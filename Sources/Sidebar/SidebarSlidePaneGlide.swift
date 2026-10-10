@@ -130,7 +130,7 @@ final class SidebarSlidePaneGlide {
             // content sublayer of its own (not a subview's).
             if let layer = view.layer {
                 undraw(layer)
-                (layer.sublayers ?? []).filter { !($0.delegate is NSView) }.forEach(undraw)
+                (layer.sublayers ?? []).filter { !($0.delegate is NSView) }.forEach(hide)
             }
             var color: CGColor?
             view.effectiveAppearance.performAsCurrentDrawingAppearance { color = view.dividerColor.cgColor }
