@@ -145,6 +145,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             closeWorkspace: {},
             moveBy: { _ in },
             moveTargetsToTop: { _ in },
+            moveTargetsToBottom: { _ in },
             currentWindowMoveTargets: currentWindowMoveTargets,
             moveTargetsToWindow: { _, _ in },
             moveTargetsToNewWindow: { _ in },
