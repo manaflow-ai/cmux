@@ -8,6 +8,11 @@
 //! Capability reply as an ordered frame, so the mint failed with "terminal
 //! host did not mint renderer grant" until the reconnect finished about
 //! three seconds later (browser lane probe on 4a232fc2).
+//!
+//! The same reconnect used to stall a control request that waited for its
+//! reply while holding the surface's runtime lock (mint, clear history):
+//! the reconnecting reader takes that lock before it reads the new stream,
+//! so the reply sat unread until the request timed out.
 
 use super::*;
 
@@ -84,5 +89,44 @@ fn renderer_mint_right_after_default_colors_succeeds() {
     .expect("the grant minted after set-default-colors did not attach");
 
     close_terminal_surface(&harness.socket, surface, id + 2);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// A clear-history right after `set-default-colors` succeeds while the
+/// daemon reconnects the host from the defaults' ResyncRequired.
+#[test]
+fn clear_history_right_after_default_colors_succeeds() {
+    const ROUNDS: u8 = 4;
+    let harness = RecoveryHarness::start("clear-after-defaults");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_set_defaults && record.supports_clear_history);
+
+    let mut id = 10;
+    for round in 0..ROUNDS {
+        request(&harness.socket, defaults_request(id, round + 1));
+        let cleared = request_response(
+            &harness.socket,
+            serde_json::json!({"id": id + 1, "cmd": "clear-history", "surface": surface}),
+        );
+        assert_eq!(
+            cleared["ok"], true,
+            "clear-history {round} right after set-default-colors failed: {cleared}"
+        );
+        id += 2;
+    }
+
+    close_terminal_surface(&harness.socket, surface, id);
     wait_for_no_host_records(&harness.host_root());
 }
