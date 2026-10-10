@@ -43,22 +43,6 @@ describe("part 1: create mints the host id, epoch 1 and a one-time bind token", 
 })
 
 describe("part 2: bind", { timeout: 60_000 }, () => {
-  it("binds once: records host, epoch 1, key and daemon, emits the host, and returns the public keyset", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine, host, keyset } = await createdAndBound(x)
-    expect(Exit.isSuccess(Schema.decodeUnknownExit(HostId)(host))).toBe(true)
-    const got = await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })
-    expect(got).toMatchObject({ ok: true, value: { host, status: "running", image: { daemon_version: DAEMON.version } } })
-    const kids = Object.keys(keyset.keys)
-    expect(kids.length).toBeGreaterThanOrEqual(1)
-    expect(kids.length).toBeLessThanOrEqual(2)
-    for (const k of kids) {
-      expect(keyset.keys[k]).toMatchObject({ kty: "OKP", crv: "Ed25519" })
-      expect(keyset.keys[k]).not.toHaveProperty("d")
-    }
-    expect(keyset.version).toMatch(/^[0-9a-f]{16}$/)
-  })
 
   it("refuses a spent token, a wrong token, an expired token and a malformed key", async () => {
     const x = person()

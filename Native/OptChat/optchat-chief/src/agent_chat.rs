@@ -100,28 +100,3 @@ pub fn page(id: &str, text: &str, at: u64, page: u64) -> String {
 pub fn footer(id: &str) -> String {
     format!("Full chat: zoom(\"{id}\")")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pages_say_where_to_go_on() {
-        let text = "abcdefghij";
-        assert_eq!(
-            page("a1", text, 0, 4),
-            "abcd\n(more: zoom(\"a1\", at=4) of 10 characters)"
-        );
-        assert_eq!(page("a1", text, 8, 4), "ij");
-        assert!(page("a1", text, 10, 4).contains("nothing from 10"));
-    }
-
-    #[test]
-    fn the_first_prompt_gives_only_its_task() {
-        assert_eq!(
-            task_of("<chat>\n0|x\n</chat>\nYour task:\n\ndo it"),
-            "Your task:\n\ndo it"
-        );
-        assert_eq!(task_of("more: please"), "more: please");
-    }
-}

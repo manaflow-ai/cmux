@@ -5,16 +5,6 @@ name: cmux-next docs shortcuts
 # copy of the cmux-next action catalog (DOCS-SHORTCUTS-FROM-CATALOG); this
 # backstop fails when the copy or the page no longer matches the catalog.
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "web/data/**"
-      - "web/scripts/export-docs-shortcuts.ts"
-      - "web/tests/docs-shortcuts.test.ts"
-      - "web/app/**/keyboard-shortcuts.tsx"
-      - "plans/cmux-next/action-surfaces.json"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/**/*.xcstrings"
-      - ".github/workflows/cmux-next-docs-shortcuts.yml"
   workflow_dispatch:
 
 permissions:

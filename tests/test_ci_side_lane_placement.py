@@ -25,7 +25,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 SIDE = "glaeda-side-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 FALLBACK = "blacksmith-6vcpu-macos-26"
-JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files")
+JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files", "swift-canary")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -153,7 +153,7 @@ class CmuxNextWiring(unittest.TestCase):
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
-                                                            "swift": "true", "daemon": "true", "generated": "true",
+                                                            "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             self.PLACEMENT: {"outputs": outputs}}
@@ -194,6 +194,21 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
+
+    def test_a_bot_attempt_4_leaves_the_placement_label_for_blacksmith(self):
+        # A re-run keeps attempt 1's placement output, so bot attempt 3 stays on
+        # the minis; the rescue re-runs a refusal there as attempt 4, which must
+        # leave the minis (#18147, 2026-10-07 02:23Z).
+        jobs = self.workflow()["jobs"]
+        bot = "github-actions[bot]"
+        for name in JOBS:
+            runs_on = jobs[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), STD)
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
+                # A person's re-run stays minis-first at any attempt.
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), STD)
 
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.

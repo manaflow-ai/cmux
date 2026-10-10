@@ -94,8 +94,6 @@ impl Mux {
         let next = self
             .with_state(|state| state.resource_indexes.panes.get(&public_id).copied())
             .context("focused pane disappeared")?;
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
         Ok(next)
     }
@@ -123,8 +121,6 @@ impl Mux {
         {
             return false;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         if let Some(screen) = layout_changed {
             self.emit(MuxEvent::LayoutChanged(screen));
         } else {
@@ -385,8 +381,6 @@ impl Mux {
         {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 
@@ -424,8 +418,6 @@ impl Mux {
         {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 
