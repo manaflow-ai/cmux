@@ -4,9 +4,9 @@ import CmuxNextSettings
 import CmuxNextSidebar
 
 /// `debug.sidebar_rows`: each window's workspace-list rows with their
-/// views (frame, alpha, in the list), the selection and the dragged keys,
+/// views (frame, alpha, in the list, the group it lists in), the selection and the dragged keys,
 /// so a live drag can be checked row by row (R77, nxdog30), and the layout
-/// items (Home, App Store, Settings) with their frames, so a proof clicks them.
+/// items (Home, App Store, Settings) and the + button with their frames, so a proof clicks them.
 /// `menu_x`, `menu_y` (window points from the top-left, as `debug.mouse`) add
 /// the first window's `menu`: the titles a right-click there opens, built by
 /// the list's own `menu(for:)` without showing it, and `submenus`: each
@@ -34,6 +34,7 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
+                "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in
                     .object([
                         "key": .string(row.key), "title": row.title.map(JSONValue.string) ?? .null,
@@ -42,6 +43,7 @@ enum DebugSidebarRows {
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
                         "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
                         "icon": row.icon.map(JSONValue.string) ?? .null,
+                        "group": row.group.map(JSONValue.string) ?? .null,
                     ])
                 }),
             ])
