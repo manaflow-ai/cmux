@@ -1,0 +1,61 @@
+// Page-read budget (classic page-read-budget items, cx-2y2): reads the
+// snapshot walk does beside its tree walk stay within the snapshot's budget
+// on hostile pages, and a snapshot that stops there says so.
+// oracle: skip (snapshot budgets and cut notes are cmux-defined)
+// ---- cell session=budget cmux-only
+// A table is judged layout or data by a sample of its first 50 rows: a
+// row past the sample with another length does not make a data table a
+// layout table (classic TABLE_SAMPLE).
+await page.setViewportSize({ width: 1280, height: 800 });
+await page.goto(`${PRIMARY}/index.html`);
+await page.evaluate(() => {
+  const rows = [];
+  for (let i = 0; i < 60; i++) rows.push(i === 55 ? "<tr><td>a</td><td>b</td><td>c</td></tr>" : `<tr><td>r${i}</td><td>v${i}</td></tr>`);
+  document.body.innerHTML = `<table id="t">${rows.join("")}</table>`;
+});
+const table = (await snapshot({ maxChars: Infinity })).tree;
+emitCmux("table-sample-data-rows", table.split("\n").filter((l) => /^\s*- row: "r\d+ \| v\d+"$/.test(l)).length);
+
+// ---- cell session=budget cmux-only
+// Offscreen interactive elements are counted within the snapshot's node
+// budget; past it the count is a lower bound ("at least").
+await page.evaluate(() => {
+  const far = Array.from({ length: 3000 }, (_, i) => `<button>Far ${i}</button>`).join("");
+  document.body.innerHTML = `<button>Near</button><div style="position:absolute;top:20000px">${far}</div>`;
+});
+const lineOf = (tree, re) => (tree.split("\n").find((l) => re.test(l)) || "").replace(/[\d,]+/g, "N");
+const small = (await snapshot({ viewport: true, _maxNodes: 500 })).tree;
+emitCmux("offscreen-lower-bound", lineOf(small, /interactive elements outside the viewport/));
+const whole = (await snapshot({ viewport: true })).tree;
+emitCmux("offscreen-exact", (whole.split("\n").find((l) => /interactive elements outside the viewport/.test(l)) || "").replace(/^# (\d+) .*/, "$1"));
+
+// ---- cell session=budget cmux-only
+// A zero-size link's visible-box check charges each node it looks at.
+await page.evaluate(() => {
+  const spans = "<span></span>".repeat(5000);
+  document.body.innerHTML = `<a href="#x" style="display:inline-block;width:0;height:0;overflow:visible">${spans}</a><button>After</button>`;
+});
+const box = (await snapshot({ _maxNodes: 2000, maxChars: Infinity })).tree;
+emitCmux("visible-box-charged", { after: box.includes('button "After"'), cut: /stopped after [\d,]+ nodes/.test(box) });
+
+// ---- cell session=budget cmux-only
+// A link URL longer than the size budget has left is cut as written, never
+// resolved or parsed (no offsite summary); generated content, placeholders,
+// option text and editable text past the budget are cut, and the snapshot
+// says it stopped on its size budget.
+await page.evaluate(() => {
+  const long = "https://elsewhere.example/" + "p".repeat(20000);
+  document.body.innerHTML = `<a href="${long}">Long</a>`;
+});
+const url = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
+const link = url.split("\n").find((l) => l.includes('link "Long"')) || "";
+emitCmux("long-url", { url: /\[url=/.test(link), cut: /stopped after [\d,]+ characters/.test(url) });
+await page.evaluate(() => {
+  const big = "q".repeat(200000);
+  const style = document.createElement("style");
+  style.textContent = `#gen::before { content: "${big}"; }`;
+  document.head.appendChild(style);
+  document.body.innerHTML = `<p id="gen">Generated</p><input placeholder="${big}"><select><option label="${big}">one</option></select><div contenteditable="true">${big}</div><button>Tail</button>`;
+});
+const values = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
+emitCmux("big-values-cut", { tail: values.includes('button "Tail"'), cut: /stopped after [\d,]+ characters/.test(values), short: values.length < 20000 });

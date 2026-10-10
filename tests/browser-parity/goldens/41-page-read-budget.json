@@ -1,0 +1,21 @@
+{
+  "oracle": {},
+  "cmux": {
+    "table-sample-data-rows": 59,
+    "offscreen-lower-bound": "# at least N interactive elements outside the viewport are not shown; snapshot() shows the whole page",
+    "offscreen-exact": "3000",
+    "visible-box-charged": {
+      "after": true,
+      "cut": true
+    },
+    "long-url": {
+      "url": false,
+      "cut": true
+    },
+    "big-values-cut": {
+      "tail": false,
+      "cut": true,
+      "short": true
+    }
+  }
+}
