@@ -15,9 +15,7 @@ import {
 const prompt = "Add retries with backoff to the fetch helper";
 
 const selectionRows = [
-  user("Select this prompt to copy it into a bug report", 5, {
-    id: "gallery-selection-user",
-  }),
+  user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
   assistant(
     "The response stays selectable while controls keep their keyboard focus.\n\nUse the highlighted prose to compare the real transcript against the reference.",
     4.9,
@@ -27,9 +25,7 @@ const selectionRows = [
 ];
 
 const keyboardRows = [
-  user("Open the work details with the keyboard", 4, {
-    id: "gallery-keyboard-user",
-  }),
+  user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
     [
       thought("The disclosure should keep its focus while the tool list opens."),
@@ -42,11 +38,7 @@ const keyboardRows = [
   assistant("The work details are open without moving the transcript column.", 3.8, {
     id: "gallery-keyboard-answer",
   }),
-  summary(3.8, {
-    id: "gallery-keyboard-summary",
-    status: "completed",
-    toolCount: 2,
-  }),
+  summary(3.8, { id: "gallery-keyboard-summary", status: "completed", toolCount: 2 }),
 ];
 
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
@@ -122,20 +114,13 @@ const BUILD_CHART = [
           mark: { type: "bar", color: "#3b6fd8" },
           encoding: {
             y: { field: "target", type: "nominal", sort: "-x", title: null },
-            x: {
-              field: "p50",
-              type: "quantitative",
-              title: "seconds (p50, tick = p90)",
-            },
+            x: { field: "p50", type: "quantitative", title: "seconds (p50, tick = p90)" },
             tooltip: [{ field: "target" }, { field: "p50" }, { field: "p90" }],
           },
         },
         {
           mark: { type: "tick", color: "#e8a33d", thickness: 2 },
-          encoding: {
-            y: { field: "target", type: "nominal", sort: "-x" },
-            x: { field: "p90", type: "quantitative" },
-          },
+          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
         },
       ],
     },
@@ -198,18 +183,9 @@ const TASKS_REPLY = [
 
 const CHIP_HOST = {
   paths: {
-    "/Users/you/src/atlas-web/src/net/retry.ts": {
-      place: "root" as const,
-      folder: false,
-    },
-    "/Users/you/src/atlas-web/src/net/": {
-      place: "root" as const,
-      folder: true,
-    },
-    "/Users/you/Documents/notes.md": {
-      place: "outside" as const,
-      folder: false,
-    },
+    "/Users/you/src/atlas-web/src/net/retry.ts": { place: "root" as const, folder: false },
+    "/Users/you/src/atlas-web/src/net/": { place: "root" as const, folder: true },
+    "/Users/you/Documents/notes.md": { place: "outside" as const, folder: false },
   },
   sites: {
     "https://docs.example.test/guide": {
@@ -376,10 +352,7 @@ export default agentPaneEntry({
       note: "A turn the agent ended with an error.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.5, {
-          status: "failed",
-          error: "The agent stopped: model overloaded (529). Try again in a moment.",
-        }),
+        summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
     "turn-error-with-pdf": {
@@ -398,10 +371,7 @@ export default agentPaneEntry({
             },
           ],
         }),
-        summary(5.5, {
-          status: "failed",
-          error: "The model stopped before reading the document. Try again.",
-        }),
+        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
       ]),
     },
     "turn-error-long": {
@@ -461,10 +431,7 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 6),
-          summary(5.5, {
-            status: "failed",
-            error: "API Error: 401 authentication_error: invalid x-api-key",
-          }),
+          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
         ],
         { harness: "claude" },
       ),
@@ -580,14 +547,8 @@ export default agentPaneEntry({
       note: "Images tool calls produced: a screenshot a browser tool returned, a chart a script saved, and the first page of a PDF report; a click opens the viewer.",
       chipHost: {
         paths: {
-          "/Users/you/src/atlas-web/out/build-times.png": {
-            place: "root" as const,
-            folder: false,
-          },
-          "/Users/you/src/atlas-web/out/build-report.pdf": {
-            place: "root" as const,
-            folder: false,
-          },
+          "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false },
+          "/Users/you/src/atlas-web/out/build-report.pdf": { place: "root" as const, folder: false },
         },
         images: {
           "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}`,
@@ -625,15 +586,8 @@ export default agentPaneEntry({
     "tool-video": {
       note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
       chipHost: {
-        paths: {
-          "/Users/you/src/atlas-web/out/login-tests.mp4": {
-            place: "root" as const,
-            folder: false,
-          },
-        },
-        media: {
-          "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}`,
-        },
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
       },
       snapshot: chat([
         user("Record the login tests running so I can attach it to the PR", 4),
@@ -653,9 +607,7 @@ export default agentPaneEntry({
     },
     "web-video": {
       note: "A GitHub attachment alone on its line: with images.remote = click (the default) it shows its site and Load video.",
-      chipHost: {
-        media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
-      },
+      chipHost: { media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
       snapshot: chat([
         user("Did the PR's recording show the login tests passing?", 3),
         assistant(WEB_VIDEO_REPLY, 2.9),
@@ -693,14 +645,7 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user("Install the tree package", 1),
-          activity(
-            [
-              tool("bun add @pierre/trees", "execute", "pending", {
-                command: "bun add @pierre/trees",
-              }),
-            ],
-            0.9,
-          ),
+          activity([tool("bun add @pierre/trees", "execute", "pending", { command: "bun add @pierre/trees" })], 0.9),
         ],
         {
           isWorking: true,
@@ -746,12 +691,8 @@ export default agentPaneEntry({
       note: "Play: select a whole prompt row, then the assistant's rendered prose; both remain browser text selection.",
       snapshot: chat(selectionRows),
       play: async (ctx) => {
-        await ctx.selectText({
-          selector: '[data-row-id="gallery-selection-user"]',
-        });
-        await ctx.selectText({
-          selector: '[data-row-id="gallery-selection-answer"] .cv-md',
-        });
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
       },
     },
     "keyboard-selection": {
@@ -784,9 +725,7 @@ export default agentPaneEntry({
         await ctx.press("Meta+c");
         await ctx.waitFor(() => {
           const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
-          return (
-            answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement)
-          );
+          return answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement);
         });
       },
     },
