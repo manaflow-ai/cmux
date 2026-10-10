@@ -275275,121 +275275,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a"
+            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM"
+            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM"
+            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB"
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB. VM មួយអាចប្រើ RAM រហូតដល់ 16 GB / 8 vCPU។ ទំហំ 24 GB / 12 vCPU និង 32 GB / 16 vCPU ត្រូវការ Max។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM"
+            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM"
+            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Jedna VM może używać do 16 GB RAM / 8 vCPU. Rozmiary 24 GB / 12 vCPU i 32 GB / 16 vCPU wymagają Max."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM"
+            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM"
+            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM. Одна VM может использовать до 16 ГБ RAM / 8 vCPU. Для размеров 24 ГБ / 12 vCPU и 32 ГБ / 16 vCPU требуется Max."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน"
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน. VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 16 GB / 8 vCPU ขนาด 24 GB / 12 vCPU และ 32 GB / 16 vCPU ต้องใช้ Max"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM"
+            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM"
+            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM. Одна VM може використовувати до 16 ГБ RAM / 8 vCPU. Для розмірів 24 ГБ / 12 vCPU і 32 ГБ / 16 vCPU потрібен Max."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"
+            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有"
+            "value": "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有. 1 台の VM は最大 16 GB RAM / 8 vCPU を利用できます。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存. 单台 VM 最多可使用 16 GB 内存 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格需要 Max。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen"
+            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. يمكن للجهاز الواحد استخدام ما يصل إلى 16 GB من الذاكرة / 8 vCPU. تتطلب أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU خطة Max."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM"
+            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體. 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM이 vCPU 20개와 RAM 40 GB를 공유"
+            "value": "최대 5개의 클라우드 VM이 vCPU 20개와 RAM 40 GB를 공유. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다."
           }
         }
       }
@@ -275946,121 +275946,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
+            "value": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じプールが加わり、チーム全体で共有します。VM はすべて 1 つのプールからリソースを使います。大きな VM を 1 台動かすことも、小さな VM を 5 台動かすこともできます。一時停止中の VM はプールを使いません。従量課金や超過料金はありません。"
+            "value": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じプールが加わり、チーム全体で共有します。VM はすべて 1 つのプールからリソースを使います。大きな VM を 1 台動かすことも、小さな VM を 5 台動かすこともできます。一時停止中の VM はプールを使いません。従量課金や超過料金はありません。 1 台の VM は最大 16 GB RAM / 8 vCPU を利用できます。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. وتضيف باقة Team المجموعة نفسها لكل مقعد مدفوع، ويتشاركها الفريق بأكمله. تستمد أجهزتك الافتراضية مواردها من مجموعة واحدة، فيمكنك تشغيل جهاز كبير واحد أو خمسة أجهزة صغيرة. ولا تستهلك الأجهزة المتوقفة مؤقتًا شيئًا من المجموعة. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
+            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. وتضيف باقة Team المجموعة نفسها لكل مقعد مدفوع، ويتشاركها الفريق بأكمله. تستمد أجهزتك الافتراضية مواردها من مجموعة واحدة، فيمكنك تشغيل جهاز كبير واحد أو خمسة أجهزة صغيرة. ولا تستهلك الأجهزة المتوقفة مؤقتًا شيئًا من المجموعة. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود. يمكن للجهاز الواحد استخدام ما يصل إلى 16 GB من الذاكرة / 8 vCPU. تتطلب أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU خطة Max."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Team dodaje isti skup resursa za svako plaćeno mjesto, zajednički za cijeli tim. Vaši VM-ovi koriste jedan zajednički skup. Pokrenite jedan veliki VM ili pet malih. Pauzirani VM-ovi ne koriste skup. Nema naplate prema potrošnji niti naplate prekoračenja."
+            "value": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Team dodaje isti skup resursa za svako plaćeno mjesto, zajednički za cijeli tim. Vaši VM-ovi koriste jedan zajednički skup. Pokrenite jedan veliki VM ili pet malih. Pauzirani VM-ovi ne koriste skup. Nema naplate prema potrošnji niti naplate prekoračenja. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Team tilføjer den samme pulje for hver betalt plads, delt på tværs af teamet. Dine VMs trækker på én fælles pulje. Kør én stor VM eller fem små. VMs på pause bruger ikke af puljen. Der er ingen forbrugsafregning eller betaling for overforbrug."
+            "value": "Pro inkluderer op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Team tilføjer den samme pulje for hver betalt plads, delt på tværs af teamet. Dine VMs trækker på én fælles pulje. Kør én stor VM eller fem små. VMs på pause bruger ikke af puljen. Der er ingen forbrugsafregning eller betaling for overforbrug. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro beinhaltet bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Team fügt denselben Pool für jeden bezahlten Platz hinzu, gemeinsam für das ganze Team. Deine VMs nutzen einen gemeinsamen Pool. Betreibe eine große VM oder fünf kleine. Pausierte VMs belegen nichts vom Pool. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
+            "value": "Pro beinhaltet bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Team fügt denselben Pool für jeden bezahlten Platz hinzu, gemeinsam für das ganze Team. Deine VMs nutzen einen gemeinsamen Pool. Betreibe eine große VM oder fünf kleine. Pausierte VMs belegen nichts vom Pool. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro incluye hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Team añade el mismo grupo de recursos por cada puesto de pago, compartido por todo el equipo. Tus VM usan un único grupo de recursos. Ejecuta una VM grande o cinco pequeñas. Las VM en pausa no usan el grupo. No hay facturación por consumo ni por exceso."
+            "value": "Pro incluye hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Team añade el mismo grupo de recursos por cada puesto de pago, compartido por todo el equipo. Tus VM usan un único grupo de recursos. Ejecuta una VM grande o cinco pequeñas. Las VM en pausa no usan el grupo. No hay facturación por consumo ni por exceso. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inclut jusqu'à 5 VM Cloud qui partagent 20 vCPU et 40 Go de RAM. Team ajoute la même réserve pour chaque siège payant, partagée par toute l'équipe. Vos VM puisent dans une réserve commune. Lancez une grande VM ou cinq petites. Les VM en pause n'utilisent pas la réserve. Il n'y a pas de facturation à l'utilisation ou de dépassement."
+            "value": "Pro inclut jusqu'à 5 VM Cloud qui partagent 20 vCPU et 40 Go de RAM. Team ajoute la même réserve pour chaque siège payant, partagée par toute l'équipe. Vos VM puisent dans une réserve commune. Lancez une grande VM ou cinq petites. Les VM en pause n'utilisent pas la réserve. Il n'y a pas de facturation à l'utilisation ou de dépassement. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro include fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Team aggiunge lo stesso pool per ogni postazione a pagamento, condiviso da tutto il team. Le tue VM attingono a un unico pool. Esegui una VM grande o cinque piccole. Le VM in pausa non usano il pool. Non è prevista fatturazione a consumo né per eccedenze."
+            "value": "Pro include fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Team aggiunge lo stesso pool per ogni postazione a pagamento, condiviso da tutto il team. Le tue VM attingono a un unico pool. Esegui una VM grande o cinque piccole. Le VM in pausa non usano il pool. Non è prevista fatturazione a consumo né per eccedenze. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB។ Team បន្ថែមបណ្តុំធនធានដូចគ្នាសម្រាប់កៅអីបង់ប្រាក់នីមួយៗ ដែលក្រុមទាំងមូលប្រើរួមគ្នា។ VMs របស់អ្នកប្រើធនធានពីបណ្តុំតែមួយ។ ដំណើរការ VM ធំមួយ ឬ VM តូចប្រាំ។ VMs ដែលបានផ្អាកមិនប្រើបណ្តុំទេ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។"
+            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB។ Team បន្ថែមបណ្តុំធនធានដូចគ្នាសម្រាប់កៅអីបង់ប្រាក់នីមួយៗ ដែលក្រុមទាំងមូលប្រើរួមគ្នា។ VMs របស់អ្នកប្រើធនធានពីបណ្តុំតែមួយ។ ដំណើរការ VM ធំមួយ ឬ VM តូចប្រាំ។ VMs ដែលបានផ្អាកមិនប្រើបណ្តុំទេ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។. VM មួយអាចប្រើ RAM រហូតដល់ 16 GB / 8 vCPU។ ទំហំ 24 GB / 12 vCPU និង 32 GB / 16 vCPU ត្រូវការ Max។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 20개와 RAM 40 GB를 공유합니다. Team은 유료 시트마다 동일한 풀이 추가되며 팀 전체가 공유합니다. VM은 하나의 풀에서 리소스를 사용합니다. 큰 VM 1개를 실행하거나 작은 VM 5개를 실행할 수 있습니다. 일시 중지된 VM은 풀을 사용하지 않습니다. 사용량 기반 과금이나 초과 요금은 없습니다."
+            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 20개와 RAM 40 GB를 공유합니다. Team은 유료 시트마다 동일한 풀이 추가되며 팀 전체가 공유합니다. VM은 하나의 풀에서 리소스를 사용합니다. 큰 VM 1개를 실행하거나 작은 VM 5개를 실행할 수 있습니다. 일시 중지된 VM은 풀을 사용하지 않습니다. 사용량 기반 과금이나 초과 요금은 없습니다. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Team legger til den samme ressurspoolen for hver betalt plass, delt på tvers av teamet. VM-ene dine bruker én felles ressurspool. Kjør én stor VM eller fem små. VM-er på pause bruker ikke av ressurspoolen. Det er ingen forbruksbasert fakturering eller betaling for overforbruk."
+            "value": "Pro inkluderer opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Team legger til den samme ressurspoolen for hver betalt plass, delt på tvers av teamet. VM-ene dine bruker én felles ressurspool. Kjør én stor VM eller fem små. VM-er på pause bruker ikke av ressurspoolen. Det er ingen forbruksbasert fakturering eller betaling for overforbruk. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro obejmuje do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Team dodaje tę samą pulę za każde płatne miejsce, wspólną dla całego zespołu. Twoje VM korzystają z jednej wspólnej puli. Uruchom jedną dużą VM albo pięć małych. Wstrzymane VM nie zużywają puli. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów."
+            "value": "Pro obejmuje do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Team dodaje tę samą pulę za każde płatne miejsce, wspólną dla całego zespołu. Twoje VM korzystają z jednej wspólnej puli. Uruchom jedną dużą VM albo pięć małych. Wstrzymane VM nie zużywają puli. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów. Jedna VM może używać do 16 GB RAM / 8 vCPU. Rozmiary 24 GB / 12 vCPU i 32 GB / 16 vCPU wymagają Max."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Pro inclui até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. O Team adiciona o mesmo pool para cada assento pago, compartilhado por toda a equipe. Suas VMs usam um único pool de recursos. Execute uma VM grande ou cinco pequenas. VMs pausadas não usam o pool. Não há cobrança por uso nem por excedente."
+            "value": "O Pro inclui até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. O Team adiciona o mesmo pool para cada assento pago, compartilhado por toda a equipe. Suas VMs usam um único pool de recursos. Execute uma VM grande ou cinco pequenas. VMs pausadas não usam o pool. Não há cobrança por uso nem por excedente. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включает до 5 Cloud VMs с общим пулом из 20 vCPU и 40 ГБ RAM. Team добавляет такой же пул за каждое оплаченное место, общий для всей команды. Все ваши VM берут ресурсы из одного пула. Запустите одну большую VM или пять маленьких. Приостановленные VM не расходуют пул. Нет оплаты по факту использования или за превышение."
+            "value": "Pro включает до 5 Cloud VMs с общим пулом из 20 vCPU и 40 ГБ RAM. Team добавляет такой же пул за каждое оплаченное место, общий для всей команды. Все ваши VM берут ресурсы из одного пула. Запустите одну большую VM или пять маленьких. Приостановленные VM не расходуют пул. Нет оплаты по факту использования или за превышение. Одна VM может использовать до 16 ГБ RAM / 8 vCPU. Для размеров 24 ГБ / 12 vCPU и 32 ГБ / 16 vCPU требуется Max."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 20 vCPU และ RAM 40 GB ร่วมกัน Team เพิ่มพูลเดียวกันนี้ต่อที่นั่งแบบชำระเงินแต่ละที่นั่ง โดยใช้ร่วมกันทั้งทีม VM ทั้งหมดของคุณใช้ทรัพยากรจากพูลเดียว จะรัน VM ใหญ่เครื่องเดียวหรือ VM เล็กห้าเครื่องก็ได้ VM ที่หยุดชั่วคราวไม่ใช้พูล ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน"
+            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 20 vCPU และ RAM 40 GB ร่วมกัน Team เพิ่มพูลเดียวกันนี้ต่อที่นั่งแบบชำระเงินแต่ละที่นั่ง โดยใช้ร่วมกันทั้งทีม VM ทั้งหมดของคุณใช้ทรัพยากรจากพูลเดียว จะรัน VM ใหญ่เครื่องเดียวหรือ VM เล็กห้าเครื่องก็ได้ VM ที่หยุดชั่วคราวไม่ใช้พูล ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน. VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 16 GB / 8 vCPU ขนาด 24 GB / 12 vCPU และ 32 GB / 16 vCPU ต้องใช้ Max"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro, 20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM içerir. Team, her ücretli koltuk için aynı havuzu ekler ve bu havuz tüm ekip tarafından paylaşılır. VM'leriniz tek bir havuzu kullanır. Tek bir büyük VM ya da beş küçük VM çalıştırın. Duraklatılmış VM'ler havuzu kullanmaz. Kullanıma göre ücretlendirme veya aşım ücreti yoktur."
+            "value": "Pro, 20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM içerir. Team, her ücretli koltuk için aynı havuzu ekler ve bu havuz tüm ekip tarafından paylaşılır. VM'leriniz tek bir havuzu kullanır. Tek bir büyük VM ya da beş küçük VM çalıştırın. Duraklatılmış VM'ler havuzu kullanmaz. Kullanıma göre ücretlendirme veya aşım ücreti yoktur. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включає до 5 Cloud VMs зі спільним пулом із 20 vCPU і 40 ГБ RAM. Team додає такий самий пул за кожне оплачене місце, спільний для всієї команди. Усі ваші VM беруть ресурси з одного пулу. Запустіть одну велику VM або п'ять малих. Призупинені VM не використовують пул. Немає оплати за фактичне використання чи за перевищення."
+            "value": "Pro включає до 5 Cloud VMs зі спільним пулом із 20 vCPU і 40 ГБ RAM. Team додає такий самий пул за кожне оплачене місце, спільний для всієї команди. Усі ваші VM беруть ресурси з одного пулу. Запустіть одну велику VM або п'ять малих. Призупинені VM не використовують пул. Немає оплати за фактичне використання чи за перевищення. Одна VM може використовувати до 16 ГБ RAM / 8 vCPU. Для розмірів 24 ГБ / 12 vCPU і 32 ГБ / 16 vCPU потрібен Max."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 最多包含 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存。Team 为每个付费席位增加相同的资源池，由整个团队共享。你的虚拟机共用一个资源池，可以运行一台大型虚拟机，也可以运行五台小型虚拟机。已暂停的虚拟机不占用资源池。不按用量计费，也不收取超额费用。"
+            "value": "Pro 最多包含 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存。Team 为每个付费席位增加相同的资源池，由整个团队共享。你的虚拟机共用一个资源池，可以运行一台大型虚拟机，也可以运行五台小型虚拟机。已暂停的虚拟机不占用资源池。不按用量计费，也不收取超额费用。 单台 VM 最多可使用 16 GB 内存 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格需要 Max。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 包含最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體。Team 為每個付費席位增加相同的資源池，由整個團隊共用。你的虛擬機共用一個資源池，可以執行一台大型虛擬機，也可以執行五台小型虛擬機。已暫停的虛擬機不會占用資源池。不按用量計費，也不收取超額費用。"
+            "value": "Pro 包含最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體。Team 為每個付費席位增加相同的資源池，由整個團隊共用。你的虛擬機共用一個資源池，可以執行一台大型虛擬機，也可以執行五台小型虛擬機。已暫停的虛擬機不會占用資源池。不按用量計費，也不收取超額費用。 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。"
           }
         }
       }
@@ -521316,51 +521316,62 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, Arbeitsspeicher 1–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
+            "value": "vm resize: CPU 1–32, Arbeitsspeicher 4–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize : indiquez 1–32 CPU, 1–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
+            "value": "vm resize : indiquez 1–32 CPU, 4–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 1–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
+            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 4–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: usa CPU 1–32, memoria 1–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
+            "value": "vm resize: usa CPU 1–32, memoria 4–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 為 1–32，記憶體為 1–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
+            "value": "vm resize：CPU 為 1–32，記憶體為 4–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 为 1–32，内存为 1–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
+            "value": "vm resize：CPU 为 1–32，内存为 4–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, 메모리 1–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
+            "value": "vm resize: CPU 1–32, 메모리 4–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU は 1〜32、メモリは 1〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
+            "value": "vm resize: CPU は 1〜32、メモリは 4〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: koristite CPU 1–32, memoriju 4–64 GiB u cijelim GiB i disk 4–256 GiB u koracima od 4 GiB."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: brug CPU 1–32, hukommelse 4–64 GiB i hele GiB og disk 4–256 GiB i trin på 4 GiB."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: usa CPU 1–32, memoria 4–64 GiB in GiB interi e disco 4–256 GiB in incrementi di 4 GiB."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: ប្រើ CPU 1–32 អង្គចងចាំ 4–64 GiB ជាចំនួនគត់ GiB និងថាស 4–256 GiB ដោយបង្កើនម្តង 4 GiB។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: bruk CPU 1–32, minne 4–64 GiB i hele GiB og disk 4–256 GiB i trinn på 4 GiB."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: użyj CPU 1–32, pamięci 4–64 GiB w pełnych GiB i dysku 4–256 GiB w krokach co 4 GiB."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memória 4–64 GiB em GiB inteiros e disco 4–256 GiB em incrementos de 4 GiB."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: используйте CPU 1–32, память 4–64 GiB с шагом 1 GiB и диск 4–256 GiB с шагом 4 GiB."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: ใช้ CPU 1–32 หน่วยความจำ 4–64 GiB โดยระบุ GiB เป็นจำนวนเต็ม และดิสก์ 4–256 GiB โดยเพิ่มทีละ 4 GiB"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: CPU 1–32, bellek tam GiB olarak 4–64 GiB ve disk 4 GiB adımlarla 4–256 GiB olmalıdır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: використовуйте CPU 1–32, пам’ять 4–64 GiB із кроком 1 GiB і диск 4–256 GiB із кроком 4 GiB."}}
       }
     },
     "cli.vm.resize.success": {
@@ -521419,7 +521430,18 @@
             "state": "translated",
             "value": "OK %@ CPU=%@ メモリ=%@ GiB ディスク=%@ GiB"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ memorija=%@ GiB disk=%@ GiB"}},
+        "da": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ hukommelse=%@ GiB disk=%@ GiB"}},
+        "it": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ memoria=%@ GiB disco=%@ GiB"}},
+        "km": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ អង្គចងចាំ=%@ GiB ថាស=%@ GiB"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ minne=%@ GiB disk=%@ GiB"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ pamięć=%@ GiB dysk=%@ GiB"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ memória=%@ GiB disco=%@ GiB"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "OK %@ ЦП=%@ память=%@ GiB диск=%@ GiB"}},
+        "th": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ หน่วยความจำ=%@ GiB ดิสก์=%@ GiB"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "OK %@ CPU=%@ bellek=%@ GiB disk=%@ GiB"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "OK %@ ЦП=%@ пам’ять=%@ GiB диск=%@ GiB"}}
       }
     },
     "socket.cloudVM.resize.idRequired": {
@@ -521546,57 +521568,68 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 1–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe server enforces plan limits and returns the provider-confirmed resources.\nAdd --json for the structured result."
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again\nand returns the provider-confirmed resources.\nAdd --json for the structured result."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben."
+            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben.\n"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\nAjoutez --json pour obtenir le résultat structuré."
+            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\n\nAjoutez --json pour obtenir le résultat structuré."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 1–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\nأضف --json للحصول على النتيجة المنظّمة."
+            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 4–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\n\nأضف --json للحصول على النتيجة المنظّمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\nAñade --json para obtener el resultado estructurado."
+            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\n\nAñade --json para obtener el resultado estructurado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n加上 --json 以取得結構化結果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n\n加上 --json 以取得結構化結果。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n加上 --json 以获取结构化结果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n\n加上 --json 以获取结构化结果。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n구조화된 결과를 보려면 --json을 추가하세요."
+            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n\n구조화된 결과를 보려면 --json을 추가하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n構造化された結果には --json を追加してください。"
+            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n\n構造化された結果には --json を追加してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}}
       }
     },
     "cli.vm.resize.helpDescription": {
@@ -521655,7 +521688,18 @@
             "state": "translated",
             "value": "既存のマシンの CPU、メモリ、ディスクを増量します。`cmux vm resize --help` を参照してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "Povećajte CPU, memoriju ili disk postojeće mašine; pogledajte `cmux vm resize --help`."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Udvid en eksisterende maskines CPU, hukommelse eller disk; se `cmux vm resize --help`."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Aumenta CPU, memoria o disco di una macchina esistente; consulta `cmux vm resize --help`."}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្កើន CPU អង្គចងចាំ ឬថាសរបស់ម៉ាស៊ីនដែលមានស្រាប់; មើល `cmux vm resize --help`។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Øk CPU, minne eller disk på en eksisterende maskin; se `cmux vm resize --help`."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zwiększ CPU, pamięć lub dysk istniejącej maszyny; zobacz `cmux vm resize --help`."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aumente a CPU, a memória ou o disco de uma máquina existente; consulte `cmux vm resize --help`."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Увеличьте CPU, память или диск существующей машины; см. `cmux vm resize --help`."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เพิ่ม CPU หน่วยความจำ หรือดิสก์ของเครื่องที่มีอยู่ ดู `cmux vm resize --help`"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Mevcut bir makinenin CPU, bellek veya disk boyutunu artırın; `cmux vm resize --help` komutuna bakın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Збільште CPU, пам’ять або диск наявної машини; див. `cmux vm resize --help`."}}
       }
     },
     "machines.menu.resizeToGiB": {
@@ -523549,121 +523593,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a, a jedan VM može koristiti do 64 GB RAM-a."
+            "value": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a, a jedan VM može koristiti do 64 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inkluderer op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM, og én VM kan bruge op til 64 GB RAM."
+            "value": "Max inkluderer op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM, og én VM kan bruge op til 64 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, e una singola VM può usare fino a 64 GB di RAM."
+            "value": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, e una singola VM può usare fino a 64 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB ហើយ VM មួយអាចប្រើ RAM រហូតដល់ 64 GB។"
+            "value": "Max រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB ហើយ VM មួយអាចប្រើ RAM រហូតដល់ 64 GB។. Max ផ្តល់ទំហំ 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inkluderer opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM, og én VM kan bruke opptil 64 GB RAM."
+            "value": "Max inkluderer opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM, og én VM kan bruke opptil 64 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max obejmuje do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM, a jedna VM może używać do 64 GB RAM."
+            "value": "Max obejmuje do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM, a jedna VM może używać do 64 GB RAM. Max udostępnia 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Max inclui até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM, e uma VM pode usar até 64 GB de RAM."
+            "value": "O Max inclui até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM, e uma VM pode usar até 64 GB de RAM. O Max libera 24 GB / 12 vCPU, 32 GB / 16 vCPU e até 64 GB / 32 vCPU."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max включает до 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM, а одна VM может использовать до 64 ГБ RAM."
+            "value": "Max включает до 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM, а одна VM может использовать до 64 ГБ RAM. Max открывает размеры 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 80 vCPU และ RAM 160 GB ร่วมกัน และ VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 64 GB"
+            "value": "Max มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 80 vCPU และ RAM 160 GB ร่วมกัน และ VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 64 GB. Max เปิดให้ใช้ขนาด 24 GB / 12 vCPU, 32 GB / 16 vCPU และสูงสุด 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max, 80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM içerir ve tek bir VM en fazla 64 GB RAM kullanabilir."
+            "value": "Max, 80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM içerir ve tek bir VM en fazla 64 GB RAM kullanabilir. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max включає до 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM, а одна VM може використовувати до 64 ГБ RAM."
+            "value": "Max включає до 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM, а одна VM може використовувати до 64 ГБ RAM. Max відкриває розміри 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU і до 64 ГБ / 32 vCPU."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, and one VM can use up to 64 GB RAM."
+            "value": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. It unlocks 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes, and one VM can use up to 64 GB RAM / 32 vCPU."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max beinhaltet bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen; eine einzelne VM kann bis zu 64 GB RAM nutzen."
+            "value": "Max beinhaltet bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen; eine einzelne VM kann bis zu 64 GB RAM nutzen. Max schaltet 24 GB / 12 vCPU, 32 GB / 16 vCPU und bis zu 64 GB / 32 vCPU frei."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inclut jusqu'à 5 VM Cloud qui partagent 80 vCPU et 160 Go de RAM, et une seule VM peut utiliser jusqu'à 64 Go de RAM."
+            "value": "Max inclut jusqu'à 5 VM Cloud qui partagent 80 vCPU et 160 Go de RAM, et une seule VM peut utiliser jusqu'à 64 Go de RAM. Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة، ويمكن للجهاز الواحد استخدام ما يصل إلى 64 جيجابايت من الذاكرة."
+            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة، ويمكن للجهاز الواحد استخدام ما يصل إلى 64 جيجابايت من الذاكرة. تتيح Max أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU وحتى 64 GB / 32 vCPU."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max incluye hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM, y una sola VM puede usar hasta 64 GB de RAM."
+            "value": "Max incluye hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM, y una sola VM puede usar hasta 64 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 包含最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體，單台虛擬機最多可使用 64 GB 記憶體。"
+            "value": "Max 包含最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體，單台虛擬機最多可使用 64 GB 記憶體。 Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 最多包含 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存，单台虚拟机最多可使用 64 GB 内存。"
+            "value": "Max 最多包含 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存，单台虚拟机最多可使用 64 GB 内存。 Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可达 64 GB / 32 vCPU。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 80개와 RAM 160 GB를 공유합니다. VM 1개는 최대 RAM 64 GB까지 사용할 수 있습니다."
+            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 80개와 RAM 160 GB를 공유합니다. VM 1개는 최대 RAM 64 GB까지 사용할 수 있습니다. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max には最大 5 台の Cloud VM が含まれ、80 vCPU と 160 GB RAM を共有します。1 台の VM で最大 64 GB RAM を利用できます。"
+            "value": "Max には最大 5 台の Cloud VM が含まれ、80 vCPU と 160 GB RAM を共有します。1 台の VM で最大 64 GB RAM を利用できます。 Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
           }
         }
       }
@@ -524441,121 +524485,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a"
+            "value": "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM"
+            "value": "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM"
+            "value": "Fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB"
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB. Max ផ្តល់ទំហំ 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM"
+            "value": "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM"
+            "value": "Do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM. Max udostępnia 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM"
+            "value": "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM. O Max libera 24 GB / 12 vCPU, 32 GB / 16 vCPU e até 64 GB / 32 vCPU."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM"
+            "value": "До 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM. Max открывает размеры 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 80 vCPU และ RAM 160 GB ร่วมกัน"
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 80 vCPU และ RAM 160 GB ร่วมกัน. Max เปิดให้ใช้ขนาด 24 GB / 12 vCPU, 32 GB / 16 vCPU และสูงสุด 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM"
+            "value": "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM"
+            "value": "До 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM. Max відкриває розміри 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU і до 64 ГБ / 32 vCPU."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM"
+            "value": "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen"
+            "value": "Bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen. Max schaltet 24 GB / 12 vCPU, 32 GB / 16 vCPU und bis zu 64 GB / 32 vCPU frei."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud partageant 80 vCPU et 160 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud partageant 80 vCPU et 160 Go de RAM. Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة. تتيح Max أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU وحتى 64 GB / 32 vCPU."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM"
+            "value": "Hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可达 64 GB / 32 vCPU。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM이 vCPU 80개와 RAM 160 GB를 공유"
+            "value": "최대 5개의 클라우드 VM이 vCPU 80개와 RAM 160 GB를 공유. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有"
+            "value": "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有. Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
           }
         }
       }
@@ -524684,121 +524728,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM-a"
+            "value": "64 GB RAM-a / 32 vCPU"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB di RAM"
+            "value": "64 GB di RAM / 32 vCPU"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 64 GB"
+            "value": "RAM 64 GB / 32 vCPU"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "64 GB de RAM / 32 vCPU"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 ГБ RAM"
+            "value": "64 ГБ RAM / 32 vCPU"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 64 GB"
+            "value": "RAM 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 ГБ RAM"
+            "value": "64 ГБ RAM / 32 vCPU"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB Arbeitsspeicher"
+            "value": "64 GB Arbeitsspeicher / 32 vCPU"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 Go de RAM"
+            "value": "64 Go de RAM / 32 vCPU"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 غيغابايت من الذاكرة"
+            "value": "64 غيغابايت من الذاكرة / 32 vCPU"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "64 GB de RAM / 32 vCPU"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 記憶體"
+            "value": "64 GB 記憶體 / 32 vCPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 内存"
+            "value": "64 GB 内存 / 32 vCPU"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 메모리"
+            "value": "64 GB 메모리 / 32 vCPU"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB メモリ"
+            "value": "64 GB メモリ / 32 vCPU"
           }
         }
       }
@@ -525899,121 +525943,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM-a"
+            "value": "16 GB RAM-a / 8 vCPU"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB di RAM"
+            "value": "16 GB di RAM / 8 vCPU"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 32 GB"
+            "value": "RAM 16 GB / 8 vCPU"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB de RAM"
+            "value": "16 GB de RAM / 8 vCPU"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 ГБ RAM"
+            "value": "16 ГБ RAM / 8 vCPU"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 32 GB"
+            "value": "RAM 16 GB / 8 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 ГБ RAM"
+            "value": "16 ГБ RAM / 8 vCPU"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB Arbeitsspeicher"
+            "value": "16 GB Arbeitsspeicher / 8 vCPU"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 Go de RAM"
+            "value": "16 Go de RAM / 8 vCPU"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 غيغابايت من الذاكرة"
+            "value": "16 غيغابايت من الذاكرة / 8 vCPU"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB de RAM"
+            "value": "16 GB de RAM / 8 vCPU"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 記憶體"
+            "value": "16 GB 記憶體 / 8 vCPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 内存"
+            "value": "16 GB 内存 / 8 vCPU"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 메모리"
+            "value": "16 GB 메모리 / 8 vCPU"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB メモリ"
+            "value": "16 GB メモリ / 8 vCPU"
           }
         }
       }
@@ -624414,55 +624458,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introducing cmux cloud"
+            "value": "Your work, wherever you go"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نقدّم لكم cmux cloud"
+            "value": "عملك، أينما ذهبت"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wir stellen vor: cmux cloud"
+            "value": "Deine Arbeit, wo auch immer du bist"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Presentamos cmux cloud"
+            "value": "Tu trabajo, estés donde estés"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Découvrez cmux cloud"
+            "value": "Votre travail, où que vous soyez"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux cloud のご紹介"
+            "value": "どこにいても、あなたの仕事を"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux cloud를 소개합니다"
+            "value": "어디서든 이어지는 작업"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出 cmux cloud"
+            "value": "随时随地，继续你的工作"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出 cmux cloud"
+            "value": "隨時隨地，繼續你的工作"
           }
         }
       }
@@ -624532,55 +624576,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introducing"
+            "value": "cmux cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نقدّم لكم"
+            "value": "cmux cloud"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wir stellen vor"
+            "value": "cmux cloud"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Presentamos"
+            "value": "cmux cloud"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Découvrez"
+            "value": "cmux cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ご紹介"
+            "value": "cmux cloud"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "소개합니다"
+            "value": "cmux cloud"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出"
+            "value": "cmux cloud"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出"
+            "value": "cmux cloud"
           }
         }
       }
@@ -624827,55 +624871,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invite teammates, and share any port with a private link."
+            "value": "Invite teammates to the same machine and work together."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ادعُ زملاءك وشارك أي منفذ برابط خاص."
+            "value": "ادعُ زملاءك إلى الجهاز نفسه واعملوا معًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lade Teammitglieder ein und teile jeden Port über einen privaten Link."
+            "value": "Lade Teammitglieder auf dieselbe Maschine ein und arbeitet zusammen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invita a tu equipo y comparte cualquier puerto con un enlace privado."
+            "value": "Invita a tu equipo a la misma máquina y trabajen juntos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitez vos coéquipiers et partagez n’importe quel port avec un lien privé."
+            "value": "Invitez vos coéquipiers sur la même machine et travaillez ensemble."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームメンバーを招待して、どのポートもプライベートリンクで共有できます。"
+            "value": "チームメンバーを同じマシンに招待して、一緒に作業できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "팀원을 초대하고 비공개 링크로 어떤 포트든 공유하세요."
+            "value": "팀원을 같은 머신에 초대하고 함께 작업하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀请团队成员，并通过私有链接分享任意端口。"
+            "value": "邀请团队成员使用同一台机器，一起协作。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀請團隊成員，並透過私人連結分享任何連接埠。"
+            "value": "邀請團隊成員使用同一台機器，一起協作。"
           }
         }
       }
@@ -643936,57 +643980,68 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 32g; 64g requires Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
+            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 16g; 24g, 32g, and 64g require Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 32g; 64g erfordert Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
+            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 16g; 24g, 32g und 64g erfordern Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 32g ; 64g nécessite Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
+            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 16g ; 24g, 32g et 64g nécessitent Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 32g؛ ويتطلب 64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
+            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 16g؛ وتتطلب 24g و32g و64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 32g; 64g requiere Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
+            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 16g; 24g, 32g y 64g requieren Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 32g 的大小；64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 16g 的大小；24g、32g 和 64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 32g 的大小；64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
+            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 16g 的大小；24g、32g 和 64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 32g 크기를 지원하며 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
+            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 16g 크기를 지원하며 24g, 32g, 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 32g まで対応し、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
+            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 16g まで対応し、24g、32g、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "Upotreba:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nKreirajte Cloud VM. Pro podržava veličine do 16g; za 24g, 32g i 64g potreban je Max.\nServer provodi ograničenja plana i zajedničkih CPU i memorijskih resursa.\n`--detach` kreira mašinu bez otvaranja njenog radnog prostora."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nOpret en Cloud-VM. Pro understøtter størrelser op til 16g; 24g, 32g og 64g kræver Max.\nServeren håndhæver abonnementsgrænser og fælles CPU- og hukommelsespuljer.\n`--detach` opretter maskinen uden at åbne dens arbejdsområde."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Utilizzo:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM Cloud. Pro supporta dimensioni fino a 16g; 24g, 32g e 64g richiedono Max.\nIl server applica i limiti del piano e dei pool condivisi di CPU e memoria.\n`--detach` crea la macchina senza aprire il suo spazio di lavoro."}},
+        "km": {"stringUnit": {"state": "translated", "value": "របៀបប្រើ:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nបង្កើត Cloud VM។ Pro គាំទ្រទំហំរហូតដល់ 16g; ទំហំ 24g, 32g និង 64g ត្រូវការ Max។\nម៉ាស៊ីនមេអនុវត្តដែនកំណត់គម្រោង និងធនធាន CPU និងអង្គចងចាំរួម។\n`--detach` បង្កើតម៉ាស៊ីនដោយមិនបើកកន្លែងធ្វើការរបស់វា។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nOpprett en Cloud-VM. Pro støtter størrelser opptil 16g; 24g, 32g og 64g krever Max.\nServeren håndhever abonnementsgrenser og felles potter for CPU og minne.\n`--detach` oppretter maskinen uten å åpne arbeidsområdet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Użycie:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nUtwórz maszynę wirtualną Cloud. Pro obsługuje rozmiary do 16g; 24g, 32g i 64g wymagają Max.\nSerwer egzekwuje limity planu oraz wspólnych pul CPU i pamięci.\n`--detach` tworzy maszynę bez otwierania jej obszaru roboczego."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrie uma VM Cloud. O Pro permite tamanhos até 16g; 24g, 32g e 64g exigem o Max.\nO servidor aplica os limites do plano e dos pools compartilhados de CPU e memória.\n`--detach` cria a máquina sem abrir seu espaço de trabalho."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использование:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nСоздайте виртуальную машину Cloud. Pro поддерживает размеры до 16g; для 24g, 32g и 64g нужен Max.\nСервер проверяет ограничения тарифа и общих пулов CPU и памяти.\n`--detach` создаёт машину, не открывая её рабочее пространство."}},
+        "th": {"stringUnit": {"state": "translated", "value": "วิธีใช้:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nสร้าง VM Cloud แผน Pro รองรับขนาดสูงสุด 16g ส่วน 24g, 32g และ 64g ต้องใช้ Max\nเซิร์ฟเวอร์บังคับใช้ขีดจำกัดของแผนและทรัพยากรรวมของ CPU และหน่วยความจำ\n`--detach` สร้างเครื่องโดยไม่เปิดพื้นที่ทำงานของเครื่อง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kullanım:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nBir Cloud VM oluşturun. Pro, 16g’ye kadar boyutları destekler; 24g, 32g ve 64g için Max gerekir.\nSunucu, plan sınırlarını ve ortak CPU ile bellek havuzlarını denetler.\n`--detach`, makineyi çalışma alanını açmadan oluşturur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використання:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nСтворіть віртуальну машину Cloud. Pro підтримує розміри до 16g; для 24g, 32g і 64g потрібен Max.\nСервер перевіряє обмеження тарифу та спільних пулів CPU і пам’яті.\n`--detach` створює машину, не відкриваючи її робочий простір."}}
       }
     },
     "cli.vm.ports.usage": {
@@ -644232,7 +644287,7 @@
         }
       }
     },
-      "featureFlags.macAccountDirectory.title": {
+    "featureFlags.macAccountDirectory.title": {
         "extractionState": "manual",
         "localizations": {
           "en": {
@@ -644291,8 +644346,7 @@
           }
         }
       },
-
-      "featureFlags.macAccountDirectory.description": {
+    "featureFlags.macAccountDirectory.description": {
         "extractionState": "manual",
         "localizations": {
           "en": {
@@ -644350,7 +644404,2734 @@
             }
           }
         }
+      },
+    "coderouter.loadingTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال إعدادات الحساب تُحمّل لهذا الفريق. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kontoeinstellungen für dieses Team werden noch geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account settings are still loading for this team. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración de cuentas de este equipo todavía se está cargando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réglages de compte de cette équipe sont encore en cours de chargement. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此团队的账户设置仍在加载，请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此團隊的帳號設定仍在載入，請稍後再試。"
+          }
+        }
       }
+    },
+    "coderouter.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen lokalen Workspace aus, bevor du ein Coding-Agent-Konto hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a local workspace before adding a coding agent account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un espacio de trabajo local antes de añadir una cuenta de agente de programación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de programmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントのアカウントを追加する前に、ローカルワークスペースを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加编程代理账户前，请选择本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增程式代理程式帳號前，請選取本機工作區。"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.list.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listing tmux sessions on %@… (waits while the login is in progress; Ctrl-C to stop)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzungen auf %@ werden aufgelistet … (wartet während der Anmeldung; Strg-C zum Beenden)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des sessions tmux sur %@… (attente pendant la connexion ; Ctrl-C pour arrêter)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ سرد جلسات tmux على %@… (ينتظر أثناء تسجيل الدخول؛ اضغط Ctrl-C للإيقاف)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enumerando sesiones tmux en %@… (espera mientras se inicia sesión; Ctrl-C para detener)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在列出 %@ 上的 tmux 工作階段…（登入進行中；按 Ctrl-C 停止）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在列出 %@ 上的 tmux 会话…（登录进行中；按 Ctrl-C 停止）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 tmux 세션을 나열하는 중… (로그인하는 동안 대기합니다. Ctrl-C로 중지)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の tmux セッションを一覧表示しています…（ログイン中は待機します。Ctrl-C で停止）"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tmux sessions found on %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine tmux-Sitzungen auf %@ gefunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session tmux trouvée sur %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على جلسات tmux على %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron sesiones tmux en %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上找不到 tmux 工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上未找到 tmux 会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 tmux 세션을 찾지 못했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に tmux セッションが見つかりません。"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.list.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NAME  WINDOWS  ATTACHED"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NAME  FENSTER  ANGEHÄNGT"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOM  FENÊTRES  ATTACHÉE"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم  النوافذ  متصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOMBRE  VENTANAS  CONECTADA"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱  視窗  已連接"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称  窗口  已连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름  창  연결됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前  ウィンドウ  接続済み"
+          }
+        }
+      }
+    },
+    "cli.vault.error.conflictingForkSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork takes --checkpoint <id> or --turn <n>, not both"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork には --checkpoint <id> と --turn <n> のどちらか一方だけを指定してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork 只能指定 --checkpoint <id> 或 --turn <n> 之一，不能同时指定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork akzeptiert --checkpoint <id> oder --turn <n>, nicht beides"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accepte --checkpoint <id> ou --turn <n>, pas les deux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقبل vault fork الخيار --checkpoint <id> أو --turn <n>، وليس كليهما"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork acepta --checkpoint <id> o --turn <n>, no ambos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork 只能指定 --checkpoint <id> 或 --turn <n> 其中之一，不能同時指定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork에는 --checkpoint <id> 또는 --turn <n> 중 하나만 지정할 수 있습니다"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork prihvata --checkpoint <id> ili --turn <n>, ne oboje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accepterer --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accetta --checkpoint <id> oppure --turn <n>, non entrambi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork ទទួលយក --checkpoint <id> ឬ --turn <n> មិនមែនទាំងពីរទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork godtar --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork przyjmuje --checkpoint <id> albo --turn <n>, nie oba naraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork aceita --checkpoint <id> ou --turn <n>, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork принимает --checkpoint <id> или --turn <n>, но не оба сразу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork รับ --checkpoint <id> หรือ --turn <n> อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork, --checkpoint <id> veya --turn <n> kabul eder, ikisini birden değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork приймає --checkpoint <id> або --turn <n>, але не обидва"
+          }
+        }
+      }
+    },
+    "socket.vault.conflictingForkSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass checkpoint or turn, not both."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint と turn のどちらか一方だけを指定してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请只传入 checkpoint 或 turn 之一，不要同时传入。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergib checkpoint oder turn, nicht beides."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passez checkpoint ou turn, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر checkpoint أو turn، وليس كليهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa checkpoint o turn, no ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請只傳入 checkpoint 或 turn 其中之一，不要同時傳入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint 또는 turn 중 하나만 전달하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite checkpoint ili turn, ne oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv checkpoint eller turn, ikke begge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa checkpoint oppure turn, non entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជូន checkpoint ឬ turn មិនមែនទាំងពីរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi checkpoint eller turn, ikke begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaż checkpoint albo turn, nie oba naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe checkpoint ou turn, não ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint или turn, но не оба сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่ง checkpoint หรือ turn อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint veya turn gönderin, ikisini birden değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint або turn, але не обидва."
+          }
+        }
+      }
+    },
+    "teamMembers.error.sessionRefresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm your cmux sign-in. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تأكيد تسجيل دخولك إلى cmux. حاول مرة أخرى بعد لحظات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine cmux-Anmeldung konnte nicht bestätigt werden. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo confirmar tu inicio de sesión en cmux. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de confirmer votre connexion à cmux. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のサインインを確認できませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 로그인을 확인할 수 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认你的 cmux 登录状态。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認你的 cmux 登入狀態。請稍後再試。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.displays.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a display next to your terminal and watch apps and browsers run."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne ein Display neben deinem Terminal und sieh Apps und Browsern bei der Arbeit zu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez un écran à côté de votre terminal et regardez les apps et les navigateurs tourner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح شاشة بجانب الطرفية وشاهد التطبيقات والمتصفحات وهي تعمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre una pantalla junto a tu terminal y mira cómo se ejecutan apps y navegadores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機旁開啟顯示器，看著 App 和瀏覽器執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端旁打开显示器，看着应用和浏览器运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 옆에 디스플레이를 열고 앱과 브라우저가 실행되는 모습을 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの横にディスプレイを開いて、アプリやブラウザの動作を確認できます。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.displays.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See the machine’s desktop"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Desktop der Maschine sehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voyez le bureau de la machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شاهد سطح مكتب الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ve el escritorio de la máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看機器的桌面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看机器的桌面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 데스크톱 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのデスクトップを表示"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.invite.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add teammates by email so they can use your team’s Cloud machines."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge Teammitglieder per E-Mail hinzu, damit sie die Cloud-Maschinen deines Teams nutzen können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez des coéquipiers par e-mail pour qu’ils puissent utiliser les machines Cloud de votre équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف زملاءك عبر البريد الإلكتروني ليتمكنوا من استخدام أجهزة Cloud الخاصة بفريقك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrega a tus compañeros por correo para que puedan usar las máquinas Cloud de tu equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透過電子郵件新增團隊成員，讓他們使用團隊的 Cloud 機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过电子邮件添加团队成员，让他们使用团队的 Cloud 机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일로 팀원을 추가하면 팀의 Cloud 머신을 함께 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールでチームメンバーを追加すると、チームの Cloud マシンを使えるようになります。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.invite.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite your team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade dein Team ein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitez votre équipe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ادعُ فريقك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invita a tu equipo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請你的團隊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀请你的团队"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 초대하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを招待"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.keepsRunning.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten und Terminals laufen weiter, nachdem du deinen Laptop geschlossen hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents et les terminaux continuent de fonctionner après la fermeture de votre ordinateur portable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستمر الوكلاء والطرفيات في العمل بعد إغلاق حاسوبك المحمول."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes y terminales siguen funcionando después de cerrar el portátil."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉筆電後，代理程式和終端機仍會持續執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合上笔记本电脑后，代理和终端仍会继续运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북을 닫아도 에이전트와 터미널이 계속 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートパソコンを閉じてもエージェントとターミナルは動き続けます。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.keepsRunning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs while you’re away"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft weiter, wenn du weg bist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonctionne pendant votre absence"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستمر في العمل أثناء غيابك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigue funcionando cuando no estás"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你離開後仍持續執行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离开后仍持续运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자리를 비워도 계속 실행"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離れていても実行し続ける"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.spinUp.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each one opens as a regular cmux workspace with a terminal ready."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Maschine wird als regulärer cmux-Arbeitsbereich mit bereitstehendem Terminal geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque machine s’ouvre comme un espace de travail cmux classique avec un terminal prêt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفتح كل واحدة كمساحة عمل cmux عادية مع طرفية جاهزة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada una se abre como un espacio de trabajo normal de cmux con un terminal listo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台機器都會以一般 cmux 工作區開啟，並準備好終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台机器都会作为普通 cmux 工作区打开，并准备好终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 머신은 터미널이 준비된 일반 cmux 워크스페이스로 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それぞれがターミナルを備えた通常の cmux ワークスペースとして開きます。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.spinUp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create machines in seconds"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen in Sekunden erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez des machines en quelques secondes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنشئ أجهزة في ثوانٍ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea máquinas en segundos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幾秒內建立機器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "几秒内创建机器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "몇 초 만에 머신 생성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数秒でマシンを作成"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.team.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite teammates to the same machine and collaborate in a shared workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade Teammitglieder auf dieselbe Maschine ein und arbeitet in einem gemeinsamen Workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitez vos coéquipiers sur la même machine et collaborez dans un espace de travail partagé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ادعُ زملاءك إلى الجهاز نفسه وتعاونوا في مساحة عمل مشتركة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invita a tu equipo a la misma máquina y colaboren en un espacio de trabajo compartido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請團隊成員使用同一台機器，在共享工作區中協作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀请团队成员使用同一台机器，在共享工作区中协作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀원을 같은 머신에 초대하고 공유 워크스페이스에서 협업하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームメンバーを同じマシンに招待して、共有ワークスペースで共同作業できます。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slide.team.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work together on one machine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsam auf einer Maschine arbeiten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travaillez ensemble sur une machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعملوا معًا على جهاز واحد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabajen juntos en una máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在同一台機器上一起工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在同一台机器上协作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 머신에서 함께 작업"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1台のマシンで共同作業"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slider.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一个"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slider.pause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre en pause"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف مؤقت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫停"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂停"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일시 정지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slider.play": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生"
+          }
+        }
+      }
+    },
+    "cloud.welcome.slider.previous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Précédent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السابق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anterior"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一个"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前へ"
+          }
+        }
+      }
+    },
+    "debug.menu.showCloudWelcomeList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud Welcome (List)…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Willkommen (Liste) anzeigen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’accueil Cloud (liste)…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار ترحيب Cloud (قائمة)…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar bienvenida de Cloud (lista)…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cloud 歡迎畫面（列表）…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cloud 欢迎界面（列表）…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 환영 화면 보기 (목록)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud のようこそ画面を表示（リスト）…"
+          }
+        }
+      }
+    },
+    "debug.menu.showCloudWelcomeListDots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud Welcome (List + Dots)…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Willkommen (Liste + Punkte) anzeigen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’accueil Cloud (liste + points)…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار ترحيب Cloud (قائمة ونقاط)…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar bienvenida de Cloud (lista y puntos)…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cloud 歡迎畫面（列表＋圓點）…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cloud 欢迎界面（列表和圆点）…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 환영 화면 보기 (목록 + 점)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud のようこそ画面を表示（リスト＋ドット）…"
+          }
+        }
+      }
+    },
+    "programStatus.state.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs permission" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Berechtigung erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Autorisation requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إذنًا" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita permiso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要許可" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要权限" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "권한 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "許可が必要" } }
+      }
+    },
+    "programStatus.state.needsAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs an answer" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Antwort erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réponse requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إجابة" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita una respuesta" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要回答" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要回答" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "답변 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "回答が必要" } }
+      }
+    },
+    "programStatus.state.needsSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs sign-in" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Anmeldung erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connexion requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسجيل الدخول" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita iniciar sesión" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要登入" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要登录" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "로그인 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインが必要" } }
+      }
+    },
+    "programStatus.state.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs input" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Eingabe erforderlich" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Saisie requise" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إدخالًا" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se necesita entrada" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要輸入" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要输入" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "입력 필요" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+      }
+    },
+    "programStatus.state.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Working" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wird ausgeführt" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En cours" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ التنفيذ" } },
+        "es": { "stringUnit": { "state": "translated", "value": "En curso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "處理中" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "处理中" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작업 중" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "処理中" } }
+      }
+    },
+    "programStatus.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Fertig" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Terminé" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تم" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Listo" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "完成" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "完成" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "완료" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "programStatus.state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Fehlgeschlagen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "失敗" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "失败" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실패" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+      }
+    },
+    "cli.hooks.error.pluginDirectoryOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تثبيت تكامل الوكيل المحدد لأن مجلد الإضافات مستخدم بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die ausgewählte Agenten-Integration nicht installieren, weil das Plugin-Verzeichnis bereits verwendet wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo instalar la integración del agente seleccionada porque su directorio de plugins ya está en uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu installer l’intégration d’agent sélectionnée, car son dossier de plugins est déjà utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha potuto installare l'integrazione dell'agente selezionata perché la directory dei plugin è già in uso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインディレクトリがすでに使用されているため、cmux は選択したエージェント統合をインストールできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플러그인 디렉터리가 이미 사용 중이어서 cmux가 선택한 에이전트 통합을 설치할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke installere den valgte agentintegrasjonen fordi plugin-mappen allerede er i bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o cmux não conseguiu instalar a integração do agente selecionada porque o diretório de plugins já está em uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось установить выбранную интеграцию агента, поскольку каталог плагинов уже используется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration because its plugin directory is already in use."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося встановити вибрану інтеграцію агента, оскільки каталог плагінів уже використовується."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安装所选代理集成，因为其插件目录已在使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安裝所選代理整合，因為其外掛程式目錄已在使用中。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.bundledPluginUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تثبيت تكامل الوكيل المحدد. أعد تثبيت cmux أو شغّل أمر تثبيت hooks مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die ausgewählte Agenten-Integration nicht installieren. Installiere cmux neu oder führe den Hook-Installationsbefehl erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo instalar la integración del agente seleccionada. Reinstala cmux o vuelve a ejecutar el comando de instalación de hooks."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu installer l’intégration d’agent sélectionnée. Réinstallez cmux ou relancez la commande d’installation des hooks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha potuto installare l'integrazione dell'agente selezionata. Reinstalla cmux o esegui di nuovo il comando di installazione degli hook."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は選択したエージェント統合をインストールできませんでした。cmux を再インストールするか、hooks のインストールコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 선택한 에이전트 통합을 설치하지 못했습니다. cmux를 다시 설치하거나 훅 설치 명령을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke installere den valgte agentintegrasjonen. Installer cmux på nytt eller kjør installasjonskommandoen for hooks på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu instalar a integração do agente selecionada. Reinstale o cmux ou execute novamente o comando de instalação dos hooks."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось установить выбранную интеграцию агента. Переустановите cmux или снова выполните команду установки hooks."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося встановити вибрану інтеграцію агента. Перевстановіть cmux або повторно виконайте команду встановлення hooks."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安装所选代理集成。请重新安装 cmux，或再次运行 hooks 安装命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安裝所選代理整合。請重新安裝 cmux，或再次執行 hooks 安裝命令。"
+          }
+        }
+      }
+    },
+    "cli.vm.resize.poolLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Dieses Ziel benötigt %lld vCPUs und %lld GiB RAM, aber in deinem Tarifpool sind nur %lld vCPUs und %lld GiB frei. Pausiere oder lösche eine VM oder wähle eine kleinere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : cette cible nécessite %lld vCPU et %lld Gio de RAM, mais seulement %lld vCPU et %lld Gio sont libres dans votre pool. Mettez une VM en pause, supprimez-en une ou choisissez une taille plus petite."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: يحتاج هذا الحجم إلى %lld vCPU و%lld GiB من الذاكرة، لكن المتاح في مجمع خطتك هو %lld vCPU و%lld GiB فقط. أوقف جهازاً مؤقتاً أو احذفه، أو اختر حجماً أصغر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: este destino necesita %lld vCPU y %lld GiB de RAM, pero solo hay %lld vCPU y %lld GiB libres en el fondo de tu plan. Pausa o elimina una máquina, o elige un tamaño menor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 個 vCPU 和 %lld GiB 記憶體，但方案資源池只剩 %lld 個 vCPU 和 %lld GiB。請暫停或刪除機器，或選擇較小的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 个 vCPU 和 %lld GiB 内存，但套餐资源池只剩 %lld 个 vCPU 和 %lld GiB。请暂停或删除机器，或选择更小的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 이 크기에는 vCPU %lld개와 RAM %lldGiB가 필요하지만 요금제 풀에 남은 용량은 vCPU %lld개와 %lldGiB뿐입니다. 머신을 일시 중지하거나 삭제하거나 더 작은 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: このサイズには %lld vCPU と %lld GiB RAM が必要ですが、プランのプールに残っているのは %lld vCPU と %lld GiB だけです。VM を一時停止または削除するか、小さいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: ova veličina zahtijeva %lld vCPU-a i %lld GiB RAM-a, ali u zajedničkim resursima vašeg plana dostupno je samo %lld vCPU-a i %lld GiB. Pauzirajte ili izbrišite VM ili odaberite manju veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: denne størrelse kræver %lld vCPU’er og %lld GiB RAM, men der er kun %lld vCPU’er og %lld GiB ledige i dit abonnements fælles pulje. Sæt en VM på pause, slet den, eller vælg en mindre størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: questa dimensione richiede %lld vCPU e %lld GiB di RAM, ma nel pool condiviso del piano sono disponibili solo %lld vCPU e %lld GiB. Metti in pausa o elimina una VM, oppure scegli una dimensione inferiore."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: ទំហំនេះត្រូវការ %lld vCPU និង RAM %lld GiB ប៉ុន្តែធនធានរួមក្នុងគម្រោងរបស់អ្នកនៅសល់តែ %lld vCPU និង %lld GiB ប៉ុណ្ណោះ។ ផ្អាក ឬលុប VM ឬជ្រើសរើសទំហំតូចជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: denne størrelsen krever %lld vCPU-er og %lld GiB RAM, men bare %lld vCPU-er og %lld GiB er ledige i abonnementets felles pott. Sett en VM på pause, slett den, eller velg en mindre størrelse."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: ten rozmiar wymaga %lld vCPU i %lld GiB RAM, ale we wspólnej puli planu dostępne są tylko %lld vCPU i %lld GiB. Wstrzymaj lub usuń maszynę wirtualną albo wybierz mniejszy rozmiar."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: este tamanho requer %lld vCPUs e %lld GiB de RAM, mas apenas %lld vCPUs e %lld GiB estão livres no pool compartilhado do seu plano. Pause ou exclua uma VM, ou escolha um tamanho menor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: для этого размера нужны %lld vCPU и %lld GiB ОЗУ, но в общем пуле вашего тарифа свободны только %lld vCPU и %lld GiB. Приостановите или удалите виртуальную машину либо выберите меньший размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: ขนาดนี้ต้องใช้ %lld vCPU และ RAM %lld GiB แต่ทรัพยากรรวมของแผนคุณเหลือเพียง %lld vCPU และ %lld GiB ให้พักหรือลบ VM หรือเลือกขนาดที่เล็กกว่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: bu boyut %lld vCPU ve %lld GiB RAM gerektiriyor ancak planınızın ortak havuzunda yalnızca %lld vCPU ve %lld GiB boş. Bir VM’yi duraklatın veya silin ya da daha küçük bir boyut seçin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: для цього розміру потрібно %lld vCPU та %lld GiB оперативної пам’яті, але в спільному пулі вашого тарифу вільні лише %lld vCPU та %lld GiB. Призупиніть або видаліть віртуальну машину чи виберіть менший розмір."}}
+      }
+    },
+    "cli.vm.resize.planName.founders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gründeredition"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Édition fondateur"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إصدار المؤسسين"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Edición de fundadores"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "創辦人版"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "创始人版"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창립자 에디션"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "創業者エディション"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Edição dos fundadores"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "th": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}}
+      }
+    },
+    "cli.vm.resize.planLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Der %@-Tarif kann %@ nicht auf %@ vergrößern; das Maximum beträgt %@. %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : le forfait %@ ne peut pas redimensionner %@ à %@ ; son maximum est %@. %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: لا تسمح خطة %@ بتغيير %@ إلى %@؛ الحد الأقصى هو %@. %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: el plan %@ no puede ampliar %@ a %@; su máximo es %@. %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 方案無法將 %@ 調整至 %@；上限為 %@。%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 套餐无法将 %@ 调整到 %@；上限为 %@。%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: %@ 요금제에서는 %@을(를) %@까지 확장할 수 없습니다. 최대값은 %@입니다. %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ プランでは %@ を %@ に拡張できません。上限は %@ です。%@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: plan %@ ne dozvoljava promjenu resursa %@ na %@; maksimum je %@. %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: abonnementet %@ kan ikke ændre %@ til %@; maksimum er %@. %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: il piano %@ non consente di ridimensionare %@ a %@; il massimo è %@. %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: គម្រោង %@ មិនអាចប្តូរទំហំ %@ ទៅ %@ បានទេ; អតិបរមាគឺ %@។ %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: abonnementet %@ kan ikke endre %@ til %@; maksimum er %@. %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: plan %@ nie pozwala zmienić rozmiaru zasobu %@ na %@; maksymalna wartość to %@. %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: o plano %@ não permite redimensionar %@ para %@; o máximo é %@. %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: тариф %@ не позволяет изменить %@ до %@; максимум — %@. %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: แผน %@ ไม่สามารถปรับ %@ เป็น %@ ได้ โดยมีค่าสูงสุดคือ %@ %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: %@ planı, %@ kaynağının %@ boyutuna getirilmesine izin vermiyor; üst sınır %@. %@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: тариф %@ не дозволяє змінити %@ до %@; максимум — %@. %@"}}
+      }
+    },
+    "cli.vm.resize.chooseSmaller": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choose a smaller size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wähle eine kleinere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisissez une taille plus petite."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اختر حجماً أصغر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elige un tamaño menor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請選擇較小的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请选择更小的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 작은 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "小さいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Odaberite manju veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vælg en mindre størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Scegli una dimensione più piccola."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជ្រើសរើសទំហំតូចជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Velg en mindre størrelse."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wybierz mniejszy rozmiar."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Escolha um tamanho menor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Выберите меньший размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เลือกขนาดที่เล็กกว่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Daha küçük bir boyut seçin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Виберіть менший розмір."}}
+      }
+    },
+    "cli.vm.resize.upgradePro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Upgrade to cmux Pro to use this size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Upgrade auf cmux Pro, um diese Größe zu verwenden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Passez à cmux Pro pour utiliser cette taille."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قم بالترقية إلى cmux Pro لاستخدام هذا الحجم."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia a cmux Pro para usar este tamaño."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Pro 以使用此大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Pro 以使用此大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 크기를 사용하려면 cmux Pro로 업그레이드하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このサイズを使うには cmux Pro にアップグレードしてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nadogradite na cmux Pro da biste koristili ovu veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Opgrader til cmux Pro for at bruge denne størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Passa a cmux Pro per usare questa dimensione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដំឡើងទៅ cmux Pro ដើម្បីប្រើទំហំនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Oppgrader til cmux Pro for å bruke denne størrelsen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ulepsz do cmux Pro, aby użyć tego rozmiaru."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Faça upgrade para o cmux Pro para usar este tamanho."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Перейдите на cmux Pro, чтобы использовать этот размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "อัปเกรดเป็น cmux Pro เพื่อใช้ขนาดนี้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu boyutu kullanmak için cmux Pro'ya yükseltin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перейдіть на cmux Pro, щоб використовувати цей розмір."}}
+      }
+    },
+    "cli.vm.resize.upgradeMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Upgrade to cmux Max to use larger sizes."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Upgrade auf cmux Max, um größere Größen zu verwenden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Passez à cmux Max pour utiliser des tailles plus grandes."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قم بالترقية إلى cmux Max لاستخدام أحجام أكبر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia a cmux Max para usar tamaños mayores."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Max 以使用更大的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Max 以使用更大的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 큰 크기를 사용하려면 cmux Max로 업그레이드하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "より大きいサイズを使うには cmux Max にアップグレードしてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nadogradite na cmux Max da biste koristili veće veličine."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Opgrader til cmux Max for at bruge større størrelser."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Passa a cmux Max per usare dimensioni più grandi."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដំឡើងទៅ cmux Max ដើម្បីប្រើទំហំធំជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Oppgrader til cmux Max for å bruke større størrelser."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ulepsz do cmux Max, aby użyć większych rozmiarów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Faça upgrade para o cmux Max para usar tamanhos maiores."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Перейдите на cmux Max, чтобы использовать большие размеры."}},
+        "th": {"stringUnit": {"state": "translated", "value": "อัปเกรดเป็น cmux Max เพื่อใช้ขนาดที่ใหญ่ขึ้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Daha büyük boyutları kullanmak için cmux Max'a yükseltin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перейдіть на cmux Max, щоб використовувати більші розміри."}}
+      }
+    },
+    "cli.vm.resize.listFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Die Tariflimits konnten vor der Größenänderung nicht aktualisiert werden; es wurden keine Änderungen vorgenommen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : impossible d’actualiser les limites du forfait avant le redimensionnement ; aucune modification n’a été effectuée."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: تعذر تحديث حدود الخطة قبل تغيير الحجم؛ لم يتم إجراء أي تغييرات."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: no se pudieron actualizar los límites del plan antes de cambiar el tamaño; no se realizaron cambios."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：調整大小前無法更新方案限制；未進行任何變更。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：调整大小前无法刷新套餐限制；未进行任何更改。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 크기를 조정하기 전에 요금제 한도를 새로 고칠 수 없습니다. 변경하지 않았습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: サイズ変更前にプランの上限を更新できませんでした。変更は行われていません。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: nije moguće osvježiti ograničenja plana prije promjene veličine; nisu napravljene promjene."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: kunne ikke opdatere abonnementsgrænserne før størrelsesændringen; der blev ikke foretaget ændringer."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: impossibile aggiornare i limiti del piano prima del ridimensionamento; non sono state apportate modifiche."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: មិនអាចធ្វើបច្ចុប្បន្នភាពដែនកំណត់គម្រោងមុនប្តូរទំហំបានទេ; មិនមានការផ្លាស់ប្តូរណាមួយត្រូវបានធ្វើឡើយ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: kunne ikke oppdatere abonnementsgrensene før størrelsesendringen; ingen endringer ble gjort."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: nie można odświeżyć limitów planu przed zmianą rozmiaru; nie wprowadzono zmian."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: não foi possível atualizar os limites do plano antes do redimensionamento; nenhuma alteração foi feita."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: не удалось обновить ограничения тарифа перед изменением размера; изменения не внесены."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: ไม่สามารถรีเฟรชขีดจำกัดของแผนก่อนปรับขนาดได้ ยังไม่มีการเปลี่ยนแปลงใด ๆ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: boyutlandırmadan önce plan sınırları yenilenemedi; hiçbir değişiklik yapılmadı."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: не вдалося оновити обмеження тарифу перед зміною розміру; змін не внесено."}}
+      }
+    },
+    "cli.vm.resize.preflightIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Der Server hat unvollständige Tarifdaten zurückgegeben; aktualisiere deine Cloud-Maschinen und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : le serveur a renvoyé des données de capacité incomplètes ; actualisez vos machines Cloud et réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: أعاد الخادم بيانات سعة غير مكتملة؛ حدّث أجهزة Cloud ثم حاول مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: el servidor devolvió datos de capacidad incompletos; actualiza tus máquinas Cloud e inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：伺服器回傳的方案容量資料不完整；請重新整理 Cloud 機器後再試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：服务器返回的套餐容量数据不完整；请刷新 Cloud 机器后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 서버가 불완전한 요금제 용량 데이터를 반환했습니다. Cloud 머신을 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: サーバーから不完全なプラン容量データが返されました。Cloud マシンを更新して再試行してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: server je vratio nepotpune podatke o kapacitetu plana; osvježite svoje Cloud mašine i pokušajte ponovo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: serveren returnerede ufuldstændige kapacitetsdata for abonnementet; opdater dine Cloud-maskiner, og prøv igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: il server ha restituito dati incompleti sulla capacità del piano; aggiorna le macchine Cloud e riprova."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: ម៉ាស៊ីនមេបានត្រឡប់ទិន្នន័យសមត្ថភាពគម្រោងមិនពេញលេញ; ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន Cloud របស់អ្នក រួចសាកល្បងម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: serveren returnerte ufullstendige kapasitetsdata for abonnementet; oppdater Cloud-maskinene dine og prøv igjen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: serwer zwrócił niepełne dane o pojemności planu; odśwież maszyny Cloud i spróbuj ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: o servidor retornou dados incompletos sobre a capacidade do plano; atualize suas máquinas Cloud e tente novamente."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: сервер вернул неполные данные о ресурсах тарифа; обновите список машин Cloud и повторите попытку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: เซิร์ฟเวอร์ส่งข้อมูลความจุของแผนมาไม่ครบถ้วน ให้รีเฟรชเครื่อง Cloud แล้วลองอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: sunucu eksik plan kapasitesi verisi döndürdü; Cloud makinelerinizi yenileyip tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: сервер повернув неповні дані про ресурси тарифу; оновіть список машин Cloud і повторіть спробу."}}
+      }
+    },
+    "cli.vm.resize.notLarger": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: %@ ist bereits %@; wähle eine größere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : %@ fait déjà %@ ; choisissez une taille plus grande."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: قيمة %@ هي بالفعل %@؛ اختر حجماً أكبر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: %@ ya es %@; elige un tamaño mayor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 已是 %@；請選擇更大的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 已经是 %@；请选择更大的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: %@은(는) 이미 %@입니다. 더 큰 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ はすでに %@ です。より大きいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: %@ već ima vrijednost %@; odaberite veću veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: %@ er allerede %@; vælg en større størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: %@ è già %@; scegli una dimensione maggiore."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: %@ មានទំហំ %@ រួចហើយ; ជ្រើសរើសទំហំធំជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: %@ er allerede %@; velg en større størrelse."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: %@ ma już wartość %@; wybierz większy rozmiar."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: %@ já é %@; escolha um tamanho maior."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: %@ уже имеет значение %@; выберите больший размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: %@ มีค่าเป็น %@ อยู่แล้ว ให้เลือกขนาดที่ใหญ่กว่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: %@ zaten %@; daha büyük bir boyut seçin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: %@ вже має значення %@; виберіть більший розмір."}}
+      }
+    },
+    "cli.vm.resize.resource.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Festplatte"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "disque"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "القرص"}},
+        "es": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "磁碟"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "磁盘"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "디스크"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ディスク"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "da": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "it": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថាស"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "dysk"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "диск"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ดิสก์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "диск"}}
+      }
+    },
+    "cli.vm.resize.resource.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Prozessor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "processeur"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المعالج"}},
+        "es": {"stringUnit": {"state": "translated", "value": "procesador"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "處理器"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "处理器"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프로세서"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロセッサ"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "da": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "it": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "km": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "ЦП"}},
+        "th": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "ЦП"}}
+      }
+    },
+    "cli.vm.resize.resource.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "memory"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsspeicher"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "mémoire"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الذاكرة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "memoria"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記憶體"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "内存"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "메모리"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "メモリ"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "memoriju"}},
+        "da": {"stringUnit": {"state": "translated", "value": "hukommelse"}},
+        "it": {"stringUnit": {"state": "translated", "value": "memoria"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អង្គចងចាំ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "minne"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "pamięć"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "memória"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "память"}},
+        "th": {"stringUnit": {"state": "translated", "value": "หน่วยความจำ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bellek"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "пам’ять"}}
+      }
+    },
+    "coderouter.guide.start.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get started"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erste Schritte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commencer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البدء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeros pasos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始める"
+          }
+        }
+      }
+    },
+    "coderouter.guide.tip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start with the account you already use, then add another when you need more capacity or a backup."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beginne mit dem Konto, das du bereits verwendest, und füge bei Bedarf für mehr Kapazität oder als Reserve ein weiteres hinzu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commencez avec le compte que vous utilisez déjà, puis ajoutez-en un autre pour plus de capacité ou en secours."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابدأ بالحساب الذي تستخدمه بالفعل، ثم أضف حسابًا آخر عند الحاجة إلى سعة أكبر أو كحساب احتياطي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empieza con la cuenta que ya usas y añade otra cuando necesites más capacidad o una cuenta de respaldo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先使用你已有的帳號，需要更多容量或備援時再新增一個。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先使用你已有的账户，需要更多容量或备用账户时再添加一个。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 사용 중인 계정으로 시작하고, 더 많은 용량이나 백업이 필요할 때 다른 계정을 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずは現在使っているアカウントを使い、容量を増やしたいときや予備が必要なときに別のアカウントを追加します。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.tip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tip"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipp"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Astuce"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نصيحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consejo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팁"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒント"
+          }
+        }
+      }
+    },
+    "coderouter.guide.why.routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter chooses a healthy team account for each request and moves sessions when another account reaches its limit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter wählt für jede Anfrage ein verfügbares Teamkonto und verschiebt Sitzungen, wenn ein anderes Konto sein Limit erreicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter choisit un compte de l’équipe disponible pour chaque requête et déplace les sessions lorsqu’un autre compte atteint sa limite."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يختار coderouter حسابًا متاحًا للفريق لكل طلب، وينقل الجلسات عندما يصل حساب آخر إلى حده."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter elige una cuenta disponible del equipo para cada solicitud y cambia las sesiones cuando otra alcanza su límite."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 會為每個要求選擇可用的團隊帳號，當另一個帳號達到上限時將工作階段移轉。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 会为每个请求选择可用的团队账户，并在另一个账户达到上限时转移会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter는 각 요청에 사용할 수 있는 팀 계정을 선택하고, 다른 계정이 한도에 도달하면 세션을 옮깁니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coderouter はリクエストごとに利用可能なチームアカウントを選び、別のアカウントが上限に達するとセッションを移します。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.why.routing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep agents moving"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents am Laufen halten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les agents actifs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حافظ على عمل الوكلاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén los agentes en marcha"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理程式持續運作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理持续运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 계속 실행하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを止めない"
+          }
+        }
+      }
+    },
+    "coderouter.guide.why.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an account here once. Cloud machines in this team can use it without copying a provider key into every machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge ein Konto hier einmal hinzu. Cloud-Maschinen können es nutzen, ohne einen Anbieter-Schlüssel auf jede Maschine zu kopieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez un compte ici une seule fois. Les machines Cloud peuvent l’utiliser sans copier une clé de fournisseur sur chaque machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف حسابًا هنا مرة واحدة. يمكن لأجهزة Cloud استخدامه من دون نسخ مفتاح مزود الخدمة إلى كل جهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una cuenta aquí una sola vez. Las máquinas en la nube pueden usarla sin copiar una clave del proveedor en cada máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只需在這裡新增一次帳號。雲端機器即可使用，不必將提供者金鑰複製到每台機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只需在此添加一次账户。云机器即可使用，无需将提供商密钥复制到每台机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 계정을 한 번만 추가하세요. Cloud 머신은 각 머신에 공급자 키를 복사하지 않고도 이를 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでアカウントを一度追加すれば、Cloud マシンごとにプロバイダーのキーをコピーせずに利用できます。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.why.setup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up once"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einmal einrichten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer une fois"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد مرة واحدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configúralo una vez"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定一次即可"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置一次即可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번만 설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度だけ設定"
+          }
+        }
+      }
+    },
+    "coderouter.guide.why.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why use coderouter?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warum coderouter verwenden?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pourquoi utiliser coderouter ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لماذا تستخدم coderouter؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Por qué usar coderouter?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為什麼要使用 coderouter？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么使用 coderouter？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coderouter를 왜 사용하나요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coderouter を使う理由"
+          }
+        }
+      }
+    },
+    "coderouter.guide.openAsPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as Pane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Paneel öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir en panneau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح كلوحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir como panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以窗格開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作为窗格打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널로 열기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとして開く"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

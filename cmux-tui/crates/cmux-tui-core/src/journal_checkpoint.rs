@@ -15,6 +15,7 @@ pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
 const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_UNSUPPORTED_PREVIEW_RECORDS: usize = 1024;
+pub(crate) const MAX_CHECKPOINT_CAPTURE_ATTEMPTS: usize = 4;
 const RESOURCE_COLLECTIONS: [&str; 10] = [
     "workspaces",
     "screens",
@@ -107,6 +108,18 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         }),
         blobs,
     })
+}
+
+pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    [
+        "session changed during checkpoint capture",
+        "session journal changed during checkpoint capture",
+        "terminal changed during replay capture",
+        "terminal journal ingress is unsettled during replay capture",
+    ]
+    .iter()
+    .any(|reason| message.contains(reason))
 }
 
 /// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live

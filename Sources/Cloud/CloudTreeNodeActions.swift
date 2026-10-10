@@ -96,6 +96,8 @@ struct CloudTreeNodeActions {
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
     /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
     var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens the Coderouter guide as a pane in the selected local workspace.
+    var openCoderouterGuidePane: @MainActor () -> Void = {}
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }

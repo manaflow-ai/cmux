@@ -37,9 +37,7 @@ extension cmuxApp {
             Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
                 AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
             }
-            Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
-            }
+            cloudWelcomeDebugMenuItems
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }

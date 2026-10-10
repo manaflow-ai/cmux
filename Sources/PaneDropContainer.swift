@@ -53,6 +53,14 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    /// Whether a sidebar workspace row may merge its tabs into this container.
+    func canPerformWorkspaceMergeDrop(_ sourceWorkspaceId: UUID) -> Bool
+    /// Moves every tab of the dragged workspace to `destination`.
+    func performWorkspaceMergeDrop(
+        _ sourceWorkspaceId: UUID,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool
     func performRightSidebarToolDrop(
         _ mode: RightSidebarMode,
@@ -98,6 +106,13 @@ extension PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool { false }
 
+    /// Only workspaces take a merged workspace; the Dock declines it quietly.
+    func canPerformWorkspaceMergeDrop(_ sourceWorkspaceId: UUID) -> Bool { false }
+    func performWorkspaceMergeDrop(
+        _ sourceWorkspaceId: UUID,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool { false }
+
     /// Handles synthetic capabilities before the caller's normal surface move.
     ///
     /// Returning `nil` means the transfer is a live Bonsplit surface. A non-nil
@@ -135,6 +150,9 @@ extension PaneDropContainer {
             )
         case .surfaceResources(let group):
             handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
+        case .workspaceMerge(let workspaceId):
+            handled = canPerformWorkspaceMergeDrop(workspaceId)
+                && performWorkspaceMergeDrop(workspaceId, destination: request.destination)
         case .rightSidebarTool(let mode):
             handled = canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: request.destination)
         case .surface:
@@ -156,6 +174,8 @@ extension PaneDropContainer {
         switch source {
         case .vaultSession, .filePreview, .surfaceResources:
             return true
+        case .workspaceMerge(let workspaceId):
+            return canPerformWorkspaceMergeDrop(workspaceId)
         case .rightSidebarTool(let mode):
             return canPerformRightSidebarToolDrop(mode)
         case .surface:
@@ -193,6 +213,8 @@ extension PaneDropContainer {
             ))
         case .surfaceResources(let group):
             return performPortalSurfaceResourceDrop(group: group, destination: destination)
+        case .workspaceMerge(let workspaceId):
+            return performWorkspaceMergeDrop(workspaceId, destination: destination)
         case .rightSidebarTool(let mode):
             return canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: destination)
         case .surface:
@@ -266,7 +288,7 @@ extension PaneDropContainer {
             }
             return .editor
         case .browser, .markdown, .rightSidebarTool, .customSidebar, .simulator,
-             .agentSession, .project, .extensionBrowser, .workspaceTodo,
+             .agentSession, .project, .extensionBrowser, .workspaceTodo, .coderouterGuide,
              .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return nil
         }
@@ -347,6 +369,18 @@ extension Workspace: PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         handleSurfaceResourceDrop(group: group, destination: destination)
+    }
+
+    /// Another workspace's row: its tabs merge here; this workspace's own row never does.
+    func canPerformWorkspaceMergeDrop(_ sourceWorkspaceId: UUID) -> Bool {
+        AppDelegate.shared?.canMergeWorkspace(sourceWorkspaceId, into: id) == true
+    }
+
+    func performWorkspaceMergeDrop(
+        _ sourceWorkspaceId: UUID,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        AppDelegate.shared?.mergeWorkspace(sourceWorkspaceId, into: id, destination: destination) == true
     }
 
     /// Returns the workspace panel selected in the target pane.

@@ -9,6 +9,8 @@ import { parseNetworkPolicy, type NetworkRulePlan } from "../services/vms/networ
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { createVm, getVmNetworkPolicy, updateVmNetworkPolicy } from "../services/vms/workflows";
+import { networkPolicyResponseBody } from "../services/vms/networkPolicyRoute";
+import { ProviderTlsRuleLimitError } from "../services/vms/drivers/types";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 
@@ -67,6 +69,7 @@ function harness(options: { vm?: CloudVmRow; apply?: (plan: NetworkRulePlan) => 
     }),
   } as unknown as VmRepositoryShape;
   const providers = {
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
     create: (_provider: string, createOptions: { networkRules?: NetworkRulePlan }) => Effect.sync(() => {
       created.push(createOptions);
       return { provider: "freestyle" as const, providerVmId: "vm-net", status: "running" as const, image: "snapshot-test", createdAt: NOW.getTime() };
@@ -117,6 +120,30 @@ describe("network policy workflows", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     expect(writes[0]?.policy).toMatchObject({ mode: "allowlist" });
     expect(writes.at(-1)?.status).toMatchObject({ state: "failed" });
+  });
+
+  test("a capacity refusal stores a stable code, never provider text, and renders localized copy", async () => {
+    const limit = new ProviderTlsRuleLimitError("freestyle", "applyNetworkPolicy(vm-net): account TLS rule limit reached",
+      new Error("conflict: TLS rule limit reached (2000); delete unused rules before creating more"));
+    const { layer, writes } = harness({
+      apply: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "applyNetworkPolicy", cause: limit })),
+    });
+    await Effect.runPromiseExit(updateVmNetworkPolicy({ ...access, policy: allowlist }).pipe(Effect.provide(layer)));
+    const stored = writes.at(-1)?.status as Record<string, unknown>;
+    expect(stored).toEqual({ state: "failed", errorCode: "network_rule_capacity" });
+    expect(JSON.stringify(stored)).not.toMatch(/TLS rule limit|applyNetworkPolicy/);
+
+    const body = await networkPolicyResponseBody({ policy: allowlist, status: { state: "failed", errorCode: "network_rule_capacity" } }, "ja");
+    expect(body.applied).toMatchObject({ state: "failed", errorCode: "network_rule_capacity" });
+    expect(body.applied.error).toContain("cmux チーム");
+  });
+
+  test("a legacy failed row with English provider text reads as a generic failure code", async () => {
+    const { layer } = harness({ vm: row({ networkPolicy: { ...allowlist }, networkPolicyStatus: { state: "failed", error: "[freestyle] applyNetworkPolicy(vm-net) <- edge down" } }) });
+    const view = await Effect.runPromise(getVmNetworkPolicy(access).pipe(Effect.provide(layer)));
+    expect(view.status).toEqual({ state: "failed", errorCode: "apply_failed" });
+    const body = await networkPolicyResponseBody(view, "en");
+    expect(body.applied.error).toBe("The network policy is saved but was not applied. Save it again to retry.");
   });
 
   test("a provider without egress control refuses a restricted policy and stores nothing", async () => {

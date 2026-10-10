@@ -33,6 +33,7 @@ import {
   PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
+  ResumePlanButton,
   SecondaryLink,
   visibleCompareRows,
   visibleFaqItems,
@@ -108,6 +109,10 @@ export function AppPricingContent({
     manageBilling: canManageBilling && !snapshot.isPro,
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
+  // While a cancellation is scheduled the current plan's action is Resume.
+  const resumeLabel = (plan: string) => snapshot.cancelScheduled
+    ? pricingMessage(pricing.resumePlan, { plan })
+    : undefined;
   // The app that opened this page tags it with the button it came from and
   // its release channel; forward that to checkout. An app build that predates
   // the tags still counts as an app-originated checkout.
@@ -133,9 +138,9 @@ export function AppPricingContent({
     "month",
     attribution,
   );
-  // Max is monthly only: one checkout link, no interval parameter.
+  const maxPortalSwitch = snapshot.isPro && !isMax;
   const maxCheckoutHref =
-    snapshot.isPro && !isMax
+    maxPortalSwitch
       ? withExternalBrowserIntent(
           `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
         )
@@ -143,9 +148,13 @@ export function AppPricingContent({
           "max",
           requestOrigin,
           cmuxScheme,
-          undefined,
+          "month",
           attribution,
         );
+  const maxCheckoutHrefs = {
+    month: maxCheckoutHref,
+    year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
@@ -223,7 +232,9 @@ export function AppPricingContent({
             <AppStoreManageAction portalVisible={portalVisible} />
           ) : isGo ? (
             <div className="space-y-2">
-              {portalVisible ? (
+              {portalVisible && snapshot.cancelScheduled ? (
+                <ResumePlanButton>{resumeLabel(pricing.go.name)}</ResumePlanButton>
+              ) : portalVisible ? (
                 <SecondaryLink href="/api/billing/portal">
                   {pricing.manageBilling}
                 </SecondaryLink>
@@ -254,7 +265,7 @@ export function AppPricingContent({
         </PlanCard>
       ) : null}
 
-      {/* Pro: the only plan sold yearly as well as monthly. */}
+      {/* Pro: sold monthly or yearly. */}
       <ProPlanCard
         name={pricing.pro.name}
         surface="app_pricing"
@@ -275,6 +286,7 @@ export function AppPricingContent({
             state={proAction}
             unavailableLabel={pending ? pricing.pro.cta : undefined}
             portalVisible={portalVisible}
+            resumeLabel={resumeLabel(pricing.pro.name)}
             checkout={null}
           />
         )}
@@ -283,35 +295,37 @@ export function AppPricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines on the monthly personal plan. */}
-      <PlanCard
+      {/* Max: larger machines with the same 20% annual discount as Pro. */}
+      <ProPlanCard
         name={pricing.max.name}
-        price={`$${MAX_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        plan="max"
+        pricing={MAX_PRICING_USD}
+        surface="app_pricing"
+        monthlyOnly={maxPortalSwitch}
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={maxCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.max.cta}
         badge={
           isMax ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
-      >
-        <PersonalPlanAction
+        action={maxAction === "checkout" ? undefined : (
+          <PersonalPlanAction
           state={maxAction}
           unavailableLabel={pending ? pricing.max.cta : undefined}
           portalVisible={portalVisible}
-          checkout={
-            <PricingCheckoutButton
-              href={maxCheckoutHref}
-              requiresSignIn={!pending && !snapshot.authenticated}
-              location="app_pricing"
-              plan="max"
-            >
-              {pricing.max.cta}
-            </PricingCheckoutButton>
-          }
-        />
+          resumeLabel={resumeLabel(pricing.max.name)}
+          checkout={null}
+          />
+        )}
+      >
         <p className="mt-5 text-sm font-medium">{pricing.max.featuresLead}</p>
         <FeatureList items={pricing.max.features} />
-      </PlanCard>
+      </ProPlanCard>
     </PricingCategorySection>
   );
   const comparison = (
@@ -455,6 +469,8 @@ export type AppPlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** The Stripe subscription ends at period end; pricing offers Resume. */
+  cancelScheduled?: boolean;
   email: string | null;
 };
 
@@ -485,17 +501,23 @@ function PersonalPlanAction({
   state,
   portalVisible,
   unavailableLabel,
+  resumeLabel,
   checkout,
 }: {
   state: PersonalPlanActionState;
   portalVisible: boolean;
   unavailableLabel?: string;
+  /** Set while the current plan's cancellation is scheduled. */
+  resumeLabel?: string;
   checkout: ReactNode;
 }) {
   switch (state) {
     case "app_store":
       return <AppStoreManageAction portalVisible={portalVisible} />;
     case "current":
+      if (portalVisible && resumeLabel) {
+        return <ResumePlanButton>{resumeLabel}</ResumePlanButton>;
+      }
       return portalVisible ? (
         <SecondaryLink href="/api/billing/portal">
           {pricing.manageBilling}

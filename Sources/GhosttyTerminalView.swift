@@ -7,6 +7,7 @@ import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -314,6 +315,9 @@ class GhosttyApp {
                     result.cleanupTransferredTemporaryFiles(
                         using: pasteboardService
                     )
+                },
+                fastOperation: { request in
+                    try await client.prepareFastPath(request)
                 }
             )
             return TerminalSurfaceViewFactory(
@@ -3318,6 +3322,50 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
+            return true
+        case GHOSTTY_ACTION_PROGRAM_STATUS:
+            let status = action.action.program_status
+            let copyCString: (UnsafePointer<CChar>?) -> String? = { pointer in
+                guard let pointer else { return nil }
+                return String(cString: pointer)
+            }
+            let state: ProgramStatusState
+            switch status.state {
+            case GHOSTTY_PROGRAM_STATUS_WORKING: state = .working
+            case GHOSTTY_PROGRAM_STATUS_DONE: state = .done
+            case GHOSTTY_PROGRAM_STATUS_BLOCKED: state = .blocked
+            case GHOSTTY_PROGRAM_STATUS_ERROR: state = .error
+            case GHOSTTY_PROGRAM_STATUS_CLEAR: state = .clear
+            default: state = .idle
+            }
+            let kind: ProgramStatusKind
+            switch status.kind {
+            case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: kind = .permission
+            case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: kind = .question
+            case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: kind = .auth
+            default: kind = .none
+            }
+            let report = ProgramStatusReport(
+                event: status.event == GHOSTTY_PROGRAM_STATUS_EVENT_PROMPT_START ? ProgramStatusEvent.promptStart : .report,
+                state: state,
+                kind: kind,
+                progress: status.progress >= 0 ? Int(status.progress) : nil,
+                id: copyCString(status.id),
+                app: copyCString(status.app),
+                title: copyCString(status.title),
+                message: copyCString(status.msg)
+            )
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { [weak callbackContext] in
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext),
+                      let tabId = callbackContext.tabId,
+                      let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+                workspace.applyProgramStatus(report, panelId: callbackContext.surfaceId)
+            }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
@@ -6702,6 +6750,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
+    /// The AppKit Copy action runs before a fullscreen TUI can receive Cmd+C.
+    /// If cmux could not copy a native terminal selection, forward the same
+    /// semantic key only while an alternate-screen application owns the view.
+    /// A primary-screen shell with no selection remains a harmless no-op.
+    static func shouldForwardMenuCopyToAlternateScreen(
+        copiedNativeSelection: Bool,
+        isAlternateScreenActive: Bool
+    ) -> Bool {
+        !copiedNativeSelection && isAlternateScreenActive
+    }
+
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
             _ = performBindingActionImmediately(
@@ -6709,11 +6768,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             return
         }
+        let copied: Bool
         if keyboardCopyModeActive {
-            _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+            copied = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
         } else {
-            _ = copyCurrentGhosttySelectionToClipboard(surface: surface)
+            copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
         }
+
+        guard Self.shouldForwardMenuCopyToAlternateScreen(
+            copiedNativeSelection: copied,
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true
+        ) else {
+            return
+        }
+
+        // AppKit has already consumed the menu key equivalent. Re-inject the
+        // semantic Cmd+C through Ghostty so Kitty-aware TUIs such as Codex can
+        // copy their own selection without changing the shell's Ctrl+C path.
+        _ = terminalSurface?.sendNamedKey("super+c")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {

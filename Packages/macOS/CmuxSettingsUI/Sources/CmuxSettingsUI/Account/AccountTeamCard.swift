@@ -56,6 +56,9 @@ public struct AccountTeamCard: View {
         }
         .onAppear { model.reloadIfNeeded() }
         .onChange(of: model.selectedTeamID) { _, _ in model.reload() }
+        .onChange(of: model.isAuthSettling) { _, settling in
+            if !settling { model.reloadIfNeeded() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Self.focusInviteRequestName)) { _ in
             model.isComposingInvite = true
             inviteFieldFocused = true
@@ -320,6 +323,9 @@ final class AccountTeamCardModel {
     @ObservationIgnored private var loadedTeamID: String?
     @ObservationIgnored private var pendingTeamID: String?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// A reload that arrived while sign-in or sign-out still owned the
+    /// session. The card runs it once ``isAuthSettling`` turns false.
+    @ObservationIgnored private var reloadDeferredForAuth = false
 
     static let composerPendingID = "composer"
 
@@ -328,6 +334,9 @@ final class AccountTeamCardModel {
     }
 
     var selectedTeamID: String? { flow.selectedTeamID }
+    /// True while the host's sign-in or sign-out still owns the session.
+    /// A roster request in that window is refused before it leaves the Mac.
+    var isAuthSettling: Bool { flow.isWorkingOnAuth }
     var isInviting: Bool { pendingID == Self.composerPendingID }
     var canSendInvite: Bool {
         pendingID == nil && !inviteEmails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -356,7 +365,7 @@ final class AccountTeamCardModel {
     }
 
     func reloadIfNeeded() {
-        guard detail == nil || loadedTeamID != flow.selectedTeamID else { return }
+        guard reloadDeferredForAuth || detail == nil || loadedTeamID != flow.selectedTeamID else { return }
         reload()
     }
 
@@ -364,6 +373,7 @@ final class AccountTeamCardModel {
         let teamID = flow.selectedTeamID
         guard pendingID == nil || pendingTeamID != teamID else { return }
         reloadTask?.cancel()
+        reloadDeferredForAuth = false
         guard flow.supportsTeamManagement, teamID != nil else {
             detail = nil
             isLoading = false
@@ -375,6 +385,12 @@ final class AccountTeamCardModel {
             notice = nil
         }
         isLoading = true
+        // Sign-in publishes the team before it hands the new tokens over. A
+        // fetch now fails locally, so wait for the session to settle.
+        guard !flow.isWorkingOnAuth else {
+            reloadDeferredForAuth = true
+            return
+        }
         reloadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
