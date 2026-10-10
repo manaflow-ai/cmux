@@ -23,6 +23,9 @@ extension UpdaterService {
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         attachTips(registry: services.registry)
+        #if DEBUG
+        UpdateHarnessProbe.install(updater: self)
+        #endif
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog

@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
@@ -52,7 +53,12 @@ enum DebugTimings {
             marks.append((name, ms))
             return true
         }
-        if first { LaunchMarkSink.shared.write(name: name, ms: ms) }
+        if first {
+            LaunchMarkSink.shared.write(name: name, ms: ms)
+            #if DEBUG
+            UpdateHarness.mark("launch.\(name)", at: date)
+            #endif
+        }
     }
 
     static func install() {

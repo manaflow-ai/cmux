@@ -153,7 +153,11 @@ public final class UpdaterService {
             controller.installsUpdatesInBackground = true
             self.controller = controller
         } else {
+            #if DEBUG
+            controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
+            #else
             controller = nil
+            #endif
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
@@ -258,6 +262,9 @@ public final class UpdaterService {
     /// check (the shared driver's attempt flow, so never a stale version).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
+        #if DEBUG
+        UpdateHarness.mark("install_clicked")
+        #endif
         if needsSheet { presentUpdateUI?() }
         controller.model.setOverrideState(nil)
         syncFlowPhase()
@@ -352,6 +359,9 @@ extension UpdaterService: UpdateActionDelegate {
     /// `applicationShouldTerminate` path.
     public func updaterWillRelaunchApplication() {
         log.append("relaunching for update")
+        #if DEBUG
+        UpdateHarness.mark("will_relaunch")
+        #endif
         willRelaunch?()
     }
 
