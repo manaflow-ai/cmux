@@ -96,8 +96,11 @@ const pickResult: Play = async (ctx) => {
 
 const noResults: Play = async (ctx) => {
   await ctx.type("zz", field);
-  await ctx.waitFor(() =>
-    Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector('[role="listbox"][aria-busy="false"]') !== null &&
+      ctx.document.querySelectorAll('[role="option"]').length === 0 &&
+      Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
   );
 };
 
@@ -170,8 +173,10 @@ export default componentEntry<Props>({
       props: { ...baseProps, search: outsideRepository },
       play: async (ctx) => {
         await ctx.type("src", field);
-        await ctx.waitFor(() =>
-          Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('[role="listbox"][aria-busy="false"]') !== null &&
+            Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
         );
       },
     },
