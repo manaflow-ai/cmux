@@ -8544,6 +8544,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         let manager = preferredTabManager
             ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource)?.tabManager }
+            ?? preferredMainWindowContextForWorkspaceCreation(
+                event: event,
+                debugSource: debugSource
+            )?.tabManager
         return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: manager,
@@ -8556,7 +8560,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shouldInheritWorkingDirectoryForLocalWorkspace(in tabManager: TabManager) -> Bool {
         guard let workspace = tabManager.selectedWorkspace else { return true }
-        return workspace.cloudVMBinding == nil
+        guard isLocalWorkspaceForLocalCreation(workspace) else { return false }
+
+        // Group creation inherits from the live anchor, which can differ from
+        // the selected member after a group is reordered or its anchor is
+        // promoted. Keep a local Cmd-N local when that anchor is Cloud or
+        // remote, even if the selected member itself is local.
+        guard let groupID = workspace.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
+              let anchorID = group.liveAnchorWorkspaceId,
+              let anchor = tabManager.tabs.first(where: { $0.id == anchorID }) else {
+            return true
+        }
+        return isLocalWorkspaceForLocalCreation(anchor)
+    }
+
+    private func isLocalWorkspaceForLocalCreation(_ workspace: Workspace) -> Bool {
+        workspace.cloudVMBinding == nil
             && workspace.remoteConfiguration == nil
             && workspace.deviceMachineForNewWorkspace == nil
     }

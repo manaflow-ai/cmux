@@ -125,6 +125,46 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.currentDirectory == nested.path)
     }
 
+    @Test func commandNWithoutExplicitContextDoesNotInheritCloudDirectory() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        selected.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        selected.currentDirectory = "/cloud-only/project"
+        let originalCount = fixture.manager.tabs.count
+
+        #expect(fixture.app.performNewLocalWorkspaceAction())
+
+        #expect(fixture.manager.tabs.count == originalCount + 1)
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(created.cloudVMBinding == nil)
+        #expect(created.remoteConfiguration == nil)
+        #expect(created.currentDirectory == fixture.root.path)
+    }
+
+    @Test func repeatedCommandNKeepsCloudAnchoredGroupDirectoriesLocal() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let anchor = try #require(fixture.manager.selectedWorkspace)
+        anchor.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        anchor.currentDirectory = "/cloud-only/project"
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "Cloud Cmd-N",
+            childWorkspaceIds: [anchor.id]
+        ))
+        let originalCount = fixture.manager.tabs.count
+
+        for _ in 0..<2 {
+            #expect(fixture.app.performNewLocalWorkspaceAction(tabManager: fixture.manager))
+            let created = try #require(fixture.manager.selectedWorkspace)
+            #expect(created.groupId == groupID)
+            #expect(created.cloudVMBinding == nil)
+            #expect(created.remoteConfiguration == nil)
+            #expect(created.currentDirectory == fixture.root.path)
+        }
+        #expect(fixture.manager.tabs.count == originalCount + 2)
+    }
+
     @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)
