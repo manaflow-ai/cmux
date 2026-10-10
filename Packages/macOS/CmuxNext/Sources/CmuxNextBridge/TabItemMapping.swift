@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -49,16 +48,16 @@ public struct TabItemMapping {
         if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
     }
 
-    /// A tab's kind icon from the cmux icon registry. A live agent terminal, and an agent chat
-    /// whose harness is known, wear the agent's brand mark (design/agent-icons); others, and
-    /// agents without a mark, keep their kind's icon.
+    /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
+    /// and an agent chat whose harness is known, wear the agent's brand mark (design/agent-icons);
+    /// others, ended sessions and agents without a mark keep their kind's icon.
     func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
         if isConversation {
-            return AgentBrandCatalog.brand(for: tab.agentSession?.harness).map { TabIcon.agentMark($0.rawValue) } ?? .icon(.agentChat)
+            return tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
         if isBrowser { return .icon(.browser) }
         if tab.dead { return .icon(.terminalDead) }
-        if let brand = AgentBrandCatalog.brand(for: tab.agent?.agent) { return .agentMark(brand.rawValue) }
+        if let brand = tab.agentBrand { return .agentMark(brand) }
         return .icon(.terminal)
     }
 

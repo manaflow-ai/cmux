@@ -3,16 +3,19 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
+import CmuxNextTabs
 
 // `TabDropTargetProviding` adapters for the two surfaces whose drag APIs
 // predate the protocol. Tab strips conform directly. One pair per window,
 // cached by the session for the whole drag.
 
 /// The sidebar: workspace rows (with spring-load), gaps (new workspace), the
-/// "new" button, and collapsed groups. Spring-load and auto-scroll run in
-/// the sidebar itself.
+/// "new" button, collapsed groups, and a tab row's edge (before that tab).
+/// Spring-load and auto-scroll run in the sidebar itself.
 final class SidebarTabDropTarget: TabDropTargetProviding {
     private weak var bridge: SidebarBridge?
+    /// The sidebar's window, whose strips take a tab dropped on a tab row's edge.
+    private weak var window: WindowController?
     private var active = false
     /// Machine of the dragged tabs or workspaces; drops stay on it.
     var sourceMachine: MachineID = .local
@@ -21,13 +24,16 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     private(set) var lastDrop: SidebarTabDrop?
     var bridgeForDrop: SidebarBridge? { bridge }
 
-    init(bridge: SidebarBridge) {
+    init(bridge: SidebarBridge, window: WindowController? = nil) {
         self.bridge = bridge
+        self.window = window
     }
 
-    /// The raw sidebar hit (opens a gap, lights a row or group).
-    func hit(screenPoint: CGPoint) -> SidebarTabDropHit? {
-        guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: sourceMachine) else {
+    /// The raw sidebar hit (opens a gap, lights a row or group). A tab drag
+    /// `reordersTabRows`: a tab row's edge is that tab's slot.
+    func hit(screenPoint: CGPoint, reordersTabRows: Bool = false) -> SidebarTabDropHit? {
+        guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: sourceMachine,
+                                                                                reordersTabRows: reordersTabRows) else {
             return nil
         }
         active = true
@@ -36,10 +42,11 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
         guard let bridge else { return nil }
-        guard let hit = hit(screenPoint: screenPoint) else {
+        guard let hit = hit(screenPoint: screenPoint, reordersTabRows: true) else {
             // A row that refuses the tab still previews, with why (tab-dnd).
             lastDrop = nil
-            guard let refusal = bridge.container.sidebarView.tabDragRefusal(screenPoint: screenPoint, sourceMachine: sourceMachine) else {
+            guard let refusal = bridge.container.sidebarView.tabDragRefusal(screenPoint: screenPoint, sourceMachine: sourceMachine,
+                                                                                       reordersTabRows: true) else {
                 return nil
             }
             active = true
@@ -57,8 +64,27 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
             kind = .newWorkspace(groupID: group?.rawValue, index: root ?? -1)
         case .intoGroup(let group):
             kind = .newWorkspace(groupID: group.rawValue, index: -1)
+        case .beforeTab(let workspace, let tab):
+            kind = beforeTab(StripTabID(tab.rawValue), workspace: workspace.rawValue, payload: payload)
         }
         return TabDropProposal(kind: kind, highlightFrame: hit.highlightFrame)
+    }
+
+    /// A tab row's edge: the tab's strip at that tab's slot, as a drop on the
+    /// strip itself (rapid-switch item 3). A workspace this window doesn't
+    /// show has no strip: the tab joins that workspace.
+    private func beforeTab(_ tab: StripTabID, workspace: String, payload: TabDragPayload) -> TabDropKind {
+        guard let pane = window?.content?.panes.values.first(where: { $0.tab(tab) != nil }),
+              let index = pane.orderedIDs.firstIndex(of: tab) else { return .workspace(id: workspace) }
+        let moving: String = switch payload {
+        case .tab(let id, _): id
+        case .tabGroup(_, let ids, _, _): ids.first ?? ""
+        }
+        // A strip index is the dragged tab's final slot: from earlier in the
+        // same strip, the tab's own slot closes up first.
+        let from = pane.orderedIDs.firstIndex(of: StripTabID(moving))
+        let group = pane.stripModel.orderedTabs[index].groupID?.rawValue
+        return .strip(stripID: pane.stripModel.stripID, index: from.map { $0 < index ? index - 1 : index } ?? index, groupID: group)
     }
 
     func dropExited() {

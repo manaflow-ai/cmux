@@ -8515,6 +8515,137 @@
           }
         }
       }
+    },
+    "remote.install.treeNotPublished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build's cmux-tui (tree %@) is not published, so it cannot be installed on the machine. Use a build whose cmux-tui is published."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُنشر cmux-tui الخاص بهذا الإصدار (الشجرة %@)، لذا لا يمكن تثبيته على الجهاز. استخدم إصدارًا نُشر cmux-tui الخاص به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ove verzije (stablo %@) nije objavljen, pa se ne može instalirati na mašinu. Koristite verziju čiji je cmux-tui objavljen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne builds cmux-tui (træ %@) er ikke udgivet, så den kan ikke installeres på maskinen. Brug en build, hvis cmux-tui er udgivet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dieses Builds (Baum %@) ist nicht veröffentlicht und kann daher nicht auf dem Rechner installiert werden. Verwende einen Build, dessen cmux-tui veröffentlicht ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de esta compilación (árbol %@) no está publicado, así que no se puede instalar en la máquina. Usa una compilación cuyo cmux-tui esté publicado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui de cette build (arbre %@) n’est pas publié, il ne peut donc pas être installé sur la machine. Utilisez une build dont le cmux-tui est publié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui di questa build (albero %@) non è pubblicato, quindi non può essere installato sulla macchina. Usa una build il cui cmux-tui è pubblicato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドの cmux-tui（ツリー %@）は公開されていないため、マシンにインストールできません。cmux-tui が公開されているビルドを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui របស់ការស្ថាបនានេះ (មែកធាង %@) មិនទាន់បានបោះពុម្ពផ្សាយទេ ដូច្នេះមិនអាចដំឡើងលើម៉ាស៊ីនបានទេ។ សូមប្រើការស្ថាបនាដែល cmux-tui របស់វាត្រូវបានបោះពុម្ពផ្សាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드의 cmux-tui(트리 %@)가 게시되지 않아 머신에 설치할 수 없습니다. cmux-tui가 게시된 빌드를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui for denne builden (tre %@) er ikke publisert, så den kan ikke installeres på maskinen. Bruk en build der cmux-tui er publisert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tej kompilacji (drzewo %@) nie jest opublikowany, więc nie można go zainstalować na maszynie. Użyj kompilacji, której cmux-tui jest opublikowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui desta build (árvore %@) não está publicado, então não pode ser instalado na máquina. Use uma build cujo cmux-tui esteja publicado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui этой сборки (дерево %@) не опубликован, поэтому его нельзя установить на машину. Используйте сборку с опубликованным cmux-tui."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ของบิลด์นี้ (ทรี %@) ยังไม่ได้เผยแพร่ จึงติดตั้งบนเครื่องไม่ได้ ใช้บิลด์ที่เผยแพร่ cmux-tui แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derlemenin cmux-tui’si (ağaç %@) yayımlanmadı, bu yüzden makineye kurulamaz. cmux-tui’si yayımlanmış bir derleme kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui цієї збірки (дерево %@) не опубліковано, тому його не можна встановити на машину. Використайте збірку з опублікованим cmux-tui."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui của bản dựng này (cây %@) chưa được phát hành nên không thể cài đặt trên máy. Hãy dùng bản dựng có cmux-tui đã phát hành."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此构建的 cmux-tui（树 %@）尚未发布，因此无法安装到该机器。请使用 cmux-tui 已发布的构建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此建置的 cmux-tui（樹 %@）尚未發佈，因此無法安裝到該機器。請使用 cmux-tui 已發佈的建置。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

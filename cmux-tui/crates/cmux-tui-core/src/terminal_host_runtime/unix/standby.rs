@@ -37,6 +37,7 @@ impl StandbyTerminalHost {
             }
             command
                 .args(["__terminal-host", "--bootstrap-stdio"])
+                .args(host_owner_args())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 // A host outlives its daemon, so it must not retain a daemon

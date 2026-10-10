@@ -111,6 +111,10 @@ enum RemoteStrings {
             return String(localized: "remote.install.noChecksumTool", defaultValue: "The machine has no sha256sum or shasum, so the download cannot be checked.", table: "Remote", bundle: .module)
         case .downloadFailed(let detail):
             return String(format: String(localized: "remote.install.download", defaultValue: "The download failed: %@", table: "Remote", bundle: .module), detail)
+        case .treeNotPublished(let key):
+            return String(format: String(localized: "remote.install.treeNotPublished",
+                                         defaultValue: "This build's cmux-tui (tree %@) is not published, so it cannot be installed on the machine. Use a build whose cmux-tui is published.",
+                                         table: "Remote", bundle: .module), String(key.prefix(12)))
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.install.unrunnable", defaultValue: "The downloaded cmux-tui does not run on this machine: %@", table: "Remote", bundle: .module), detail)
         case .notWritable(let detail):

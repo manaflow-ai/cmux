@@ -7,6 +7,7 @@ import Foundation
 nonisolated enum DebugSettingsStrings {
     static var windowTitle: String { text("debugSettings.title", "Debug Settings") }
     static var searchPlaceholder: String { text("debugSettings.search", "Search tunables") }
+    static var clearSearch: String { text("debugSettings.clearSearch", "Clear Search") }
     static var all: String { text("debugSettings.all", "All") }
     static var changed: String { text("debugSettings.changed", "Changed") }
     static var copyJSON: String { text("debugSettings.copyJSON", "Copy Changed as JSON") }
