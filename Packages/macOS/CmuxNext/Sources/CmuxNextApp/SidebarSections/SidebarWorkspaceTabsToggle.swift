@@ -29,5 +29,7 @@ enum SidebarWorkspaceTabsToggle {
             }
         }
         ActionTargetTitles.setState(id, in: registry) { _ in showing() }
+        // Minimal mode lists no tab rows (cx-w1r5), so the menus leave the row out.
+        ActionTargetVisibility.hide(id, in: registry) { _ in (context.services.settings?.snapshot.sidebarSections ?? .defaults).minimal }
     }
 }

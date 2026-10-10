@@ -214,6 +214,8 @@ export type ChangelogPageVariant = VariantBase & {
   error?: { code: string; message: string };
   current?: string;
   notes: ReleaseNotes[];
+  /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
+  route?: string;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
