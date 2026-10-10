@@ -148,7 +148,7 @@ nonisolated extension ActionSurfaceCatalog {
         "toggleCanvasLayout": [p(.pane, .layout, 102, folder: .layout)],
         "palette.newSimulatorPane": [p(.pane, .create, 100, folder: .new)],
         "newTab.toRight": [p(.tab, .create, -2)],
-        "newTab.ofKind": [p(.tab, .create, -1)],
+        "newTab.ofKind": [p(.tab, .create, -1, folder: .new)],
         "newSurface": [p(.tab, .create, 0, folder: .new), p(.newTab, .create, 0)],
         "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 2)],
         "closeTab": [p(.tab, .close, 604)],
