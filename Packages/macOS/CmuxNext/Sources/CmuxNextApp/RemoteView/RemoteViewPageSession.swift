@@ -16,15 +16,19 @@ final class RemoteViewPageSession {
     #if DEBUG
     private let pane: RemoteDesktopPane
     private let source: any RemoteViewStreamSource
-    /// Connects the real transport on the first resume; nil for the mock.
-    private let connect: (() -> Void)?
+    /// The real host's source and how to make a new transport; nil for the mock.
+    private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
+    /// The current transport already connected once (it cannot connect again).
+    private var rdUsed = false
+    /// The person pressed Stop: only Reconnect starts a new session, never showing the tab again.
+    private var rdStopped = false
     private var visible = false
 
     private init(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) {
         // The test desktop offers upstream media, so the share buttons show.
         let source = MockRemoteStreamSource(status: Self.mockStatus)
         self.source = source
-        connect = nil
+        rd = nil
         pane = RemoteDesktopPane(hostName: record.host, source: source, inputSink: MockRemoteInputSink(host: source),
                                  initialMode: record.mode)
         pane.handlers.stop = { [weak source] in source?.end(.stoppedByViewer) }
@@ -36,17 +40,41 @@ final class RemoteViewPageSession {
         pane.upstreamControl = source
     }
 
-    /// A real host's session. Reconnect after an end is not offered by this
-    /// development path: close the tab and open it again.
-    private init(record: RemoteViewTabRecord, transport: RemoteRdStreamTransport,
-                 closeTab: @escaping @MainActor () -> Void) {
-        source = transport
-        connect = { transport.connect() }
-        pane = RemoteDesktopPane(hostName: record.host, source: transport,
-                                 inputSink: RemoteRdTransportInputSink(transport: transport), initialMode: record.mode)
-        pane.handlers.stop = { transport.stop() }
+    /// A real host's session. Each connection gets its own transport: a
+    /// hidden tab ends its session (the host stops streaming) and a shown tab
+    /// or Reconnect starts a new one.
+    private init(record: RemoteViewTabRecord, first: RemoteRdStreamTransport,
+                 make: @escaping () -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void) {
+        let rdSource = RemoteRdDebugSource(first)
+        source = rdSource
+        rd = (rdSource, make)
+        pane = RemoteDesktopPane(hostName: record.host, source: rdSource,
+                                 inputSink: RemoteRdDebugInputSink(source: rdSource), initialMode: record.mode)
+        pane.handlers.stop = { [weak self] in
+            self?.rdStopped = true
+            rdSource.transport.stop()
+        }
+        pane.handlers.reconnect = { [weak self] in self?.reconnect() }
         pane.handlers.close = closeTab
-        pane.upstreamControl = transport
+        pane.upstreamControl = rdSource
+    }
+
+    /// Reconnect on an ended session: a new transport, a new subscription.
+    private func reconnect() {
+        rdStopped = false
+        pane.stop()
+        guard visible else { return }
+        startRd()
+    }
+
+    /// Starts the pane on a fresh transport (the used one cannot connect
+    /// again), then connects it. The pane subscribes before the connect.
+    private func startRd() {
+        guard let rd else { return }
+        if rdUsed, let next = rd.make() { rd.source.replace(with: next) }
+        rdUsed = true
+        pane.start()
+        rd.source.transport.connect()
     }
 
     private nonisolated static let mockStatus = RemoteViewStatus(
@@ -62,7 +90,7 @@ final class RemoteViewPageSession {
         let stats = await pane.decodeStats()
         let state = pane.state
         return .object([
-            "source": .string(connect == nil ? "mock" : "rd"),
+            "source": .string(rd == nil ? "mock" : "rd"),
             "host": .string(state.hostName),
             "state": .string(String(describing: state.sessionState)),
             "visible": .bool(visible),
@@ -79,10 +107,14 @@ final class RemoteViewPageSession {
     func resume() {
         guard !visible else { return }
         visible = true
-        pane.start()
-        // The transport ignores a second connect; a resumed session asks for a fresh picture.
-        connect?()
-        source.requestKeyframe()
+        guard rd != nil else {
+            pane.start()
+            source.requestKeyframe()
+            return
+        }
+        // After the person's Stop the last frame and the ended card stay until Reconnect.
+        // The source asks for a keyframe once the new session streams.
+        if !rdStopped { startRd() }
     }
 
     /// Pauses the stream while the tab is hidden or closed. The last frame stays.
@@ -90,6 +122,8 @@ final class RemoteViewPageSession {
         guard visible else { return }
         visible = false
         pane.stop()
+        // A hidden or closed tab ends its rd session: the host stops streaming to it.
+        rd?.source.transport.stop()
     }
 
     #else
@@ -105,8 +139,8 @@ final class RemoteViewPageSession {
         guard RemoteViewAvailability().isAvailable else { return nil }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
-              let transport = host.transport(for: record) else { return nil }
-        return RemoteViewPageSession(record: record, transport: transport, closeTab: closeTab)
+              let first = host.transport(for: record) else { return nil }
+        return RemoteViewPageSession(record: record, first: first, make: { host.transport(for: record) }, closeTab: closeTab)
         #else
         return nil
         #endif

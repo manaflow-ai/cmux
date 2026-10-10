@@ -15,7 +15,11 @@ import Foundation
 /// - `CMUX_RD_DEBUG_USER` (optional): the hello's user, the host's
 ///   `--owner`; this Mac's user name by default.
 /// The hello offers the upstream media caps, so a host with a sink (for
-/// example `--upstream-record DIR`) enables the share buttons.
+/// example `--upstream-record DIR`) enables the share buttons. Every
+/// loopback record host (`local`, `localhost`, any 127.x address) connects to
+/// 127.0.0.1 at `CMUX_RD_DEBUG_PORT`. The token goes to whatever listens on
+/// that port, including another local user's process that took it first:
+/// acceptable for development builds only.
 struct RemoteViewDebugRdHost {
     let endpoint: RemoteRdLoopbackEndpoint
     let tokenFile: RemoteBrowserSecretFile
@@ -48,6 +52,22 @@ struct RemoteViewDebugRdHost {
         return RemoteRdStreamTransport(
             endpoint: endpoint, hello: hello, startKey: UUID().uuidString, control: record.mode == .control
         )
+    }
+
+    /// Why this process has no usable debug host, or nil when it has one
+    /// (`debug.remote_view` state; the token itself is never shown).
+    static func problem(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        guard let portText = environment["CMUX_RD_DEBUG_PORT"] else { return "CMUX_RD_DEBUG_PORT is not set" }
+        guard let port = UInt16(portText), RemoteRdLoopbackEndpoint(port: port) != nil else {
+            return "CMUX_RD_DEBUG_PORT \(portText) is not a port from 1024 to 65535"
+        }
+        guard let path = environment["CMUX_RD_DEBUG_TOKEN_FILE"], !path.isEmpty else { return "CMUX_RD_DEBUG_TOKEN_FILE is not set" }
+        do {
+            _ = try RemoteBrowserSecretFile(path: path).read()
+        } catch {
+            return "CMUX_RD_DEBUG_TOKEN_FILE \(path): \(error)"
+        }
+        return nil
     }
 
     /// The rd caps that let the viewer send its microphone, camera or screen (rd change C4).

@@ -2,7 +2,7 @@
 """Live check: the desktop pane streams from a real Linux `cmux-rd host` (cx-wb5.75).
 
   scripts/cmux-next/remote-view-rd-live.py --tag <tag> --port <loopback port> --token-file <file>
-                                           [--user <host owner>] [--out DIR] [--min-frames 30]
+                                           --user <host owner> [--out DIR] [--min-frames 30]
 
 GUI host only (cmux-lawrence-2 or the M1 Max through nx-remote), never a developer laptop.
 The host side runs elsewhere: a Linux `cmux-rd host --owner USER --token-fd N` (Xvfb plus
@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--port", required=True, type=int)
 parser.add_argument("--token-file", required=True)
-parser.add_argument("--user", default=os.environ.get("USER", ""))
+parser.add_argument("--user", required=True, help="the Linux host's --owner")
 parser.add_argument("--min-frames", type=int, default=30)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rd-view-live-"))
 opts = parser.parse_args()
@@ -68,9 +68,13 @@ def wait(predicate, seconds, step=0.5):
     return None
 
 
+def state():
+    reply = rpc("debug.remote_view", {"action": "state"})
+    return reply if isinstance(reply, dict) else {}
+
+
 def tabs():
-    state = rpc("debug.remote_view", {"action": "state"})
-    return state.get("tabs") or [] if isinstance(state, dict) else []
+    return state().get("tabs") or []
 
 
 def tab_where(test):
@@ -89,6 +93,8 @@ def step(name, ok, evidence):
 
 
 if os.path.exists(SOCKET):
+    if "error" not in rpc("debug.focus"):
+        sys.exit(f"an app with tag {opts.tag} is running; use another tag")
     os.unlink(SOCKET)
 config = os.path.join(opts.out, "cmux.json")
 with open(config, "w") as f:
@@ -110,13 +116,13 @@ try:
     # A fresh app shows Home, which has no pane: select workspaces by number until one has a pane.
     for index in range(1, 10):
         rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
-        time.sleep(1)
-        report["open"] = rpc("debug.remote_view", {"action": "open", "url": URL})
-        if "error" not in report["open"]:
+        report["open"] = wait(lambda: (lambda r: r if "error" not in r else None)(
+            rpc("debug.remote_view", {"action": "open", "url": URL})), 3)
+        if report["open"]:
             break
     asked = wait(lambda: tab_where(lambda t: t.get("confirm")), 30)
     step("an automation-opened desktop tab asks first", asked, {"open": report["open"], "tabs": tabs()})
-    report["connect"] = rpc("debug.remote_view", {"action": "connect"})
+    report["connect"] = rpc("debug.remote_view", {"action": "connect", "tab": (asked or {}).get("tab", "")})
 
     def streaming():
         row = tab_where(lambda t: (t.get("session") or {}).get("source") == "rd")
@@ -124,10 +130,10 @@ try:
         return row if session.get("state") == "streaming" and (session.get("decoded") or 0) >= opts.min_frames else None
 
     streamed = wait(streaming, 60)
-    final = tabs()
-    session = ((streamed or {}).get("session") or {})
+    final = tab_where(lambda t: (t.get("session") or {}).get("source") == "rd") or {}
     step("Connect streams the real rd host: frames decode in the pane",
-         streamed and not session.get("decode_errors"), {"connect": report["connect"], "tabs": final})
+         streamed and not (final.get("session") or {}).get("decode_errors"),
+         {"connect": report["connect"], "state": state()})
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "desktop.png")})
 finally:
     report["final_state"] = tabs()
@@ -142,8 +148,8 @@ finally:
             app.kill()
             app.wait()
     teardown.end()
-report["failures"] = failures
-with open(os.path.join(opts.out, "rd-view-live.json"), "w") as f:
-    json.dump(report, f, indent=1)
+    report["failures"] = failures
+    with open(os.path.join(opts.out, "rd-view-live.json"), "w") as f:
+        json.dump(report, f, indent=1)
 print(json.dumps({"failures": failures, "out": opts.out}))
 sys.exit(1 if failures else 0)

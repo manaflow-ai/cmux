@@ -11,7 +11,9 @@ import Foundation
 ///   new tab of `pane`, else the active window's focused pane, else the
 ///   first window's. An unconfirmed record asks first, as any automation.
 /// - `connect` {tab?}: presses Connect on the tabs that ask first (the same
-///   closure as the button: a confirmed tab starts in view mode).
+///   closure as the button: a confirmed tab starts in view mode). This
+///   bypasses the person rule on purpose: the DEBUG socket stands in for the
+///   person's click. Control and upstream media still need the person.
 extension AppControl {
     func registerRemoteViewDebugMethods(_ services: AppServices) {
         #if DEBUG
@@ -56,7 +58,7 @@ private func remoteViewDebug(_ params: [String: JSONValue], services: AppService
                 "confirm": .bool(tab.debugConnect != nil), "session": session,
             ]))
         }
-        return ["tabs": .array(rows)]
+        return ["tabs": .array(rows), "rd_debug_problem": RemoteViewDebugRdHost.problem().map(JSONValue.string) ?? .null]
     default:
         return ["error": "unknown action"]
     }
