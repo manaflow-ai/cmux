@@ -75,7 +75,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         var next: CloudTreeCellView?
         if let pinnedID = machineLift.sourceNodeID ?? menuPinnedNodeID {
             next = visibleCell(forNodeID: pinnedID)
-        } else if let point, visibleRect.contains(point) {
+        } else if let point, visibleRect.contains(point), pointerHitTargetBelongsToOutline(at: point) {
             // The whole row line counts, so the chevron and the indent before
             // the cell hover the row too.
             let row = row(at: point)
@@ -96,14 +96,23 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         if let next { hoveredNodeID = next.nodeID } else if !keepingNode { hoveredNodeID = nil }
     }
 
+    /// Coordinates alone are insufficient when a SwiftUI sibling is laid out
+    /// over the outline (for example, the New Cloud Machine action above it).
+    /// Use AppKit's resolved hit target so a sibling owns the pointer and the
+    /// last Cloud row cannot retain its hover state underneath that sibling.
+    private func pointerHitTargetBelongsToOutline(at point: NSPoint) -> Bool {
+        guard let window, let contentView = window.contentView else { return false }
+        let windowPoint = convert(point, to: nil)
+        guard let hit = contentView.cmuxHitTest(windowPoint: windowPoint) else { return false }
+        return hit === self || hit.isDescendant(of: self)
+    }
+
     private func refreshHover() {
         guard let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor else {
             updateHover(at: nil)
             return
         }
-        let pointerInWindow = window.convertFromScreen(
-            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
-        ).origin
+        let pointerInWindow = window.mouseLocationOutsideOfEventStream
         updateHover(at: convert(pointerInWindow, from: nil))
     }
 
