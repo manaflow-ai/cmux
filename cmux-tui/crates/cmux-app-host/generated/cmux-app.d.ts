@@ -73,6 +73,7 @@ declare namespace Cmux {
   type CreatedTerminalPath = { kind: "terminal"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; terminal_id: string /* terminal_… */ }
   type CreatedWorkspaceOnly = { kind: "workspace"; workspace_id: string /* workspace_… */ }
   type CreationResolution = { correlation_key: string; state: "pending" | "created" | "not_applied" | "indeterminate"; recovery: "retry_same_idempotency_key" | "retry_new_idempotency_key" | "wait" | "none" | "do_not_retry"; operation?: string; idempotency_key?: string; created_path?: Cmux.CreatedPath; generation?: string; revision?: string }
+  type CredentialCheck = { valid: boolean; actor?: string; reason?: "unknown_key" | "credential_invalid" | "credential_malformed" | "credential_foreign_host" | "credential_closed" }
   type CronSpec = { expr: string; tz: string }
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
@@ -181,6 +182,8 @@ declare namespace Cmux {
   type JournalSubjectFilter = { kind?: string; id?: string }
   type JournalUnsupportedReplayRecord = { sequence: string; event_id: string; kind: string }
   type JsonValue = string
+  type LaunchCredential = { credential: string; actor: string }
+  type LaunchKeyRotation = { kid: string }
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay" }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }

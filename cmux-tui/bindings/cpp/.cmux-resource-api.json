@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1f5a7a49d93f0059049b953c508fe8bf10a49fac18eb9919502a2c03cca11531",
+  "catalog_sha256": "089529a47516db009760e09047845bb95fb561e46ba4da22ce9ebf33b8c655bb",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -114,6 +114,15 @@
     },
     "conversation.typing": {
       "class": "mutation"
+    },
+    "credential.mint": {
+      "class": "read"
+    },
+    "credential.rotate": {
+      "class": "mutation"
+    },
+    "credential.verify": {
+      "class": "read"
     },
     "frontend_projection.get": {
       "class": "read"
