@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
@@ -308,17 +308,22 @@ export function NewTabPage({
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
+  // Once per opening (its input token), never on a parent render: the parent passes a new
+  // `onInputReady` closure on every render, and re-running this selected the typed text while
+  // the page loaded, so the next key replaced it (cx-9fl: "chrome://extensions" became
+  // "rome://extensions").
+  const inputReady = useEffectEvent((token: string) => onInputReady?.(token));
   useEffect(() => {
     const focus = () => {
       field.current?.focus();
       field.current?.select();
     };
     focus();
-    if (inputToken) onInputReady?.(inputToken);
+    if (inputToken) inputReady(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
