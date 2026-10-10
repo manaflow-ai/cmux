@@ -182,3 +182,31 @@ fn a_part_of_an_unknown_type_is_refused_as_invalid_parts_not_as_a_bad_request() 
     let sent = send(&mut home, &conversation, "u1", json!([{"type": "text", "text": "hi"}]));
     assert_eq!(sent["ok"], true, "{sent}");
 }
+
+#[test]
+fn an_import_with_a_part_the_owner_would_refuse_is_refused_whole() {
+    let server = HeadlessServer::start("link-preview-import");
+    let (mut home, _chief, conversation) = home_and_chief(&server);
+    let import = |parts: Value| {
+        json!({"conversation": conversation, "messages": [
+            {"client_msg_id": "i0", "author": "user_local", "created_at": "2026-01-01T00:00:00.000Z",
+             "parts": [{"type": "text", "text": "fine"}]},
+            {"client_msg_id": "i1", "author": "user_local", "created_at": "2026-01-01T00:00:01.000Z",
+             "parts": parts}]})
+    };
+    for parts in [
+        json!([{"type": "future_part", "anything": 1}]),
+        json!([{"type": "link_preview", "url": "javascript:alert(1)"}]),
+    ] {
+        let answer = reply(&mut home, "conversation-import", import(parts.clone()));
+        assert_eq!(refused(&answer), "invalid_parts", "{parts}");
+    }
+    // Nothing of a refused batch was imported; a valid one still is.
+    let ok = reply(
+        &mut home,
+        "conversation-import",
+        import(json!([{"type": "link_preview", "url": "https://example.com/a"}])),
+    );
+    assert_eq!(ok["ok"], true, "{ok}");
+    assert_eq!(ok["data"]["imported"].as_array().map(Vec::len), Some(2), "{ok}");
+}

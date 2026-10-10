@@ -37,6 +37,9 @@ describe("Home attachments: link preview images", { timeout: 120_000 }, () => {
     // Titles and sites count code points, as the owners do: 200 emoji fit in 300.
     expect((await send(bob, [{ ...linkPart(), title: "\u{1F600}".repeat(200), site: "\u{1F600}".repeat(200) }], "b2")).json.ok).toBe(true)
     expect((await send(bob, [{ ...linkPart(), title: "\u{1F600}".repeat(301) }], "b3")).json.error.code).toBe("invalid_parts")
+    // A null title, site or image is absent, as both owners read it.
+    const nulls = await send(bob, [{ ...linkPart(), title: null, site: null, image: null }], "b4")
+    expect(nulls.json.ok).toBe(true)
     // A preview without an image needs no upload.
     expect((await send(bob, [linkPart()], "b1")).json.ok).toBe(true)
   })
