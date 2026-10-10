@@ -45,6 +45,9 @@ nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
         }
     }
 
+    /// The build date alone ("Oct 10, 2026"), nil without one.
+    public var dateText: String? { date?.formatted(date: .abbreviated, time: .omitted) }
+
     /// "1.0.0-nightly.3801702344901" reads "1.0.0 nightly 3801702": the
     /// run number's first 7 digits are enough to tell builds apart.
     public static func shortVersion(_ version: String) -> String {

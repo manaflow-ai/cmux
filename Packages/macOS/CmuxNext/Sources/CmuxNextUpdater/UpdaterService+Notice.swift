@@ -86,4 +86,9 @@ extension UpdaterService {
 
     /// The x's tooltip and VoiceOver label.
     public static var cardDismissLabel: String { UpdaterStrings.noticeDismiss }
+
+    /// The "cmux Updated!" card's title after an update: "Updated to 1.0.0 nightly 3801702".
+    public static func updatedToTitle(_ version: String) -> String {
+        UpdaterStrings.updatedTo(UpdateChangelog.shortVersion(version))
+    }
 }

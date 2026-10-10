@@ -54,7 +54,7 @@ struct SidebarBottomCardSlot {
     var height: CGFloat {
         switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
-        case .updated: SidebarUpdatedCardView.height + 2 * Metrics.space2
+        case .updated: (updated.card.map(SidebarUpdatedCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
@@ -71,7 +71,7 @@ struct SidebarBottomCardSlot {
         notice.isHidden = shown != .notice
         updated.isHidden = shown != .updated
         update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
-        updated.frame = frame(.updated, height: SidebarUpdatedCardView.height)
+        updated.frame = frame(.updated, height: updated.card.map(SidebarUpdatedCardView.height(for:)) ?? 0)
         notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
     }
 }

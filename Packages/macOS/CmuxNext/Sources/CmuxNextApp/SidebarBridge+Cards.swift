@@ -74,7 +74,15 @@ enum SidebarCardFeed {
     /// version seen, so the card and the What's New dot go together.
     static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
         switch intent {
-        case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
+        case .openWhatsNew:
+            // After an update: the changelog of exactly that update (from the
+            // old version to this one), which the lastSeen span misses on a
+            // rebuild with the same short version (cx-ncc.45).
+            if updater.whatsNew.lastUpdate != nil {
+                updater.openWhatsNewForLastUpdate()
+            } else {
+                _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
+            }
         case .shareCmux: _ = registry.perform("app.shareCmux", invocation: ActionInvocation(origin: .user))
         case .dismissUpdated: updater.whatsNew.dismissUpdated()
         default: break
@@ -85,7 +93,12 @@ enum SidebarCardFeed {
     /// or an update status shows: they have the slot).
     static func updatedCard(_ updater: UpdaterService) -> SidebarUpdatedCard? {
         guard updater.readyCard == nil, updater.card == nil, updater.testFeedURL == nil, updater.whatsNew.showsUpdatedCard else { return nil }
-        return SidebarUpdatedCard(title: UpdaterService.updatedCardTitle, whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
+        // After an update (every channel, nightly included; D1 2026-10-10):
+        // "Updated to <short version>", its build date and first changelog lines.
+        let last = updater.whatsNew.lastUpdate
+        return SidebarUpdatedCard(title: last.map { UpdaterService.updatedToTitle($0.toVersion) } ?? UpdaterService.updatedCardTitle,
+                                  detail: last?.changelog.dateText, lines: last?.changelog.lines ?? [],
+                                  whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
                                   shareTitle: UpdaterService.updatedCardShareTitle, dismissLabel: UpdaterService.updatedCardDismissLabel)
     }
 

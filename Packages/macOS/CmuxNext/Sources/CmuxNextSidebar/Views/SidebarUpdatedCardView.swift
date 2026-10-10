@@ -11,6 +11,8 @@ final class SidebarUpdatedCardView: NSView {
     private(set) var card: SidebarUpdatedCard?
     private let titleLabel = NSTextField(labelWithString: "")
     private let divider = NSView()
+    /// After an update: the build date and the first changelog lines.
+    private var infoLabels: [NSTextField] = []
     let whatsNewRow = SidebarUpdatedCardRow(symbol: "sparkles")
     let shareRow = SidebarUpdatedCardRow(symbol: "square.and.arrow.up")
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
@@ -48,6 +50,15 @@ final class SidebarUpdatedCardView: NSView {
         isHidden = card == nil
         guard let card else { return }
         titleLabel.stringValue = card.title
+        infoLabels.forEach { $0.removeFromSuperview() }
+        infoLabels = Self.infoLines(card).map { line in
+            let label = NSTextField(labelWithString: line)
+            label.lineBreakMode = .byTruncatingTail
+            label.maximumNumberOfLines = 1
+            label.toolTip = line
+            content.addSubview(label)
+            return label
+        }
         whatsNewRow.text = card.whatsNewTitle
         shareRow.text = card.shareTitle
         closeButton.label = card.dismissLabel
@@ -61,8 +72,20 @@ final class SidebarUpdatedCardView: NSView {
     private static var titleHeight: CGFloat { ceil(Typography.bodyEmphasized.boundingRectForFont.height) + 2 * Metrics.space2 }
     static var rowHeight: CGFloat { ceil(Typography.body.boundingRectForFont.height) + 2 * Metrics.space2 }
 
-    /// Fixed: the title band, the hairline, two rows.
-    static var height: CGFloat { ceil(titleHeight + 1 + Metrics.space1 + 2 * rowHeight + padding) }
+    private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
+    /// Changelog lines the card shows.
+    static let maxLines = 4
+
+    /// The detail and changelog lines as shown ("• " before each change).
+    static func infoLines(_ card: SidebarUpdatedCard) -> [String] {
+        (card.detail.map { [$0] } ?? []) + card.lines.prefix(maxLines).map { "• " + $0 }
+    }
+
+    /// The title band, the hairline, the update's lines when present, two rows.
+    static func height(for card: SidebarUpdatedCard) -> CGFloat {
+        let lines = CGFloat(infoLines(card).count)
+        return ceil(titleHeight + 1 + Metrics.space1 + (lines > 0 ? lines * captionHeight + Metrics.space1 : 0) + 2 * rowHeight + padding)
+    }
 
     override func layout() {
         super.layout()
@@ -80,7 +103,14 @@ final class SidebarUpdatedCardView: NSView {
                                   height: lineHeight)
         divider.frame = NSRect(x: 0, y: titleHeight, width: b.width, height: 1)
         let rowWidth = max(0, b.width - 2 * pad)
-        whatsNewRow.frame = NSRect(x: pad, y: divider.frame.maxY + Metrics.space1, width: rowWidth, height: Self.rowHeight)
+        var y = divider.frame.maxY + Metrics.space1
+        for label in infoLabels {
+            label.font = Typography.caption
+            label.frame = NSRect(x: pad + Metrics.space2, y: y, width: max(0, rowWidth - Metrics.space2), height: Self.captionHeight)
+            y += Self.captionHeight
+        }
+        if !infoLabels.isEmpty { y += Metrics.space1 }
+        whatsNewRow.frame = NSRect(x: pad, y: y, width: rowWidth, height: Self.rowHeight)
         shareRow.frame = NSRect(x: pad, y: whatsNewRow.frame.maxY, width: rowWidth, height: Self.rowHeight)
     }
 
@@ -88,6 +118,7 @@ final class SidebarUpdatedCardView: NSView {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
             divider.layer?.backgroundColor = Palette.separator.cgColor
+            for label in infoLabels { label.textColor = Palette.textSecondary }
         }
         whatsNewRow.refresh()
         shareRow.refresh()
@@ -107,7 +138,7 @@ final class SidebarUpdatedCardView: NSView {
     // MARK: Tests
 
     /// Every line as shown, top to bottom.
-    var shownText: [String] { [titleLabel.stringValue, whatsNewRow.text, shareRow.text] }
+    var shownText: [String] { [titleLabel.stringValue] + infoLabels.map(\.stringValue) + [whatsNewRow.text, shareRow.text] }
 }
 
 /// One row of the "cmux Updated!" card: a symbol and a title, the hover

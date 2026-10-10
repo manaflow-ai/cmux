@@ -116,6 +116,7 @@ nonisolated enum UpdaterStrings {
     static func versionDate(_ version: String, _ date: String) -> String {
         format("updater.changelog.versionDate", "%1$@ · %2$@", version, date)
     }
+    static func updatedTo(_ version: String) -> String { format("updater.changelog.updatedTo", "Updated to %@", version) }
     static var changelogNew: String { text("updater.changelog.new", "New") }
     static var changelogFixed: String { text("updater.changelog.fixed", "Fixed") }
     static var changelogChanged: String { text("updater.changelog.changed", "Changed") }
