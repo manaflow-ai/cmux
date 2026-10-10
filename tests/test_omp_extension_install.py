@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import socket
@@ -60,10 +61,12 @@ def wait_for_stable_text(
 
 
 class MockCmuxSocket:
-    def __init__(self, path: Path, workspace_id: str, surface_id: str) -> None:
+    def __init__(self, path: Path, workspace_id: str, surface_id: str,
+                 restore_record: dict[str, object] | None = None) -> None:
         self.path = path
         self.workspace_id = workspace_id
         self.surface_id = surface_id
+        self.restore_record = restore_record
         self._messages: list[str] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -139,7 +142,9 @@ class MockCmuxSocket:
             return "OK"
         request_id = payload.get("id") or "unknown"
         method = payload.get("method")
-        if method == "surface.list":
+        if method == "surface.resume.get":
+            result = {"restore_record": self.restore_record, "workspace_id": self.workspace_id}
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -324,6 +329,43 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     return True
 
 
+def verify_restore_rejects_legacy_downgrade(cli_path: str, root: Path) -> None:
+    """A rejected OMP restore must not fall through to a legacy shell command."""
+    workspace_id = "11111111-1111-1111-1111-111111111111"
+    surface_id = "22222222-2222-2222-2222-222222222222"
+    session_id = "6f1d9f5a-2a0c-4b68-b7c7-9c8a1d6e5f40"
+    marker = root / "restored-omp"
+    executable = root / "restore-bin" / "omp"
+    executable.parent.mkdir()
+    make_executable(executable, "#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n")
+    for mode, arguments in [("resumeAgent", None), ("resumeAgent", []),
+                            ("resumeAgent", ["omp", "--model", "sonnet"]), ("direct", None)]:
+        record = {"kind": "omp", "mode": mode, "checkpoint_id": session_id,
+                  "source": "agent-hook", "working_directory": str(root), "environment": {},
+                  "legacy_command": "PATH=" + shlex.quote(str(executable.parent)) + " omp --session " + session_id}
+        if arguments is not None:
+            record["launch_command"] = {"launcher": "omp", "arguments": arguments}
+            record["prepared_arguments"] = ["omp", "--session", session_id]
+        socket_path = Path("/tmp") / f"cmux-omp-restore-{os.getpid()}-{time.monotonic_ns()}.sock"
+        env = os.environ.copy()
+        env.update(CMUX_SOCKET_PATH=str(socket_path), CMUX_CLI_SENTRY_DISABLED="1",
+                   HOME=str(root), CFFIXED_USER_HOME=str(root), SHELL="/bin/sh")
+        for key in ("CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD", "CMUX_AGENT_HOOK_RELAY_ORIGIN"):
+            env.pop(key, None)
+        marker.unlink(missing_ok=True)
+        with MockCmuxSocket(socket_path, workspace_id, surface_id, record):
+            result = subprocess.run([cli_path, "restore", "--surface", surface_id, "omp", session_id],
+                                    env=env, text=True, capture_output=True, timeout=15)
+        if mode == "direct":
+            assert result.returncode == 0 and marker.exists(), result.stderr
+        else:
+            assert result.returncode != 0 and not marker.exists(), (
+                f"unresolved OMP restore executed legacy fallback: argv={arguments!r}, "
+                f"status={result.returncode}, stderr={result.stderr}")
+            assert "saved restore data is not compatible" in result.stderr, result.stderr
+    print("PASS: managed OMP legacy fallback fails closed; explicit direct commands still run")
+
+
 def verify_launch_capture(bun: str, extension_path: Path, root: Path) -> None:
     """Execute the extension's lifecycle and inspect the environment sent to cmux."""
     root = root.resolve()
@@ -410,6 +452,11 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
+    if "--restore-only" in sys.argv:
+        with tempfile.TemporaryDirectory(prefix="cmux-omp-restore-") as td:
+            verify_restore_rejects_legacy_downgrade(cli_path, Path(td).resolve())
+        return 0
+
     with tempfile.TemporaryDirectory(prefix="cmux-omp-extension-") as td:
         root = Path(td)
         home = root / "home"
@@ -472,6 +519,7 @@ def main() -> int:
             shutil.copyfile(extension_override, extension_path)
 
         verify_launch_capture(bun, extension_path, root)
+        verify_restore_rejects_legacy_downgrade(cli_path, root)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
