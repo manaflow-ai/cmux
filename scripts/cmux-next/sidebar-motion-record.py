@@ -8,12 +8,14 @@ the sidebar's width in window points, for cropping. Scenarios run with default
 settings: new workspace, new workspace below, move workspace up and down, move
 to a new group, group up, a row drag reorder and a drag onto a workspace
 (`debug.mouse`). Show Tabs Under Workspaces is off by default, so it is turned
-on only for the tab-row scenarios (a tab row insert, and the two drags with a
-workspace's tab rows on its card) and off again after them. The setting lives
-in the user's cmux.json, which a capture mini's slots share, so the script
-also turns it off at the start. The script attaches to an app already running
-(a capture slot's `capture-host launch`, or a tagged build) through its debug
-socket and never launches or quits it.
+on only for the tab-row scenarios (a tab row insert, and a drag with a
+workspace's tab rows on its card) and off again after them. The drag onto a
+workspace runs last: its drop opens the new group's name editor. The setting
+lives in the user's cmux.json, which a capture mini's slots share, so the
+script sets it rather than toggling it, and unsets it at the start and the
+end. The script attaches to an app already running (a capture slot's
+`capture-host launch`, or a tagged build) through its debug socket and never
+launches or quits it.
 
 Strips: scripts/cmux-next/motion-frame-strip.py OUT SCENARIO [EVERY] [COUNT].
 
@@ -119,34 +121,32 @@ def record(name, trigger, seconds=None):
 
 
 def set_tab_rows(on):
-    """Shows or hides Show Tabs Under Workspaces (tab rows show only when on)."""
-    if bool(rows("tab")) != on:
-        action("sidebar.workspaceTabs.toggle")
-        wait(lambda: bool(rows("tab")) == on, 5)
-        time.sleep(0.5)  # test harness: the list settles
+    """Show Tabs Under Workspaces on, or back to its default (off, the key
+    unset). Set, not toggled: the cmux.json a capture mini's slots share
+    may hold another run's choice."""
+    if on:
+        rpc("settings.set", {"path": "sidebar.showWorkspaceTabs", "value": True})
+    else:
+        rpc("settings.unset", {"path": "sidebar.showWorkspaceTabs"})
+    wait(lambda: bool(rows("tab")) == on, 5)
+    time.sleep(0.5)  # test harness: the list settles
 
 
-def drags(suffix=""):
-    """A loose workspace dropped between two others (a reorder), then one
-    dropped onto another (they group; the name editor opens)."""
+def drag_reorder(suffix=""):
+    """A loose workspace dropped between two others: a reorder."""
     workspace_rows = [r for r in rows("workspace") if not r.get("group")]
     if len(workspace_rows) >= 5:
         x, y = center(workspace_rows[1])
         to_y = (workspace_rows[4].get("window_frame") or {}).get("y", 0) - 2
         record("drag-reorder" + suffix, lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
         time.sleep(0.5)  # test harness: the drop settles
-    workspace_rows = [r for r in rows("workspace") if not r.get("group")]
-    if len(workspace_rows) >= 4:
-        record("drag-onto" + suffix, lambda: drag_onto(workspace_rows[1], workspace_rows[3]), seconds=3)
-        rpc("debug.key", {"key": "escape"})  # test harness: close the name editor
-        time.sleep(0.5)
 
 
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
-    set_tab_rows(False)  # the default; a shared cmux.json may hold another run's choice
+    set_tab_rows(False)  # the default
     action("workspace.selectFirst")
     while len(rows("workspace")) < 6:
         action("newTab")
@@ -164,19 +164,21 @@ def main():
     record("move-up", lambda: action("moveWorkspaceUp"))
     record("new-group", lambda: action("workspace.moveToNewGroup"))
     record("group-up", lambda: action("workspaceGroup.moveUp"))
-    drags()
+    drag_reorder()
     # Tab rows only for these scenarios, and off again after them.
     set_tab_rows(True)
     try:
         action("workspace.selectFirst")
         time.sleep(0.5)  # test harness: selection settles
         record("new-tab-row", lambda: action("newSurface"))
-        while len([r for r in rows("workspace") if not r.get("group")]) < 6:
-            action("newTab")
-            time.sleep(0.4)  # test harness: one workspace at a time
-        drags("-tab-rows")
+        drag_reorder("-tab-rows")
     finally:
         set_tab_rows(False)
+    # Last: a drop onto a workspace groups the two and opens the group's
+    # name editor, which a scenario after it would record over.
+    workspace_rows = [r for r in rows("workspace") if not r.get("group")]
+    if len(workspace_rows) >= 4:
+        record("drag-onto", lambda: drag_onto(workspace_rows[1], workspace_rows[3]), seconds=3)
     print("\nRESULT PASS (recorded)")
 
 
