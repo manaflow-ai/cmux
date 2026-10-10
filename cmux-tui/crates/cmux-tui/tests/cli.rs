@@ -3644,6 +3644,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/all_sessions_scope.rs"]
+mod all_sessions_scope;
+#[cfg(unix)]
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]

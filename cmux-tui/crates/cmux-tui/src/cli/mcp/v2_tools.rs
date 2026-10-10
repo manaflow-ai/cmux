@@ -118,6 +118,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("history.visit.import", HISTORY_VISIT_REASON),
     ("history.visit.summaries", HISTORY_OMNIBOX_REASON),
     ("history.visit.remove", HISTORY_OMNIBOX_REASON),
+    ("agent.message.list", AGENT_MESSAGE_REASON),
+    ("agent.message.mark", AGENT_MESSAGE_REASON),
+    ("agent.message.send", AGENT_MESSAGE_REASON),
 ];
 
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
@@ -129,6 +132,15 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
     ("history.clear", HISTORY_MCP_PENDING_REASON),
     ("history.restore", HISTORY_MCP_PENDING_REASON),
 ];
+
+/// `cmux agent message` and `cmux agent inbox` (agent_message.rs) send
+/// several requests per command: the daemon stores a message, then the CLI
+/// delivers it to each acpmux recipient and marks it. A tool for one of the
+/// three operations alone would store a message nobody delivers, or change
+/// another agent's delivery state.
+const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
+     agent inbox`, which store, deliver and mark in one command; one operation alone would \
+     store a message without delivering it or change another agent's delivery state.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
