@@ -88,6 +88,17 @@ extension ProfileBarView {
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
+    /// The History dot (cx-zlnl): a clock, dim like the "+" until hovered.
+    func drawHistory(in rect: NSRect) {
+        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular)
+        guard let image = NSImage(systemSymbolName: "clock", accessibilityDescription: Strings.history)?.withSymbolConfiguration(config) else { return }
+        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.historyIndex ? 0.6 : 0.35)
+        let tinted = image.tinted(color.withAlphaComponent(1))
+        let size = tinted.size
+        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+    }
+
     func drawPlus(in rect: NSRect) {
         let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
         guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }

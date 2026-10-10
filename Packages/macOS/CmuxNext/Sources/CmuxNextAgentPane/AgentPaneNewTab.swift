@@ -63,6 +63,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
     /// nil focuses it.
     public var focusesField: Bool?
+    /// true: the page is agent history (the sidebar's History dot, cx-zlnl), every chat on this
+    /// device with nothing to type; nil is the New Tab page.
+    public var history: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

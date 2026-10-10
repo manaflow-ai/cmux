@@ -74,6 +74,7 @@ enum Strings {
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
+    static var history: String { String(localized: "sidebar.space.history", defaultValue: "History", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
     static func profileCurrent(_ name: String) -> String {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
