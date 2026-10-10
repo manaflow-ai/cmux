@@ -133,6 +133,7 @@ impl WorkspaceRoot {
                 .await
                 .map_err(|error| io_error("resolve", &candidate, error))?;
             self.require_contained(&resolved)?;
+            reject_resolved_tilde_component(&self.canonical, &resolved)?;
             Ok(resolved)
         }
     }
@@ -206,6 +207,7 @@ impl WorkspaceRoot {
                         .await
                         .map_err(|error| io_error("resolve", &next, error))?;
                     self.require_contained(&resolved)?;
+                    reject_resolved_tilde_component(&self.canonical, &resolved)?;
                     let metadata = tokio::fs::metadata(&resolved)
                         .await
                         .map_err(|error| io_error("resolve", &resolved, error))?;
@@ -225,6 +227,7 @@ impl WorkspaceRoot {
                         .await
                         .map_err(|error| io_error("resolve", &next, error))?;
                     self.require_contained(&resolved)?;
+                    reject_resolved_tilde_component(&self.canonical, &resolved)?;
                     current = resolved;
                 }
                 Err(error) => return Err(io_error("resolve", &next, error)),
@@ -716,6 +719,19 @@ impl UnixWorkspaceTarget {
 #[cfg(unix)]
 fn path_cstring(path: &Path) -> Result<CString, RpcError> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| invalid_path("path contains a NUL byte"))
+}
+
+#[cfg(not(unix))]
+fn reject_resolved_tilde_component(root: &Path, resolved: &Path) -> Result<(), RpcError> {
+    let relative = resolved.strip_prefix(root).map_err(|_| {
+        RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+    })?;
+    if relative.components().any(|component| {
+        matches!(component, Component::Normal(name) if name == OsStr::new("~"))
+    }) {
+        return Err(invalid_path("resolved path contains an unexpanded '~' component"));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
