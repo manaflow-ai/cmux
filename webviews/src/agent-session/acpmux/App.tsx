@@ -2241,7 +2241,12 @@ function AcpmuxPane() {
             if (!harnessSwitch.pickMode(String(modeId))) await client.setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value }) => {
-            if (!harnessSwitch.pickConfig(String(configId), String(value)))
+            const summary = snapshotRef.current?.summary;
+            const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
+            if (!harnessSwitch.pickConfig(String(configId), String(value), summary?.sessionId ? {
+              sessionId: summary.sessionId,
+              current,
+            } : undefined))
               await client.setConfig(String(configId), String(value));
           },
           "chat.select": async ({ sessionId }) => {
