@@ -163,7 +163,14 @@ def showcase_section(markdown: str, live_url: str) -> str:
 
 def update_body(pr: int, body: str, section: str, *, dry_run: bool) -> str:
     updated = MARKER_RE.sub("", body).rstrip()
-    updated = f"{updated}\n\n{section}\n"
+    # Keep the repository's generated-by trailer as the final line. GitHub
+    # renders it as attribution, and moving it below Showcase makes reruns
+    # change unrelated prose at the end of the PR body.
+    trailer = "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+    if updated.endswith(trailer):
+        updated = f"{updated[:-len(trailer)].rstrip()}\n\n{section}\n\n{trailer}\n"
+    else:
+        updated = f"{updated}\n\n{section}\n"
     if not dry_run:
         run(["gh", "pr", "edit", str(pr), "--repo", REPO, "--body-file", "-"], input_text=updated)
     return updated
@@ -216,12 +223,17 @@ def main() -> int:
         raise SystemExit("--pr must be positive")
     body = pr_body(args.pr)
     args.media = [*args.media_pos, *args.media]
+    public = public_sources(body) if args.from_body else []
     files: list[Path] = []
     for entry in args.media:
         files.extend(collect_local(entry))
     if args.from_body:
         private_links = list(PRIVATE_RE.finditer(body))
-        if private_links and not args.capture_root:
+        # Once a prior run has published the captures, the body contains both
+        # the old private references and the public Showcase URLs. Reuse the
+        # public set on an idempotent rerun; a private-only body still requires
+        # an explicit checkout so a private URL is never copied blindly.
+        if private_links and not args.capture_root and not public:
             raise SystemExit("--from-body requires --capture-root for private capture links")
         if args.capture_root:
             files.extend(private_sources(body, args.capture_root))
@@ -232,11 +244,10 @@ def main() -> int:
         if resolved not in seen_files:
             seen_files.add(resolved)
             deduped_files.append(resolved)
-    public = public_sources(body) if args.from_body else []
     uploaded = local_markdown(args.pr, deduped_files, dry_run=args.dry_run,
                               gif_fps=args.gif_fps, gif_width=args.gif_width)
     existing_public = "\n".join(f"![showcase]({url})" for url in public)
-    media_markdown = uploaded.strip() or ("" if args.from_body else existing_public)
+    media_markdown = uploaded.strip() or existing_public
     feed_markdown = "\n".join(part for part in (uploaded.strip(), existing_public) if part)
     stills, videos = media_urls(feed_markdown, [])
     if not media_markdown and not public:
