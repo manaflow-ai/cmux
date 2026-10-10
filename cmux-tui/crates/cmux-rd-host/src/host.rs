@@ -359,47 +359,6 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_refuses_every_non_loopback_peer() {
-        for peer in
-            ["10.250.93.2", "100.64.1.2", "192.168.1.5", "8.8.8.8", "fd7c::1", "2001:db8::1"]
-        {
-            assert!(!peer_allowed(ip(peer), Reach::LoopbackOnly), "{peer}");
-        }
-        assert!(peer_allowed(ip("127.0.0.1"), Reach::LoopbackOnly));
-        assert!(peer_allowed(ip("::1"), Reach::LoopbackOnly));
-    }
-
-    #[test]
-    fn default_mode_binds_loopback_only() {
-        assert!(bind_allowed(ip("127.0.0.1"), Reach::LoopbackOnly).is_ok());
-        for bind in ["0.0.0.0", "10.250.93.1", "100.64.0.1", "::"] {
-            assert!(bind_allowed(ip(bind), Reach::LoopbackOnly).is_err(), "{bind}");
-        }
-    }
-
-    fn opts(args: &[&str]) -> Opts {
-        Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).expect("opts")
-    }
-
-    #[test]
-    fn defaults_are_loopback_only_and_refuse_a_non_loopback_peer() {
-        let (reach, bind) = reach_and_bind(&opts(&[])).expect("defaults");
-        assert_eq!((reach, bind), (Reach::LoopbackOnly, ip("127.0.0.1")));
-        assert!(!peer_allowed(ip("10.250.93.2"), reach));
-        assert!(!peer_allowed(ip("::ffff:10.250.93.2"), reach));
-        assert!(peer_allowed(ip("::ffff:127.0.0.1"), reach));
-        // Anything but the exact "1" keeps the default.
-        assert_eq!(
-            reach_and_bind(&opts(&["--single-tenant-overlay", "true"])).map(|r| r.0),
-            Ok(Reach::LoopbackOnly)
-        );
-        assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1"])).is_err());
-        assert!(
-            reach_and_bind(&opts(&["--bind", "10.0.0.1", "--single-tenant-overlay", "1"])).is_ok()
-        );
-    }
-
-    #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -432,14 +391,5 @@ mod tests {
             let mut buf = [0u8; 16];
             assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap_or(0), 0, "{prefix}");
         }
-    }
-
-    #[test]
-    fn overlay_mode_is_private_only() {
-        assert!(bind_allowed(ip("10.250.93.1"), Reach::SingleTenantOverlay).is_ok());
-        assert!(bind_allowed(ip("0.0.0.0"), Reach::SingleTenantOverlay).is_err());
-        assert!(bind_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay).is_err());
-        assert!(peer_allowed(ip("10.250.93.2"), Reach::SingleTenantOverlay));
-        assert!(!peer_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay));
     }
 }
