@@ -13,6 +13,15 @@ extension LayoutRootView {
         syncOverlay()
     }
 
+    /// Re-reads the plane's place and every ring's pane frame now. The
+    /// window calls it after its layout pass while the plane lives in the
+    /// overlay panel: an ancestor that moved this view (sidebar width) runs
+    /// no layout of this view, and the panel is another window.
+    public func resyncOverlay() {
+        overlayPlane.syncFrame()
+        syncOverlay()
+    }
+
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     func syncOverlay() {
