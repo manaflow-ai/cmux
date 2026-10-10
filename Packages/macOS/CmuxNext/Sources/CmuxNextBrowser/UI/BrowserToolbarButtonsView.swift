@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): zoom level,
-/// Favorites, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
+/// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
 /// key handling: shortcuts go through the action registry.
@@ -14,10 +14,13 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
+    /// The App's downloads, read while rendering so an observable list
+    /// redraws the button as downloads start and end.
+    public var downloads: (() -> BrowserToolbarDownloads)? { didSet { render() } }
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
-    /// zoom, Favorites, profile and theme (`BrowserToolbarButton.collapseLevel`).
+    /// zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
     /// More lists the hidden ones.
     public private(set) var collapse = 0
 
@@ -29,8 +32,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
     private var pageURL: URL?
-    /// The bound page's zoom: the zoom button shows only away from 100 %.
-    private var zoom: Double = 1
+    /// The last facts rendered: zoom and Downloads show only on some.
+    private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
 
     public init() {
         super.init(frame: .zero)
@@ -116,12 +119,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func applyVisibility() {
-        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, zoom: zoom) }
+        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, facts) }
     }
 
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
-        let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, zoom: zoom) }.count
+        let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts) }.count
         return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * BrowserMetrics.buttonSpacing
     }
 
@@ -133,13 +136,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     private func render() {
         let facts = currentFacts()
-        if facts.zoom != zoom {
-            // Whether the button takes room at all, whatever the collapse
-            // level: leaving 100 % at level 2 may let level 0 fit again.
-            let wasZoomed = BrowserToolbarButton.zoom.isShown(at: 0, zoom: zoom)
-            zoom = facts.zoom
-            if BrowserToolbarButton.zoom.isShown(at: 0, zoom: zoom) != wasZoomed { relayoutChrome() }
-        }
+        // Which buttons take room at all, whatever the collapse level:
+        // leaving 100 % at level 2 may let level 0 fit again.
+        let shown = { (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts) } }
+        let relayout = shown(facts) != shown(self.facts)
+        self.facts = facts
+        if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
             // Most tab state events (title, progress, address) change no
@@ -153,7 +155,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         }
     }
 
-    /// The zoom button appeared or went: the chrome collapses the toolbar
+    /// The zoom or Downloads button appeared or went: the chrome collapses the toolbar
     /// again for the new width (`BrowserChromeView.applyToolbarLayout`).
     private func relayoutChrome() {
         applyVisibility()
@@ -163,7 +165,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func currentFacts() -> BrowserToolbarFacts {
-        guard let tab else { return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName) }
+        let downloads = downloads?() ?? BrowserToolbarDownloads()
+        guard let tab else {
+            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads)
+        }
         let url = tab.state.url
         if url != pageURL {
             pageURL = url
@@ -174,7 +179,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
         return BrowserToolbarFacts(
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
-            designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom
+            designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom,
+            downloads: downloads
         )
     }
 }

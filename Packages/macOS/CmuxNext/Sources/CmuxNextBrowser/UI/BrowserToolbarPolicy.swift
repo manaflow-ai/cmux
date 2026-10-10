@@ -1,7 +1,7 @@
 import CmuxNextIcons
 import Foundation
 
-/// Engine rules for the toolbar buttons. Zoom, Favorites, design mode,
+/// Engine rules for the toolbar buttons. Zoom, Favorites, Downloads, design mode,
 /// profile, theme and More work on WebKit and Chromium tabs. DevTools needs WebKit's inspector
 /// or a running Chromium page; a Chromium tab whose engine is not loaded
 /// (hibernated, restored before Chromium started, or Chromium unavailable)
@@ -16,6 +16,9 @@ public nonisolated struct BrowserToolbarPolicy {
             return BrowserToolbarButtonState(icon: .search, label: hinted(Strings.toolbarZoom(BrowserZoom.percent(facts.zoom))))
         case .favorites:
             return BrowserToolbarButtonState(icon: .bookmarkManager, label: hinted(Strings.toolbarFavorites))
+        case .downloads:
+            return BrowserToolbarButtonState(icon: .actionDownload, label: hinted(Strings.toolbarDownloads),
+                                             isActive: facts.downloads.inProgress)
         case .designMode:
             return BrowserToolbarButtonState(icon: .theme,
                                              label: hinted(Strings.toolbarDesignMode), isActive: facts.designMode)
