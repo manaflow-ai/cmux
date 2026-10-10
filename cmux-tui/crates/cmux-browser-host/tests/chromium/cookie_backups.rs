@@ -132,3 +132,117 @@ fn a_cookie_clear_is_backed_up_encrypted_and_restored() {
     let _ = close.args(["close", "--session", "cookie-undo", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Decision D2 (issue 13742): a clear in an incognito store is undoable
+/// while the store lives, and its backup never reaches the disk; the store
+/// closing with its session drops the backup.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn an_incognito_clear_is_undone_from_memory_and_never_written_to_disk() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-cookie-incognito-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let socket = dir.join("host.sock");
+    let _host = StateHost(
+        std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["serve", "--socket"])
+            .arg(&socket)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .env("CMUX_BROWSER_HOST_STATE_DIR", &state)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start cmux-browser-host serve"),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::os::unix::net::UnixStream::connect(&socket).is_err() {
+        assert!(Instant::now() < deadline, "the test host never listened");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--session", session, "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let line = |out: &str, tag: &str| -> String {
+        out.lines()
+            .find_map(|l| l.strip_prefix(tag))
+            .unwrap_or_else(|| panic!("no {tag} in {out}"))
+            .to_owned()
+    };
+    let disk_backups = || -> usize {
+        std::fs::read_dir(state.join("cookie-backups")).map_or(0, |entries| entries.count())
+    };
+
+    let cleared = eval(
+        "incognito-undo",
+        &format!(
+            "const p = await tabs.open('http://127.0.0.1:{port}/second', {{ incognito: true }});
+             await tabs.use(p);
+             await page.evaluate(() => {{ document.cookie = 'isid=incognito-secret-1; max-age=3600'; document.cookie = 'ikeep=old; max-age=3600'; }});
+             const r = await page.context().clearCookies();
+             console.log('CLEAR:' + JSON.stringify(r));
+             console.log('AFTER:' + await page.evaluate(() => document.cookie));"
+        ),
+    );
+    let result: Value = serde_json::from_str(&line(&cleared, "CLEAR:")).unwrap();
+    let ids = result["restoreIds"].as_array().cloned().unwrap_or_default();
+    assert_eq!(ids.len(), 1, "an incognito clear is undoable: {cleared}");
+    assert!(ids[0].as_str().unwrap().starts_with("host:"), "{cleared}");
+    assert_eq!(line(&cleared, "AFTER:"), "", "the incognito site's cookies are cleared");
+    assert_eq!(disk_backups(), 0, "an incognito store's cookies never go to the disk backup");
+
+    let restored = eval(
+        "incognito-undo",
+        &format!(
+            "await page.evaluate(() => {{ document.cookie = 'ikeep=new; max-age=3600'; }});
+             console.log('RESTORE:' + JSON.stringify(await page.context().restoreCookies({})));
+             console.log('NOW:' + await page.evaluate(() => document.cookie.split('; ').sort().join('; ')));",
+            serde_json::to_string(&result).unwrap()
+        ),
+    );
+    let summary: Value = serde_json::from_str(&line(&restored, "RESTORE:")).unwrap();
+    assert_eq!(summary, json!({"restored": 1, "kept": 1, "expired": 0}), "{restored}");
+    assert_eq!(line(&restored, "NOW:"), "ikeep=new; isid=incognito-secret-1");
+
+    // A second clear, then the session (and its incognito store) ends: the
+    // undo goes with the store.
+    let second = eval(
+        "incognito-undo",
+        "console.log('CLEAR2:' + JSON.stringify(await page.context().clearCookies()));",
+    );
+    let second: Value = serde_json::from_str(&line(&second, "CLEAR2:")).unwrap();
+    assert_eq!(second["restoreIds"].as_array().map(Vec::len), Some(1), "{second}");
+    assert_eq!(disk_backups(), 0);
+    let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = close.args(["close", "--session", "incognito-undo", "--socket"]).arg(&socket).output();
+    let gone = eval(
+        "incognito-after",
+        &format!(
+            "try {{ await page.context().restoreCookies({}); console.log('GONE:restored'); }} catch (e) {{ console.log('GONE:' + e.message); }}",
+            serde_json::to_string(&second).unwrap()
+        ),
+    );
+    assert!(line(&gone, "GONE:").contains("no cookie backup"), "{gone}");
+    let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = close.args(["close", "--session", "incognito-after", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+}
