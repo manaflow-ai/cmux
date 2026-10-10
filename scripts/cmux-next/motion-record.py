@@ -180,7 +180,58 @@ def toasts():
     shown_toasts()
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts}
+def hold(x, y, seconds=0.6):
+    """A press held in place (the chip's press-and-hold opens its editor)."""
+    rpc("debug.mouse", {"action": "down", "x": x, "y": y})
+    time.sleep(seconds)  # test harness: the hold
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": y})
+
+
+def snapshot(name):
+    path = os.path.join(opts.out, "popups", name + ".png")
+    print(name, json.dumps(rpc("debug.window_snapshot", {"path": path}))[:200], flush=True)
+
+
+def popups():
+    # The tab group editor opens from a press-and-hold on its chip and
+    # closes when its group is ungrouped; the sidebar group editor
+    # opens from a click on its header and closes on a second click there.
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 1}})
+    print("group:", json.dumps(rpc("action.run", {"action": "tabGroup.create", "args": {"name": "Motion"}}))[:200], flush=True)
+    time.sleep(0.8)  # test harness: the chip settles
+    save_layout("popups")
+    chrome = (rpc("debug.pane_chrome") or {}).get("windows") or []
+    pane = (chrome[0].get("panes") or [{}])[0] if chrome else {}
+    strip, pill = pane.get("strip"), pane.get("pill")
+    print("strip", strip, "pill", pill, flush=True)
+    snapshot("chip")
+    if strip and pill:
+        x, y = (strip[0] + pill[0]) / 2, pill[1] + pill[3] / 2
+        record("popups", "tab-open", lambda: hold(x, y))
+        snapshot("tab-opened")
+        # A click elsewhere closes it for a person by making the window key,
+        # which a capture slot's window never becomes; Ungroup (its own row's
+        # command) closes it as the group goes.
+        record("popups", "tab-close", lambda: action("tabGroup.ungroup"))
+        snapshot("tab-closed")
+    print("ws group:", json.dumps(rpc("action.run", {"action": "workspace.moveToNewGroup", "args": {"name": "Motion"}}))[:200], flush=True)
+    time.sleep(1.0)  # test harness: the group row settles
+    rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    header = next((r for r in rows if str(r.get("key", "")).startswith("group")), None)
+    print("header", json.dumps(header)[:300], flush=True)
+    if header:
+        f = header["window_frame"]
+        hx, hy = f["x"] + 40, f["y"] + f["height"] / 2
+        record("popups", "sidebar-open", lambda: rpc("debug.mouse", {"action": "click", "x": hx, "y": hy}))
+        snapshot("sidebar-opened")
+        record("popups", "sidebar-close", lambda: rpc("debug.mouse", {"action": "click", "x": hx, "y": hy}))
+        snapshot("sidebar-closed")
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups}
 
 
 def main():
