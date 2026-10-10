@@ -1,6 +1,9 @@
 public import AppKit
 
-/// Liquid Glass helpers wrapping `NSGlassEffectView`.
+/// Liquid Glass helpers. Only this module touches the native glass API
+/// (`NSGlassEffectView`, macOS 26 and later); everything else gets a
+/// `GlassPanelView`, which draws the same shape and tint with
+/// `NSVisualEffectView` before macOS 26.
 ///
 /// Use glass for chrome only (sidebar, tab strip, palette, popovers), never
 /// over terminal content. When several glass panels sit near each other,
@@ -11,6 +14,18 @@ public struct Glass {
         case regular
         case clear
     }
+
+    /// Whether this Mac draws Liquid Glass: macOS 26 and later. Debug
+    /// builds force the older material with
+    /// `CMUX_NEXT_DEBUG_LEGACY_MATERIAL=1` (read once at launch), so the
+    /// macOS 14 and 15 look can be checked on a macOS 26 host.
+    nonisolated public static let isLiquidGlassAvailable: Bool = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_LEGACY_MATERIAL"] == "1" { return false }
+        #endif
+        return ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+    }()
 
     /// A floating panel over content (palette, hover card, find and prompt
     /// bars) that hosts `content` edge to edge: Liquid Glass with the theme
@@ -34,45 +49,44 @@ public struct Glass {
         return surface
     }
 
-    /// A raw glass panel that hosts `content` edge to edge. It has no
-    /// Reduce Transparency fallback: floating overlays use
+    /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
+    /// or the same shape in `NSVisualEffectView` before macOS 26). It has
+    /// no Reduce Transparency fallback: floating overlays use
     /// `makeOverlayPanel` instead.
     public static func makePanel(
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = false
-    ) -> NSGlassEffectView {
-        let glass = NSGlassEffectView()
+    ) -> GlassPanelView {
+        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive)
         glass.translatesAutoresizingMaskIntoConstraints = false
-        glass.cornerRadius = cornerRadius
         glass.tintColor = Palette.glassTint
-        switch style {
-        case .regular: glass.style = .regular
-        case .clear: glass.style = .clear
-        }
-        setInteractive(glass, interactive)
         glass.contentView = content
         return glass
     }
 
-    /// A container that merges nearby glass panels and batches rendering.
-    public static func makeContainer(content: NSView, spacing: CGFloat = 0) -> NSGlassEffectContainerView {
-        let container = NSGlassEffectContainerView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.spacing = spacing
-        container.contentView = content
-        return container
-    }
-
-    /// `effectIsInteractive` is macOS 27 SDK only. Xcode 26.x (CI and fleet)
-    /// lacks the symbol even inside `#available`, so it also needs a compiler
-    /// guard (plans/cmux-next/shell.md section 3.3).
-    private static func setInteractive(_ glass: NSGlassEffectView, _ interactive: Bool) {
-        #if compiler(>=6.4)
-        if #available(macOS 27.0, *) {
-            glass.effectIsInteractive = interactive
+    /// A container that merges nearby glass panels and batches rendering
+    /// (`NSGlassEffectContainerView`); before macOS 26 a plain view that
+    /// hosts `content` edge to edge.
+    public static func makeContainer(content: NSView, spacing: CGFloat = 0) -> NSView {
+        if #available(macOS 26.0, *), isLiquidGlassAvailable {
+            let container = NSGlassEffectContainerView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.spacing = spacing
+            container.contentView = content
+            return container
         }
-        #endif
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
     }
 }

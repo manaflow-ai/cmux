@@ -11,6 +11,8 @@ nonisolated public struct UpdateCardPresentation: Equatable, Sendable {
     public var showsProgress = false
     public var progress: Double?
     public var actions: [UpdateCardAction] = []
+    /// Changelog lines under the detail (a found update; cx-lntk).
+    public var lines: [String] = []
     public var dismissible = true
     /// Hides itself after this long (up to date); nil waits for the user.
     public var dismissesAfter: Duration?

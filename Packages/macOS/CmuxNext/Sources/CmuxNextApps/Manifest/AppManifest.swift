@@ -1,111 +1,98 @@
 public import Foundation
 
-/// A parsed, schema-checked `cmux-app.json` (spec section 3, manifest
-/// version 1). Decode with `AppManifest.decode(_:)` for the full issue
-/// list, or through `Codable` (a `DecodingError` names the first issue's
-/// JSON Pointer path). `raw` keeps the whole document for re-encoding.
+/// The parts of an app manifest the UI renders: name, description, icon,
+/// publisher, categories, scopes with their reasons, the interfaces it
+/// implements, `presentation` and `contributes.toolbarItems`. The app
+/// supervisor in the daemon validates manifests (the Rust
+/// `cmux-app-manifest` crate) and sends each app's manifest in `apps-list`;
+/// the client only reads the fields it shows and ignores everything else,
+/// so a newer manifest still renders. Version 2 (`implements`) and version 1
+/// (`contributes`) both decode. There is no validator here: a manifest the
+/// supervisor did not accept never reaches the client.
 public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     /// `<publisher>/<name>`, stable forever (`cmux/github-prs`, `local/x`).
     public var id: String
+    public var manifestVersion: Int
     public var name: AppLocalizedText
     public var version: String
     public var description: AppLocalizedText
     public var publisherName: String?
-    public var publisherURL: URL?
     public var repository: URL?
-    public var homepage: URL?
-    public var license: String?
     public var icon: AppIcon?
     public var categories: [String]
     public var keywords: [String]
     /// `engines.cmux`: semver range of the app API.
     public var engine: String
-    /// Path of the classic script `main` (absent: declarative-only app).
-    public var main: String?
     public var scopes: [AppScopeRequest]
     public var optionalScopes: [AppScopeRequest]
-    public var contributes: AppContributions
-    public var activation: [String]
-    public var files: [String]
+    public var implementations: [AppImplementation]
     /// Manifest v2 `presentation`: sidebar item, screen, tab, typing target,
     /// web content (app-platform.md 16).
     public var presentation: AppPresentation?
     /// Manifest v2 `contributes.toolbarItems` (app-platform.md 17).
     public var toolbarItems: [AppToolbarItem]
+    /// The whole document, as the supervisor sent it.
     public var raw: AppJSON
 
     /// The publisher segment of the id (`cmux`, `local`).
     public var publisher: String { String(id.prefix { $0 != "/" }) }
     /// A sideloaded development app (never in the store).
     public var isLocal: Bool { publisher == "local" }
-    /// Global id of a contribution: `<app id>#<contribution id>`.
-    public func globalID(of contribution: AppContribution) -> String { "\(id)#\(contribution.id)" }
+    /// Global id of an implementation: `<app id>#<implementation id>`.
+    public func globalID(of implementation: AppImplementation) -> String { "\(id)#\(implementation.id)" }
+    public var sections: [AppImplementation] { implementations.filter(\.isSection) }
+    /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
+    public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
 
-    /// Parses and validates `data`; throws every schema issue at once.
-    public static func decode(_ data: Data) throws(AppManifestError) -> AppManifest {
-        let json: AppJSON
-        do { json = try AppJSON.parse(data) } catch { throw .unreadable(error.localizedDescription) }
-        return try decode(json)
-    }
-
-    /// Validates a parsed document.
-    public static func decode(_ json: AppJSON) throws(AppManifestError) -> AppManifest {
-        let issues = AppManifestValidator.validate(json)
-        guard issues.isEmpty, case .object(let o) = json else { throw .invalid(issues) }
-        return AppManifest(object: o, raw: json)
-    }
-
-    /// A manifest v2 (`cmux-app.v2.json`) shipped inside cmux. Read without the
-    /// v1 validator: only first-party packages reach this (the bundle scanner,
-    /// source `.firstParty`), and the Rust validator (`cmux-app-manifest`)
-    /// checks every one of them in CI. Never used for local or store apps.
-    static func decodeShippedV2(_ data: Data) throws(AppManifestError) -> AppManifest {
-        let json: AppJSON
-        do { json = try AppJSON.parse(data) } catch { throw .unreadable(error.localizedDescription) }
-        guard case .object(let o) = json, json["manifestVersion"]?.numberValue == 2,
-              o["id"]?.stringValue?.isEmpty == false, o["name"] != nil, o["version"]?.stringValue != nil else {
-            throw .invalid([AppManifestIssue(path: "", code: "manifest.v2", message: "cmux-app.v2.json needs manifestVersion 2, id, name and version")])
-        }
-        return AppManifest(object: o, raw: json)
-    }
-
-    private init(object o: [String: AppJSON], raw: AppJSON) {
-        self.raw = raw
-        id = o["id"]?.stringValue ?? ""
+    /// Reads a manifest object; nil when it has no id.
+    public init?(json: AppJSON) {
+        guard case .object(let o) = json, let id = o["id"]?.stringValue, !id.isEmpty else { return nil }
+        self.id = id
+        raw = json
+        manifestVersion = o["manifestVersion"]?.numberValue.map { Int($0) } ?? 1
         name = AppLocalizedText(json: o["name"]) ?? AppLocalizedText(id)
         version = o["version"]?.stringValue ?? "0.0.0"
         description = AppLocalizedText(json: o["description"]) ?? AppLocalizedText("")
         publisherName = o["publisher"]?["name"]?.stringValue
-        publisherURL = o["publisher"]?["url"]?.stringValue.flatMap(URL.init(string:))
         repository = o["repository"]?.stringValue.flatMap(URL.init(string:))
-        homepage = o["homepage"]?.stringValue.flatMap(URL.init(string:))
-        license = o["license"]?.stringValue
         icon = AppIcon(json: o["icon"])
         categories = o["categories"]?.arrayValue?.compactMap(\.stringValue) ?? []
         keywords = o["keywords"]?.arrayValue?.compactMap(\.stringValue) ?? []
         engine = o["engines"]?["cmux"]?.stringValue ?? ""
-        main = o["main"]?.stringValue ?? o["runtime"]?["main"]?.stringValue
         scopes = AppScopeRequest.list(o["scopes"])
         optionalScopes = AppScopeRequest.list(o["optionalScopes"])
-        contributes = AppContributions(json: o["contributes"])
-        activation = o["activation"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        files = o["files"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        implementations = Self.implementations(o)
         presentation = AppPresentation(json: o["presentation"])
-        toolbarItems = AppToolbarItem.list(raw)
+        toolbarItems = AppToolbarItem.list(json)
     }
-}
 
-nonisolated extension AppManifest: Codable {
-    public init(from decoder: any Decoder) throws {
-        let json = try AppJSON(from: decoder)
-        do {
-            self = try AppManifest.decode(json)
-        } catch {
-            let first = error.issues.first
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
-                                                    debugDescription: first.map { "\($0.path): \($0.message) (\($0.code))" } ?? error.description))
+    /// Parses UTF-8 JSON; nil when it is not a manifest object.
+    public static func decode(_ data: Data) -> AppManifest? {
+        (try? AppJSON.parse(data)).flatMap(AppManifest.init(json:))
+    }
+
+    /// Version 2 `implements` in interface order; version 1 `contributes`
+    /// sections, status items, pane kinds and palette scopes in that order.
+    private static func implementations(_ o: [String: AppJSON]) -> [AppImplementation] {
+        if let implements = o["implements"]?.objectValue {
+            return implements.sorted { $0.key < $1.key }.map { interface, entry in
+                AppImplementation(interface: interface, title: AppLocalizedText(json: entry["title"]), symbol: entry["symbol"]?.stringValue,
+                                  export: entry["export"]?.stringValue, native: entry["native"]?.stringValue,
+                                  options: entry["options"]?.objectValue ?? [:])
+            }
+        }
+        let contributes = o["contributes"]?.objectValue ?? [:]
+        let kinds: [(String, String)] = [
+            ("sidebarSections", AppImplementation.section), ("statusItems", AppImplementation.status),
+            ("paneKinds", AppImplementation.pane), ("paletteScopes", AppImplementation.paletteScope),
+        ]
+        return kinds.flatMap { key, interface in
+            (contributes[key]?.arrayValue ?? []).compactMap(\.objectValue).compactMap { entry -> AppImplementation? in
+                guard let id = entry["id"]?.stringValue else { return nil }
+                return AppImplementation(interface: interface, id: id, title: AppLocalizedText(json: entry["title"]),
+                                         symbol: entry["symbol"]?.stringValue, export: (entry["render"] ?? entry["run"])?.stringValue,
+                                         options: entry)
+            }
         }
     }
-
-    public func encode(to encoder: any Encoder) throws { try raw.encode(to: encoder) }
 }

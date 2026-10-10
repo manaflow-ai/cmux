@@ -23,6 +23,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import { ComposerQueue } from "./ComposerQueue";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -80,8 +81,6 @@ export const COMPOSER_LABELS = {
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
-  queue: "composer.queue",
-  queued: "composer.queued",
   cut: "composer.menu.cut",
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
@@ -113,6 +112,10 @@ type Props = {
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
   onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
   onStop(): void;
+  /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
+  onQueueRemove?(promptId: string): Promise<boolean>;
+  /// Withdraws a queued prompt and puts its text back in the prompt.
+  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -180,6 +183,8 @@ export function Composer({
   chips: Chips,
   onSend,
   onStop,
+  onQueueRemove,
+  onQueueEdit,
   draft,
   leading,
   accessory,
@@ -761,18 +766,6 @@ export function Composer({
       }}
       onBlur={blur}
     >
-      {snapshot.queue.length > 0 && (
-        <ol className="acpmux-composer-queue" aria-label={t(COMPOSER_LABELS.queue)}>
-          {snapshot.queue.map((entry) => (
-            <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
-              <span className="acpmux-queued-label" aria-hidden="true">
-                {t(COMPOSER_LABELS.queued)}
-              </span>
-              <span className="acpmux-queued-text">{entry.prompt}</span>
-            </li>
-          ))}
-        </ol>
-      )}
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -801,6 +794,7 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
+        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
         {contextFirst && context}
         <input
           ref={importInput}

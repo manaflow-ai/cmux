@@ -439,6 +439,12 @@ impl Gate {
         ) else {
             return;
         };
+        // Every session of a shared browser sees every tab's responses; a
+        // session's rule stops only the tabs it drives (another session's
+        // tab follows that session's rule).
+        if !self.driver.drives_tab(target) {
+            return;
+        }
         let Some(reason) = self.rebinding_refusal(url, ip) else { return };
         push_log(
             &self.log,

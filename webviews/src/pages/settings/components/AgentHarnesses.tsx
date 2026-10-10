@@ -6,6 +6,7 @@
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
 import { useCallback, useRef, useState } from "react";
+import { Tabs } from "@base-ui/react/tabs";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
@@ -253,33 +254,38 @@ function AddPanel({
   setPanel: (panel: Panel) => void;
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
-  const tab = (id: Exclude<Panel, null>, key: string) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={panel === id}
-      className={`cursor-pointer rounded-md border-0 px-2.5 py-1 font-[inherit] text-[13px] ${panel === id ? "bg-accent-soft text-fg" : "bg-transparent text-muted hover:text-fg"}`}
-      onClick={() => setPanel(id)}
-    >
-      {t(key)}
-    </button>
-  );
   return (
-    <div className="mb-3 rounded-lg border border-solid border-edge p-3" data-agents-add={panel}>
-      <div className="mb-2 flex items-center gap-1" role="tablist">
-        {tab("registry", "settingsPage.agents.tabRegistry")}
-        {tab("custom", "settingsPage.agents.tabCustom")}
+    <Tabs.Root
+      className="mb-3 rounded-lg border border-solid border-edge p-3"
+      value={panel}
+      onValueChange={(value) => setPanel(value as Exclude<Panel, null>)}
+      data-agents-add={panel}
+    >
+      <Tabs.List className="mb-2 flex items-center gap-1">
+        <Tabs.Tab
+          value="registry"
+          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
+        >
+          {t("settingsPage.agents.tabRegistry")}
+        </Tabs.Tab>
+        <Tabs.Tab
+          value="custom"
+          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
+        >
+          {t("settingsPage.agents.tabCustom")}
+        </Tabs.Tab>
         <span className="flex-1" />
         <button type="button" className={quietButton} onClick={() => setPanel(null)}>
           {t("settingsPage.agents.cancel")}
         </button>
-      </div>
-      {panel === "registry" ? (
+      </Tabs.List>
+      <Tabs.Panel value="registry">
         <RegistryList state={state} run={run} />
-      ) : (
+      </Tabs.Panel>
+      <Tabs.Panel value="custom">
         <CustomForm run={run} done={() => setPanel(null)} />
-      )}
-    </div>
+      </Tabs.Panel>
+    </Tabs.Root>
   );
 }
 

@@ -19,6 +19,7 @@ cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-feed-core.workspace = true
+cmux-history.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true

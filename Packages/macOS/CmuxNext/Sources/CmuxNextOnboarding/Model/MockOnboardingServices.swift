@@ -80,7 +80,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
     public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
-    public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
+    public func scanClassicSessions() async throws -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)

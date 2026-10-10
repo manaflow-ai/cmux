@@ -14,10 +14,17 @@ nonisolated public struct AppcastItem: Sendable, Equatable {
     public var maximumSystemVersion: SystemVersion?
     public var releaseNotesURL: URL?
     public var downloadURL: URL?
+    /// The item's `<description>`: on nightly-next, a short plain-text
+    /// changelog ("New: …", one line per change; cx-lntk).
+    public var itemDescription: String?
+    /// `<pubDate>`.
+    public var date: Date?
 
     public init(version: String, displayVersion: String? = nil, title: String? = nil,
                 minimumSystemVersion: SystemVersion? = nil, maximumSystemVersion: SystemVersion? = nil,
-                releaseNotesURL: URL? = nil, downloadURL: URL? = nil) {
+                releaseNotesURL: URL? = nil, downloadURL: URL? = nil, itemDescription: String? = nil, date: Date? = nil) {
+        self.itemDescription = itemDescription
+        self.date = date
         self.version = version
         self.displayVersion = displayVersion ?? version
         self.title = title

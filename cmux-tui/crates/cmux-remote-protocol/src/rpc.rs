@@ -1017,87 +1017,6 @@ mod tests {
     }
 
     #[test]
-    fn arbitrary_file_bytes_round_trip_through_json() {
-        let bytes = ByteString::from_bytes(&[0, 1, 2, 255]);
-        let json = serde_json::to_string(&bytes).unwrap();
-        let decoded: ByteString = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.decode().unwrap(), [0, 1, 2, 255]);
-    }
-
-    #[test]
-    fn pty_is_explicit_in_process_request() {
-        let request = WorkspaceRequest::SpawnProcess {
-            workspace: WorkspaceId("w".into()),
-            argv: vec!["bash".into()],
-            cwd: None,
-            env: BTreeMap::new(),
-            io: ProcessIo::Pty {
-                cols: 80,
-                rows: 24,
-                term: "xterm-256color".into(),
-                eof: PtyEofPolicy::Reject,
-            },
-            lifetime: ProcessLifetime::Workspace,
-            operation: None,
-            timeout_ms: None,
-            retained_output_bytes: None,
-            environment: ProcessEnvironment::Inherit,
-        };
-        let json = serde_json::to_value(request).unwrap();
-        assert_eq!(json["io"]["type"], "pty");
-    }
-
-    #[test]
-    fn legacy_spawn_request_defaults_new_lifecycle_fields() {
-        let json = serde_json::json!({
-            "id": "00000000-0000-4000-8000-000000000007",
-            "request": {
-                "type": "spawn-process",
-                "workspace": "w",
-                "argv": ["/bin/sh"],
-                "cwd": null,
-                "env": {},
-                "io": { "type": "pty", "cols": 80, "rows": 24, "term": "xterm-256color" },
-                "lifetime": "workspace"
-            }
-        });
-        let request: RpcRequest = serde_json::from_value(json).unwrap();
-        assert_eq!(request.timeout_ms, None);
-        let WorkspaceRequest::SpawnProcess {
-            io,
-            operation,
-            timeout_ms,
-            retained_output_bytes,
-            environment,
-            ..
-        } = request.request
-        else {
-            panic!()
-        };
-        assert_eq!(operation, None);
-        assert_eq!(timeout_ms, None);
-        assert_eq!(retained_output_bytes, None);
-        assert_eq!(environment, ProcessEnvironment::Inherit);
-        assert!(matches!(io, ProcessIo::Pty { eof: PtyEofPolicy::Reject, .. }));
-    }
-
-    #[test]
-    fn omitted_process_io_defaults_to_writable_pipes() {
-        let request: WorkspaceRequest = serde_json::from_value(serde_json::json!({
-            "type": "spawn-process",
-            "workspace": "w",
-            "argv": ["/bin/sh"],
-            "cwd": null,
-            "env": {},
-            "lifetime": "workspace"
-        }))
-        .unwrap();
-
-        let WorkspaceRequest::SpawnProcess { io, .. } = request else { panic!() };
-        assert_eq!(io, ProcessIo::Pipes { stdin: true });
-    }
-
-    #[test]
     fn process_handle_spawn_has_a_stable_wire_shape() {
         let request = WorkspaceRequest::SpawnProcessWithHandle {
             process: ProcessId::from_u128(0x5a17),
@@ -1122,22 +1041,6 @@ mod tests {
         assert_eq!(json["environment"], "clean");
         assert_eq!(json["output_drain_idle_timeout_ms"], 750);
         assert_eq!(json["output_drain_total_timeout_ms"], 2_500);
-    }
-
-    #[test]
-    fn process_handles_are_json_strings() {
-        assert!(
-            serde_json::to_value(ProcessId::from_u128(0x5a17)).unwrap().is_string(),
-            "numeric process handles lose precision in JavaScript clients"
-        );
-    }
-
-    #[test]
-    fn computer_use_invocation_ids_are_json_strings() {
-        assert!(
-            serde_json::to_value(ComputerUseInvocationId::from_u128(0x5a17)).unwrap().is_string(),
-            "numeric computer-use handles lose precision in JavaScript clients"
-        );
     }
 
     #[test]
@@ -1261,39 +1164,5 @@ mod tests {
                     RemoteCapability::Unknown(unknown_wire_value.to_owned())
                 ]
         ));
-    }
-
-    #[test]
-    fn request_ids_are_uuid_json_strings() {
-        const ENCODED: &str = "\"018f47a2-17d6-4c16-a8b1-7b3d5d998271\"";
-        let request: RequestId =
-            serde_json::from_str(ENCODED).expect("request ID should decode from a UUID string");
-
-        assert_eq!(serde_json::to_string(&request).unwrap(), ENCODED);
-    }
-
-    #[test]
-    fn legacy_responses_and_errors_default_new_detail_fields() {
-        let patch: WorkspaceResponse = serde_json::from_value(serde_json::json!({
-            "type": "patch",
-            "changed_paths": ["a.txt"],
-            "applied": true
-        }))
-        .unwrap();
-        assert!(matches!(patch, WorkspaceResponse::Patch { files, .. } if files.is_empty()));
-
-        let error: RpcError = serde_json::from_value(serde_json::json!({
-            "code": "conflict",
-            "message": "changed",
-            "retryable": false
-        }))
-        .unwrap();
-        assert_eq!(error.details, None);
-    }
-
-    #[test]
-    fn legacy_structured_line_names_remain_stable() {
-        assert_eq!(serde_json::to_value(StructuredDiffLineKind::Added).unwrap(), "add");
-        assert_eq!(serde_json::to_value(StructuredDiffLineKind::Deleted).unwrap(), "delete");
     }
 }

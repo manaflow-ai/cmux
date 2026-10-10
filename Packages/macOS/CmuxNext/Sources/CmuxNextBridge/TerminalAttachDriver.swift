@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One open daemon attachment as the driver uses it. Every command is a
 /// synchronous, nonblocking send, so the driver applies effects in order

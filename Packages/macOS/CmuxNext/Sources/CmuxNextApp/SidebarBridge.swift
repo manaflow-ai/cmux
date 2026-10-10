@@ -81,6 +81,7 @@ final class SidebarBridge {
         selectionObservation?.cancel()
         widthObservation?.cancel()
         sectionsObservation?.cancel()
+        chatsMount.releaseSections()
         cardsObservation?.cancel()
     }
 

@@ -38,8 +38,10 @@ struct HomeChiefControl {
     /// The settings panel's source for this Chief.
     func engineSource() -> any HomeChiefEngineSource {
         let files = HomeChiefFiles(muxHome: muxHome)
-        guard isCloud else { return HomeChiefLocalEngine(files: files) }
         let services = services
+        guard isCloud else {
+            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection })
+        }
         let conversation = conversation
         let muxHome = muxHome
         return HomeChiefRemoteEngine(

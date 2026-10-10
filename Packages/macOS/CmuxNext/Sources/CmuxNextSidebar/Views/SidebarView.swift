@@ -72,6 +72,8 @@ public final class SidebarView: NSView {
     private var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
+    /// App section contributions the bands showed at the last update (`releaseAppSections`).
+    var shownAppContributions: Set<String> = []
     public init(model: SidebarModel) {
         self.model = model
         list = SidebarListView(model: model)

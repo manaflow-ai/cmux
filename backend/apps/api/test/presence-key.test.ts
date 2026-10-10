@@ -138,4 +138,55 @@ describe("presence keys and the text confirmation level", { timeout: 60_000 }, (
     expect(r.status).toBe(403)
     expect(r.json.error.message).toContain("attestation refused")
   })
+  it("only the owner's Mac install lists presence keys, with their public parts and App Attest flag (cx-aocz)", async () => {
+    const mac = await device("presence-list", "mac")
+    const presence = await newKey()
+    const message = `cmux-presence-key-v1\ntest\n${mac.user}\n${mac.install}\n${jwkThumbprint(presence.jwk)}`
+    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, mac.key.pair.privateKey, new TextEncoder().encode(message))
+    expect((await call("/v1/presence-key", mac.token, { platform: "mac", jwk: presence.jwk, signature: b64u(sig) })).json.ok).toBe(true)
+
+    const list = await call("/v1/read", mac.token, { op: "user.presence_key.list", params: {} })
+    expect(list.json?.value?.keys, JSON.stringify(list.json)).toEqual([
+      expect.objectContaining({ install: mac.install, platform: "mac", jwk: { kty: "EC", crv: "P-256", x: presence.jwk.x, y: presence.jwk.y }, attested: false, revoked_at: null, install_active: true })
+    ])
+    expect(list.json.value.keys[0].usable_from).toBeGreaterThan(Date.now() + 23 * 3_600_000)
+
+    // A session, a phone install of the same owner and another user's Mac read nothing.
+    const phoneKey = await newKey()
+    const phone = (await op(mac.session, "install.register", { public_jwk: phoneKey.jwk, kind: "ios", name: "ios", device_name: "ios", platform: "ios" })).json.value.id as string
+    const phoneToken = await installToken(mac.user, phone, phoneKey)
+    const other = await device("presence-list-other", "mac")
+    for (const token of [mac.session, phoneToken]) {
+      const r = await call("/v1/read", token, { op: "user.presence_key.list", params: {} })
+      expect(r.json?.value, JSON.stringify(r.json)).toBeUndefined()
+      expect(JSON.stringify(r.json)).not.toContain(presence.jwk.x)
+    }
+    const foreign = await call("/v1/read", other.token, { op: "user.presence_key.list", params: {} })
+    expect(JSON.stringify(foreign.json)).not.toContain(presence.jwk.x)
+
+    // A signed-out (revoked) Mac install reads nothing either.
+    expect((await op(mac.token, "install.sign_out", {})).json.ok).toBe(true)
+    const after = await call("/v1/read", mac.token, { op: "user.presence_key.list", params: {} })
+    expect(after.json?.value, JSON.stringify(after.json)).toBeUndefined()
+  })
+
+  it("an approve answer may carry a device proof, stored as given; answers without one still parse (cx-aocz)", async () => {
+    const d = await device("approve-proof", "ios")
+    const approve = { type: "request", kind: "approve", title: "Allow execute?", prompt: { action: { type: "command", summary: "Run tests", command: "npm test" }, scopes: ["once"] } }
+    const posted = async () => (await op(d.session, "feed.post", approve)).json.value.item.id as string
+    const proof = { install: d.install, ts: Date.now(), sig: "MEUCIQDc-signature-bytes" }
+    const withProof = await posted()
+    expect((await op(d.token, "feed.answer", { item: withProof, answer: { decision: "allow", proof } })).json.ok).toBe(true)
+    const read = await call("/v1/read", d.session, { op: "feed.get", params: { item: withProof } })
+    expect(read.json.value.item.answer.value).toEqual({ decision: "allow", proof })
+    // The same answer without a proof (every existing client) is accepted unchanged.
+    const plain = await posted()
+    expect((await op(d.token, "feed.answer", { item: plain, answer: { decision: "deny" } })).json.ok).toBe(true)
+    // A malformed proof is refused and answers nothing.
+    const bad = await posted()
+    for (const p of [{ install: d.install, ts: Date.now(), sig: "" }, { install: d.install, sig: "x" }, { ...proof, verified: true }]) {
+      expect((await op(d.token, "feed.answer", { item: bad, answer: { decision: "allow", proof: p } })).json.ok).toBe(false)
+    }
+    expect((await call("/v1/read", d.session, { op: "feed.get", params: { item: bad } })).json.value.item.state).toBe("open")
+  })
 })

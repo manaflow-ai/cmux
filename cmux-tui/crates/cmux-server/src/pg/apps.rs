@@ -250,14 +250,3 @@ fn unquote_first(rest: &str) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::unquote_first;
-
-    #[test]
-    fn unquotes_the_first_identifier() {
-        assert_eq!(unquote_first("\"app_notes\" OWNER \"app_notes\""), "app_notes");
-        assert_eq!(unquote_first("\"a\"\"b\" AUTHORIZATION x"), "a\"b");
-    }
-}

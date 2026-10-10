@@ -61,7 +61,15 @@ pub(super) struct Inner {
     /// Every tab intercepts its file choosers (headless); false: only the
     /// tabs a session drives (headful, `choosers.rs`).
     pub(super) intercept_all: std::sync::atomic::AtomicBool,
+    /// Told of each popup (target, opener) while it is still paused, before
+    /// its first request (`set_popup_hook`).
+    popup_hook: Mutex<Option<PopupHook>>,
 }
+
+/// A popup appeared: (popup target, opener target). It runs on a setup
+/// thread while the popup is paused, so it must make no CDP call that
+/// waits on the popup.
+pub type PopupHook = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
 pub const HIDDEN_VIEWPORT: (i64, i64) = (1280, 800);
@@ -140,6 +148,7 @@ impl Inner {
             proxy_contexts: Mutex::default(),
             owns_browser,
             intercept_all: std::sync::atomic::AtomicBool::new(true),
+            popup_hook: Mutex::default(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -210,6 +219,11 @@ impl CdpDriver {
         self.inner.set_tab_overrides(target_id, overrides)
     }
 
+    /// Installs the popup hook ([`PopupHook`]).
+    pub fn set_popup_hook(&self, hook: Option<PopupHook>) {
+        *self.inner.popup_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
     /// `tabs.open` with the creating session's options: in browser context
     /// `context` (a proxy store) when set, and with `overrides` set before
     /// the first request.
@@ -243,7 +257,7 @@ impl CdpDriver {
 
     /// Closes a proxy store and every tab in it.
     pub fn dispose_context(&self, context: &str) -> Result<(), DriverError> {
-        self.inner.proxy_contexts.lock().unwrap_or_else(PoisonError::into_inner).remove(context);
+        super::cookies::forget_store(&self.inner, context);
         self.inner
             .conn
             .call(
@@ -487,7 +501,18 @@ impl Inner {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
         // A fetch shell runs no page agent and needs no focus or viewport.
-        let shell = self.lock().is_hidden(target_id);
+        let (shell, opener) = {
+            let state = self.lock();
+            (state.is_hidden(target_id), state.tabs.get(target_id).and_then(|t| t.opener.clone()))
+        };
+        // A popup is its opener's sessions' before its first request (it
+        // is paused until the batch below resumes it).
+        if let Some(opener) = opener.filter(|_| !shell) {
+            let hook = self.popup_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if let Some(hook) = hook {
+                hook(target_id, &opener);
+            }
+        }
         let agent = (!shell).then(|| {
             [
                 (

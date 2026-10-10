@@ -48,6 +48,7 @@ public nonisolated enum ActionSurfaceExport {
         ] as [String: Any]
         row["default_chord"] = descriptor.defaultChord.map { [wireShortcut($0.first), wireShortcut($0.second)] as Any } ?? NSNull()
         row["default_aliases"] = defaultAliases(for: descriptor.id)
+        row["palette_suggested"] = descriptor.paletteSuggestionRank.map { $0 as Any } ?? NSNull()
         return row
     }
 

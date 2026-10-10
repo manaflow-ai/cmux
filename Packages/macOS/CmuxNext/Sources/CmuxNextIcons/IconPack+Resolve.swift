@@ -1,5 +1,5 @@
 import os
-import Synchronization
+import CmuxNextCompat
 
 public nonisolated extension IconPack {
     /// What to draw for `name`: this pack's drawing, else the catalog's SF

@@ -320,6 +320,12 @@ pub enum ResourceOperation {
     AgentList,
     #[serde(rename = "agent.report")]
     AgentReport,
+    #[serde(rename = "agent.message.send")]
+    AgentMessageSend,
+    #[serde(rename = "agent.message.list")]
+    AgentMessageList,
+    #[serde(rename = "agent.message.mark")]
+    AgentMessageMark,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -590,6 +596,7 @@ impl ResourceOperation {
                 | Self::BrowserGet
                 | Self::NotificationList
                 | Self::AgentList
+                | Self::AgentMessageList
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList

@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
@@ -57,8 +57,8 @@ final class EventInbox: Sendable {
             // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
         case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled:
-            // Not part of the tree snapshot a resync refetches.
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
+            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
             state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }

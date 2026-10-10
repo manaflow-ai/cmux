@@ -78,11 +78,11 @@ extension SidebarBridge {
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
-        let apps = services.apps.registry
+        let apps = services.apps.client
         let store = services.machines.local.store
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
-            // Also observed: the app registry, the unread count, the built-ins' shortcuts (tooltips), the Chats
+            // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips), the Chats
             // setting and the workspaces tiles and top rows name. The selected item comes from the one selection.
             for await (layout, unread, shortcuts, showChats, workspaces) in Observations({
                 () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool, [LayoutItemRef: SidebarItemInfo]) in
@@ -96,7 +96,7 @@ extension SidebarBridge {
                 self.chatsMount.show(showChats, services: self.services)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
-                                          app: { SidebarAppItemInfo.info($0, registry: apps) }, shortcut: { shortcuts[$0] },
+                                          app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
                                           workspace: { workspaces[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed

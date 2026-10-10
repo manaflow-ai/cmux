@@ -83,7 +83,6 @@ final class ControlSnapshotPublisher {
             snapshot.settings = settings
             snapshot.tabSearch = tabSearch
         }
-        services.apps.topologyPublished(topology)
         let elapsed = ContinuousClock.now - started
         if elapsed > .milliseconds(2) {
             logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")

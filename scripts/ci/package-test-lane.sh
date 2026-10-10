@@ -312,6 +312,16 @@ package_args() {
   fi
 }
 
+# record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
+# its .build. A fleet worker keeps a warm .build after a failed or cancelled step
+# only when this marker was written for the step's commit during the step (hq
+# build-fleet cmd/worker/step_warm.go); a half-written .build is rebuilt cold.
+# Sanitizer builds use their own scratch path, which never stays warm.
+record_built_ref() {
+  [ -z "${CMUX_SWIFT_SANITIZE:-}" ] && [ -d "$1/.build" ] || return 0
+  git rev-parse HEAD > "$1/.build/.cmux-ci-built-ref" 2>/dev/null || true
+}
+
 # One package's build. It exits non-zero when the package is not found or its
 # build fails, so a compile step run on its own is never green without a
 # compile (2026-10-04 false green). prebuild_packages ignores its status: a
@@ -328,6 +338,7 @@ prebuild_one() {
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
+    record_built_ref "$pkgdir"
     echo "Prebuilt $pkg in $((SECONDS - started))s."
     return 0
   fi
@@ -335,6 +346,7 @@ prebuild_one() {
   # diagnostic after a complete build; anything else is a failed build.
   if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
     && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    record_built_ref "$pkgdir"
     echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
     return 0
   fi
@@ -555,6 +567,7 @@ run_suite() {
   fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  record_built_ref "$suite_package"
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).

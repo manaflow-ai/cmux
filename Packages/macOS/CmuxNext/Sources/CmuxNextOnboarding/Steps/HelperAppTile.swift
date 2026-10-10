@@ -15,6 +15,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
         icon.imageScaling = .scaleProportionallyUpOrDown
         let name = OnboardingLabel.make(Self.displayName(appURL))
+        name.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal) // content-sized panel (cx-k9mc)
         let stack = NSStackView(views: [icon, name])
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false

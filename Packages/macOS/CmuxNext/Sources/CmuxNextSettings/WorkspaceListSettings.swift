@@ -3,8 +3,9 @@ public import CmuxNextDesign
 /// cmux.json `workspaces.newPlacement`: where a new workspace goes in the
 /// sidebar when its entry point names no place (Cmd-N, the palette, the
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace).
-/// `top` (the default): first in the workspace list, below the Pinned section
-/// and the Home row, above every group. `afterCurrent`: right after the
+/// `top` (the default): first in the group of the workspace the window shows;
+/// outside a group, first in the workspace list, below the Pinned section and
+/// the Home row, above every group. `afterCurrent`: right after the
 /// workspace the window shows, inside its group when it has one (top when that
 /// workspace is pinned, Home, or on another machine). `bottom`: after the last
 /// loose workspace, where the daemon puts it. An explicit place (a drop on a

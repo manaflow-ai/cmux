@@ -37,18 +37,25 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private let resolve: (String) -> Served?
+    /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
+    let devServer: PageDevServer?
+    /// Fetches one file from ``devServer`` (tests replace it).
+    var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
-    init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil) {
+    init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
+         devServer: PageDevServer? = PageDevServer.current) {
+        self.devServer = devServer
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current) {
         self.resolve = resolve
+        self.devServer = devServer
     }
 
     private func served(_ url: URL) -> Served? {
@@ -89,9 +96,16 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
-    /// before), or the dynamic source's answer (a 404 when it has none).
+    /// before), or the dynamic source's answer (a 404 when it has none). With a ``devServer`` a
+    /// page file comes from that server instead.
     func reply(to url: URL) async -> Reply? {
         guard let served = served(url) else { return nil }
+        if let devServer, let remote = devServer.url(for: url, page: served.page) {
+            guard let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url) else { return nil }
+            let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
+                ?? Self.mimeType(forExtension: remote.pathExtension)
+            return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+        }
         switch Self.route(for: url, page: served.page, root: served.root) {
         case nil:
             return nil
@@ -110,9 +124,14 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// A response with the headers every page response carries.
     nonisolated static func reply(url: URL, page: PageDescriptor, status: Int, mimeType: String, body: Data) -> Reply {
+        reply(url: url, csp: page.csp, status: status, mimeType: mimeType, body: body)
+    }
+
+    /// A response with `csp` and the other headers every page response carries.
+    nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data) -> Reply {
         let headers = [
             "Content-Type": mimeType, "Content-Length": String(body.count), "Cache-Control": "no-store",
-            "Content-Security-Policy": page.csp.header, "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": csp.header, "X-Content-Type-Options": "nosniff",
         ]
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
             ?? HTTPURLResponse(url: url, mimeType: mimeType, expectedContentLength: body.count, textEncodingName: nil)

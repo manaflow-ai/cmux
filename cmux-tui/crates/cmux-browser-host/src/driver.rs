@@ -95,6 +95,16 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// Whether this session's after-the-fact checks (a response from a
+    /// refused address stops the load) apply to `target_id`. A driver of its
+    /// own browser answers true for every tab; a session on a shared source
+    /// answers false for a tab that only other sessions drive, so one
+    /// session's rule never stops another session's page.
+    fn drives_tab(&self, target_id: &str) -> bool {
+        let _ = target_id;
+        true
+    }
+
     /// The session that opened this driver ends (`browser.repl.close`, a
     /// reset). A driver that holds per-session state (automation leases)
     /// releases it here, at once, not when the last reference drops.

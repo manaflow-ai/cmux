@@ -135,8 +135,8 @@
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
-                  const shown = (await box.innerText()).replace(/\s+/g, " ");
-                  if (!shown.includes(text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text; nothing was posted");
+                  // The whole text the composer holds, right before Post.
+                  await t.checkComposer("linkedin.post", box, text, { what: "posted" });
                   await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
                   await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                   return { status: "posted" };

@@ -17,10 +17,10 @@ This inventory separates normative behavior from visual evidence. A screenshot o
 
 ## Reference repositories
 
-- [messageslab](https://github.com/manaflow-ai/messageslab), main observed at `88a68797cdd6997caaf0e23ceed76ac9e739b04f`. Its Catalyst implementation is the current Messages oracle; the real-Messages interaction set documents observed behavior and capture conditions.
-- [cmux-app-screenshots](https://github.com/manaflow-ai/cmux-app-screenshots), main observed at `a5a418d7c0c2dd345b486315eb49a9c235f59ffc`. Its manifests identify capture method, viewport, frame timing, source, and validated stills. The `cmux-next-showcase` set is product evidence, not a component spec.
-- [cmux-gallery](https://github.com/manaflow-ai/cmux-gallery), local checkout observed at `258a5df5931673d4f4a821bab258b02b3f9a8f73`. It hosts and indexes builds and matrix runs. The component source of truth remains the cmux repository.
-- [idlesse](https://github.com/teamleaderleo/idlesse), local checkout observed at `609331d42abcea45ff4933d1ea99b5b66089ac9a`. Use only its visual-review evidence process; do not copy its product decisions into cmux.
+- [messageslab](https://github.com/manaflow-ai/messageslab), main observed at `3a84159b4f33413741f3cc7170130820ae638bab`. Its Catalyst implementation is the current Messages oracle; the real-Messages interaction set documents observed behavior and capture conditions.
+- [cmux-app-screenshots](https://github.com/manaflow-ai/cmux-app-screenshots), main observed at `939ab21acf35b53d4619bf289fd9456ad5eac858`. Its manifests identify capture method, viewport, frame timing, source, and validated stills. The `cmux-next-showcase` set is product evidence, not a component spec.
+- [cmux-gallery](https://github.com/manaflow-ai/cmux-gallery), main observed at `fa445a60e9c478da51a82f1a375b83801c0c9dab`; the local matrix worktree is `measure/matrix-before-after` at `3fe4939257c0e530afc56543db9597417b7aee95`. It hosts and indexes builds and matrix runs. The component source of truth remains the cmux repository.
+- [idlesse](https://github.com/teamleaderleo/idlesse), main observed at `c8d2b04d3852aad60ceaf8e1dbbfbdf0fbcb28b7`. Use only its visual-review evidence process; do not copy its product decisions into cmux.
 
 ## Required receipt for a parity change
 

@@ -83,14 +83,19 @@ impl C {
     }
 }
 
+/// The person key these hubs hold (`hub/person.rs`): each client stands for
+/// the person at that machine's app.
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 async fn client(h: Arc<Hub>) -> C {
+    let _ = h.person.install_spawn_key(PERSON_KEY);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(h, in_rx, out_tx));
     let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
-    c.call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}))
-        .await
-        .unwrap();
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"},
+        "_meta": {"acpmux": {"personKey": PERSON_KEY}}});
+    c.call(method::INITIALIZE, hello).await.unwrap();
     c
 }
 
@@ -167,9 +172,20 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
         .unwrap();
     let pending = ca.wait(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == remote_id).await;
     let perm = pending["permissionId"].as_str().unwrap().to_owned();
+    // B allows only from its own person (`hub/person.rs`): a peer forwarding
+    // for A's app is not that person, so A's allow is refused there (cx-aocz
+    // brings a device-bound proof); A's deny goes through.
+    let e = ca
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.contains("approve this on the Mac app"), "{e}");
     ca.call(
         method::MUX_PERMISSION_RESPOND,
-        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes"}),
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "no"}),
     )
     .await
     .unwrap();

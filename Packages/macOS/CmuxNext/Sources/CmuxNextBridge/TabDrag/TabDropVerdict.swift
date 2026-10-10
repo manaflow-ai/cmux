@@ -10,6 +10,8 @@ public nonisolated enum TabDropRefusal: Hashable, Sendable {
     case columnBeforeFirst
     /// A tab group dropped on a dock edge: groups have no dock move yet.
     case groupDock
+    /// A new workspace for a tab of a workspace that keeps its tabs (Home).
+    case staysPut
     /// The surface refused it with this localized reason
     /// (`TabDropProposal.refusedReason`).
     case surface(String)
@@ -43,7 +45,7 @@ nonisolated extension TabDragResolver {
         case .newDock:
             return context.isGroupDrag ? .refuse(.groupDock) : .accept
         case .newWorkspace:
-            return .accept
+            return context.sourceStaysPut ? .refuse(.staysPut) : .accept
         case .workspace(let id):
             return id == context.sourceWorkspaceID ? .stay : .accept
         }

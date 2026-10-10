@@ -39,6 +39,9 @@ public final class LayoutRootView: NSView {
     /// The zone hit the drop preview shows now; the next hit test holds it
     /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
     var tabDropHit: DropTarget?
+    /// The pane the current drag empties, as the last preview decided the
+    /// split room with it: the drop decides with the same pane (cx-ohle).
+    var tabDragRemoving: PaneID?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0

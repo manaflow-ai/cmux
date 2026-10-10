@@ -1,7 +1,7 @@
 import Foundation
 import CmuxNextSettings
 import Darwin
-import Synchronization
+import CmuxNextCompat
 
 /// Per-connection authorization state, owned by the connection's task.
 struct ControlAuthorizer: Sendable {

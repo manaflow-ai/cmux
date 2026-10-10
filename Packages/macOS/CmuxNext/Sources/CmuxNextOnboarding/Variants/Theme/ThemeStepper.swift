@@ -62,7 +62,7 @@ final class ThemeStepperBody: NSView {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) ?? NSImage()
         let button = NSButton(image: image, target: self, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.bezelStyle = .glass
+        button.useGlassBezel(fallback: .circular)
         button.controlSize = .large
         button.contentTintColor = Palette.textPrimary
         button.setAccessibilityLabel(label)

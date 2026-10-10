@@ -235,7 +235,7 @@ export const TeamVmRetiredExport = def({
   name: "team_vm.retired.export",
   owner: "cloud:TeamDO",
   class: "mutation",
-  risk: "read",
+  risk: "mutate-shared",
   target: "team",
   principals: ["session"],
   params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),

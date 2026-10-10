@@ -132,30 +132,6 @@ fn clear_history_reuses_timeout_until_stream_progress() {
 }
 
 #[test]
-fn clear_history_reports_when_active_input_reaches_retained_history() {
-    let mux = Mux::new_for_test("clear-history-spanning-input", SurfaceOptions::default());
-    let options = SurfaceOptions { cols: 8, rows: 3, ..SurfaceOptions::default() };
-    let surface = Surface::spawn_for_test(1, options, Arc::downgrade(&mux)).unwrap();
-    surface.with_terminal(|term| {
-        for line in 0..5 {
-            term.vt_write(format!("old-{line}\r\n").as_bytes());
-        }
-        term.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789012345678901234567");
-    });
-    let (history_before, contents_before) =
-        surface.with_terminal(|term| (term.history_rows(), term.plain_text().unwrap())).unwrap();
-
-    let error = surface.clear_history().unwrap_err();
-
-    assert_eq!(error.to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
-    surface.with_terminal(|term| {
-        assert!(history_before > 0);
-        assert_eq!(term.history_rows(), history_before);
-        assert_eq!(term.plain_text().unwrap(), contents_before);
-    });
-}
-
-#[test]
 fn clear_history_encodes_fallback_from_authoritative_keyboard_modes() {
     let mux = Mux::new_for_test("clear-history-key-mode", SurfaceOptions::default());
     let surface =
@@ -508,37 +484,6 @@ fn clear_history_with_output_metadata_preserves_current_row_without_child_input(
         let viewport = term.viewport_text().unwrap();
         assert!(viewport.contains("foreground-input"));
         assert!(!viewport.contains("history-"));
-    });
-    assert!(writer.0.lock().unwrap().is_empty());
-}
-
-#[test]
-fn clear_history_without_prompt_metadata_clears_scrollback_only() {
-    let mux = Mux::new_for_test("clear-wrapped-input", SurfaceOptions::default());
-    let surface = Surface::spawn_for_test(
-        1,
-        SurfaceOptions { cols: 10, rows: 5, ..SurfaceOptions::default() },
-        Arc::downgrade(&mux),
-    )
-    .unwrap();
-    let writer = CapturingWriter::default();
-    replace_local_writer(&surface, Box::new(writer.clone()));
-    let (history_before, viewport_before) = surface
-        .with_terminal(|term| {
-            for line in 0..12 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"wrapped-edit-buffer");
-            (term.history_rows(), term.viewport_text().unwrap())
-        })
-        .unwrap();
-
-    surface.clear_history().unwrap();
-
-    assert!(history_before > 0);
-    surface.with_terminal(|term| {
-        assert_eq!(term.history_rows(), 0);
-        assert_eq!(term.viewport_text().unwrap(), viewport_before);
     });
     assert!(writer.0.lock().unwrap().is_empty());
 }

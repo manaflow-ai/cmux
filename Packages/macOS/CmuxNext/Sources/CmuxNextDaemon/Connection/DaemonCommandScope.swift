@@ -1,6 +1,6 @@
 import CryptoKit
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///

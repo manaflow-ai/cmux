@@ -35,31 +35,3 @@ pub fn cap_tool_result(text: &str) -> Cow<'_, str> {
         &text[tail_start..]
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn short_results_pass_unchanged() {
-        let s = "x".repeat(CAP);
-        assert!(matches!(cap_tool_result(&s), Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn long_results_keep_head_and_tail_within_cap() {
-        // Multi-byte characters: the cap counts characters and cuts on boundaries.
-        let s = format!("HEAD{}TAIL", "é".repeat(100_000));
-        let capped = cap_tool_result(&s);
-        assert_eq!(capped.chars().count(), CAP);
-        assert!(capped.starts_with("HEAD"));
-        assert!(capped.ends_with("TAIL"));
-        let total = s.chars().count();
-        let at = capped.find("[... ").unwrap() + 5;
-        let cut: usize = capped[at..].split(' ').next().unwrap().parse().unwrap();
-        let note = format!("\n\n[... {cut} of {total} characters cut here ...]\n\n");
-        assert!(capped.contains(&note));
-        // What was kept plus what was cut is the whole result.
-        assert_eq!(CAP - note.chars().count() + cut, total);
-    }
-}

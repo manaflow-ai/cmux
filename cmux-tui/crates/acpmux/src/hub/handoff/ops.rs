@@ -258,7 +258,21 @@ impl Hub {
         // daemon stopped in between) is adopted, not created twice.
         let target = match self.handoff_orphan(key, &profile, &sm.cwd) {
             Some(t) => {
-                if self.policy_for(&t, default_policy) != policy {
+                let current = self.policy_for(&t, default_policy);
+                // Adopting a target never makes it run more without asking
+                // (cx-1l61): the tag may name a session the person narrowed.
+                if crate::hub::person::breadth(policy) > crate::hub::person::breadth(current) {
+                    return Err(refuse(
+                        INVALID,
+                        "key_conflict",
+                        format!(
+                            "handoffKey {key:?} names session {} with policy {current}, narrower than {policy}",
+                            t.meta().name
+                        ),
+                        None,
+                    ));
+                }
+                if current != policy {
                     self.set_policy(&t, policy).await;
                 }
                 t

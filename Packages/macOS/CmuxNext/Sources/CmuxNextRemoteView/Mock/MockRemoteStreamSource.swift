@@ -1,6 +1,6 @@
 public import CoreGraphics
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 // Development builds only: the pane is not exposed in Release until the
 // overlay link token authenticates hello claims (RemoteViewAvailability).

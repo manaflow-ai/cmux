@@ -885,6 +885,50 @@
         }
       ],
       "note": "Reset Ranking forgets a row's uses and learned picks"
+    },
+    {
+      "query": "",
+      "expect": ["action:newTab.sameKind"],
+      "at": 1,
+      "group": "replay",
+      "replay": [],
+      "note": "empty query with no history: Suggested first, in catalog order (never alphabetical)"
+    },
+    {
+      "query": "",
+      "expect": ["action:splitRight"],
+      "at": 2,
+      "group": "replay",
+      "replay": [],
+      "note": "the second suggestion is second"
+    },
+    {
+      "query": "",
+      "expect": ["action:closeTab"],
+      "at": 1,
+      "group": "replay",
+      "replay": [
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        }
+      ],
+      "note": "Recent comes before Suggested"
+    },
+    {
+      "query": "",
+      "expect": ["action:newTab.sameKind"],
+      "at": 2,
+      "group": "replay",
+      "replay": [
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        }
+      ],
+      "note": "Suggested follows Recent"
     }
   ]
 }

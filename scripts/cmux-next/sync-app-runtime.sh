@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Copies the app platform files the Swift module CmuxNextApps bundles from
-# their owners into Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform:
-#   cmux-tui/crates/cmux-app-host/js/dist/cmux-app-runtime.js -> runtime/
-#   cmux-tui/crates/cmux-app-host/js/ABI.md                   -> runtime/ (when present)
-#   cmux-tui/crates/cmux-app-host/schema/cmux-app.schema.json + fixtures/ -> schema/
-#   cmux-tui/crates/cmux-app-host/generated/scopes.json      -> scopes.json
+# Copies the app platform files the Swift module CmuxNextApps still needs
+# from their owners into Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform:
+#   cmux-tui/crates/cmux-app-host/generated/scopes.json      -> scopes.json (permission policy)
 #   cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json -> scope-classes.json (risk class per scope)
-#   first-party-apps/<name>/{cmux-app.json,cmux-app.v2.json,dist/,assets/} -> first-party/<name>/ (only apps with a
-#     BUNDLED marker: they ship inside cmux, installed by default and hideable)
-#   samples/apps/<name>/{cmux-app.json,dist/,assets/}        -> samples/<name>/ (built samples only;
-#     a sample with a NOT_BUNDLED file stays out, e.g. one that needs a manifest
-#     feature the Swift validator does not decode yet)
+#   first-party-apps/<name>/{cmux-app.v2.json (else cmux-app.json),dist/,assets/,catalog/} -> first-party/<name>/
+#     (only apps with a BUNDLED marker: whole packages, because the App points the
+#     local daemon's app supervisor at this directory as CMUX_APPS_FIRST_PARTY_DIR;
+#     they are installed for everyone and hideable)
+#   samples/apps/<name>/{cmux-app.json,assets/}              -> samples/<name>/ (demo transport and
+#     store icons; a sample with a NOT_BUNDLED file stays out)
+# The app supervisor in the daemon runs apps and validates manifests (step 3),
+# so the client bundles no runtime, schema, fixtures or sample code.
 # The app platform lead owns the sources (plans/cmux-next/app-platform.md);
 # never edit the copies. `--check` exits 1 when a copy differs from its source.
-# CMUX_APP_HOST_DIR and CMUX_APP_SAMPLES_DIR override the source directories.
+# CMUX_APP_HOST_DIR, CMUX_APP_SAMPLES_DIR and CMUX_APP_FIRST_PARTY_DIR override the source directories.
 # Usage: scripts/cmux-next/sync-app-runtime.sh [--check]
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
@@ -34,15 +34,6 @@ copy() { # source relative-destination
   cp -R "$from" "$to"
 }
 
-copy "$host/js/dist/cmux-app-runtime.js" runtime/cmux-app-runtime.js
-[[ -f "$host/js/ABI.md" ]] && copy "$host/js/ABI.md" runtime/ABI.md
-copy "$host/schema/cmux-app.schema.json" schema/cmux-app.schema.json
-for kind in valid invalid; do
-  mkdir -p "$stage/schema/fixtures/$kind"
-  if [[ -d "$host/schema/fixtures/$kind" ]]; then
-    find "$host/schema/fixtures/$kind" -maxdepth 1 -name '*.json' -exec cp {} "$stage/schema/fixtures/$kind/" \;
-  fi
-done
 copy "$host/generated/scopes.json" scopes.json
 copy "$host/schema/v2/scope-classes.json" scope-classes.json
 mkdir -p "$stage/samples"
@@ -52,7 +43,6 @@ if [[ -d "$samples" ]]; then
     [[ -f "$app/cmux-app.json" ]] || continue
     [[ -f "$app/NOT_BUNDLED" ]] && continue
     copy "$app/cmux-app.json" "samples/$name/cmux-app.json"
-    [[ -d "$app/dist" ]] && copy "$app/dist" "samples/$name/dist"
     [[ -d "$app/assets" ]] && copy "$app/assets" "samples/$name/assets"
   done
 fi
@@ -62,10 +52,15 @@ if [[ -d "$first_party" ]]; then
     name="$(basename "$app")"
     [[ -f "$app/BUNDLED" ]] || continue
     [[ -f "$app/cmux-app.json" || -f "$app/cmux-app.v2.json" ]] || continue
-    [[ -f "$app/cmux-app.json" ]] && copy "$app/cmux-app.json" "first-party/$name/cmux-app.json"
-    [[ -f "$app/cmux-app.v2.json" ]] && copy "$app/cmux-app.v2.json" "first-party/$name/cmux-app.v2.json"
+    # The supervisor reads the v2 manifest in its first-party directory; the v1 file goes only without one.
+    if [[ -f "$app/cmux-app.v2.json" ]]; then
+      copy "$app/cmux-app.v2.json" "first-party/$name/cmux-app.v2.json"
+    else
+      copy "$app/cmux-app.json" "first-party/$name/cmux-app.json"
+    fi
     [[ -d "$app/dist" ]] && copy "$app/dist" "first-party/$name/dist"
     [[ -d "$app/assets" ]] && copy "$app/assets" "first-party/$name/assets"
+    [[ -d "$app/catalog" ]] && copy "$app/catalog" "first-party/$name/catalog"
   done
 fi
 # Empty directories do not survive git; keep a marker in each.

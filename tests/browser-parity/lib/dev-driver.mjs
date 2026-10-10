@@ -148,6 +148,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const dialogs = new Map();
   const choosers = new Map();
   const downloads = new Map();
+  // cookies.clear backups (restore id -> the cookies it deleted).
+  const cookieBackups = { next: 1, byId: new Map() };
   let activeTarget = null;
   let nextId = 1;
   const modifiersDown = new Set();
@@ -864,13 +866,37 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       const url = tab ? tab.page.url() : "";
       const site = /^https?:/i.test(url) ? siteOf(new URL(url).hostname) : null;
       if (!site) throw new DriverError("invalid", `cookies.clear: the tab (${url || "none"}) has no site to scope to; open the site first`);
+      const cleared = [];
       for (const c of await context.cookies()) {
         const host = String(c.domain).toLowerCase().replace(/^\.+/, "");
         if (host !== site && !host.endsWith("." + site)) continue;
         if (driver.cookieBlockReason && driver.cookieBlockReason(c.domain)) continue;
         if ((name && c.name !== name) || (domain && c.domain !== domain) || (path && c.path !== path)) continue;
+        cleared.push(c);
         await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
       }
+      // Undoable as in the app and the host: an in-memory backup here.
+      if (!cleared.length) return { cleared: 0, restoreId: null, site };
+      const restoreId = `dev:${cookieBackups.next++}`;
+      cookieBackups.byId.set(restoreId, cleared);
+      return { cleared: cleared.length, restoreId, site };
+    },
+    "cookies.restore": async ({ restoreId } = {}) => {
+      const backup = cookieBackups.byId.get(restoreId);
+      if (!backup) throw new DriverError("invalid", `cookies.restore: no cookie backup ${restoreId}`);
+      const key = (c) => `${c.name}\u0000${c.domain}\u0000${c.path}`;
+      const existing = new Set((await context.cookies()).map(key));
+      const now = Date.now() / 1000;
+      let kept = 0, expired = 0;
+      const restore = [];
+      for (const c of backup) {
+        if (c.expires > 0 && c.expires <= now) expired += 1;
+        else if (existing.has(key(c))) kept += 1;
+        else restore.push(c);
+      }
+      if (restore.length) await context.addCookies(restore);
+      cookieBackups.byId.delete(restoreId);
+      return { restored: restore.length, kept, expired };
     },
     "clipboard.read": async ({ targetId }) => ({ items: tabFor(targetId).clipboard }),
     "clipboard.write": async ({ targetId, items }) => {

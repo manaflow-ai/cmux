@@ -96,9 +96,42 @@ pub(super) enum AppCommand {
     },
 }
 
+/// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
+/// and `cmux capabilities`, with the classic `--id-format <refs|uuids|both>`
+/// before or after the verb (ignored: these answers carry no refs). Skills,
+/// prompts and agent habits written for both apps still run them (cx-4w47
+/// D1); they are this app's `app identify|ping|capabilities`, the same
+/// `system.*` methods the classic CLI sends.
+fn classic_system_method(args: &[String]) -> Option<&'static str> {
+    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let verb = match words.as_slice() {
+        [verb] => *verb,
+        ["--id-format", format, verb] | [verb, "--id-format", format]
+            if matches!(*format, "refs" | "uuids" | "both") =>
+        {
+            *verb
+        }
+        _ => return None,
+    };
+    match verb {
+        "identify" => Some("system.identify"),
+        "ping" => Some("system.ping"),
+        "capabilities" => Some("system.capabilities"),
+        _ => None,
+    }
+}
+
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
+    if let Some(method) = classic_system_method(args) {
+        return Ok(Some(AppCommand::Call {
+            method,
+            params: json!({}),
+            timeout: Some(READ_TIMEOUT),
+            pick: None,
+        }));
+    }
     if scope == "browser"
         && let Some(target) = args.get(1)
         && (target == "page" || target.starts_with("tab_"))

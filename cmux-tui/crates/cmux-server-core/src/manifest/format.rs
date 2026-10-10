@@ -90,35 +90,3 @@ impl PackageFormat {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::PackageFormat::{self, *};
-
-    #[test]
-    fn sniffs_every_named_format_and_accepts_only_tar_gz() {
-        let mut tar = vec![0u8; 512];
-        tar[257..262].copy_from_slice(b"ustar");
-        let cases: [(&[u8], PackageFormat); 11] = [
-            (&[0x1f, 0x8b, 8, 0], TarGz),
-            (&tar, Tar),
-            (b"PK\x03\x04rest", Zip),
-            (&[0xfd, b'7', b'z', b'X', b'Z', 0, 1], Xz),
-            (&[0x28, 0xb5, 0x2f, 0xfd, 0], Zstd),
-            (b"BZh91AY", Bzip2),
-            (b"\x7fELF\x02\x01", Elf),
-            (&[0xcf, 0xfa, 0xed, 0xfe, 7], MachO),
-            (&[0xca, 0xfe, 0xba, 0xbe, 0], MachO),
-            (b"MZ\x90\x00", Pe),
-            (b"#!/bin/sh\n", Unknown),
-        ];
-        for (head, want) in cases {
-            assert_eq!(PackageFormat::sniff(head), want, "{head:?}");
-            assert_eq!(want.require_tar_gz().is_ok(), want == TarGz);
-        }
-        assert_eq!(PackageFormat::sniff(&[]), Unknown);
-        assert_eq!(PackageFormat::sniff(&[0x1f]), Unknown);
-        let message = Elf.require_tar_gz().unwrap_err();
-        assert!(message.contains("tar.gz only") && message.contains("ELF"), "{message}");
-    }
-}

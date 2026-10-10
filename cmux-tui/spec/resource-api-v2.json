@@ -49,6 +49,9 @@
     "operation": {
       "enum": [
         "agent.list",
+        "agent.message.list",
+        "agent.message.mark",
+        "agent.message.send",
         "agent.report",
         "browser.activate",
         "browser.attach",
@@ -271,6 +274,7 @@
       "x-operation-classes": {
         "read": [
           "agent.list",
+          "agent.message.list",
           "browser.get",
           "browser.list",
           "chief.engine.get",
@@ -339,6 +343,8 @@
           "workspace_status.list"
         ],
         "mutation": [
+          "agent.message.mark",
+          "agent.message.send",
           "agent.report",
           "browser.activate",
           "browser.back",
@@ -517,6 +523,8 @@
             "properties": {
               "operation": {
                 "enum": [
+                  "agent.message.mark",
+                  "agent.message.send",
                   "agent.report",
                   "browser.activate",
                   "browser.back",

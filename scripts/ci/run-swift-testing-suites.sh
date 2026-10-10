@@ -44,6 +44,14 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_SUITE_JOBS must be a positive integer" >&2
   exit 2
 fi
+# A fleet step runs with the cores its worker granted it (CMUX_CI_CPU_BUDGET,
+# hq build-fleet internal/cpubudget). More suite processes than granted cores
+# oversubscribe a host that runs other steps too (2026-10-10: load 88 on 14
+# cores, and timing-sensitive suites failed), so the budget caps the jobs.
+if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]] && [ "$CMUX_CI_CPU_BUDGET" -lt "$suite_jobs" ]; then
+  echo "CMUX_CI_CPU_BUDGET=$CMUX_CI_CPU_BUDGET caps the suite jobs at $CMUX_CI_CPU_BUDGET (was $suite_jobs)"
+  suite_jobs="$CMUX_CI_CPU_BUDGET"
+fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
 # CMUX_SWIFT_TEST_DIRECT=1 runs each suite from the built test bundle the way

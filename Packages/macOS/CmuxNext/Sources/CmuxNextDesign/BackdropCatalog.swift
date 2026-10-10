@@ -2,8 +2,14 @@ public import Foundation
 
 /// The wallpaper choices displayed by Appearance settings.
 public nonisolated struct BackdropCatalog: Sendable {
-    /// The bundled paintings followed by a bounded starter set of macOS wallpapers.
+    /// The bundled figure drawings, then the bundled paintings, then the desktop picture, then a
+    /// bounded starter set of macOS wallpapers.
     public let choices: [BackdropSelection]
+
+    /// The bundled art in picker order (figure drawings first; the default is one).
+    public static let bundled: [BackdropSelection] = [BackdropArtCollection.figureDrawings, .paintings].flatMap { collection in
+        BackdropArt.allCases.filter { $0.collection == collection }.map(BackdropSelection.art)
+    }
 
     /// Builds a catalog from an injected directory listing.
     ///
@@ -21,6 +27,6 @@ public nonisolated struct BackdropCatalog: Sendable {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             .prefix(max(0, systemLimit))
             .map { BackdropSelection.system(path: $0.path) } ?? []
-        choices = BackdropArt.allCases.map(BackdropSelection.art) + system
+        choices = Self.bundled + [.desktop] + system
     }
 }

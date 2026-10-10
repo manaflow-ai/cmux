@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Bounded, demand-driven buffer between an attachment pump and the terminal
 /// view that renders its steps (plans/cmux-next/state-audit.md T1).

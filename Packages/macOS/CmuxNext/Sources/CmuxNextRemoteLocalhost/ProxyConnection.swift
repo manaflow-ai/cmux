@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// One browser connection to the proxy: read the head, check the route
 /// credential, then tunnel to the machine (loopback) or connect directly

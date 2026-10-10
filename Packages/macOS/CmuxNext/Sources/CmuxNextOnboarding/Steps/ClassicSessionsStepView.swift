@@ -22,7 +22,9 @@ final class ClassicSessionsStepView: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     private func render() {
         if !rendered, model.scanned { rendered = true; for workspace in model.workspaces { let row = NSButton(checkboxWithTitle: workspace.name, target: self, action: #selector(toggle(_:))); row.tag = model.workspaces.firstIndex(of: workspace) ?? 0; row.state = model.isSelected(workspace) ? .on : .off; row.toolTip = workspace.workingDirectory; list.addArrangedSubview(row) } }
-        status.stringValue = model.isScanning ? OnboardingStrings.classicSessionsScanning : (model.workspaces.isEmpty && model.scanned ? OnboardingStrings.classicSessionsEmpty : "")
+        status.stringValue = model.isScanning ? OnboardingStrings.classicSessionsScanning
+            : (model.scanError != nil ? OnboardingStrings.classicSessionsError
+               : (model.workspaces.isEmpty && model.scanned ? OnboardingStrings.classicSessionsEmpty : ""))
     }
     @objc private func toggle(_ sender: NSButton) { guard model.workspaces.indices.contains(sender.tag) else { return }; model.toggle(model.workspaces[sender.tag]) }
 }

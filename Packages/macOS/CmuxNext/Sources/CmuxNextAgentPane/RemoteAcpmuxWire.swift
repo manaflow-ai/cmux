@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// The wire of a chat whose acpmux runs on another machine: it answers the page's acpmux

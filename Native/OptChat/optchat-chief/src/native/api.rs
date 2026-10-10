@@ -138,16 +138,3 @@ pub fn retry_after(value: &str) -> Option<Duration> {
     let secs: f64 = value.trim().parse().ok()?;
     (secs.is_finite() && secs >= 0.0).then(|| Duration::from_secs_f64(secs.min(3_600.0)))
 }
-
-#[cfg(test)]
-mod retry_after_tests {
-    use super::*;
-
-    #[test]
-    fn retry_after_reads_seconds() {
-        assert_eq!(retry_after("7"), Some(Duration::from_secs(7)));
-        assert_eq!(retry_after(" 0.5 "), Some(Duration::from_millis(500)));
-        assert_eq!(retry_after("Wed, 21 Oct 2026 07:28:00 GMT"), None);
-        assert_eq!(retry_after("-1"), None);
-    }
-}

@@ -67,7 +67,7 @@ struct WhatsNewRowView: View {
                 HStack(spacing: Metrics.space4) {
                     if let tryIt = row.tryIt {
                         Button(WhatsNewStrings.tryIt) { actions.tryIt(tryIt) }
-                            .buttonStyle(.glass)
+                            .glassButtonStyle()
                             .font(Font(Typography.bodyEmphasized))
                     }
                     if let docs = row.docs {

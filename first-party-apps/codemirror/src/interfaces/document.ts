@@ -1,5 +1,5 @@
 // PROPOSED platform interface: documents (app platform critique C2).
-// Vendored copy. first-party-apps/{diffs,monaco,codemirror}/src/interfaces/*.ts
+// Vendored copy. first-party-apps/{diffs,codemirror}/src/interfaces/*.ts
 // are identical files (a test in each app checks this) until the platform
 // generates them into cmux-app.d.ts.
 //

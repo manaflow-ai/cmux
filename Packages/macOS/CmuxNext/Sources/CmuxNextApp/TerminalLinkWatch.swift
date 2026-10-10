@@ -100,6 +100,8 @@ final class TerminalLinkWatch {
         switch end.reason {
         case .sessionShutdown: return .sessionShutdown
         case .missingRecord, .incarnationMismatch: return .hostMissing
+        case .restartExhausted: return .restartExhausted
+        case .restartFailed: return .restartFailed
         case .deadBeforeAdoption, .diedDuringAdoption, .diedWithoutExitStatus, .missingExitReceipt,
              .unadoptableHostEnded, .other, nil:
             return .hostEnded

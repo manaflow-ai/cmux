@@ -1,7 +1,7 @@
 public import Foundation
 import Darwin
 import os
-import Synchronization
+import CmuxNextCompat
 
 public nonisolated enum ProviderConnectionError: Error, Hashable, Sendable {
     case socket(errno: Int32)

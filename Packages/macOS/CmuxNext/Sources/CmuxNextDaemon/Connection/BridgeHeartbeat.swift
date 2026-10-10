@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The liveness of a bridged connection (a paired server's owner session
 /// through `cmux link dial`, `DaemonEndpoint.bridge`). The overlay keeps a

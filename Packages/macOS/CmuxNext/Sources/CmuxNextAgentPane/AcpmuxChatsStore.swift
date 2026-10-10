@@ -28,6 +28,12 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
             if let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
             return
         }
+        // The live session's attention or latest reply changed: same place in the list.
+        if change["kind"] as? String == "activity" {
+            values[key]?.attention = change["attention"] as? String
+            values[key]?.preview = change["preview"] as? String
+            return
+        }
         guard let chat = (change["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:)) else { return }
         if values[key] != nil, let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
         values[key] = chat

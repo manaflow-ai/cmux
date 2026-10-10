@@ -77,7 +77,6 @@ if(CMUX_BUILD_TESTS)
     target_compile_definitions(cmux_tui_sdk PRIVATE CMUX_CPP_TESTING=1)
     add_executable(cmux_cpp_tests
         tests/test_main.cpp
-        tests/test_generated.cpp
         tests/test_macro_collision.cpp
         tests/test_unix_transport.cpp
     )

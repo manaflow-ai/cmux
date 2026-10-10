@@ -157,6 +157,7 @@ final class KeyRouter: BrowserKeyRouting {
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
         if newTabInputCoordinator.capture(event, in: window) { return true }
+        if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }
@@ -272,6 +273,8 @@ final class KeyRouter: BrowserKeyRouting {
     var deliveringTypeAhead: String?
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
+    /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
+    lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
@@ -310,6 +313,7 @@ final class KeyRouter: BrowserKeyRouting {
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
         typeAheadFocusDidSettle(focus.resolved)
         newTabInputCoordinator.flush(in: window)
+        creationInputCoordinator.focusDidSettle(in: window)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }

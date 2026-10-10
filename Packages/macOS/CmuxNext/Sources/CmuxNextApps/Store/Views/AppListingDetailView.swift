@@ -50,7 +50,7 @@ struct AppListingDetailView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: Metrics.space4) {
-            AppIconView(icon: listing.icon, bundleDirectory: listing.bundle?.directory, size: 56)
+            AppIconView(icon: listing.icon, bundleDirectory: listing.bundleDirectory, size: 56)
             VStack(alignment: .leading, spacing: Metrics.space1) {
                 Text(listing.name.resolved()).font(.system(size: 20, weight: .semibold)).foregroundStyle(colors.primary)
                     .lineLimit(1)
@@ -91,22 +91,21 @@ struct AppListingDetailView: View {
 
     private var metaParts: [String] {
         var parts = [AppsStrings.tier(listing.tier)]
-        if let state = model.state(of: listing.id), state.isInstalled {
-            parts.append(state.isEnabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge)
+        if let state = model.state(of: listing.id), state.installed {
+            parts.append(state.enabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge)
+            if state.hidden { parts.append(AppsStrings.hiddenBadge) }
         }
         return parts
     }
 
-    private var contributions: [AppContribution] {
-        (listing.bundle?.manifest.contributes.entries ?? []).filter { $0.kind == .sidebarSection || $0.kind == .statusItem }
-    }
+    private var contributions: [AppImplementation] { listing.implementations.filter(\.isPreviewable) }
 
     private var previews: some View {
         AppDetailSection(title: AppsStrings.preview, note: nil) {
-            ForEach(contributions, id: \.id) { contribution in
+            ForEach(contributions, id: \.id) { implementation in
                 VStack(alignment: .leading, spacing: Metrics.space2) {
-                    Text(AppsStrings.contribution(contribution.kind)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
-                    AppLivePreview(model: model, listing: listing, contribution: contribution)
+                    Text(AppsStrings.implementation(implementation)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
+                    AppLivePreview(model: model, listing: listing, implementation: implementation)
                 }
             }
         }
@@ -114,7 +113,7 @@ struct AppListingDetailView: View {
 
     private var permissions: some View {
         AppDetailSection(title: AppsStrings.permissions, note: nil) {
-            if let app = model.state(of: listing.id), app.isInstalled {
+            if let app = model.state(of: listing.id), app.installed {
                 AppGrantsView(model: model, app: app)
             } else {
                 ForEach(listing.scopes) { AppScopeRow(scope: $0, optional: false) }

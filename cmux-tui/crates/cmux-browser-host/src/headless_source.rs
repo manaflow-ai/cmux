@@ -118,6 +118,12 @@ impl HeadlessSource {
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
+        let weak = Arc::downgrade(&source);
+        source.driver.set_popup_hook(Some(Arc::new(move |popup: &str, opener: &str| {
+            if let Some(source) = weak.upgrade() {
+                source.adopt_popup(popup, opener);
+            }
+        })));
         Ok(source)
     }
 
@@ -135,7 +141,9 @@ impl HeadlessSource {
     /// Installs the combined filter: a request of a tab is refused when a
     /// session that drives the tab refuses it; a fetch shell's requests
     /// follow the session that fetches; a tab no session drives yet (a
-    /// popup before its first call) follows every session's filter.
+    /// popup whose opener no session drives) follows every session's
+    /// filter. A popup of a driven tab is its opener's sessions' from its
+    /// first request (`adopt_popup`).
     fn sync_filter(self: &Arc<Self>) {
         let any = !self.filters.lock().unwrap_or_else(PoisonError::into_inner).is_empty();
         if !any {
@@ -168,6 +176,29 @@ impl HeadlessSource {
             };
             filters.iter().find_map(|f| f(request))
         })));
+    }
+
+    /// A popup is driven by the sessions that drive its opener, from before
+    /// its first request: their request filters and response checks apply
+    /// to it, and no other session's (cx-m0do). Only the maps change: the
+    /// popup is paused, so no CDP call here (the installed filter reads the
+    /// session tabs per request).
+    fn adopt_popup(&self, popup: &str, opener: &str) {
+        let sessions: Vec<u64> = {
+            let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner);
+            let sessions: Vec<u64> =
+                driven.get(opener).map(|s| s.iter().copied().collect()).unwrap_or_default();
+            if !sessions.is_empty() {
+                driven.entry(popup.to_owned()).or_default().extend(sessions.iter().copied());
+            }
+            sessions
+        };
+        let mut filters = self.filters.lock().unwrap_or_else(PoisonError::into_inner);
+        for session in sessions {
+            if let Some(filter) = filters.get_mut(&session) {
+                filter.tabs.insert(popup.to_owned());
+            }
+        }
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
@@ -418,6 +449,13 @@ impl TabSource for SharedHeadless {
     fn opened(&self, session: u64, target_id: &str) {
         self.0.routes().created(session, target_id);
         self.0.drive(session, target_id);
+    }
+
+    fn driven_by_others(&self, session: u64, target_id: &str) -> bool {
+        let driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
+        driven
+            .get(target_id)
+            .is_some_and(|sessions| !sessions.is_empty() && !sessions.contains(&session))
     }
 
     fn kept(&self, session: u64, target_id: &str) {
@@ -785,6 +823,10 @@ impl Driver for HeadlessSession {
 
     fn send_session_event(&self, event: DriverEvent) -> bool {
         self.engine.as_ref().is_some_and(|e| e.send_session_event(event))
+    }
+
+    fn drives_tab(&self, target_id: &str) -> bool {
+        self.engine.as_ref().is_none_or(|e| e.drives_tab(target_id))
     }
 
     fn end_session(&self) {

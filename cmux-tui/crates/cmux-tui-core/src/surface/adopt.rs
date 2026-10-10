@@ -260,7 +260,16 @@ impl Surface {
                         cell_height: cell_pixels.1,
                     },
                 ),
-                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_limits: Box::new(RankedMutex::new(
+                    LockRank::KittyLimits,
+                    "pty.kitty_graphics_limits",
+                    initial_kitty_limits,
+                )),
+                kitty_limits_request: RankedMutex::new(
+                    LockRank::KittyLimitsRequest,
+                    "pty.kitty_limits_request",
+                    (),
+                ),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]

@@ -309,12 +309,14 @@ async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_age
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     let mut rpc = daemon.rpc().await;
+    // A deny: this plain socket client is not the person (`hub/person.rs`),
+    // and the answer still reaches the adopted agent.
     rpc.call(
         "_acpmux/permission_respond",
-        json!({"sessionId": session, "permissionId": permission_id, "optionId": "yes"}),
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
     )
     .await;
-    daemon.wait_event(&session, "the agent's answer", |e| chunk(e, "chose yes"));
+    daemon.wait_event(&session, "the agent's answer", |e| chunk(e, "chose no"));
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
 }
@@ -554,7 +556,7 @@ async fn a_recovered_permission_prompt_is_not_idle() {
     let mut rpc = daemon.rpc().await;
     rpc.call(
         "_acpmux/permission_respond",
-        json!({"sessionId": session, "permissionId": permission_id, "optionId": "yes"}),
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
     )
     .await;
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");

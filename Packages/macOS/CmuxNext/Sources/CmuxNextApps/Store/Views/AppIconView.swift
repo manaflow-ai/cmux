@@ -53,11 +53,13 @@ struct AppStoreBadge: View {
     }
 }
 
-/// Install, or Remove for an installed app (user gesture; never
-/// automation). Remove is a quiet destructive text button with no
-/// confirmation: it is undone from the same place until it commits
-/// (`AppStoreModel.requestRemove`). A built-in app has none. Every state
-/// keeps the same height, so the header never shifts.
+/// Install, or Remove for an installed app (a user gesture on this page,
+/// origin `user`; never automation). Remove is a quiet destructive text
+/// button with no confirmation: it is undone from the same place until it
+/// commits (`AppStoreModel.requestRemove`). A built-in app has none; a
+/// default first-party app is installed for everyone and shows that
+/// instead. Disabled while the supervisor is unreachable. Every state keeps
+/// the same height, so the header never shifts.
 struct AppInstallButton: View {
     let model: AppStoreModel
     let id: String
@@ -76,7 +78,11 @@ struct AppInstallButton: View {
                 .font(Font(Typography.body))
             } else if builtIn {
                 Color.clear.frame(width: 0)
-            } else if model.state(of: id)?.isInstalled == true {
+            } else if model.state(of: id)?.isDefault == true {
+                AppStoreBadge(text: AppsStrings.installedForEveryone)
+                    .help(AppsStrings.installedForEveryoneHelp)
+                    .accessibilityIdentifier("appStore.install.\(id)")
+            } else if model.state(of: id)?.installed == true {
                 textButton(AppsStrings.remove, color: colors.danger) { await model.requestRemove(id) }
                     .font(Font(Typography.body))
                     .accessibilityIdentifier("appStore.install.\(id)")
@@ -91,7 +97,7 @@ struct AppInstallButton: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(busy)
+                .disabled(busy || !model.canChange)
                 .accessibilityIdentifier("appStore.install.\(id)")
             }
         }
@@ -103,7 +109,7 @@ struct AppInstallButton: View {
             Text(title).foregroundStyle(color).padding(.horizontal, Metrics.space1).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(busy)
+        .disabled(busy || !model.canChange)
     }
 
     private func run(_ action: @escaping () async -> Void) {

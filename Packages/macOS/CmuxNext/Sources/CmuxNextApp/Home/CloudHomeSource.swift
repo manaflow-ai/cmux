@@ -2,7 +2,7 @@ import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The shared Home core's `HomeSource` over the cloud owners, reached only
 /// through the local daemon's proxy (`cloud-conversations-v1`,

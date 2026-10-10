@@ -25,6 +25,8 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod pool;
+mod queue;
+pub use queue::QueuedPrompt;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod session;
@@ -48,6 +50,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+pub mod person;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -128,16 +131,6 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
-}
-
-/// A prompt waiting for the running turn to end.
-#[derive(Debug, Clone)]
-pub struct QueuedPrompt {
-    pub prompt_id: String,
-    pub turn_id: String,
-    pub client: String,
-    pub preview: String,
-    pub queued_at: u64,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -264,6 +257,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
+    /// This launch's person key (`person.rs`): who may allow and grant.
+    pub person: person::PersonGate,
 }
 
 impl Hub {
@@ -312,6 +307,7 @@ impl Hub {
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             web_token: WebToken::new(String::new()),
+            person: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -650,6 +646,7 @@ impl Hub {
                 | "turn_error"
                 | "queued"
                 | "dequeued"
+                | "queue_removed"
                 | "created"
                 | "tags"
                 | "rules"

@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back
@@ -37,6 +37,9 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     public func add(_ session: String) { state.withLock { _ = $0.sessions.insert(session) } }
 
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
+
+    /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
+    public var isUnstarted: Bool { state.withLock { $0.sessions.isEmpty && $0.awaiting.isEmpty } }
 
     /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
     public func folder(of session: String) -> String? { state.withLock { $0.folders[session] } }

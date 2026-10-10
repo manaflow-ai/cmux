@@ -101,6 +101,20 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Point the linked acpmux at the home `cmux acp` uses, for code that talks
+/// to the acpmux daemon without going through `cmux acp` (agent messages).
+pub(crate) fn configure_home() {
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
+    if let Some(home) = home.and_then(|home| tagged_home(tag.as_deref(), &home)) {
+        acpmux::config::set_home_override(home);
+    }
+}
+
 /// The acpmux unix socket the session daemon attaches agent tabs through
 /// (`agent-session-attach-v1`): the one `cmux acp` in this daemon's terminals
 /// reaches. `ACPMUX_SOCKET`, else the socket of the home `cmux acp` uses

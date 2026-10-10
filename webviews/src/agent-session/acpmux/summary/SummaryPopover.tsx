@@ -18,12 +18,16 @@ const ROW_ICON = rowIconSize(12);
 export function SummaryPopover({
   summary,
   galleryCount = 0,
+  changes,
+  onOpenChanges,
   onOpenOutput,
   onOpenGallery,
   onFollow,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
+  changes?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
@@ -100,6 +104,25 @@ export function SummaryPopover({
           </li>
         )}
       />
+      {changes && (
+        <section className="acpmux-summary-section" aria-label={t("header.changes")}>
+          <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
+          <ul className="acpmux-summary-list">
+            <li>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link"
+                aria-label={t("header.changes")}
+                onClick={onOpenChanges}
+              >
+                <Icon name="diff.file" size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{t("header.changes")}</span>
+                <Counts additions={changes.additions} deletions={changes.deletions} />
+              </button>
+            </li>
+          </ul>
+        </section>
+      )}
       <SummarySection
         title={t("summary.pullRequests")}
         items={summary.pullRequests}

@@ -1,6 +1,6 @@
 import CmuxNextCloud
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The outcome of one finished ssh (or curl) run.
 public struct SSHProcessResult: Sendable {

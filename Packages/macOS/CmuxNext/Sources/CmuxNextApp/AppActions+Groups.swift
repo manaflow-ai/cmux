@@ -17,7 +17,14 @@ extension AppActions {
             ("focusBrowserAddressBar", .focusAddressBar),
         ]
         for (id, command) in commands where command != .focusAddressBar {
-            registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { chrome($0)?.perform(command) })
+            registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { invocation in
+                guard let browser = chrome(invocation) else { return }
+                browser.perform(command)
+                if command == .zoomIn || command == .zoomOut || command == .resetZoom {
+                    SurfaceZoomIndicator.show(percent: Int((browser.tab.state.zoom * 100).rounded()),
+                                              in: services.windows.active?.window)
+                }
+            })
         }
         // Cmd-Return / Shift-Cmd-Return in the address bar: the typed URL or
         // search opens in a new tab (Chrome, Safari) through the tab's

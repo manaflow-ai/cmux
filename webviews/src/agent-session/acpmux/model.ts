@@ -156,6 +156,9 @@ export type AcpmuxSnapshot = {
   origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
+  /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
+  /// events carry the peer's clock; unset when they share a clock or it is not known yet.
+  clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
   canHandoff?: boolean;

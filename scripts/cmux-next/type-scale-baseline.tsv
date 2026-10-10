@@ -39,7 +39,7 @@ webviews/src/pages/history/styles.css	size	6
 webviews/src/pages/keybindings/styles.css	size	11
 webviews/src/pages/markdown/styles.css	size	4
 webviews/src/pages/passwords/styles.css	size	6
-webviews/src/pages/settings/components/AgentHarnesses.tsx	size	21
+webviews/src/pages/settings/components/AgentHarnesses.tsx	size	20
 webviews/src/pages/settings/components/ThemePreview.tsx	size	10
 webviews/src/pages/settings/layout.css	size	15
 webviews/src/pages/settings/styles.css	size	14

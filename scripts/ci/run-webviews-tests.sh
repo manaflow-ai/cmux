@@ -8,7 +8,8 @@
 # wall-clock timeout per file names a stuck file instead of hanging the job.
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120).
-# CMUX_WEB_TEST_JOBS: files run at once (default: the CPU count).
+# CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
+# worker granted the step, else the CPU count).
 #
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
@@ -81,7 +82,11 @@ case "$(git rev-parse --show-prefix)" in
 esac
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
-jobs="${CMUX_WEB_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+default_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
+  default_jobs="$CMUX_CI_CPU_BUDGET"
+fi
+jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
 trap 'rm -rf "$results"' EXIT
 

@@ -51,6 +51,22 @@ fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
+    /// A client that presented the person key (`hub/person.rs`): the person
+    /// at the Mac app, who may allow and widen.
+    async fn person(hub: &Arc<Hub>, origin: Origin) -> Self {
+        const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let _ = hub.person.install_spawn_key(KEY);
+        let mut c = Self::new(hub, origin);
+        let r = c
+            .call(
+                "initialize",
+                json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": KEY}}}),
+            )
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
+    }
+
     fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
@@ -110,7 +126,7 @@ fn reason(v: &Value) -> &str {
 async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     let d = dir("local");
     let hub = hub(&d, None);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut app = Client::new(&hub, Origin::LocalApp);
     let mut web = Client::new(&hub, Origin::Web);
     // Created over the unix socket: it keeps the harness's mode `normal`.
@@ -171,7 +187,7 @@ async fn a_session_loaded_in_a_mode_that_does_not_ask_refuses_web_control() {
     let root = d.join("store");
     let s = {
         let hub = hub(&d, Some(&root));
-        let mut local = Client::new(&hub, Origin::Local);
+        let mut local = Client::person(&hub, Origin::Local).await;
         let s = local.new_on(&d, Some("ftarget")).await;
         let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "auto"})).await;
         assert!(r.get("error").is_none(), "{r}");
@@ -207,7 +223,7 @@ async fn a_queued_web_prompt_is_dropped_when_the_mode_left_the_table_before_disp
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut busy = Client::new(&hub, Origin::Local);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let s = web.new_session(&d).await;
     // A busy session: a local turn waits on a FIFO.
     let fifo = d.join("gate");
@@ -256,7 +272,7 @@ async fn a_web_handoff_start_moves_a_new_target_to_an_asking_mode_first() {
     let d = dir("handoff-new");
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let (id, target) = web_handoff(&mut web, &d, "k-new", "ftarget").await;
     // The target starts in the harness's own mode, which does not ask.
     let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
@@ -275,7 +291,7 @@ async fn a_web_handoff_start_to_an_opencode_target_is_refused_and_the_target_end
     let d = dir("handoff-opencode");
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let (id, target) = web_handoff(&mut web, &d, "k-oc", "fopencode").await;
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
     assert!(r.get("error").is_some(), "{r}");
@@ -296,7 +312,7 @@ async fn a_web_handoff_start_whose_target_does_not_resolve_is_refused() {
     let d = dir("handoff-gone");
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let (id, target) = web_handoff(&mut web, &d, "k-gone", "ftarget").await;
     let r = local.call("_acpmux/kill", json!({"sessionId": target, "purge": true})).await;
     assert!(r.get("error").is_none(), "{r}");
@@ -324,7 +340,7 @@ async fn set_policy(local: &mut Client, s: &str, policy: &str) {
 async fn a_session_with_no_mode_needs_an_asking_policy_for_web_control() {
     let d = dir("policy");
     let hub = hub(&d, None);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut web = Client::new(&hub, Origin::Web);
     let s = no_mode_session(&mut local, &d).await;
     // With ask, the Web may prompt it.
@@ -349,7 +365,7 @@ async fn a_session_with_no_mode_needs_an_asking_policy_for_web_control() {
 async fn an_auto_approve_rule_refuses_web_control() {
     let d = dir("rules");
     let hub = hub(&d, None);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut web = Client::new(&hub, Origin::Web);
     let s = no_mode_session(&mut local, &d).await;
     for rules in [json!({"autoApprove": ["read"]}), json!({"default": "approve"})] {
@@ -371,7 +387,7 @@ async fn a_queued_web_prompt_is_dropped_when_the_policy_stops_asking_before_disp
     let d = dir("policy-queue");
     let hub = hub(&d, None);
     let mut busy = Client::new(&hub, Origin::Local);
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
     let mut web = Client::new(&hub, Origin::Web);
     let s = no_mode_session(&mut local, &d).await;
     let fifo = d.join("gate");

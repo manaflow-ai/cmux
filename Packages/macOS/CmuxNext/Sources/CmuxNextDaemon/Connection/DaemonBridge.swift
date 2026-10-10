@@ -1,6 +1,6 @@
 public import Foundation
 import Darwin
-import Synchronization
+import CmuxNextCompat
 
 /// A daemon connection through a child process instead of a socket
 /// (plans/cmux-next/server-reach.md 7 step 1): the app's own bundled `cmux`

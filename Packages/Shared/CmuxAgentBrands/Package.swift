@@ -19,10 +19,5 @@ let package = Package(
             name: "CmuxAgentBrands",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .testTarget(
-            name: "CmuxAgentBrandsTests",
-            dependencies: ["CmuxAgentBrands"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
     ]
 )

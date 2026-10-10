@@ -4,6 +4,27 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
+                id: "agentPaneZoomIn",
+                title: String(localized: "action.agentPaneZoomIn", defaultValue: "Agent Chat: Zoom In", bundle: .module),
+                keywords: ["agent", "chat", "zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.command]),
+                category: .agents, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-in", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "agentPaneZoomOut",
+                title: String(localized: "action.agentPaneZoomOut", defaultValue: "Agent Chat: Zoom Out", bundle: .module),
+                keywords: ["agent", "chat", "zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.command]),
+                category: .agents, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent zoom-out", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "agentPaneZoomReset",
+                title: String(localized: "action.agentPaneZoomReset", defaultValue: "Agent Chat: Actual Size", bundle: .module),
+                keywords: ["agent", "chat", "zoom", "reset"], defaultShortcut: Shortcut("0", modifiers: [.command]),
+                category: .agents, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent actual-size", mainMenu: .view
+            ),
+            ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),

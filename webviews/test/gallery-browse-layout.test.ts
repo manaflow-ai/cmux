@@ -42,6 +42,14 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
             </div>
           </header>
           <section class="gallery-browse">
+            <header class="gallery-browse-header">
+              <h1>Browse gallery</h1>
+              <div class="gallery-browse-tools">
+                <label class="gallery-browse-filter">Filter previews<input type="search" aria-label="Filter gallery previews"></label>
+                <fieldset class="gallery-browse-kind-filter"><legend>Show</legend><button>All</button><button>Static</button><button>Motion</button></fieldset>
+                <label class="gallery-browse-cycle"><input type="checkbox" aria-label="Cycle previews">Cycle previews</label>
+              </div>
+            </header>
             <div class="gallery-browse-grid">
               <article class="gallery-browse-card">
                 <header class="gallery-browse-card-header"><div><h2>Transcript</h2><code>agent-pane.transcript</code></div><span>Motion</span></header>

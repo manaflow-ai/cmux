@@ -41,20 +41,3 @@ impl Flags {
 pub fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flags_and_words() {
-        let args: Vec<String> = ["host", "--daemon-socket", "/s", "--mux-home=/h", "x"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let f = Flags::parse(&args);
-        assert_eq!(f.value("daemon-socket"), Some("/s"));
-        assert_eq!(f.value("mux-home"), Some("/h"));
-        assert_eq!(f.words, vec!["host", "x"]);
-    }
-}

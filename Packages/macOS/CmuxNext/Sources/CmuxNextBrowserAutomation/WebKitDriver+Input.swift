@@ -27,8 +27,7 @@ extension WebKitDriver {
             await afterPendingMouseEvents(webView)
             return .null
         }
-        // A right-click's native menu is suppressed by the web view
-        // (`WebKitWebView.willOpenMenu`).
+        // A right-click's native menu is not shown (`agentRightMouseDown`).
         let button = MouseEventPlan.Button(rawValue: try params.optionalString("button") ?? "left") ?? .left
         guard let eventType = session.mouse.eventType(for: type, button: button) else {
             throw DriverError(.invalid, "input.mouse: type: expected move, down, up or wheel, got \(type)")
@@ -122,7 +121,7 @@ extension WebKitDriver {
         case .leftMouseDown: webView.mouseDown(with: event)
         case .leftMouseUp: webView.mouseUp(with: event)
         case .leftMouseDragged: webView.mouseDragged(with: event)
-        case .rightMouseDown: webView.rightMouseDown(with: event)
+        case .rightMouseDown: webView.agentRightMouseDown(event)
         case .rightMouseUp: webView.rightMouseUp(with: event)
         case .rightMouseDragged: webView.rightMouseDragged(with: event)
         case .otherMouseDown: webView.otherMouseDown(with: event)

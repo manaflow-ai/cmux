@@ -106,6 +106,7 @@ extension BrowserChromeView {
             renderPrompt()
         }
         headerBandReattachIfInstalled()
+        syncPageOverlays()
     }
 
     /// Its pane parked this tab hidden (another tab shows): popups close, as
@@ -113,6 +114,7 @@ extension BrowserChromeView {
     public override func viewDidHide() {
         super.viewDidHide()
         extensionToolbar.hidePopups()
+        syncPageOverlays()
     }
 
     /// Its pane shows this parked tab again: it repaints, as when it comes
@@ -122,6 +124,7 @@ extension BrowserChromeView {
         guard window != nil else { return }
         updateColors()
         renderPrompt()
+        syncPageOverlays()
     }
 
     /// The region of this chrome that contains `view`, nil when outside.

@@ -8,7 +8,7 @@ import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./aut
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
-import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
+import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
@@ -331,10 +331,7 @@ export class UserDO extends OwnerDO<UserState> {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: chiefList(state, Date.now(), (params as { include_archived?: unknown } | null)?.include_archived === true), revision: "" }
     }
-    if (op === "user.text_confirm.get") {
-      const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
-      return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
-    }
+    if (op === "user.text_confirm.get" || op === "user.presence_key.list") return confirmRead(op, state, principal, () => admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()))
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }

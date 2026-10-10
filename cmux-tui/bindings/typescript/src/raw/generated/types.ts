@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5c350a77eb8e21f3b28419ad990881e37e5e8c47e98bf8db565ab82689e6322f. */
+/* cmux-tui mux protocol 12, IR 7c70cdc4689123c255489da924f9c108ab579642fa47825c178b9a5a2133e5e7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -441,6 +441,22 @@ export type GuestUrlOpenResult = {
 
 export type GuestUrlSubscribeResult = {
   "url_open_ready": boolean;
+};
+
+export type HistorySearchHit = {
+  "at_ms": bigint;
+  "highlights": Array<HistorySearchRange>;
+  "key": string;
+  "kind": string;
+  "position": (bigint) | null;
+  "snippet": string;
+  "target": string;
+  "title": string;
+};
+
+export type HistorySearchRange = {
+  "end": number;
+  "start": number;
 };
 
 export type Id = bigint;

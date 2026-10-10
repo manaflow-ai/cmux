@@ -34,8 +34,8 @@ public enum BrowserCookieImportChoice: Sendable, Equatable {
 // keeps at most one and closes it on any answer.
 extension BrowserChromeView {
     /// Shows `offer` at the bottom of the page, replacing an offer already
-    /// shown. Child-window (Chromium) pages draw above the chrome; the card
-    /// is one of their occlusion rects, so it shows over them too.
+    /// shown. It floats on the window's overlay host (`PageFloatingOverlays`),
+    /// so it shows above Chromium pages too.
     /// `aboveToast` lifts it over the window's toast stack (a toast shows now).
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
                                       onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
@@ -45,14 +45,9 @@ extension BrowserChromeView {
             if let card { self?.remove(card) }
             onChoice(choice)
         }
-        addSubview(card)
-        let inset = BrowserMetrics.overlayInset
-        NSLayoutConstraint.activate([
-            card.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset - (aboveToast ? Self.toastClearance : 0)),
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: inset),
-        ])
+        pageOverlays.add(card, lift: aboveToast ? Self.toastClearance : 0)
         card.alphaValue = 0
+        syncPageOverlays()
         Motion.animate(.fadeIn, in: card) { card.animator().alphaValue = 1 }
         needsLayout = true
     }
@@ -69,15 +64,14 @@ extension BrowserChromeView {
     public var showsCookieImportOffer: Bool { currentCookieImportCard != nil }
 
     var currentCookieImportCard: BrowserCookieImportCard? {
-        subviews.lazy.compactMap { $0 as? BrowserCookieImportCard }.first { !$0.isDismissing }
+        pageOverlays.views.lazy.compactMap { $0 as? BrowserCookieImportCard }.first { !$0.isDismissing }
     }
 
     private func remove(_ card: BrowserCookieImportCard) {
         guard !card.isDismissing else { return }
         card.isDismissing = true
         Motion.animate(.fadeOut, in: card, { card.animator().alphaValue = 0 }, completion: { [weak self] in
-            card.removeFromSuperview()
-            self?.needsLayout = true
+            self?.pageOverlays.remove(card)
         })
     }
 

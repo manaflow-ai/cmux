@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Browser traffic to one machine's loopback services over a dedicated

@@ -16,6 +16,8 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// The font scale after each font size change (nil: the configured
     /// size), `TerminalFontScale.observe`.
     @MainActor var onFontScaleChange: ((Double?) -> Void)?
+    /// The last font scale Ghostty reported, nil at the configured size.
+    @MainActor var fontScale: Double?
 
     init(input: TerminalInputSink) {
         self.input = input

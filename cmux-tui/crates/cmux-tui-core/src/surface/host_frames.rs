@@ -26,7 +26,8 @@
 //! bytes. When the queue is full the thread stops reading, which keeps the
 //! host's backpressure. Once the surface's reader abandons the stream
 //! (`abandon`), the thread discards ordered frames instead of queueing them,
-//! so a backlog can never delay an acknowledgement it still owes.
+//! so a backlog can never delay an acknowledgement it still owes; it still
+//! resolves `ClearHistoryAck` (status only, see `resolves_after_abandon`).
 //!
 //! A `ClipboardReadRequest` from a host that negotiated clipboard reads
 //! becomes the connection's pending read and a `ClipboardReadCancel`
@@ -36,7 +37,10 @@
 //! Failure ownership: at the end of the stream the thread fails only the
 //! waiters it resolves itself; the surface's reader drains the queued frames
 //! and then fails the ordered waiters. After `abandon` or a drop, the thread
-//! fails every waiter at the end of the stream.
+//! fails every waiter at the end of the stream. A drop while replies it
+//! resolves are still owed keeps the stream open until they arrive or time
+//! out, so a mint sent just before a reconnect replaced the connection is
+//! not lost to the drop's own shutdown.
 
 use std::collections::VecDeque;
 use std::io::Read;
@@ -44,7 +48,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
-use crate::terminal_host_runtime::ControlResponses;
+use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 
 /// Output bytes the reader thread may queue ahead of the surface's reader.
 /// One frame is always admitted, however large.
@@ -65,6 +69,9 @@ struct QueueState {
     ended: bool,
     /// The surface's reader no longer reads this queue (`abandon` or drop).
     abandoned: bool,
+    /// The demultiplexer was dropped with replies still owed: the thread
+    /// ends once no waiter it resolves is left, or at this deadline.
+    draining: Option<std::time::Instant>,
 }
 
 struct Queue {
@@ -90,6 +97,18 @@ impl EarlyResponses {
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
+    }
+
+    /// Whether the reader thread resolves responses of `kind` once the
+    /// surface's reader abandoned the stream. A clear-history acknowledgement
+    /// is ordered with output while the stream is read; after the abandon
+    /// its replay is moot, because the next connection carries the cleared
+    /// screen (its snapshot; or, after it, the ResyncRequired a smart host
+    /// publishes with the clear, or the Output a legacy host broadcasts), so
+    /// only its status still matters to the requester. The mirror may show
+    /// the cleared screen a moment after the requester's success.
+    fn resolves_after_abandon(self, kind: MessageKind) -> bool {
+        self.resolves(kind) || kind == MessageKind::ClearHistoryAck
     }
 }
 
@@ -146,26 +165,64 @@ impl HostFrames {
 
     /// The surface's reader stops reading this stream (for example at
     /// `ResyncRequired`) but the connection may stay open while it
-    /// reconnects. Ordered waiters fail now. The thread keeps resolving early
-    /// acknowledgements (a Kitty limits acknowledgement follows
-    /// ResyncRequired), discards ordered frames, and fails every waiter when
-    /// the stream ends.
+    /// reconnects. Ordered waiters fail now, except clear-history ones. The
+    /// thread keeps resolving early acknowledgements (a Kitty limits
+    /// acknowledgement follows ResyncRequired) and clear-history
+    /// acknowledgements, discards other ordered frames, and fails every
+    /// waiter when the stream ends.
     pub(super) fn abandon(&self) {
-        {
+        let ended = {
             let mut state = self.queue.state.lock().unwrap();
             state.abandoned = true;
-            state.frames.clear();
             state.queued_payload = 0;
+            // A clear-history acknowledgement already queued behind the frame
+            // that ended the read still answers its requester. It is resolved
+            // under the queue lock, before the thread can see `abandoned` at
+            // the end of the stream and fail every waiter.
+            for frame in std::mem::take(&mut state.frames) {
+                if let HostFrame::Frame(frame) = frame
+                    && frame.kind == MessageKind::ClearHistoryAck
+                {
+                    self.control_responses.resolve_after(&frame, || {});
+                }
+            }
             self.queue.changed.notify_all();
+            state.ended
+        };
+        if ended {
+            // The thread is gone: nothing would resolve a kept waiter.
+            self.control_responses.fail_all();
+            return;
         }
         let early = self.early;
-        self.control_responses.fail_all_except(|kind| early.resolves(kind));
+        self.control_responses.fail_all_except(|kind| early.resolves_after_abandon(kind));
     }
 }
 
 impl Drop for HostFrames {
+    /// A reply the host owes on this connection (a renderer mint sent just
+    /// before a resync reconnect replaced it) still reaches its waiter: the
+    /// thread keeps reading until no waiter it resolves is left or the drain
+    /// deadline passes. A waiter that times out shuts the connection down
+    /// itself (Kitty limits excepted), which also ends a read already in
+    /// progress; the read timeout bounds reads that start later.
     fn drop(&mut self) {
         self.abandon();
+        let early = self.early;
+        let owed = {
+            let mut state = self.queue.state.lock().unwrap();
+            let owed = !state.ended
+                && self
+                    .control_responses
+                    .has_waiter_where(|kind| early.resolves_after_abandon(kind));
+            if owed {
+                state.draining = Some(std::time::Instant::now() + CONTROL_RESPONSE_TIMEOUT);
+            }
+            owed
+        };
+        if owed && self.shutdown.set_read_timeout(Some(CONTROL_RESPONSE_TIMEOUT)).is_ok() {
+            return;
+        }
         let _ = self.shutdown.shutdown(std::net::Shutdown::Read);
     }
 }
@@ -201,7 +258,15 @@ fn read_stream(
     early: EarlyResponses,
     queue: &Queue,
 ) {
-    while let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
+    loop {
+        let draining = queue.state.lock().unwrap().draining;
+        if draining.is_some_and(|deadline| {
+            std::time::Instant::now() >= deadline
+                || !control_responses.has_waiter_where(|kind| early.resolves_after_abandon(kind))
+        }) {
+            break;
+        }
+        let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) else { break };
         // A host-originated clipboard read is outside the live sequence and
         // waits for the user, so it never enters the ordered queue.
         if frame.kind == MessageKind::ClipboardReadRequest {
@@ -241,6 +306,10 @@ fn read_stream(
             state = queue.changed.wait(state).unwrap();
         }
         if state.abandoned {
+            if frame.kind == MessageKind::ClearHistoryAck {
+                drop(state);
+                control_responses.resolve_after(&frame, || {});
+            }
             continue;
         }
         state.queued_payload += frame.payload.len();

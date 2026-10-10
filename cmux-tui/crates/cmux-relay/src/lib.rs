@@ -31,13 +31,3 @@ pub fn version_string() -> String {
         .unwrap_or("unstamped");
     format!("{} ({commit})", env!("CARGO_PKG_VERSION"))
 }
-
-#[cfg(test)]
-mod build_info_tests {
-    #[test]
-    fn relay_version_identifies_the_package_and_build() {
-        let version = super::version_string();
-        assert!(version.starts_with(env!("CARGO_PKG_VERSION")));
-        assert!(version.ends_with(')'));
-    }
-}

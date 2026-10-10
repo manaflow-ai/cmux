@@ -117,7 +117,10 @@ enum DebugWindowSnapshot {
             var pagesFailed = 0
             for (page, rect) in pages {
                 do {
-                    layers.append(.page(try await page.snapshot(), rect))
+                    // The chrome's holes (find bar, prompt bar, error page)
+                    // show the window there, as on screen.
+                    let holes = page.occlusionRects.map { page.contentView.convert($0, to: nil) }
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes))
                 } catch {
                     pagesFailed += 1
                 }
@@ -154,8 +157,9 @@ enum DebugWindowSnapshot {
 
     /// What `composite` paints over the base image, bottom first.
     private enum Layer {
-        /// A page image filling a rectangle in window coordinates.
-        case page(CGImage, NSRect)
+        /// A page image filling a rectangle in window coordinates, except
+        /// `holes` (window coordinates), where the page window is cut out.
+        case page(CGImage, NSRect, holes: [NSRect] = [])
         /// A window server image of child windows, the size of the window.
         case window(CGImage)
     }
@@ -239,10 +243,23 @@ enum DebugWindowSnapshot {
         context.interpolationQuality = .high
         for layer in layers {
             switch layer {
-            case .page(let image, let rect):
+            case .page(let image, let rect, let holes):
                 // Window coordinates and the bitmap both have a bottom-left origin.
-                let pixels = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
-                if pixels.width > 0, pixels.height > 0 { context.draw(image, in: pixels) }
+                func pixels(_ rect: NSRect) -> CGRect {
+                    CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                }
+                let area = pixels(rect)
+                guard area.width > 0, area.height > 0 else { continue }
+                context.saveGState()
+                if !holes.isEmpty {
+                    let clip = CGMutablePath()
+                    clip.addRect(area)
+                    for hole in holes { clip.addRect(pixels(hole)) }
+                    context.addPath(clip)
+                    context.clip(using: .evenOdd)
+                }
+                context.draw(image, in: area)
+                context.restoreGState()
             case .window(let image):
                 context.draw(image, in: whole)
             }

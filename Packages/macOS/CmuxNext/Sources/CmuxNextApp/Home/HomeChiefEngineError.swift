@@ -5,6 +5,8 @@ import Foundation
 /// panel says it.
 nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
     case unreachable
+    /// This Mac's Chief (owner daemon or brain host) is not running.
+    case localUnreachable
     case forbidden
     case notConfigured
     case unsupported
@@ -25,6 +27,7 @@ nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
     var text: String {
         switch self {
         case .unreachable: HomeEngineStrings.errorUnreachable
+        case .localUnreachable: HomeEngineStrings.errorLocalUnreachable
         case .forbidden: HomeEngineStrings.errorForbidden
         case .notConfigured: HomeEngineStrings.errorNotConfigured
         case .unsupported: HomeEngineStrings.errorUnsupported

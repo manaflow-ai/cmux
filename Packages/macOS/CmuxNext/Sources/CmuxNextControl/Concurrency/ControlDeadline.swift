@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// Races async work against a deadline without waiting for the loser.
 ///

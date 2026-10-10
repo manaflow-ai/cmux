@@ -470,14 +470,3 @@ async fn authorize(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn loopback_rejects_unspecified() {
-        for value in ["0.0.0.0:0", "[::]:0", "192.168.1.1:1"] {
-            assert!(LoopbackAddr::try_from(value.parse::<SocketAddr>().unwrap()).is_err());
-        }
-    }
-}

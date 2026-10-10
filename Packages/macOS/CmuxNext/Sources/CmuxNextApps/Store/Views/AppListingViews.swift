@@ -11,7 +11,7 @@ struct AppListingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space3) {
             HStack(alignment: .top) {
-                AppIconView(icon: listing.icon, bundleDirectory: listing.bundle?.directory, size: 44)
+                AppIconView(icon: listing.icon, bundleDirectory: listing.bundleDirectory, size: 44)
                 Spacer()
                 AppListingBadges(model: model, listing: listing)
             }
@@ -44,7 +44,7 @@ struct AppListingRow: View {
 
     var body: some View {
         HStack(spacing: Metrics.space3) {
-            AppIconView(icon: listing.icon, bundleDirectory: listing.bundle?.directory, size: 28)
+            AppIconView(icon: listing.icon, bundleDirectory: listing.bundleDirectory, size: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(listing.name.resolved()).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary).lineLimit(1)
                 Text(listing.description.resolved()).font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(1)
@@ -70,8 +70,9 @@ struct AppListingBadges: View {
 
     var body: some View {
         HStack(spacing: Metrics.space1) {
-            if let state = model.state(of: listing.id), state.isInstalled {
-                AppStoreBadge(text: state.isEnabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge, emphasized: state.isEnabled)
+            if let state = model.state(of: listing.id), state.installed {
+                AppStoreBadge(text: state.enabled ? AppsStrings.installedBadge : AppsStrings.disabledBadge, emphasized: state.enabled)
+                if state.hidden { AppStoreBadge(text: AppsStrings.hiddenBadge) }
             }
             AppStoreBadge(text: AppsStrings.tier(listing.tier))
         }

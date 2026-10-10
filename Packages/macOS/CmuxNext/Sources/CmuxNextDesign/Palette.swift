@@ -40,8 +40,7 @@ public struct Palette {
     /// paints nothing: the pane paints under it.
     public static var paneFill: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        let backdrop = WindowBackdrop(tokens, selection: ThemeContext.activeBackdropSelection)
-        return backdrop.panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+        return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
     /// A translucent scrim of the surface background for text over the
     /// window's backdrop (``ThemeTokens/legibilityScrim``).

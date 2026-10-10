@@ -860,7 +860,13 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   retry that keeps its slot 28.1 min, and 4 spare sessions started ahead
   26.0 min (175 of 1,207 starts hidden, about 1 GB more); run-to-run noise
   is about 2 min. The time goes to one Claude Code process per call; the
-  reference calls the Messages API directly. Nothing pretends to be Claude Code and no API key is involved:
+  reference calls the Messages API directly. Most of a start under load is
+  Claude Code's start-up network calls (feature flags, telemetry): a start
+  takes 0.54 s alone, but 3-4.6 s (p50) and up to 17 s with 16 at once;
+  with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, 0.75 s and 1.2 s
+  (stub server, cmux-lawrence-2, 2026-10-10). The compactor presets set it
+  (its request keeps no tools and permission mode default; only two unused
+  betas go); turn and subagent sessions keep their feature flags. Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
@@ -1317,22 +1323,14 @@ build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux
 
 ## Tests
 
-Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
+Only boundary tests are kept (the binary, real sockets, child processes,
+the shared corpus, live and replay checks, benches). Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
 cmux checkout), in each of optchat-core, optchat-host and optchat-chief:
 
 ```bash
 umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warnings; cargo fmt --check
 ```
 
-`tests/brain.rs` runs the brain against in-process fakes of both owners;
-`tests/compactor.rs` runs the acpmux compactor route against the fake acpmux
-port (one session per node, size loop in it, purge and transcript deletion,
-one JOBS gate across main and fallback, refusals as acpmux sends them, the
-probe's fallback and isolation checks, per-node token lines, route choice,
-the start-up notice, the cached layout's system prompt file and single
-marker, the retry without the marker, the old layout without preset args); `tests/audit3.rs` covers interrupts on the acpmux
-engine and home-scoped turn names, `tests/native.rs` interrupts on the
-native engine;
 `tests/harness.rs` covers the harness switch, the Claude turn layout (preset system prompt, one marker, no CLAUDE.md, the 4-breakpoint rerun, the old layout), the codex turn layout and AGENTS.md, both usage shapes (also when the answer follows `turn_end`), `chief zoom`/`date`, and the `cmux.chief` tags;
 `tests/acpmux_wire.rs` (preset args, `systemPrompt` and their feature detection, session tags included) and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
@@ -1342,9 +1340,5 @@ each transaction boundary of logging a message and folding a turn and
 checks that a fresh brain logs each message and step exactly once, and that
 an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
-In optchat-host, `tests/migrate.rs` migrates `tests/fixtures/old-home`
-(written by the line store at 07a17e8a78d) and checks the view, the counts,
-the kept files, the byte-identical export and a crash during the migration;
-`tests/sqlite.rs` covers search, the incremental export, a reader during
-writes and crashes inside an append and a node write; `tests/bench.rs` is
+In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.

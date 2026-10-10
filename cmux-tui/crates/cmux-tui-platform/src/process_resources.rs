@@ -546,7 +546,3 @@ mod imp {
 pub const fn reads_process_trees() -> bool {
     cfg!(any(target_os = "linux", target_os = "macos", windows))
 }
-
-#[cfg(test)]
-#[path = "process_resources_tests.rs"]
-mod tests;

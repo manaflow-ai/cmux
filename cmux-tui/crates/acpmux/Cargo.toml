@@ -20,6 +20,7 @@ path = "src/main.rs"
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
+cmux-link.workspace = true
 anyhow = "1"
 cmux-unix-socket.workspace = true
 clap = { version = "4.5", features = ["derive"] }

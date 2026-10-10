@@ -51,17 +51,13 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
         isReleasedWhenClosed = false
         hidesOnDeactivate = true
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         let content = ThemeHookView()
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        contentView = glass
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        adoptPopupStyle(card: glass)
         self.glass = glass
         // Adopting a scope and every theme change of it repaint the content.
         content.onThemeChange = { [weak self] in self?.applyColors() }
@@ -175,15 +171,15 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
-        contentView?.layoutSubtreeIfNeeded()
-        let size = contentView?.fittingSize ?? .zero
+        glass?.layoutSubtreeIfNeeded()
+        let size = glass?.fittingSize ?? .zero
         var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
         if let screen = parent.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
             origin.y = max(origin.y, visible.minY + Metrics.space2)
         }
-        setFrame(CGRect(origin: origin, size: size), display: true)
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
         alphaValue = 0
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)

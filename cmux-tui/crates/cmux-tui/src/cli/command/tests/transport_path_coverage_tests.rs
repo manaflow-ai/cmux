@@ -92,9 +92,14 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         .unwrap()
         .keys()
         .filter(|name| {
+            // `agent message` and `agent inbox` send several requests
+            // per command (agent_message.rs).
             !matches!(
                 name.as_str(),
-                "browser.viewer.release"
+                "agent.message.list"
+                        | "agent.message.mark"
+                        | "agent.message.send"
+                        | "browser.viewer.release"
                         | "browser.viewer.resize"
                         | "request.cancel"
                         | "stream.cancel"

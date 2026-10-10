@@ -1,5 +1,5 @@
 // Terminal-derived editor colors (shared by the editor apps; identical copies
-// in first-party-apps/{monaco,codemirror}/src/shared). Syntax colors come from
+// in first-party-apps/codemirror/src/shared). Syntax colors come from
 // the terminal's 16-color palette. Blue entries (4, 12) are never used, and
 // selection, cursor and focus use the host's colors, never a library default.
 

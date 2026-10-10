@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
@@ -92,6 +92,11 @@ import Synchronization
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
     private var socketPath: String?
+    /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
+    /// Archive). Replaced in tests.
+    public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
@@ -104,6 +109,10 @@ import Synchronization
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
+        }
+        tagSession = { [weak self] session, set, remove in
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
         harnessEnablePrompt = { [weak self] folder, id in
             guard let path = self?.socketPath else { return nil }

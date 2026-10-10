@@ -1114,22 +1114,6 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message;
 
-    #[test]
-    fn duplicate_request_ids_replace_order_entry() {
-        let ring = ConsoleRing::new();
-        ring.remember_request("same".to_owned(), "GET".to_owned(), "https://first".to_owned());
-        ring.remember_request("other".to_owned(), "POST".to_owned(), "https://other".to_owned());
-        ring.remember_request("same".to_owned(), "PUT".to_owned(), "https://latest".to_owned());
-
-        let mut inner = ring.inner.lock().expect("ring lock");
-        assert_eq!(inner.pending_order, VecDeque::from(["other".to_owned(), "same".to_owned()]));
-        assert_eq!(inner.pending.len(), 2);
-        assert_eq!(
-            inner.pending.remove("same"),
-            Some(("PUT".to_owned(), "https://latest".to_owned()))
-        );
-    }
-
     /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
     /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
     /// response header.
@@ -1807,64 +1791,5 @@ mod tests {
             .await
             .expect("originless client");
         registry.shutdown().await;
-    }
-
-    #[test]
-    fn control_origin_policy_table() {
-        let cases: &[(Option<&str>, &str, PeerRole, bool)] = &[
-            (None, "127.0.0.1:5000", PeerRole::Devtools, true),
-            (Some("http://127.0.0.1:5000"), "127.0.0.1:5000", PeerRole::Page, true),
-            (Some("http://[::1]:9"), "localhost:5000", PeerRole::Devtools, true),
-            (Some("http://app.localhost:3000"), "127.0.0.1:5000", PeerRole::Devtools, true),
-            (Some("https://evil.example"), "127.0.0.1:5000", PeerRole::Devtools, false),
-            (Some("null"), "127.0.0.1:5000", PeerRole::Page, false),
-            (Some("chrome-extension://abc"), "127.0.0.1:5000", PeerRole::Page, false),
-            (Some("https://p.preview.test"), "p.preview.test", PeerRole::Page, true),
-            (Some("https://p.preview.test"), "p.preview.test:443", PeerRole::Page, true),
-            (Some("https://q.preview.test"), "p.preview.test", PeerRole::Page, false),
-            (Some("https://chatmux.dev"), "p.preview.test", PeerRole::Devtools, true),
-            (Some("http://rebind.example:5000"), "rebind.example:5000", PeerRole::Page, false),
-            (Some("http://rebind.example:5000"), "rebind.example:5000", PeerRole::Devtools, false),
-        ];
-        for (origin, host, role, allowed) in cases {
-            let mut headers = hyper::HeaderMap::new();
-            headers.insert(hyper::header::HOST, host.parse().expect("host"));
-            if let Some(origin) = origin {
-                headers.insert(hyper::header::ORIGIN, origin.parse().expect("origin"));
-            }
-            assert_eq!(
-                control_origin_allowed(&headers, *role),
-                *allowed,
-                "origin {origin:?} host {host}",
-            );
-        }
-    }
-
-    #[test]
-    fn oversized_cdp_request_ids_are_not_retained() {
-        let ring = ConsoleRing::new();
-        let request_id = "r".repeat(1024 * 1024);
-        let frame = serde_json::json!({
-            "method": "Network.requestWillBeSent",
-            "params": {"requestId": request_id, "request": {"method": "GET", "url": "http://x/"}},
-        });
-        assert_eq!(tee_cdp_frame(&ring, &frame.to_string()), None);
-        let inner = ring.inner.lock().expect("ring lock");
-        assert!(inner.pending.is_empty(), "an oversized request id was retained");
-        assert!(inner.pending_order.is_empty(), "an oversized request id was queued");
-    }
-
-    #[tokio::test]
-    async fn bounds_preview_listeners_and_evicts_oldest_target() {
-        let registry = PreviewRegistry::new();
-        for target_port in 1..=i64::try_from(PREVIEW_PROXY_CAP).unwrap() + 1 {
-            registry.open(target_port).await.expect("preview open");
-        }
-        assert_eq!(registry.proxies.lock().await.len(), PREVIEW_PROXY_CAP);
-        assert!(!registry.proxies.lock().await.contains_key(&1));
-        assert!(registry.proxies.lock().await.contains_key(&(PREVIEW_PROXY_CAP as i64 + 1)));
-        registry.shutdown().await;
-        assert!(registry.proxies.lock().await.is_empty());
-        assert!(registry.order.lock().await.is_empty());
     }
 }

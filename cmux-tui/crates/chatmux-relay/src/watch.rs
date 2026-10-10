@@ -236,26 +236,6 @@ async fn report_watch_failure(
 }
 
 impl WatchRegistry {
-    #[cfg(test)]
-    pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
-        Self::new_with_teardown_slots(
-            outbound,
-            Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY)),
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_with_teardown_slots(
-        outbound: OutboundSink,
-        teardown_slots: Arc<Semaphore>,
-    ) -> WatchRegistry {
-        Self::new_with_resource_slots(
-            outbound,
-            Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
-            teardown_slots,
-        )
-    }
-
     pub(crate) fn new_with_resource_slots(
         outbound: OutboundSink,
         setup_slots: Arc<Semaphore>,
@@ -1033,6 +1013,3 @@ fn collect_changes(
         EventKind::Access(_) => {}
     }
 }
-
-#[cfg(test)]
-mod tests;

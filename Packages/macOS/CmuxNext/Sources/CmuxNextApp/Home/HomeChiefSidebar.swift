@@ -48,9 +48,9 @@ final class HomeChiefSidebar: NSView {
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
     static let efforts = ["low", "medium", "high", "xhigh"]
 
-    init(muxHome: URL) {
+    init(muxHome: URL, source: any HomeChiefEngineSource) {
         self.muxHome = muxHome
-        source = HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: muxHome))
+        self.source = source
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.6).cgColor

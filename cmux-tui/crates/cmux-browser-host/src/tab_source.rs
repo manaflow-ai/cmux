@@ -143,6 +143,11 @@ pub trait TabSource: Send + Sync {
     }
     /// The session opened `target_id` (`tabs.open`): it drives it.
     fn opened(&self, _session: u64, _target_id: &str) {}
+    /// Whether sessions other than `session` drive `target_id` and
+    /// `session` does not (false when the source does not track it).
+    fn driven_by_others(&self, _session: u64, _target_id: &str) -> bool {
+        false
+    }
     /// The session kept `target_id` (`tab.keep`): it is the person's now.
     fn kept(&self, _session: u64, _target_id: &str) {}
     /// Remembers that an agent session kept `target_id` (a deliverable),

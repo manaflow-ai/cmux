@@ -139,8 +139,9 @@
                   const button = page.locator('[data-testid="tweetButton"]');
                   await button.first().waitFor({ timeout: 30000 });
                   const box = page.locator('[data-testid="tweetTextarea_0"]').first();
-                  const shown = ((await box.count()) ? await box.innerText() : "").replace(/\s+/g, " ");
-                  if (!shown.includes(spec.text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text; nothing was posted");
+                  // The whole text the composer holds, right before Post.
+                  if (!(await box.count())) throw new S.SiteError("compose_mismatch", "x.post: the composer did not open; nothing was posted");
+                  await t.checkComposer("x.post", box, spec.text, { what: "posted" });
                   await button.first().click();
                   await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
                   return { status: "posted", replyTo };

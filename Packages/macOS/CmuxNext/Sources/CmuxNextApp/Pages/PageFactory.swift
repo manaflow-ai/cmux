@@ -52,7 +52,7 @@ struct PageFactory {
             guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
-            return try await AppOperationRouter.control(router, method, params)
+            return try await router.appControl(method, params)
         })
         let registry = services.registry
         let provider = CodeRouterPageProvider(ops: ops, connect: { id in

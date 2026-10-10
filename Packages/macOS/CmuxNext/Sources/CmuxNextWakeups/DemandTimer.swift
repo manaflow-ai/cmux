@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A one-shot deadline: debounce, timeout, delayed show/hide. The only timer
 /// CmuxNext may use outside animation frames (plans/cmux-next/idle-wakeups.md).

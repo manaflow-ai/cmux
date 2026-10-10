@@ -293,7 +293,7 @@ public final class HoverCardCoordinator {
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",
-            "card_frame": panel.map { NSStringFromRect($0.frame) } ?? "-",
+            "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",

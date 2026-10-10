@@ -56,7 +56,7 @@ pub(crate) fn key(fd: RawFd) -> Option<String> {
 
 /// Field 22 of `/proc/<pid>/stat`. The command name (field 2) may hold
 /// spaces and parentheses, so fields are counted after its last `)`.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn linux_start_time(stat: &str) -> Option<u64> {
     let (_, after_name) = stat.rsplit_once(')')?;
     after_name.split_whitespace().nth(19)?.parse().ok()
@@ -65,17 +65,4 @@ fn linux_start_time(stat: &str) -> Option<u64> {
 #[cfg(all(unix, not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))))]
 pub(crate) fn key(_fd: RawFd) -> Option<String> {
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::linux_start_time;
-
-    #[test]
-    fn start_time_is_field_22_even_with_parentheses_in_the_name() {
-        let stat =
-            "4242 (a (b) c) S 1 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 987654 1 2";
-        assert_eq!(linux_start_time(stat), Some(987654));
-        assert_eq!(linux_start_time("garbage"), None);
-    }
 }

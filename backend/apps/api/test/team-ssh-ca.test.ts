@@ -33,42 +33,31 @@ const CA1 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9o
 const CA2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBjRyY2ZB0yWdJmD2gOs4WQbXOAkd0hLrSyX0SvTBnQd cmux-team-ca-2"
 
 describe("team SSH CA (TeamDO reducer)", () => {
-  it("Linux names come from the display name, skip reserved and taken names, and fit sshd limits", () => {
-    expect(linuxNameBase("Lawrence Chen")).toBe("lawrence")
-    expect(linuxNameBase("Ángel Pérez")).toBe("angel")
-    expect(linuxNameBase("42")).toBe("u42")
-    expect(linuxNameBase("李")).toBe("u")
-    expect(linuxNameBase("x".repeat(40)).length).toBe(20)
-    expect(allocateLinuxName("Root", new Set())).toBe("root2")
-    expect(allocateLinuxName("Lawrence", new Set(["lawrence", "lawrence2"]))).toBe("lawrence3")
+
+  it("internal SSH ops refuse people: the public API does not run them", async () => {
+    const t = await setup("stack-ssh-0000000011")
+    for (const op of ["team_vm.ssh_ca_installed", "team_vm.ssh_certs_revoked", "team_vm.ssh_account_allocated"]) {
+      const r = await mutate(t.token, op, { user: t.owner })
+      expect(r.ok ?? false, op).toBe(false)
+      expect(r.error?.code ?? r.code, op).toBe("validation.invalid")
+    }
   })
 
-  it("internal SSH ops refuse people; the signing ops never enter the reducer or the wire", () => {
-    const owner: Principal = { identity: `user:${OWNER}`, user: OWNER, team: TEAM, kind: "session" }
-    for (const op of ["team_vm.ssh_ca_installed", "team_vm.ssh_certs_revoked", "team_vm.ssh_account_allocated"]) expect(teamDomain.authorize!(base(), op, {}, owner)).toBeTruthy()
-    for (const op of ["team_vm.ssh_cert", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate"]) expect(teamDomain.authorize!(base(), op, {}, owner)).toMatchObject({ code: "validation.invalid" })
-  })
-
-  it("a compromised rotation inside another rotation's grace window revokes both older CA keys", () => {
-    const s1 = ok(sys(base(), "team_vm.ssh_ca_installed", { generation: 1, public_key: CA1, compromised: false, by: OWNER }, 1_000)).state
-    const s2 = ok(sys(s1, "team_vm.ssh_ca_installed", { generation: 2, public_key: CA2, compromised: false, by: OWNER }, 2_000)).state
-    const s3 = ok(sys(s2, "team_vm.ssh_ca_installed", { generation: 3, public_key: CA1.replace("ca-1", "ca-3"), compromised: true, by: OWNER }, 3_000)).state
-    expect(s3.ssh_revoked_ca_keys).toEqual([CA1, CA2])
-  })
 })
 
 describe("team SSH key parsing (workerd)", () => {
-  it("accepts Ed25519 and P-256 lines and refuses RSA, certificates, extra bytes and bad points", async () => {
-    expect((await parseUserKey(await sshLine("ed25519")))?.type).toBe("ssh-ed25519")
-    expect((await parseUserKey(await sshLine("p256")))?.type).toBe("ecdsa-sha2-nistp256")
-    expect(await parseUserKey("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 x")).toBeNull()
-    expect(await parseUserKey("ssh-ed25519-cert-v01@openssh.com AAAA x")).toBeNull()
+  it("accepts Ed25519 and P-256 keys and refuses RSA, certificates, extra bytes and bad points", async () => {
+    const t = await setup("stack-ssh-0000000012")
+    const cert = (public_key: string) => mutate(t.token, "team_vm.ssh_cert", { public_key, class: "agent" })
+    expect((await cert(await sshLine("ed25519"))).ok).toBe(true)
+    expect((await cert(await sshLine("p256"))).ok).toBe(true)
     const ed = (await sshLine("ed25519")).split(" ")[1]!
-    expect(await parseUserKey(`ssh-ed25519 ${b64(Uint8Array.from([...unb64(ed), 0]))}`)).toBeNull()
-    expect(await parseUserKey(`ecdsa-sha2-nistp256 ${ed}`)).toBeNull()
     const p = unb64((await sshLine("p256")).split(" ")[1]!)
     p.fill(0, p.length - 64)
-    expect(await parseUserKey(`ecdsa-sha2-nistp256 ${b64(p)}`)).toBeNull()
+    for (const line of ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 x", "ssh-ed25519-cert-v01@openssh.com AAAA x", `ssh-ed25519 ${b64(Uint8Array.from([...unb64(ed), 0]))}`, `ecdsa-sha2-nistp256 ${ed}`, `ecdsa-sha2-nistp256 ${b64(p)}`]) {
+      const r = await cert(line)
+      expect([line.slice(0, 40), r.ok ?? false]).toEqual([line.slice(0, 40), false])
+    }
   })
 })
 

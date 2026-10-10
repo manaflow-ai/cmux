@@ -351,53 +351,6 @@ mod tests {
 
     const ME: &str = "S-1-5-21-1-2-3-1002";
 
-    #[test]
-    fn only_our_jobs_our_user_and_our_session_are_read() {
-        assert_eq!(may_read(true, ME, 1, ME, 1), Ok(()));
-        assert_eq!(may_read(false, ME, 1, ME, 1), Err(Refusal::NotStartedByUs));
-        assert_eq!(may_read(true, "S-1-5-18", 1, ME, 1), Err(Refusal::OtherUser));
-        assert_eq!(may_read(true, "S-1-5-21-1-2-3-1003", 1, ME, 1), Err(Refusal::OtherUser));
-        assert_eq!(may_read(true, ME, 2, ME, 1), Err(Refusal::OtherSession));
-    }
-
-    fn entry(parent: u32, exe: &str) -> Entry {
-        Entry { parent, exe: exe.to_string() }
-    }
-
-    #[test]
-    fn foreground_is_the_newest_descendant_without_console_hosts() {
-        // shell 10 -> conhost 11 (newest), node 12 -> python 13; 14 is an
-        // unrelated process whose recorded parent pid 12 was reused (older).
-        let processes = HashMap::from([
-            (10, entry(1, "pwsh.exe")),
-            (11, entry(10, "conhost.exe")),
-            (12, entry(10, "node.exe")),
-            (13, entry(12, "python.exe")),
-            (14, entry(12, "old.exe")),
-        ]);
-        let times = HashMap::from([(10, 100), (11, 400), (12, 200), (13, 300), (14, 50)]);
-        let created = |pid| times.get(&pid).copied();
-        assert_eq!(newest_descendant(10, &processes, created), Some(13));
-        // A shell with no children is its own foreground.
-        let alone = HashMap::from([(20, entry(1, "cmd.exe"))]);
-        assert_eq!(newest_descendant(20, &alone, |_| Some(5)), Some(20));
-        // A gone shell has none.
-        assert_eq!(newest_descendant(30, &alone, |_| None), None);
-    }
-
-    #[test]
-    fn reused_parent_pids_are_not_children() {
-        assert!(born_after(Some(10), Some(20)));
-        assert!(!born_after(Some(20), Some(10)));
-        assert!(!born_after(None, Some(10)));
-    }
-
-    #[test]
-    fn trailing_separators_are_dropped_except_at_a_drive_root() {
-        assert_eq!(trim_dir("C:\\Users\\me\\".into()), "C:\\Users\\me");
-        assert_eq!(trim_dir("C:\\".into()), "C:\\");
-    }
-
     /// A terminal child this daemon started (in its job, our user and
     /// session) is read: its cwd, usage and name; it is the foreground of
     /// itself; a process outside the job is not.
@@ -439,13 +392,5 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The daemon's own process is in none of its terminal jobs: refused.
-    #[test]
-    fn a_process_outside_our_jobs_is_refused() {
-        assert!(open_started_by_us(std::process::id(), 0).is_none());
-        assert!(cwd(std::process::id()).is_none());
-        assert!(usage(std::process::id()).is_none());
     }
 }

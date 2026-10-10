@@ -102,6 +102,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             memory,
             log,
             ready_fd,
+            person_key_fd,
             allow_dev_origin,
             dev,
         }) => {
@@ -116,6 +117,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 ws_token: token,
                 memory,
                 ready_fd,
+                person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
             })

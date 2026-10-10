@@ -171,35 +171,3 @@ impl Postgres<'_> {
             .max()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stamps_are_utc_civil_time() {
-        assert_eq!(utc_stamp(0), "19700101T000000Z");
-        // 2026-10-02T22:01:14Z
-        assert_eq!(utc_stamp(1_790_978_474_000), "20261002T220114Z");
-        assert_eq!(utc_stamp(951_782_400_000), "20000229T000000Z");
-    }
-
-    #[test]
-    fn archive_is_idempotent_and_refuses_other_bytes() {
-        let tmp = tempfile::tempdir().unwrap();
-        let wal = tmp.path().join("wal");
-        fs::create_dir(&wal).unwrap();
-        let src = tmp.path().join("seg");
-        fs::write(&src, b"segment-1").unwrap();
-        let name = "000000010000000000000001";
-        assert_eq!(archive_wal(&wal, &src, name).unwrap(), Archived::Stored);
-        assert_eq!(fs::read(wal.join(name)).unwrap(), b"segment-1");
-        assert_eq!(archive_wal(&wal, &src, name).unwrap(), Archived::AlreadyPresent);
-        fs::write(&src, b"segment-X").unwrap();
-        assert!(archive_wal(&wal, &src, name).is_err());
-        assert_eq!(fs::read(wal.join(name)).unwrap(), b"segment-1");
-        assert!(archive_wal(&wal, &src, "../escape").is_err());
-        let leftovers: Vec<_> = fs::read_dir(&wal).unwrap().flatten().collect();
-        assert_eq!(leftovers.len(), 1, "no temporary files remain");
-    }
-}

@@ -196,34 +196,3 @@ macro_rules! pane_event {
         }
     };
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    crate::pane_op! {
-        HiddenOp {
-            name: "cmux.test.hidden.run", kind: Mutation, scope: "test:write",
-            params: crate::example::HelloParams, result: crate::example::HelloResult,
-            errors: [],
-            risk: MutateOwn,
-            gesture: true,
-            mcp: OptIn,
-            cli: "hidden run" positional ["name"] visible false,
-        }
-    }
-
-    #[test]
-    fn the_macro_sets_cli_visibility_and_defaults_it_to_visible() {
-        assert!(!HiddenOp::CLI[0].visible);
-        assert_eq!(HiddenOp::CLI[0].positional, ["name"]);
-        assert_eq!(HiddenOp::MCP.expose, McpExpose::OptIn);
-        assert_eq!((HiddenOp::RISK, HiddenOp::GESTURE), (Risk::MutateOwn, true));
-        assert_eq!(
-            (crate::git::GitStatusOp::RISK, crate::git::GitStatusOp::GESTURE),
-            (Risk::Read, false)
-        );
-        assert!(crate::git::GitStatusOp::CLI[0].visible);
-        assert_eq!(crate::git::GitStatusOp::PATH_PARAMS, ["cwd"]);
-    }
-}

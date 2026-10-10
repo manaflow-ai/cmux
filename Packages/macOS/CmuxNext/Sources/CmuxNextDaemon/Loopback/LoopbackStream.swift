@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Writes one line on the stream's daemon connection (id-less, no reply).
 protocol LoopbackLineSending: Sendable {

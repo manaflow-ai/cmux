@@ -1966,9 +1966,67 @@
         return tagOf(el) === "input" && (el.type || "").toLowerCase() === "file";
       case "multiple":
         return !!el.multiple;
+      case "composerText":
+        return composerText(el, arg);
       default:
         throw agentError("invalid", `Unknown read ${what}`);
     }
+  }
+
+  // All the text a composer will send: a field's value, else every text
+  // node in it, hidden ones too (they are sent), with a space at each block
+  // boundary and line break, read in this world (a page script cannot
+  // change what it returns). Elements matching `exclude` (the site's own
+  // signature or quoted text) are left out. Sites compare it whole with the
+  // confirmed draft before a public send.
+  const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
+    "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
+    "th", "tr", "ul"]);
+  // The text is read within the page-read budget and never cut: a cut text
+  // could not be compared whole, so past the budget the read fails in the
+  // page and nothing crosses to the host.
+  function composerText(el, exclude) {
+    const b = readBudget();
+    const tooLarge = () => {
+      if (b.truncated === "nodes") return agentError("invalid", "The composer holds too many nodes to compare");
+      if (b.truncated === "time") return agentError("invalid", "The composer took too long to read to compare");
+      return agentError("invalid", `The composer holds more than ${String(MAX_SIZE).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} characters, more than cmux compares with a draft`);
+    };
+    const add = (s) => {
+      if (!chargeSize(b, s.length)) throw tooLarge();
+      out += s;
+    };
+    const tag = tagOf(el);
+    if (tag === "textarea" || tag === "input") {
+      const value = el.value;
+      if (!chargeSize(b, value.length)) throw tooLarge();
+      return value;
+    }
+    let out = "";
+    // Iterative (a composer can nest deeper than the stack). An image's alt
+    // text is its text (Gmail draws an emoji as <img alt="😀">).
+    walkTree(el, (n) => {
+      if (n === el) return true;
+      if (!spend(b, 1)) throw tooLarge();
+      if (n.nodeType === 3) {
+        add(n.nodeValue);
+        return false;
+      }
+      if (n.nodeType !== 1) return false;
+      if (exclude && n.matches(exclude)) {
+        add(" ");
+        return false;
+      }
+      if (tagOf(n) === "img") {
+        add(n.getAttribute("alt") || "");
+        return false;
+      }
+      if (BLOCK_TAGS.has(tagOf(n))) add(" ");
+      return true;
+    }, (n) => {
+      if (n !== el && n.nodeType === 1 && BLOCK_TAGS.has(tagOf(n)) && !(exclude && n.matches(exclude))) add(" ");
+    });
+    return out;
   }
 
   // A locator's string read within one page-read budget: { value, cut }

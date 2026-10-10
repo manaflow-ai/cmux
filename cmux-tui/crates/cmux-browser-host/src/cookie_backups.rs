@@ -75,6 +75,11 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// A new `host:<32 hex>` restore id (128 bits from the OS random source).
+pub fn new_restore_id() -> Result<String, String> {
+    Ok(format!("{RESTORE_PREFIX}{}", hex(&random::<16>()?)))
+}
+
 /// A restore id's file stem, if it is one of ours.
 fn stem(restore_id: &str) -> Option<&str> {
     let id = restore_id.strip_prefix(RESTORE_PREFIX)?;

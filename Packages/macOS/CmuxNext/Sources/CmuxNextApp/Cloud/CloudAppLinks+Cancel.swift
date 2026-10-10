@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 extension CloudAppLinks {
     /// Runs `operation` and stops waiting for it when the caller is

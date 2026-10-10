@@ -1,7 +1,7 @@
 import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Serial, non-main lane for every call that must be serialized with

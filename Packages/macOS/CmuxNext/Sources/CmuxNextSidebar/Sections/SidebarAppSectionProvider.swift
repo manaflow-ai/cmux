@@ -14,4 +14,11 @@ public protocol SidebarAppSectionProvider: AnyObject {
     func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat
     /// Called by the provider when a section's content height may have changed.
     var onContentChange: (() -> Void)? { get set }
+    /// The section left the layout (removed, or its app hidden): drop its
+    /// view and end what feeds it. A collapsed or moved section is not released.
+    func release(_ contribution: String)
+}
+
+public extension SidebarAppSectionProvider {
+    func release(_ contribution: String) {}
 }

@@ -39,7 +39,7 @@ const NOT_FOUND: i64 = -32002;
 
 /// The session tag a prepare puts on the target it creates, so a repeat
 /// prepare whose record was never saved adopts that target.
-const TARGET_TAG: &str = "handoffKey";
+pub(crate) const TARGET_TAG: &str = "handoffKey";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -309,7 +309,7 @@ fn has_windows_parent_component(path: &[u16]) -> bool {
     path.split(|unit| *unit == b'\\' as u16).any(|segment| segment == [b'.' as u16, b'.' as u16])
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
     let components = if path.len() >= 3
         && path[0] <= 0x7f
@@ -332,7 +332,7 @@ fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
         .all(windows_component_is_verbatim_safe)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_component_is_verbatim_safe(component: &[u16]) -> bool {
     if component.is_empty()
         || component.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16)
@@ -362,7 +362,7 @@ fn windows_component_is_verbatim_safe(component: &[u16]) -> bool {
     !windows_component_is_reserved_device_name(stem)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
     fn ascii_eq_ignore_case(actual: &[u16], expected: &[u8]) -> bool {
         actual.len() == expected.len()
@@ -1262,7 +1262,7 @@ fn terminal_pwd_path_is_safe(path: &Path) -> bool {
 
 /// Windows namespaces can make an "absolute" path name a network share or
 /// device. OSC 7 inheritance only needs ordinary drive-rooted directories.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_path_is_rooted_local_drive(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())

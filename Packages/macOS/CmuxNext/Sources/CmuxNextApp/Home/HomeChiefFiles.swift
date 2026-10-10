@@ -13,8 +13,9 @@ nonisolated struct HomeChiefSnapshot: Sendable {
 }
 
 /// This Chief's files under its mux home: `optchat/engine.json` (the engine
-/// optchat-chief reads at each turn start), `optchat/profile.json` (the
-/// avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
+/// optchat-chief reads at each turn start; read only here, the brain is its
+/// one writer and a change goes through `chief.engine.set`),
+/// `optchat/profile.json` (the avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
 /// off the main actor.
 nonisolated struct HomeChiefFiles: Sendable {
     let muxHome: URL
@@ -52,13 +53,6 @@ nonisolated struct HomeChiefFiles: Sendable {
 
     /// The avatar alone (the header reads it when Home opens).
     func avatar() -> String? { snapshot().avatar }
-
-    /// Sets (or with nil clears) one engine field; the compactor fields stay.
-    func setEngine(_ key: String, _ value: String?) {
-        var choice = object(engineFile)
-        if let value { choice[key] = value } else { choice.removeValue(forKey: key) }
-        write(choice, to: engineFile)
-    }
 
     func writeAvatar(_ text: String) {
         var profile = object(profileFile)

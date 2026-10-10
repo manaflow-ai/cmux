@@ -40,6 +40,12 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
         case sessionShutdown = "session_shutdown"
         /// A host this daemon could not adopt ended (by itself or on close).
         case unadoptableHostEnded = "unadoptable_host_ended"
+        /// The daemon restarted the terminal after host losses until its
+        /// restart budget ran out (cx-6so.49); it stays ended.
+        case restartExhausted = "restart_exhausted"
+        /// The daemon tried to restart the terminal after a host loss and the
+        /// launch failed (cx-6so.49); it stays ended.
+        case restartFailed = "restart_failed"
         case other
 
         public init(from decoder: any Decoder) throws {

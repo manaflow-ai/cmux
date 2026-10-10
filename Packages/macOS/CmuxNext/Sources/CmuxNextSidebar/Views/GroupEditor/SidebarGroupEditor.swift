@@ -112,22 +112,21 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var name = ""
     private var fieldWidth: NSLayoutConstraint?
     private var dismissing = false
+    /// The bubble's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
     /// Shown (on screen, or laid out in a test) and not yet dismissed.
     private(set) var isPresented = false
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
         isReleasedWhenClosed = false
         hidesOnDeactivate = true
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         let content = ThemeChangeView()
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        contentView = glass
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        adoptPopupStyle(card: glass)
+        self.glass = glass
         content.onThemeChange = { [weak self, weak glass] in
             glass?.applyTheme()
             self?.applyColors()
@@ -230,7 +229,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     private func applyColors() {
-        guard let content = (contentView as? OverlaySurfaceView) else { return }
+        guard let content = glass else { return }
         content.performWithTheme {
             nameField.textColor = Palette.textPrimary
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
@@ -265,8 +264,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
-        contentView?.layoutSubtreeIfNeeded()
-        let size = contentView?.fittingSize ?? .zero
+        glass?.layoutSubtreeIfNeeded()
+        let size = glass?.fittingSize ?? .zero
         var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space1 - size.height)
         if let screen = parent.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
@@ -274,7 +273,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             // No room below: open above the chip.
             if origin.y < visible.minY + Metrics.space2 { origin.y = anchor.maxY + Metrics.space1 }
         }
-        setFrame(CGRect(origin: origin, size: size), display: ordersFront)
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
         guard ordersFront else { return }
         alphaValue = 0
         makeKeyAndOrderFront(nil)

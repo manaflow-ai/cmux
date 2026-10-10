@@ -13,6 +13,8 @@
         "keywords": ["preferences", "options", "config"],
         "rankBias": 0,
         "sectionIndex": 0,
+        "suggestedRank": 5,
+        "suggestedSectionIndex": 18,
         "title": "Settings…",
         "typingSectionIndex": 16
       },
@@ -448,6 +450,8 @@
         "keywords": ["create", "add"],
         "rankBias": 0,
         "sectionIndex": 1,
+        "suggestedRank": 4,
+        "suggestedSectionIndex": 18,
         "title": "New Workspace",
         "typingSectionIndex": 16
       },
@@ -3131,6 +3135,8 @@
         "keywords": ["pane", "vertical"],
         "rankBias": 0,
         "sectionIndex": 2,
+        "suggestedRank": 1,
+        "suggestedSectionIndex": 18,
         "title": "Split Right",
         "typingSectionIndex": 16
       },
@@ -3659,6 +3665,8 @@
         "keywords": ["tab", "terminal", "browser", "create"],
         "rankBias": 0,
         "sectionIndex": 4,
+        "suggestedRank": 0,
+        "suggestedSectionIndex": 18,
         "title": "New Tab",
         "typingSectionIndex": 16
       },
@@ -3749,6 +3757,8 @@
         "keywords": ["tab", "web", "create"],
         "rankBias": 0,
         "sectionIndex": 4,
+        "suggestedRank": 2,
+        "suggestedSectionIndex": 18,
         "title": "New Browser Tab",
         "typingSectionIndex": 16
       },
@@ -8222,6 +8232,8 @@
         "keywords": ["agent", "chat", "ai", "acpmux"],
         "rankBias": 0,
         "sectionIndex": 9,
+        "suggestedRank": 3,
+        "suggestedSectionIndex": 18,
         "title": "New Agent Chat",
         "typingSectionIndex": 16
       },
@@ -18736,7 +18748,7 @@
     }
   ],
   "scope": "root",
-  "sectionOrders": [100, 101, 102, 105, 104, 103, 106, 107, 108, 109, 110, 111, 112, 10, 20, 40, 0, -200],
+  "sectionOrders": [100, 101, 102, 105, 104, 103, 106, 107, 108, 109, 110, 111, 112, 10, 20, 40, 0, -200, -90],
   "sections": [
     {
       "id": "category.window",
@@ -18827,6 +18839,11 @@
       "id": "scopes",
       "order": -200,
       "title": "Search In"
+    },
+    {
+      "id": "suggested",
+      "order": -90,
+      "title": "Suggested"
     }
   ],
   "showsRecent": true
