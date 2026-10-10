@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "vim" pill in the terminal's top-right corner while copy mode is on
 /// (the old app's copy-mode indicator). Clicks go to the terminal below.
@@ -20,7 +21,7 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
         layer?.borderWidth = Metrics.lineWidth(1)
         layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
 
-        let icon = NSImageView(image: NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil) ?? NSImage())
+        let icon = NSImageView(image: NSImage.icon(.terminalCopymode, size: 14))
         icon.contentTintColor = .secondaryLabelColor
         let label = NSTextField(labelWithString: Self.text)
         label.font = .systemFont(ofSize: 12, weight: .semibold)

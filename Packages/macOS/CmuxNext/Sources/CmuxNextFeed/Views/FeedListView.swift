@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// Variant `list`: one chronological list. Open requests are pinned on top
@@ -49,7 +50,7 @@ struct FeedHeader: View {
             }
             Spacer()
             Button { model.markAllRead() } label: {
-                Image(systemName: "checkmark.circle").font(.system(size: 12))
+                Icon(.actionConfirm, size: 13)
             }
             .buttonStyle(.plain)
             .foregroundStyle(colors.secondary)

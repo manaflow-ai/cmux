@@ -204,7 +204,7 @@ enum AgentHandlers {
         if let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-        _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+        _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
             let pane = try? await ControlDeadline.shared.run(
                 method: "agent-pane.mount",
