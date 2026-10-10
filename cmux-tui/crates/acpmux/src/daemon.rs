@@ -159,7 +159,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 )));
             }
             Err(e) => {
-                tracing::warn!("websocket.listen {listen} is taken ({e:#}); listening on a free loopback port");
+                tracing::warn!(
+                    "websocket.listen {listen} is taken ({e:#}); listening on a free loopback port"
+                );
                 match crate::server::bind_ws("127.0.0.1:0").await {
                     Ok(l) => {
                         moved_listener = true;
