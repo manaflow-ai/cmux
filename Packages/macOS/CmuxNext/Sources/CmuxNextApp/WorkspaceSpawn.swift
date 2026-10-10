@@ -88,11 +88,12 @@ struct WorkspaceSpawn: Sendable {
 }
 
 extension WorkspaceSpawn {
-    /// The Terminal template (`tabs.newTabTemplate`) skips the page: a new workspace starts on a terminal.
+    /// A person's new workspace always starts on the New Tab page (Lawrence 2026-10-10, cx-n0i9:
+    /// "cmd n and cmd t need to always be the new tab page"). The Terminal template dot no longer
+    /// skips the page: a saved `tabs.newTabTemplate: "terminal"` (the page's dots wrote it) stays
+    /// in cmux.json untouched and the page draws its default screen.
     func honoring(_ template: NewTabTemplate?) -> WorkspaceSpawn {
-        var spawn = self
-        if template == .terminal { spawn.opensNewTabPage = false }
-        return spawn
+        self
     }
 }
 

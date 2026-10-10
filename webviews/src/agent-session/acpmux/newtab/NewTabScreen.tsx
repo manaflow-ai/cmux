@@ -4,6 +4,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
+import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
@@ -32,6 +33,10 @@ export type NewTabScreenActions = {
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
+  /// Open in terminal from an All chats row's right-click menu.
+  onOpenChatInTerminal?(key: string): void;
+  /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
+  loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
@@ -130,6 +135,10 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const device = useDeviceChats();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
+  // the cards keep only the chats that are running or need the user.
+  const allChats = sections.chats !== "none" && !!props.loadChatsPage && !!props.onOpenChat;
+  const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
@@ -273,53 +282,67 @@ export function NewTabScreen(props: Props) {
   const chatFolder = project ?? props.cwd;
 
   return (
-    <div ref={screen} className="nt-screen" data-shell={shell || undefined} data-template={template}>
-      <div className="nt-pickers" onPointerDownCapture={touch}>
-        <ProjectChooser
-          projects={props.projects ?? []}
-          current={project}
-          {...(project ? { currentLabel: projectLabel(project) } : {})}
-          icon={<FolderIcon />}
-          onPick={pickProject}
-          {...(browseProject ? { onBrowse: browseProject } : {})}
-          side="bottom"
-        />
-        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-            switch is the one Enter reuses. */}
-        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-      </div>
+    <div
+      ref={screen}
+      className="nt-screen"
+      data-shell={shell || undefined}
+      data-template={template}
+      data-all-chats={allChats || undefined}
+    >
+      {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
+          row, the Return glyph at the end. */}
       <div className="nt-box">
-        {shell ? (
-          <span className="nt-shell-glyph" aria-hidden="true">
-            !
-          </span>
-        ) : (
-          sections.prompt && (
-            <span className="nt-prompt-glyph" aria-hidden="true">
-              &gt;
+        <div className="nt-input">
+          {shell ? (
+            <span className="nt-shell-glyph" aria-hidden="true">
+              !
             </span>
-          )
-        )}
-        <input
-          ref={field}
-          className="nt-field"
-          aria-label={shell ? t("composer.shell") : nt("placeholder")}
-          placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
-          value={text}
-          aria-controls="nt-rows"
-          aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
-          spellCheck={!shell}
-          autoCapitalize="off"
-          autoCorrect="off"
-          onChange={(event) => edit(event.target.value)}
-          onKeyDown={keyDown}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onCompositionEnd={() => {
-            composing.current = false;
-          }}
-        />
+          ) : (
+            sections.prompt && (
+              <span className="nt-prompt-glyph" aria-hidden="true">
+                &gt;
+              </span>
+            )
+          )}
+          <input
+            ref={field}
+            className="nt-field"
+            data-focus-ring="none"
+            aria-label={shell ? t("composer.shell") : nt("placeholder")}
+            placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+            value={text}
+            aria-controls="nt-rows"
+            aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
+            spellCheck={!shell}
+            autoCapitalize="off"
+            autoCorrect="off"
+            onChange={(event) => edit(event.target.value)}
+            onKeyDown={keyDown}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+          />
+        </div>
+        <div className="nt-pickers" onPointerDownCapture={touch}>
+          <ProjectChooser
+            projects={props.projects ?? []}
+            current={project}
+            {...(project ? { currentLabel: projectLabel(project) } : {})}
+            icon={<FolderIcon />}
+            onPick={pickProject}
+            {...(browseProject ? { onBrowse: browseProject } : {})}
+            side="bottom"
+          />
+          {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+              switch is the one Enter reuses. */}
+          {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+          <kbd className="nt-enter" aria-hidden="true">
+            ↵
+          </kbd>
+        </div>
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -354,15 +377,28 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      {sections.chats !== "none" && (
-        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
+      {sections.chats !== "none" && (!allChats || activeCards.length > 0) && (
+        <ChatCards
+          cards={allChats ? activeCards : cards}
+          variant={sections.chats}
+          onOpen={openCard}
+          {...(allChats ? { title: t("sidebar.active") } : { onShowAll: props.onShowAll })}
+        />
       )}
+      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
       {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
           {t("newtab.addHarness")}
         </button>
       )}
-      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
+      {allChats && props.loadChatsPage && props.onOpenChat && (
+        <AllChatsList
+          load={props.loadChatsPage}
+          onOpen={props.onOpenChat}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
+          {...(now !== undefined ? { now } : {})}
+        />
+      )}
     </div>
   );
 }

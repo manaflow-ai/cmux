@@ -48,7 +48,7 @@ nonisolated enum TasksWire {
         init(from decoder: any Decoder) throws {}
     }
 
-    enum Line {
+    enum Line: Sendable {
         case snapshot(TasksSnapshot)
         case event(TasksEvent)
         case reply(id: UInt64, reject: String?)

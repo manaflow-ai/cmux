@@ -2,7 +2,7 @@ import CmuxHomeCore
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The `cmux.home.*` wire of the channels Home page (webviews/src/pages/home-channels/types.ts):
 /// the Home data the native Home reads (``HomeSource``), projected into page JSON. Every read and
@@ -149,11 +149,15 @@ nonisolated enum HomeChannelsWire {
     }
 
     static func reaction(_ reaction: Reaction) -> JSONValue {
-        let value: String = switch reaction.kind {
-        case .emoji(let emoji): emoji
-        case .tapback(let tapback): tapbackEmoji[tapback] ?? tapback.rawValue
+        var members: [String: JSONValue] = ["author": .string(reaction.author.rawValue), "partIndex": JSONValue(reaction.partIndex)]
+        switch reaction.kind {
+        case .emoji(let emoji):
+            members["value"] = .string(emoji)
+        case .tapback(let tapback):
+            members["value"] = .string(tapbackEmoji[tapback] ?? tapback.rawValue)
+            members["tapback"] = .string(tapback.rawValue)
         }
-        return .object(["author": .string(reaction.author.rawValue), "partIndex": JSONValue(reaction.partIndex), "value": .string(value)])
+        return .object(members)
     }
 
     static let tapbackEmoji: [Reaction.Tapback: String] = [
