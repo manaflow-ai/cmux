@@ -209,6 +209,29 @@
    ]
   },
   {
+   "name": "checkbox.off",
+   "meaning": "Unchecked box in a multiple-choice list",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.75' y='4.75' width='14.5' height='14.5' rx='2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='4.75' y='4.75' width='14.5' height='14.5' rx='2'/></svg>",
+   "alts": [],
+   "note": "Square frame, so coverage-trimmed: 14.5 side, rx 2 (small tile). Open shape: Solid is the same frame at stroke 2. Pairs with checkbox.on.",
+   "replaces": [
+    "square"
+   ]
+  },
+  {
+   "name": "checkbox.on",
+   "meaning": "Checked box in a multiple-choice list",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.75' y='4.75' width='14.5' height='14.5' rx='2'/><path d='M8.5 12.25l2.5 2.5L15.5 9.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-checkbox-on' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.5 12.25l2.5 2.5L15.5 9.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-checkbox-on)'><rect x='4.75' y='4.75' width='14.5' height='14.5' rx='2'/></g></svg>",
+   "alts": [],
+   "note": "checkbox.off with the state.selected check inside; Solid fills the box and cuts the check out, like status.complete.",
+   "replaces": [
+    "checkmark.square.fill",
+    "checkmark.square"
+   ]
+  },
+  {
    "name": "status.attention",
    "meaning": "Waiting/attention dot (pulse)",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><circle cx='12' cy='12' r='2.82' fill='currentColor' stroke='none'/></svg>",
