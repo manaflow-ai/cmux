@@ -183,7 +183,9 @@ final class HostEditorModel {
         switch method {
         case .key:
             try await device.settings.set(SSHHostSettings(auth: keyID.map(SSHHostAuth.key) ?? .unset), for: hostID)
-            try await device.vault.removePassword(for: hostID)
+            if hasSavedPassword {
+                try await device.vault.removePassword(for: hostID)
+            }
         case .password:
             if !password.isEmpty {
                 try await device.vault.setPassword(password, for: hostID)
