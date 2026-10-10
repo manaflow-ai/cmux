@@ -793,6 +793,26 @@ class GuestUrlSubscribeResult:
 
 
 @dataclass(frozen=True)
+class HistorySearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchHit'
+    at_ms: int
+    highlights: List[HistorySearchRange]
+    key: str
+    kind: str
+    position: Union[int, None]
+    snippet: str
+    target: str
+    title: str
+
+
+@dataclass(frozen=True)
+class HistorySearchRange:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchRange'
+    end: int
+    start: int
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -2817,6 +2837,21 @@ class GetFrontendProjectionRequest:
 class GetSizeStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-size-state/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class HistorySearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/request'
+    query: str
+    kinds: Union[List[str], MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HistorySearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
+    hits: List[HistorySearchHit]
+    took_us: int
 
 
 @dataclass(frozen=True)
@@ -5049,6 +5084,8 @@ __all__ = [
     'GuestUrlClaimResult',
     'GuestUrlOpenResult',
     'GuestUrlSubscribeResult',
+    'HistorySearchHit',
+    'HistorySearchRange',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -5270,6 +5307,8 @@ __all__ = [
     'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
+    'HistorySearchRequest',
+    'HistorySearchResult',
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',
