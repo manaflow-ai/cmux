@@ -217,6 +217,13 @@ pub(crate) struct StateGuard<'a> {
 
 impl StateGuard<'_> {
     fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
+        // A request thread may hold state while it waits for a writer
+        // receipt: the writer must never take state (counted in release).
+        let on_writer = crate::workspace_registry::registry_connection::in_journal_writer_commit();
+        if on_writer {
+            crate::diagnostics::writer_took_registry_lock();
+        }
+        debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
         StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
     }
@@ -274,7 +281,18 @@ impl StateMutex {
 /// Fields drop in order: state first, then the connection.
 pub(crate) struct PinnedState<'a> {
     state: StateGuard<'a>,
-    _connection: RegistryConnectionPin,
+    /// `None` after [`PinnedState::unpin`].
+    _connection: Option<RegistryConnectionPin>,
+}
+
+impl PinnedState<'_> {
+    /// Release the connection pin and keep state: the flow is about to wait
+    /// for a journal writer receipt, and the writer needs the connection
+    /// (the writer takes neither the registry nor state). After this the
+    /// flow must not touch the connection while it holds state.
+    pub(crate) fn unpin(&mut self) {
+        self._connection = None;
+    }
 }
 
 impl Deref for PinnedState<'_> {
@@ -295,17 +313,22 @@ impl Mux {
     /// Lock state for a flow that holds `registry` and touches its database
     /// while state is held. The connection lock is taken first (see the
     /// module docs); registry methods called meanwhile re-enter it.
+    ///
+    /// It first settles the receipts of earlier indeterminate registry
+    /// commits that arrived since (cx-g1fa.3): their state updates and
+    /// revisions land before this flow reads state.
     pub(crate) fn lock_state_pinned(
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        let connection = registry.connection.pin();
-        match self.state.lock() {
-            Ok(state) => Ok(PinnedState { state, _connection: connection }),
-            Err(poison) => Err(PoisonError::new(PinnedState {
-                state: poison.into_inner(),
-                _connection: connection,
-            })),
-        }
+        let connection = Some(registry.connection.pin());
+        let (mut pinned, poisoned) = match self.state.lock() {
+            Ok(state) => (PinnedState { state, _connection: connection }, false),
+            Err(poison) => {
+                (PinnedState { state: poison.into_inner(), _connection: connection }, true)
+            }
+        };
+        self.settle_registry_receipts(registry, &mut pinned.state);
+        if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }

@@ -4,10 +4,11 @@
 //! A request thread prepares an [`EffectCommitIntent`] while it holds the
 //! workspace registry: validation, the stored fingerprint and public-fold
 //! pruning stay request-side. The journal writer applies the intent inside
-//! its batch transaction under a SAVEPOINT, so many receipts share one
-//! fsync, and answers with an [`EffectCommitReceipt`]. The request thread
-//! then finishes the commit (`finish_effect_commit`: projection stats and the
-//! public fold) under the same registry hold.
+//! its batch transaction (`RegistryIntent::Effect`, see `registry_intent`),
+//! so many receipts share one fsync, and answers with an
+//! [`EffectCommitReceipt`]. The request thread then finishes the commit
+//! (`finish_effect_commit`: projection stats and the public fold) under the
+//! same registry hold.
 //!
 //! Lock order is unchanged: workspace registry -> registry connection ->
 //! state. While it waits for the receipt the request thread holds the
@@ -23,9 +24,6 @@ use std::sync::Arc;
 use super::*;
 use crate::user_settings::NewWorkspacePlacement;
 
-/// The SAVEPOINT that scopes one intent inside a writer batch.
-const EFFECT_INTENT_SAVEPOINT: &str = "cmux_effect_intent";
-
 /// One effect receipt commit, ready for any thread that holds the
 /// connection: the journal writer batch, or a request-side transaction.
 #[derive(Debug)]
@@ -37,6 +35,18 @@ pub(crate) struct EffectCommitIntent {
     generation: String,
     outcome_json: String,
     kind: EffectCommitKind,
+    /// Rows written in the same transaction after the receipt (a
+    /// notification's local feed rows, B2).
+    extra: Option<ExtraRows>,
+}
+
+/// [`OwnedTransactionWrite`] with a `Debug` for the intent.
+struct ExtraRows(OwnedTransactionWrite);
+
+impl std::fmt::Debug for ExtraRows {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ExtraRows")
+    }
 }
 
 #[derive(Debug)]
@@ -97,8 +107,26 @@ impl EffectCommitIntent {
         }
     }
 
-    /// Apply inside `transaction` (no savepoint): the request-side path.
-    fn apply(&self, transaction: &Transaction<'_>) -> anyhow::Result<EffectCommitReceipt> {
+    /// Write `extra` in the same transaction as this receipt.
+    pub(crate) fn with_extra_rows(mut self, extra: OwnedTransactionWrite) -> Self {
+        self.extra = Some(ExtraRows(extra));
+        self
+    }
+
+    /// Apply inside `transaction` (the writer's savepoint, or a request-side
+    /// transaction), then the extra rows.
+    pub(crate) fn apply(
+        &self,
+        transaction: &Transaction<'_>,
+    ) -> anyhow::Result<EffectCommitReceipt> {
+        let receipt = self.apply_receipt(transaction)?;
+        if let Some(ExtraRows(extra)) = &self.extra {
+            extra(transaction)?;
+        }
+        Ok(receipt)
+    }
+
+    fn apply_receipt(&self, transaction: &Transaction<'_>) -> anyhow::Result<EffectCommitReceipt> {
         match &self.kind {
             EffectCommitKind::Outcome { outcome, outcome_value, deltas } => {
                 let revision = commit_effect_outcome_in_transaction(
@@ -137,62 +165,6 @@ impl EffectCommitIntent {
             }
         }
     }
-
-    /// Apply inside a journal writer batch under its own SAVEPOINT.
-    ///
-    /// `Ok(Err(_))`: this intent failed (for example its receipt is no longer
-    /// executing, or a row it reads is missing); its writes were rolled back
-    /// and only its request gets the error. `Err(_)`: a failure of the
-    /// connection itself (busy, locked, I/O, full, corrupt, the batch deadline
-    /// interrupt; see [`fails_the_batch`]); the whole batch fails and the
-    /// writer retries or splits it as for any other batch error.
-    pub(crate) fn apply_in_savepoint(
-        &self,
-        transaction: &Transaction<'_>,
-    ) -> anyhow::Result<Result<EffectCommitReceipt, String>> {
-        transaction.execute_batch(&format!("SAVEPOINT {EFFECT_INTENT_SAVEPOINT}"))?;
-        match self.apply(transaction) {
-            Ok(receipt) => {
-                transaction.execute_batch(&format!("RELEASE {EFFECT_INTENT_SAVEPOINT}"))?;
-                Ok(Ok(receipt))
-            }
-            Err(error) if fails_the_batch(&error) => Err(error),
-            Err(error) => {
-                transaction.execute_batch(&format!(
-                    "ROLLBACK TO {EFFECT_INTENT_SAVEPOINT}; RELEASE {EFFECT_INTENT_SAVEPOINT}"
-                ))?;
-                Ok(Err(format!("{error:#}")))
-            }
-        }
-    }
-}
-
-/// True when `error` is a failure of the connection or the batch (busy,
-/// locked, I/O, full, corrupt, interrupted by the batch deadline) rather
-/// than of this one intent. Data errors (a missing row, a constraint, a
-/// conversion) fail only the intent, as they failed only its request when
-/// it committed alone.
-fn fails_the_batch(error: &anyhow::Error) -> bool {
-    use rusqlite::ErrorCode;
-    error.chain().any(|cause| {
-        matches!(
-            cause.downcast_ref::<rusqlite::Error>(),
-            Some(rusqlite::Error::SqliteFailure(failure, _)) if matches!(
-                failure.code,
-                ErrorCode::DatabaseBusy
-                    | ErrorCode::DatabaseLocked
-                    | ErrorCode::OperationInterrupted
-                    | ErrorCode::SystemIoFailure
-                    | ErrorCode::DiskFull
-                    | ErrorCode::DatabaseCorrupt
-                    | ErrorCode::NotADatabase
-                    | ErrorCode::OutOfMemory
-                    | ErrorCode::CannotOpen
-                    | ErrorCode::FileLockingProtocolFailed
-                    | ErrorCode::ReadOnly
-            )
-        )
-    })
 }
 
 impl WorkspaceRegistry {
@@ -224,6 +196,7 @@ impl WorkspaceRegistry {
             fingerprint,
             generation: self.generation.clone(),
             outcome_json,
+            extra: None,
             kind: EffectCommitKind::Outcome {
                 outcome: outcome.clone(),
                 outcome_value,
@@ -265,6 +238,7 @@ impl WorkspaceRegistry {
             fingerprint,
             generation: self.generation.clone(),
             outcome_json,
+            extra: None,
             kind: EffectCommitKind::Patch {
                 patch: patch.clone(),
                 result: result.clone(),
@@ -281,26 +255,9 @@ impl WorkspaceRegistry {
     /// runs when the writer is disabled, stopped, or not running.
     pub(crate) fn commit_effect_intent_locally(
         &self,
-        intent: &EffectCommitIntent,
+        intent: EffectCommitIntent,
     ) -> anyhow::Result<EffectCommitReceipt> {
-        self.commit_effect_intent_locally_with(intent, None)
-    }
-
-    /// [`Self::commit_effect_intent_locally`] with `extra` in the same
-    /// transaction.
-    pub(crate) fn commit_effect_intent_locally_with(
-        &self,
-        intent: &EffectCommitIntent,
-        extra: Option<RegistryTransactionWrite<'_>>,
-    ) -> anyhow::Result<EffectCommitReceipt> {
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        let receipt = intent.apply(&tx)?;
-        extra.map_or(Ok(()), |extra| extra(&tx))?;
-        tx.commit()?;
-        drop(db);
-        self.connection.write_path_stats().request_effect_committed();
-        Ok(receipt)
+        self.commit_registry_intent_locally(&RegistryIntent::Effect(intent))?.into_effect()
     }
 
     /// Request-side bookkeeping after a durable receipt: projection commit
