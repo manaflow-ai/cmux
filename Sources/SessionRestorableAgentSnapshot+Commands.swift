@@ -44,40 +44,6 @@ extension SessionRestorableAgentSnapshot {
         )
     }
 
-    /// Selects the restore startup path for this snapshot. Legacy and active
-    /// prompt snapshots retain the local restore admission path; an explicitly
-    /// completed Claude session uses the native `claude --resume` fallback.
-    func sessionRestoreStartupInput(
-        useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil,
-        allowNativeClaudeResumeFallback: Bool = false
-    ) -> String? {
-        sessionRestoreStartupInput(
-            useLocalRestoreVerb: useLocalRestoreVerb,
-            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory),
-            allowNativeClaudeResumeFallback: allowNativeClaudeResumeFallback
-        )
-    }
-
-    func sessionRestoreStartupInput(
-        useLocalRestoreVerb: Bool,
-        workingDirectorySelection: RestorableAgentWorkingDirectorySelection,
-        allowNativeClaudeResumeFallback: Bool = false
-    ) -> String? {
-        let policy = NormallyEndedClaudeResumePolicy()
-        let effectiveUseLocalRestoreVerb = allowNativeClaudeResumeFallback
-            ? policy.usesLocalRestoreVerb(
-                requested: useLocalRestoreVerb,
-                agentKind: kind.rawValue,
-                hadActivePromptTurn: hadActivePromptTurn
-            )
-            : useLocalRestoreVerb
-        return resumeStartupInput(
-            useLocalRestoreVerb: effectiveUseLocalRestoreVerb,
-            workingDirectorySelection: workingDirectorySelection
-        )
-    }
-
     /// A validated Claude hook binding is enough to resume a normally ended
     /// conversation. Other agents retain the persisted process-liveness gate.
     static func shouldAutoResumeNormallyEndedClaude(
@@ -87,7 +53,7 @@ extension SessionRestorableAgentSnapshot {
         let policy = NormallyEndedClaudeResumePolicy()
         guard let restorableAgent,
               let resumeBinding else { return false }
-        // Native Claude resume is a local fallback. A persistent SSH binding
+        // Completed-session automatic resume is a local fallback. A persistent SSH binding
         // must retain its remote launch path and host identity instead of
         // executing the captured command on this Mac.
         guard resumeBinding.launchFlavor == .local else { return false }
