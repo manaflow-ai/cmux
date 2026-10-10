@@ -17,6 +17,9 @@ public final class PageRouter {
     private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
+    /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
+    /// has not delivered yet, which belong to the subscriptions that just ended.
+    public var didClose: (() -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
     private var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
@@ -45,8 +48,12 @@ public final class PageRouter {
     }
 
     /// The script that delivers `envelope` to the page.
+    /// One buffer: the envelope's JSON is appended in place, never built and copied.
     public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        "window.__cmuxPageReceive && window.__cmuxPageReceive(\(envelope.compactText));"
+        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
+        envelope.appendCompactText(to: &script)
+        script += ");"
+        return script
     }
 
     // MARK: Page to host
@@ -245,6 +252,7 @@ public final class PageRouter {
     /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
     public func close() {
         closed = true
+        didClose?()
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         builtIn.removeAll()
