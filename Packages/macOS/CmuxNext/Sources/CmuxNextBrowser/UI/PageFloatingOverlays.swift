@@ -64,7 +64,7 @@ final class PageFloatingOverlays {
         for index in cards.indices {
             let view = cards[index].view
             cards[index].maxWidth.constant = max(0, clip.width - 2 * inset)
-            let size = view.fittingSize
+            let size = Self.fittingSize(of: view)
             if view.frame.size != size { view.setFrameSize(size) }
             let origin = NSRect(x: clip.midX - size.width / 2, y: clip.minY + inset + cards[index].lift,
                                 width: size.width, height: size.height)
@@ -80,6 +80,15 @@ final class PageFloatingOverlays {
             )
             cards[index].handle = handle
         }
+    }
+
+    /// The size `view`'s own constraints ask for. Measured with its
+    /// autoresizing constraints off: they pin the current frame, so a card
+    /// first sized empty (before its text) would keep that size.
+    private static func fittingSize(of view: NSView) -> NSSize {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        defer { view.translatesAutoresizingMaskIntoConstraints = true }
+        return view.fittingSize
     }
 
     private func dismiss(_ index: Int) {

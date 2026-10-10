@@ -17,7 +17,7 @@ extension BrowserChromeView {
         let notice = currentNotice ?? makeNotice()
         notice.text = text
         notice.action = action
-        needsLayout = true
+        syncPageOverlays()
     }
 
     /// The notice's action title on screen (tests, diagnostics).
