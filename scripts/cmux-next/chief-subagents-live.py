@@ -771,6 +771,11 @@ def cli_osc8_link_opens_the_subagent():
             f"sub {sub}; session {session}; grid {pane_grid(term['pane'])[1]}", False)
         return
     r, c, grid, text = found
+    # The viewport text is logical lines; the grid wraps each at its column count.
+    cols = max(1, int((grid["frame_width"] - 2 * (grid["origin_x"] - grid["frame_x"])) // grid["cell_width"]))
+    lines = text.split("\n")
+    r = sum(max(1, -(-len(line) // cols)) for line in lines[:r]) + c // cols
+    c = c % cols
     x = grid["origin_x"] + (c + 0.5) * grid["cell_width"]
     y = grid["origin_y"] + (r + 0.5) * grid["cell_height"]
     clicked = rpc("debug.mouse", {"window": grid["window"], "x": x, "y": y, "action": "click", "modifiers": ["cmd"]})
