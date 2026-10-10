@@ -22,10 +22,25 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     /// The build's What's New digest (WHATS-NEW-AFTER-UPDATE W3), when
     /// release-notes.py embedded one; older notes have none.
     public var whatsNew: WhatsNewDocument?
+    /// The short user-facing changelog (at most 8 lines, New / Fixed /
+    /// Changed) the update cards show; older notes have none (cx-lntk).
+    public var summary: [SummaryLine]?
+
+    /// One changelog line: its group (`new`, `fixed`, `changed`) and text.
+    public struct SummaryLine: Codable, Equatable, Sendable {
+        public var group: String
+        public var title: String
+
+        public init(group: String, title: String) {
+            self.group = group
+            self.title = title
+        }
+    }
 
     public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String],
-                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil) {
+                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil) {
         self.whatsNew = whatsNew
+        self.summary = summary
         self.version = version
         self.build = build
         self.shortVersion = shortVersion
@@ -36,7 +51,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, build, shortVersion, date, highlights, changes, items, whatsNew
+        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary
     }
 
     /// A digest the app cannot read is dropped; the notes stay readable.
@@ -50,6 +65,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         changes = try c.decode([String].self, forKey: .changes)
         items = try c.decodeIfPresent([ChangeItem].self, forKey: .items)
         whatsNew = (try? c.decodeIfPresent(WhatsNewDocument.self, forKey: .whatsNew)) ?? nil
+        summary = (try? c.decodeIfPresent([SummaryLine].self, forKey: .summary)) ?? nil
     }
 
     public struct Highlight: Codable, Equatable, Sendable {

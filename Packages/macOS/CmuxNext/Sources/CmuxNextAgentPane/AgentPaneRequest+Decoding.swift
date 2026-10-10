@@ -131,17 +131,23 @@ extension AgentPaneRequest {
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
+        case "chats.openInTerminal":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
+            else { self = .unsupported(method) }
+        case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }
         case "pane.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
-                self = .paneAction(id, cwd: cwd)
+                self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "chat.sideChat":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "shortcut.edit":

@@ -26,6 +26,7 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod cua_socket;
+pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
 #[cfg(test)]
@@ -41,6 +42,7 @@ pub mod question_answer;
 #[cfg(test)]
 mod question_answer_tests;
 pub mod registry;
+pub mod routes;
 pub mod rpc;
 pub mod schema;
 pub mod server;

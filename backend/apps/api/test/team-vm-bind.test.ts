@@ -148,6 +148,15 @@ describe("TeamVmDO binds its VM through the provider exec", { timeout: 60_000 },
     expect((await o.stub.fakeGuest(vm)).guest?.committed).toMatchObject({ team: o.team, user: o.user })
   })
 
+  it("a failed commit is retried by the alarm until the VM has its ids", async () => {
+    const o = await owner("commit_fails")
+    const vm = (await wake(o.session)).vm
+    expect((await o.stub.fakeGuest(vm)).last_error).toBe("team_vm.bind_commit")
+    await o.stub.fakeControl({ guest_mode: "honest" })
+    await o.stub.fakeAlarm(10 * 60_000)
+    expect((await o.stub.fakeGuest(vm)).guest?.committed).toMatchObject({ team: o.team })
+  })
+
   it("a replaced VM binds a new install under the next epoch and the old install is revoked", async () => {
     const o = await owner()
     const first = await wake(o.session)

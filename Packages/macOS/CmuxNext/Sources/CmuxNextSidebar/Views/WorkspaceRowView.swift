@@ -59,6 +59,8 @@ final class WorkspaceRowView: SidebarRowView {
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
+    /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
+    private var isPlaceholderRow = false
     /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
     /// home row shows no close button.
     private(set) var isClosable = true
@@ -144,12 +146,14 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         groupColor = row.groupColor
         lastInGroup = row.isLastInGroup
-        isShowingPlaceholder = ws.rowState == .placeholder
+        // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
+        isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
+        isPlaceholderRow = ws.rowState == .placeholder
         isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
         // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
-        // only a user's icon draws; without one the title takes the place.
+        // only a user's icon or a page's favicon draws; else the title leads.
         let shown = row.content ?? WorkspaceRowContent()
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
@@ -228,7 +232,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func hoverChanged() {
         super.hoverChanged()
         needsLayout = true
-        guard isHovered, !renaming, !isShowingPlaceholder else {
+        guard isHovered, !renaming, !isPlaceholderRow else {
             title.stopMarquee()
             return
         }
@@ -251,7 +255,7 @@ final class WorkspaceRowView: SidebarRowView {
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
+                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -286,7 +290,7 @@ final class WorkspaceRowView: SidebarRowView {
         switch iconKind {
         case nil: side = 0
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 

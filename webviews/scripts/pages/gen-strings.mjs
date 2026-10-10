@@ -115,6 +115,16 @@ export const PAGES = {
       },
     ],
   },
+  // Debug Settings shares the `debugSettings.` keys (and Reset) with the Swift window it replaces.
+  "debug-settings": {
+    out: "webviews/src/pages/debug-settings/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("debugSettings.") || key === "settingsWindow.reset"),
+      },
+    ],
+  },
   // The Keyboard Shortcuts page has its own table in the app's resources.
   keybindings: {
     out: "webviews/src/pages/keybindings/generated/strings.json",
@@ -144,6 +154,11 @@ export const PAGES = {
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
+  },
+  // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
+  "home-channels": {
+    out: "webviews/src/pages/home-channels/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {

@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// A line-delimited JSON connection to a Unix socket (the CUA host's
 /// framing). All state lives on one private serial queue; callbacks run there
@@ -87,12 +87,18 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, complete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
+                // Only the new bytes can hold a newline: the rest was scanned already.
+                var scan = buffer.endIndex
                 buffer.append(data)
-                while let newline = buffer.firstIndex(of: 0x0A) {
-                    let line = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    if !line.isEmpty { onLine?(Data(line)) }
+                // One pass and one removal per chunk: removing each line from the front
+                // moved the rest of the buffer once per line (quadratic in a large chunk).
+                var start = buffer.startIndex
+                while let newline = buffer[scan...].firstIndex(of: 0x0A) {
+                    if newline > start { onLine?(Data(buffer[start..<newline])) }
+                    start = buffer.index(after: newline)
+                    scan = start
                 }
+                if start > buffer.startIndex { buffer.removeSubrange(buffer.startIndex..<start) }
                 if buffer.count > Self.maxLine { buffer.removeAll(); connection.cancel(); return }
             }
             if complete || error != nil {

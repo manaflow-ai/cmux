@@ -7037,7 +7037,7 @@
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab next",
+      "cli_name" : "action navigate-next",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7098,7 +7098,7 @@
           "cmd"
         ]
       },
-      "id" : "nextSurface",
+      "id" : "navigate.next",
       "mcp" : "focusMove",
       "palette" : "offered",
       "palette_section" : {
@@ -7109,13 +7109,13 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Next Tab",
-      "title_key" : "action.nextSurface",
+      "title" : "Next Tab or Workspace",
+      "title_key" : "action.navigate.next",
       "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "tab previous",
+      "cli_name" : "action navigate-previous",
       "context_menu" : "focusMove",
       "context_menus" : [
 
@@ -7177,6 +7177,60 @@
           "cmd"
         ]
       },
+      "id" : "navigate.previous",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Tab or Workspace",
+      "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab next",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nextSurface",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Tab in Pane",
+      "title_key" : "action.nextSurface.inPane",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab previous",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "prevSurface",
       "mcp" : "focusMove",
       "palette" : "offered",
@@ -7188,8 +7242,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Previous Tab",
-      "title_key" : "action.prevSurface",
+      "title" : "Previous Tab in Pane",
+      "title_key" : "action.prevSurface.inPane",
       "title_table" : "ActionCatalog"
     },
     {
@@ -16596,6 +16650,33 @@
       "palette_suggested" : null,
       "title" : "Mute or Unmute Workspace Notifications",
       "title_key" : "action.notifications.toggleWorkspaceMute",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action notifications-dismiss-highlight",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.dismissHighlight",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Dismiss Highlight",
+      "title_key" : "action.notifications.dismissHighlight",
       "title_table" : "ActionCatalog"
     },
     {
@@ -32912,7 +32993,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.markWorkspaceUnread",
+              "id" : "notifications.dismissHighlight",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -32925,7 +33006,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "notifications.toggleWorkspaceMute",
+              "id" : "palette.markWorkspaceUnread",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -32938,7 +33019,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "clearWorkspaceNotifications",
+              "id" : "notifications.toggleWorkspaceMute",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -32951,7 +33032,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.addWorkspaceChecklistItem",
+              "id" : "clearWorkspaceNotifications",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -32963,14 +33044,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "palette.addWorkspaceChecklistItem",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 10
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browserProfile.setWorkspaceDefault",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32983,7 +33077,7 @@
               "enabled_when" : "can_perform",
               "id" : "browserProfile.clearWorkspaceDefault",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32994,13 +33088,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "reconnectWorkspace",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33013,7 +33107,7 @@
               "enabled_when" : "can_perform",
               "id" : "disconnectWorkspace",
               "kind" : "action",
-              "order" : 15,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33024,13 +33118,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 16
+              "order" : 17
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.workspaceTabs.toggle",
               "kind" : "action",
-              "order" : 17,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

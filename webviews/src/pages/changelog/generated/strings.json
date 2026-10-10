@@ -8,6 +8,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Updated to %@",
     "changelog.page.versions": "Versions"
   },
   "ar": {
@@ -19,6 +20,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "تم التحديث إلى %@",
     "changelog.page.versions": "Versions"
   },
   "bs": {
@@ -30,6 +32,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Ažurirano na %@",
     "changelog.page.versions": "Versions"
   },
   "da": {
@@ -41,6 +44,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Opdateret til %@",
     "changelog.page.versions": "Versions"
   },
   "de": {
@@ -52,6 +56,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Aktualisiert auf %@",
     "changelog.page.versions": "Versions"
   },
   "es": {
@@ -63,6 +68,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Actualizado a %@",
     "changelog.page.versions": "Versions"
   },
   "fr": {
@@ -74,6 +80,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Mis à jour vers %@",
     "changelog.page.versions": "Versions"
   },
   "it": {
@@ -85,6 +92,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Aggiornato a %@",
     "changelog.page.versions": "Versions"
   },
   "ja": {
@@ -96,6 +104,7 @@
     "changelog.page.noHistory": "リリースノートはまだありません。",
     "changelog.page.title": "新機能",
     "changelog.page.unavailable": "このバージョンのノートはまだオフラインで利用できません。",
+    "changelog.page.updatedTo": "%@ にアップデートしました",
     "changelog.page.versions": "バージョン"
   },
   "km": {
@@ -107,6 +116,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "បានធ្វើបច្ចុប្បន្នភាពទៅ %@",
     "changelog.page.versions": "Versions"
   },
   "ko": {
@@ -118,6 +128,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "%@(으)로 업데이트됨",
     "changelog.page.versions": "Versions"
   },
   "nb": {
@@ -129,6 +140,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Oppdatert til %@",
     "changelog.page.versions": "Versions"
   },
   "pl": {
@@ -140,6 +152,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Zaktualizowano do %@",
     "changelog.page.versions": "Versions"
   },
   "pt-BR": {
@@ -151,6 +164,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Atualizado para %@",
     "changelog.page.versions": "Versions"
   },
   "ru": {
@@ -162,6 +176,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Обновлено до %@",
     "changelog.page.versions": "Versions"
   },
   "th": {
@@ -173,6 +188,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "อัปเดตเป็น %@ แล้ว",
     "changelog.page.versions": "Versions"
   },
   "tr": {
@@ -184,6 +200,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "%@ sürümüne güncellendi",
     "changelog.page.versions": "Versions"
   },
   "uk": {
@@ -195,6 +212,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Оновлено до %@",
     "changelog.page.versions": "Versions"
   },
   "vi": {
@@ -206,6 +224,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "Đã cập nhật lên %@",
     "changelog.page.versions": "Versions"
   },
   "zh-Hans": {
@@ -217,6 +236,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "已更新到 %@",
     "changelog.page.versions": "Versions"
   },
   "zh-Hant": {
@@ -228,6 +248,7 @@
     "changelog.page.noHistory": "No release notes yet.",
     "changelog.page.title": "What's New",
     "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.updatedTo": "已更新至 %@",
     "changelog.page.versions": "Versions"
   }
 }

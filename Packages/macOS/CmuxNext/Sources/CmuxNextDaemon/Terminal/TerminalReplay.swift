@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// A VT snapshot that reproduces the terminal when fed to a fresh mirror of

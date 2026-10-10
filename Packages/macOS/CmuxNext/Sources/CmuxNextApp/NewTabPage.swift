@@ -151,18 +151,21 @@ enum NewTabPage {
     static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
+        // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
+        let machine = NewTabPageMachine(services, selected: selected)
         return AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
-            hotkeys: hotkeys, cwd: selected?.cwd,
+            hotkeys: hotkeys, cwd: machine.cwd,
             omnibar: omnibar(services, excluding: selectedID),
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue
+            home: machine.home, tools: tools(services, targetID: selected?.id),
+            template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 
@@ -172,7 +175,8 @@ enum NewTabPage {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
-            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue
+            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 

@@ -747,6 +747,7 @@ async fn serve_connection_from(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    chats::push_activity(hub, conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -933,6 +934,7 @@ mod peer_forward;
 mod redact;
 mod remote_guard;
 mod requests;
+mod routes;
 pub(crate) mod trust_gate;
 mod wait;
 use requests::handle_notification;

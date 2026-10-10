@@ -30,6 +30,8 @@ final class AgentTabStore {
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
+    /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
+    var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -333,6 +335,8 @@ final class AgentTabStore {
             return await handler.listProjects(query)
         }
         model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
+        model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)

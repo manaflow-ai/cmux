@@ -116,6 +116,14 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
     result
 }
 
+/// Whether the daemon's `initialize` says it defines the Chief's presets
+/// (`_meta.acpmux.features` has `chiefBuiltinPresets`).
+fn builtin_presets(init: &Value) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == "chiefBuiltinPresets"))
+}
+
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
@@ -246,6 +254,18 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Whether the connected daemon installed `preset` at all (None: this
+    /// port does not know).
+    fn preset_installed(&self, _preset: &str) -> Option<bool> {
+        None
+    }
+    /// Installs `preset` again on the connected daemon (the install at
+    /// connect can fail while the daemon is busy); the lines it logged.
+    /// At most once per PRESET_REFRESH; nothing when not connected.
+    fn refresh_preset(&self, _preset: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -310,7 +330,14 @@ pub struct Acpmux {
     with_args: Mutex<HashSet<String>>,
     /// Presets installed with a system prompt (the daemon knows `systemPrompt`).
     with_prompt: Mutex<HashSet<String>>,
+    /// Whether the connected daemon defines the Chief's presets itself.
+    builtins: std::sync::atomic::AtomicBool,
+    /// When `refresh_preset` last ran, by preset.
+    refreshed: Mutex<HashMap<String, std::time::Instant>>,
 }
+
+/// The shortest time between two `refresh_preset` runs for one preset.
+const PRESET_REFRESH: Duration = Duration::from_secs(30);
 
 impl Acpmux {
     pub fn new(socket: PathBuf, preset: Option<Preset>, required: Vec<Preset>) -> Arc<Acpmux> {
@@ -323,6 +350,8 @@ impl Acpmux {
             ready: Mutex::new(HashSet::new()),
             with_args: Mutex::new(HashSet::new()),
             with_prompt: Mutex::new(HashSet::new()),
+            builtins: std::sync::atomic::AtomicBool::new(false),
+            refreshed: Mutex::new(HashMap::new()),
         })
     }
 
@@ -331,17 +360,33 @@ impl Acpmux {
     /// the preset is installed again without it, and its users keep the
     /// layout without (args before #17283, systemPrompt before the preset
     /// system prompt).
-    fn install_presets(&self, client: &RpcClient, log: &dyn Fn(&str)) {
+    /// `builtins`: the daemon defines the Chief's presets itself
+    /// (acpmux `config/chief_builtins.rs`): they are installed by name with
+    /// no env, which only the person may set since acpmux cx-1l61. An
+    /// older daemon gets the env as before.
+    /// `only`: install that one preset and keep the others' state.
+    fn install_presets(
+        &self,
+        client: &RpcClient,
+        log: &dyn Fn(&str),
+        builtins: bool,
+        only: Option<&str>,
+    ) {
         let mut ready = HashSet::new();
         let mut with_args = HashSet::new();
         let mut with_prompt = HashSet::new();
         let all = self.preset.iter().map(|p| (p, false));
         for (preset, required) in all.chain(self.required.iter().map(|p| (p, true))) {
+            if only.is_some_and(|name| name != preset.name) {
+                continue;
+            }
             let mut set = json!({
                 "harness": preset.harness,
-                "env": preset.env,
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
+            if !builtins {
+                set["env"] = json!(preset.env);
+            }
             // Always say both: acpmux merges a set into the preset it saved,
             // and the last host's Claude args or system prompt (an engine
             // switch on the same daemon) would stay and refuse a codex set.
@@ -417,18 +462,21 @@ impl Acpmux {
                 )),
             }
         }
-        *self
-            .ready
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = ready;
-        *self
-            .with_args
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = with_args;
-        *self
-            .with_prompt
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = with_prompt;
+        let store = |set: &Mutex<HashSet<String>>, new: HashSet<String>| {
+            let mut set = set
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match only {
+                Some(name) => {
+                    set.remove(name);
+                    set.extend(new);
+                }
+                None => *set = new,
+            }
+        };
+        store(&self.ready, ready);
+        store(&self.with_args, with_args);
+        store(&self.with_prompt, with_prompt);
     }
 
     fn client(&self) -> Result<Arc<RpcClient>, String> {
@@ -514,7 +562,7 @@ impl Acpmux {
         })
         .map_err(|e| format!("connect {}: {e}", self.socket.display()))?;
         let result = (|| {
-            client
+            let init = client
                 .request(
                     "initialize",
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
@@ -523,11 +571,13 @@ impl Acpmux {
             client
                 .request("_acpmux/watch", json!({"enabled": true}))
                 .map_err(|e| format!("watch: {e}"))?;
-            sessions(&client)
+            Ok::<_, String>((sessions(&client)?, builtin_presets(&init)))
         })();
         match result {
-            Ok(list) => {
-                self.install_presets(&client, log);
+            Ok((list, builtins)) => {
+                self.builtins
+                    .store(builtins, std::sync::atomic::Ordering::SeqCst);
+                self.install_presets(&client, log, builtins, None);
                 *self
                     .client
                     .lock()
@@ -978,6 +1028,51 @@ impl AgentPort for Acpmux {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(preset)
+    }
+
+    fn preset_installed(&self, preset: &str) -> Option<bool> {
+        // Not connected: the set is from no daemon (or an old one).
+        self.client().ok()?;
+        Some(
+            self.ready
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(preset),
+        )
+    }
+
+    fn refresh_preset(&self, preset: &str) -> Vec<String> {
+        let Ok(client) = self.client() else {
+            return Vec::new();
+        };
+        {
+            let mut last = self
+                .refreshed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if last
+                .get(preset)
+                .is_some_and(|t| t.elapsed() < PRESET_REFRESH)
+            {
+                return Vec::new();
+            }
+            last.insert(preset.to_owned(), std::time::Instant::now());
+        }
+        let lines = Mutex::new(Vec::new());
+        self.install_presets(
+            &client,
+            &|line: &str| {
+                lines
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(line.to_owned())
+            },
+            self.builtins.load(std::sync::atomic::Ordering::SeqCst),
+            Some(preset),
+        );
+        lines
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn system_prompt(&self, preset: &str) -> bool {

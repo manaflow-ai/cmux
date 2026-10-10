@@ -35,8 +35,6 @@ mod host_ops;
 mod hosts;
 #[cfg(unix)]
 mod mirror;
-#[cfg(all(test, unix))]
-mod mirror_tests;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
@@ -50,7 +48,11 @@ mod runs;
 #[cfg(unix)]
 mod servers;
 #[cfg(unix)]
+mod serves;
+#[cfg(unix)]
 mod storage;
+#[cfg(unix)]
+mod store;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
@@ -72,6 +74,8 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
+#[cfg(unix)]
+pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
@@ -126,6 +130,20 @@ impl AppsSlot {
     pub(crate) fn cancel_request(&self, client: u64, target: &serde_json::Value) {
         if let Some(supervisor) = self.supervisor.get() {
             supervisor.cancel_request(client, target);
+        }
+    }
+
+    /// Whether `app` is installed and enabled here (`app-screens-v1`
+    /// refuses a workspace for any other app). Apps never run on Windows.
+    pub(crate) fn app_active(&self, mux: &Arc<crate::Mux>, app: &str) -> bool {
+        #[cfg(unix)]
+        {
+            self.get_or_init(mux).app_active(app)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (mux, app, &self.supervisor);
+            false
         }
     }
 

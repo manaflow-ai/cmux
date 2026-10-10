@@ -1,6 +1,6 @@
 public import CmuxNextSettings
 import Darwin
-import Synchronization
+import CmuxNextCompat
 
 /// An immutable picture of everything read-only control methods answer
 /// from (plans/cmux-next/architecture.md section 5a).

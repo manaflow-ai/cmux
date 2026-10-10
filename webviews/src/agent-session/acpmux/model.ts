@@ -9,6 +9,7 @@ import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_ROW } from "./subagents/subagentRows";
+import type { ComposerAttachment } from "./attachments";
 
 export type AcpmuxRow = {
   id: string;
@@ -26,6 +27,9 @@ export type AcpmuxRow = {
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// The originating prompt row, so Retry can restore image/PDF attachments.
+  retryRowId?: string;
+  retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;

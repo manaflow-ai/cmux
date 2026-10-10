@@ -5,7 +5,9 @@
 //!   reach another session unless asked, so a script that lists and closes
 //!   cannot touch a session it did not name.
 //! - `--all-sessions` runs a list on every local session this user runs and
-//!   joins the records, each tagged with its `session`.
+//!   joins the records, each tagged with its `session`. Only a person may
+//!   (cx-4nar): an agent caller (an acpmux session, a Chief turn) gets
+//!   `origin.forbidden` here and reads no session (see [`agent_marker`]).
 //! - `<session>:<id>` (`build-box:ws_…`) names an object on that session:
 //!   the command routes there as with `--session build-box`. Local named
 //!   sessions only; sessions the app reaches over SSH or Cloud have no CLI
@@ -162,6 +164,48 @@ pub(super) fn validate_all_sessions(
     Ok(())
 }
 
+/// The variables that mark this process as an agent, first found wins:
+/// - `ACPMUX_SESSION_ID`: acpmux sets it in every agent it starts (agent.rs
+///   `spawn`), Chief turns and the Chief's subagents included, and in the
+///   acpmux daemon's event hook commands (daemon.rs).
+/// - `CMUX_CHIEF_OWNER_SOCKET`: the Chief's turn env (optchat-chief
+///   cmux_env.rs, chief_target.rs), also when a turn's tool unsets acpmux's.
+/// - `CMUX_AGENT_PRINCIPAL`: the agent principal variable cmux-tasks reads
+///   (owner.rs `local_actor`); no launcher sets it yet, so any non-empty
+///   value counts here (stricter than cmux-tasks, which wants an `agent_` id).
+const AGENT_MARKERS: [&str; 3] =
+    ["ACPMUX_SESSION_ID", super::chief_target::OWNER_KEY, "CMUX_AGENT_PRINCIPAL"];
+
+/// The marker that makes this caller an agent, when one is set (cx-4nar).
+///
+/// `--all-sessions` reads every session in this user's runtime directory:
+/// on a shared host that is every tagged app the user runs and its Home.
+/// A person may read their own sessions; an agent may not sweep them, as
+/// the non-person rule of cx-1l61 never lets an agent widen its own reach.
+/// The OS boundary is still the user: an agent that clears its env, or
+/// names another session with `--socket`, `--session` or `<session>:<id>`,
+/// still reaches it. This is the default that keeps a person's other apps
+/// out of an agent's answers, not a sandbox. A detached owner that an agent
+/// started drops these variables (local_owner.rs), so a person's terminal
+/// there is not refused. A foreground owner an agent started (`server
+/// start`, `--headless`) still passes them on: that terminal fails closed.
+pub(super) fn agent_marker(env: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
+    AGENT_MARKERS.into_iter().find(|key| env(key).is_some_and(|value| !value.trim().is_empty()))
+}
+
+/// The typed refusal of `--all-sessions` for an agent caller.
+fn agent_refused(marker: &str) -> Value {
+    json!({
+        "code": "origin.forbidden",
+        "message": crate::localization::catalog()
+            .local_server
+            .all_sessions_agent_refused
+            .replace("{marker}", marker),
+        "details": {"reason": "agent_caller", "marker": marker},
+        "retryable": false,
+    })
+}
+
 /// Every local session socket this user runs: `<name>.sock` in the runtime
 /// directories, plus the bundling app's session. Sorted by name, one per path.
 pub(super) fn local_sessions(
@@ -242,6 +286,9 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
         eprintln!("cmux: --all-sessions applies only to list commands");
         return 2;
     };
+    if let Some(marker) = agent_marker(|key| std::env::var(key).ok()) {
+        return super::wire::print_operation_error(&agent_refused(marker), global.output);
+    }
     let mut results = Vec::new();
     let mut failed = false;
     for (session, socket) in session_sockets() {

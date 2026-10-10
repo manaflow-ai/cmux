@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -112,7 +112,8 @@ public struct DaemonLauncher: Sendable {
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
-    /// `daemonEnvironment` joins only `server ensure`; the daemon still passes it to children (bead cx-e0cs).
+    /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
+    /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],

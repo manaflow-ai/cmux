@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// One queued main-actor request. Exactly one of run / expire / cancel wins
 /// the `pending` state, so a request that timed out while queued never

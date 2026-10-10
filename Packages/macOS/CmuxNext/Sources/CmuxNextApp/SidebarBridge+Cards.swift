@@ -33,8 +33,8 @@ enum SidebarCardFeed {
     /// tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
-        guard let window else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, state: window)
+        guard window != nil else { return cards }
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
@@ -163,7 +163,8 @@ enum SidebarCardFeed {
     /// title, detail and actions.
     static func notice(_ shown: UpdateCardPresentation) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, progress: progress,
+        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines,
+                                 progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
                                  dismissLabel: shown.dismissible ? UpdaterService.cardDismissLabel : nil)
     }
@@ -174,7 +175,8 @@ enum SidebarCardFeed {
         let notes = card.notes
         let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
         return SidebarUpdateCard(
-            title: card.title, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            title: card.title, detail: card.detail, lines: card.lines, releaseNotesTitle: card.releaseNotesTitle,
+            releaseNotesURL: card.releaseNotesURL, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
             automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
