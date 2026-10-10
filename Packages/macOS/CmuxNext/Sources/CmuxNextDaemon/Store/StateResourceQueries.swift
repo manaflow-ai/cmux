@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Observation
 
@@ -53,7 +54,7 @@ extension StateResourceQueries {
     public func applied(through sequence: UInt64?) async {
         guard let sequence, appliedSequence < sequence else { return }
         let state = connectionState
-        for await done in Observations({ self.appliedSequence >= sequence || self.connectionState != state }) where done {
+        for await done in ObservationStream({ self.appliedSequence >= sequence || self.connectionState != state }) where done {
             return
         }
     }
@@ -63,7 +64,7 @@ extension StateResourceQueries {
     public func sessionStateResolved() async {
         guard !session.known else { return }
         let state = connectionState
-        for await done in Observations({ self.session.known || self.connectionState != state }) where done {
+        for await done in ObservationStream({ self.session.known || self.connectionState != state }) where done {
             return
         }
     }

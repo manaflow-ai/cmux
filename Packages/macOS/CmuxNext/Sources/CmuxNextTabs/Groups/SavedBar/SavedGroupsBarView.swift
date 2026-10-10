@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 import QuartzCore
@@ -67,13 +68,13 @@ public final class SavedGroupsBarView: NSView {
         guard observation == nil else { return }
         let model = model
         observation = Task { [weak self] in
-            for await _ in Observations({ model.groups }) {
+            for await _ in ObservationStream({ model.groups }) {
                 guard let self else { return }
                 self.sync()
             }
         }
         tokenObservation = Task { [weak self] in
-            for await snapshot in Observations({ TabStripMetrics() }) {
+            for await snapshot in ObservationStream({ TabStripMetrics() }) {
                 guard let self else { return }
                 if snapshot != self.metrics { self.sync() }
             }

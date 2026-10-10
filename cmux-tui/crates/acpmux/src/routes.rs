@@ -42,6 +42,36 @@ pub const SCRUBBED: &[&str] = &[
 /// reaches the harness.
 pub const UNSET_KEY: &str = "ACPMUX_ROUTE_UNSET";
 
+/// The profile-env key that names the route a profile binds by default (the
+/// `cmux` harness: the `cmux` route). A chat or workspace binding still wins;
+/// it replaces a family or global binding. Internal: never reaches the harness.
+pub const PROFILE_ROUTE_KEY: &str = "ACPMUX_PROFILE_ROUTE";
+
+/// The built-in route to the hosted cmux model router through the local relay.
+/// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
+pub const CMUX_ROUTE_ID: &str = "cmux";
+
+fn builtin_routes() -> Vec<Route> {
+    vec![Route {
+        id: CMUX_ROUTE_ID.into(),
+        file: RouteFile {
+            name: Some("cmux model router".into()),
+            kind: RouteKind::CmuxRouter,
+            families: vec![],
+            anthropic_base_url: None,
+            openai_base_url: None,
+            auth: None,
+            secret: None,
+            headers: BTreeMap::new(),
+            health_url: None,
+            fallback: vec![],
+            auto_fallback: false,
+            notes: Some("built in: open-source models through the cmux model router".into()),
+        },
+        path: PathBuf::new(),
+    }]
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RouteKind {
@@ -56,8 +86,10 @@ pub enum RouteKind {
     Subrouter,
     /// CLIProxyAPI (an Anthropic/OpenAI-compatible proxy over subscription logins).
     Cliproxyapi,
-    /// The hosted cmux model router: open-source models only (Fireworks,
-    /// Baseten, DeepInfra), OpenAI-compatible.
+    /// The hosted cmux model router (open-source models), reached through the
+    /// local relay (crate cmux-coderouter): the relay holds the app's upstream
+    /// bearer; a harness gets only the relay's loopback URL and a crl_ key.
+    /// Serves both families (Messages API and OpenAI chat/completions).
     CmuxRouter,
     CustomAnthropic,
     CustomOpenai,
@@ -92,12 +124,17 @@ impl RouteKind {
         Self::ALL.iter().copied().find(|k| k.as_str() == text)
     }
 
+    /// Kinds whose URL and key come from the running local router.
+    pub fn relayed(self) -> bool {
+        matches!(self, Self::LocalCoderouter | Self::CmuxRouter)
+    }
+
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
             Self::DirectSubscription => Auth::Subscription,
-            Self::DirectApiKey | Self::CmuxRouter => Auth::ApiKey,
-            Self::LocalCoderouter => Auth::Bearer,
+            Self::DirectApiKey => Auth::ApiKey,
+            Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
                 Auth::None
             }
@@ -184,20 +221,30 @@ impl Route {
         self.file.auth.unwrap_or_else(|| self.file.kind.default_auth())
     }
 
+    /// Whether a spawn takes its URL and key from the local relay: always for
+    /// local-coderouter; for cmux-router unless the route file names its own
+    /// secret (a route made before the relay: it stays direct, as it was).
+    pub fn uses_relay(&self) -> bool {
+        uses_relay(&self.file)
+    }
+
     /// Whether it serves `family`.
     pub fn serves(&self, family: &str) -> bool {
         if !self.file.families.is_empty() {
             return self.file.families.iter().any(|f| f == family || f == "*");
         }
+        // The hosted model router speaks the Messages API and OpenAI
+        // chat/completions, not the Responses API codex needs.
+        if self.file.kind == RouteKind::CmuxRouter && self.uses_relay() {
+            return is_anthropic_family(family) || matches!(family, "opencode" | "pi");
+        }
         match self.file.kind {
             RouteKind::DirectSubscription | RouteKind::DirectApiKey => true,
             _ => {
                 if is_anthropic_family(family) {
-                    self.file.anthropic_base_url.is_some()
-                        || self.file.kind == RouteKind::LocalCoderouter
+                    self.file.anthropic_base_url.is_some() || self.file.kind.relayed()
                 } else {
-                    self.file.openai_base_url.is_some()
-                        || self.file.kind == RouteKind::LocalCoderouter
+                    self.file.openai_base_url.is_some() || self.file.kind.relayed()
                 }
             }
         }
@@ -222,6 +269,14 @@ impl Route {
             "notes": self.file.notes,
             "path": self.path,
         })
+    }
+}
+
+fn uses_relay(file: &RouteFile) -> bool {
+    match file.kind {
+        RouteKind::LocalCoderouter => true,
+        RouteKind::CmuxRouter => file.secret.is_none(),
+        _ => false,
     }
 }
 
@@ -356,10 +411,7 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         }
     }
     let auth = file.auth.unwrap_or_else(|| file.kind.default_auth());
-    if matches!(auth, Auth::ApiKey | Auth::Bearer)
-        && file.secret.is_none()
-        && file.kind != RouteKind::LocalCoderouter
-    {
+    if matches!(auth, Auth::ApiKey | Auth::Bearer) && file.secret.is_none() && !uses_relay(file) {
         return Err(RouteError::BadParams(format!(
             "auth {} needs secret (keychain:ITEM or env:VAR)",
             auth.as_str()
@@ -369,10 +421,9 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         file.kind,
         RouteKind::Subrouter
             | RouteKind::Cliproxyapi
-            | RouteKind::CmuxRouter
             | RouteKind::CustomAnthropic
             | RouteKind::CustomOpenai
-    );
+    ) || (file.kind == RouteKind::CmuxRouter && !uses_relay(file));
     if needs_url && file.anthropic_base_url.is_none() && file.openai_base_url.is_none() {
         return Err(RouteError::BadParams(format!(
             "a {} route needs anthropicBaseUrl or openaiBaseUrl",
@@ -423,10 +474,13 @@ pub fn load(dir: Option<&Path>) -> (Vec<Route>, Vec<String>) {
 }
 
 pub fn find(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
+    // A route file wins; the built-in routes are found only by id (they are
+    // not listed, so `route list` shows the user's own routes).
     load(dir)
         .0
         .into_iter()
         .find(|r| r.id == id)
+        .or_else(|| builtin_routes().into_iter().find(|r| r.id == id))
         .ok_or_else(|| RouteError::NotFound(format!("no route {id:?}")))
 }
 
@@ -678,6 +732,16 @@ fn reference_value(secret: &str) -> String {
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
 pub fn local_router(home: &Path, family: &str) -> Result<(String, String), RouteError> {
+    local_router_with(home, family, false)
+}
+
+/// `local_router`, and for the cmux model router also a live upstream (the app
+/// signed the relay in), else `route.unavailable` with the reason.
+pub fn local_router_with(
+    home: &Path,
+    family: &str,
+    need_upstream: bool,
+) -> Result<(String, String), RouteError> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
@@ -702,13 +766,30 @@ pub fn local_router(home: &Path, family: &str) -> Result<(String, String), Route
         .get("port")
         .and_then(Value::as_u64)
         .ok_or_else(|| unavailable("it is older than this acpmux: no port".into()))?;
+    if need_upstream {
+        let live = status
+            .get("upstream")
+            .and_then(|u| u.get("live"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !live {
+            return Err(RouteError::Unavailable(
+                "the cmux model router is not connected (open cmux to sign the local router in)"
+                    .into(),
+            ));
+        }
+    }
     let url = format!("http://127.0.0.1:{port}");
     let mut minted = MINTED.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(key) = minted.get(&(port, family.to_owned())) {
         return Ok((url, key.clone()));
     }
     // A key id may not hold `_`, the key format's separator.
-    let key_id: String = format!("acpmux-route-{family}")
+    // A random id per daemon run keeps a restarted daemon from re-minting (and
+    // so revoking) the key of a harness a previous daemon spawned.
+    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let run = RUN.get_or_init(|| uuid::Uuid::now_v7().simple().to_string());
+    let key_id: String = format!("acpmux-route-{family}-{run}")
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
         .take(64)
@@ -755,12 +836,16 @@ pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, Rou
         },
         route.file.secret.as_deref().map(reference_value),
     );
-    if route.file.kind == RouteKind::LocalCoderouter {
-        let (url, key) = local_router(home, family)?;
-        if base.is_none() {
-            base = Some(if anthropic { url } else { format!("{url}/v1") });
+    if route.uses_relay() {
+        let cmux = route.file.kind == RouteKind::CmuxRouter;
+        let (url, key) = local_router_with(home, family, cmux)?;
+        let relay = if anthropic { url } else { format!("{url}/v1") };
+        // The cmux model router is reached only through the relay: a URL in
+        // the file would get the relay's key, which works nowhere else.
+        if cmux || base.is_none() {
+            base = Some(relay);
         }
-        if secret_value.is_none() {
+        if cmux || secret_value.is_none() {
             secret_value = Some(key);
         }
     }
@@ -898,11 +983,16 @@ pub async fn probe(route: &Route, home: &Path) -> Value {
         }
         None => None,
     };
-    if route.file.kind == RouteKind::LocalCoderouter {
-        match local_router(home, family) {
+    if route.uses_relay() {
+        match local_router_with(home, family, route.file.kind == RouteKind::CmuxRouter) {
             Ok((url, key)) => {
-                base.get_or_insert(url);
-                secret.get_or_insert(key);
+                if route.file.kind == RouteKind::CmuxRouter {
+                    base = Some(url);
+                    secret = Some(key);
+                } else {
+                    base.get_or_insert(url);
+                    secret.get_or_insert(key);
+                }
             }
             Err(e) => return answer(ProbeStatus::Unreachable, e.to_string()),
         }

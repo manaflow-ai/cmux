@@ -35,7 +35,70 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
         .and_then(|home| std::fs::read_to_string(home.join(".acpx").join("config.json")).ok());
     let mut found = discover_harnesses_from(acpx.as_deref(), &which);
     add_coderouter_route(&mut found, route, &which);
+    add_cmux_router(&mut found, &which);
     found
+}
+
+/// The profile name of the cmux model router harness.
+pub const CMUX_ROUTER_PROFILE: &str = "cmux";
+
+/// The models the hosted cmux model router serves (backend
+/// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
+/// default. The live list is GET /v1/models through the relay.
+pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
+    ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
+    ("z-ai/glm-5.3", "GLM-5.3"),
+    ("moonshotai/kimi-k3", "Kimi K3"),
+    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
+    ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code"),
+    ("minimax/minimax-m3", "MiniMax M3"),
+    ("z-ai/glm-5.3-flash", "GLM-5.3 Flash"),
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
+    ("openai/gpt-oss-120b", "gpt-oss-120b"),
+    ("meta/llama-4-scout", "Llama 4 Scout"),
+];
+
+/// Adds `cmux`: Claude Code (acpmux's own adapter) on the built-in `cmux`
+/// route, so it runs the cmux model router's open-source models through the
+/// local relay. Needs `claude` on PATH; a native agent comes later.
+pub fn add_cmux_router(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    which: &dyn Fn(&str) -> Option<String>,
+) {
+    if found.contains_key(CMUX_ROUTER_PROFILE) {
+        return;
+    }
+    let Some(claude) = which("claude") else { return };
+    let default = CMUX_ROUTER_MODELS[0].0;
+    let env = BTreeMap::from([
+        (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
+        // Claude Code's background calls name Haiku/Sonnet aliases; the
+        // router serves only its own models.
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL".to_owned(), default.to_owned()),
+        ("ANTHROPIC_SMALL_FAST_MODEL".to_owned(), default.to_owned()),
+    ]);
+    found.insert(
+        CMUX_ROUTER_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::ClaudeStdio,
+            argv: vec![claude],
+            env,
+            description: Some("open-source models through the cmux model router".into()),
+            fallback: None,
+            family: Some("claude".into()),
+            models: CMUX_ROUTER_MODELS
+                .iter()
+                .map(|(id, name)| super::DeclaredModel::Full {
+                    id: (*id).into(),
+                    name: Some((*name).into()),
+                })
+                .collect(),
+            model: Some(default.into()),
+            effort: None,
+            policy: None,
+        },
+    );
 }
 
 /// Adds `claude-cr` (`coderouter <route>`, else `cr <route>`, kind
