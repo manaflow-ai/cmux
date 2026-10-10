@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// The long-press surface, measured against iOS 26 Messages: the transcript
@@ -48,10 +49,60 @@ final class MessageActionOverlay: UIView {
         timer.startAnimation()
     }
 
+    /// Between `beginPress()` and `present()`/`cancelPress()`: only the
+    /// growing bubble shows.
+    private(set) var isPressing = false
+    private var pressHidden: [UIView] = []
+
+    /// The held bubble grows in place, before the menu commits.
+    func beginPress() {
+        isPressing = true
+        isUserInteractionEnabled = false
+        pressHidden = subviews.filter { $0 !== snapshotClip && $0.alpha > 0 }
+        pressHidden.forEach { $0.alpha = 0 }
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        let scale = MessagePressTiming.pressScale(for: sourceFrame.size)
+        let curve = MessagePressTiming.pressCurve
+        let grow = UIViewPropertyAnimator(
+            duration: MessagePressTiming.clickTimeout - MessagePressTiming.liftBegins,
+            controlPoint1: curve.0,
+            controlPoint2: curve.1
+        ) {
+            self.snapshotClip.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+        grow.startAnimation()
+        pressAnimator = grow
+    }
+
+    private var pressAnimator: UIViewPropertyAnimator?
+
+    /// Freezes the held growth where it is, so what follows starts there.
+    private func stopPressGrowth() {
+        guard let grow = pressAnimator else { return }
+        pressAnimator = nil
+        if grow.state == .active { grow.stopAnimation(true) }
+    }
+
+    /// The press ended before the click: the bubble settles back and the
+    /// overlay goes away without ever showing the menu.
+    func cancelPress() {
+        guard isPressing, !isDismissing else { return }
+        isPressing = false
+        isDismissing = true
+        stopPressGrowth()
+        UIView.animate(springDuration: 0.3, bounce: 0, initialSpringVelocity: 0, delay: 0, options: [.beginFromCurrentState]) {
+            self.snapshotClip.transform = .identity
+        } completion: { _ in
+            self.removeFromSuperview()
+            self.onDismiss?()
+        }
+    }
+
     /// Geometry and timing measured from iOS 26.3 Messages (see the parity notes in the PR).
     enum Metrics {
-        static let previewScale: CGFloat = 1.052
-        static let screenInset: CGFloat = 16
+        /// iOS 26.5: the lifted bubble and the menu keep 20 pt from the
+        /// screen edge (menu 170...420 on a 440 pt screen).
+        static let screenInset: CGFloat = 20
         static let barHeight: CGFloat = 64
         static let barCell: CGFloat = 49
         static let barPadding: CGFloat = 7.6
@@ -98,8 +149,9 @@ final class MessageActionOverlay: UIView {
     /// (`ConversationFeatures.customEmojiReactions`).
     private let offersCustomEmoji: Bool
     private let mode: Mode
-    /// Long-press lifts the bubble ~1.05x; double-tap leaves it in place.
-    private var previewScale: CGFloat { mode == .tapbacks ? 1 : Metrics.previewScale }
+    /// Long-press lifts the bubble by a fixed 26 pt on its long side
+    /// (`MessagePressTiming`); double-tap leaves it in place.
+    private var previewScale: CGFloat { mode == .tapbacks ? 1 : MessagePressTiming.liftScale(for: sourceFrame.size) }
     private let menu: UIVisualEffectView
     private let emojiButton = makeGlassView(cornerRadius: Metrics.smiley / 2)
     private let tailDot = makeGlassView(cornerRadius: Metrics.tailDot / 2)
@@ -449,6 +501,13 @@ final class MessageActionOverlay: UIView {
     }
 
     func present() {
+        if isPressing {
+            isPressing = false
+            stopPressGrowth()
+            isUserInteractionEnabled = true
+            pressHidden.forEach { $0.alpha = 1 }
+            pressHidden = []
+        }
         layoutFinal()
         UIAccessibility.post(notification: .screenChanged, argument: detailCard ?? reactionButtons.first)
         // Reduce Motion: every piece fades in at its place, as system context
@@ -826,7 +885,10 @@ private extension CGRect {
 }
 
 extension ConversationViewController {
-    func presentActions(for model: MessageRowModel, cell: MessageCell, mode: MessageActionOverlay.Mode) {
+    /// `pressing`: a long press is still held; the overlay only grows the
+    /// bubble until `commitPressedActions()` (or `cancelPressedActions()`).
+    @discardableResult
+    func presentActions(for model: MessageRowModel, cell: MessageCell, mode: MessageActionOverlay.Mode, pressing: Bool = false) -> MessageActionOverlay? {
         // A tapped badge becomes the tapback capsule, so that preview leaves it out.
         let detail = mode == .reactionDetail && !cell.reactionBadge.isHidden
         let contentFrame = detail ? (cell.cellLayout?.contentFrame ?? cell.liftedContentFrame) : cell.liftedContentFrame
@@ -843,9 +905,8 @@ extension ConversationViewController {
         } else {
             snapshot = cell.shiftable.resizableSnapshotView(from: contentFrame, afterScreenUpdates: false, withCapInsets: .zero)
         }
-        guard let snapshot else { return }
+        guard let snapshot else { return nil }
         let source = cell.convert(contentFrame, to: view)
-        endTextSelection()
         let message = model.message
         let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
         var items: [MessageActionOverlay.MenuItem] = [
@@ -890,10 +951,6 @@ extension ConversationViewController {
             guard let participant = store.info?.participant(mark.participantID) else { return nil }
             return (participant.isMe ? String(localized: "conversation.reaction.you", defaultValue: "You", bundle: .module) : participant.name, participant.initials, mark.reaction)
         }
-        // Like the keyboard, the Photos drawer gives way to the menu (Messages
-        // closes it); otherwise it would cover the menu's lower rows.
-        view.endEditing(true)
-        dismissPhotoDrawer()
         let overlay = MessageActionOverlay(
             frame: view.bounds,
             snapshot: snapshot,
@@ -932,6 +989,20 @@ extension ConversationViewController {
         // Above the header: Messages dims it too, and the reactor strip sits over it.
         view.insertSubview(overlay, aboveSubview: header)
         overlay.layoutIfNeeded()
+        if pressing {
+            overlay.beginPress()
+        } else {
+            showActions(overlay)
+        }
+        return overlay
+    }
+
+    /// The menu opens: selection, keyboard and Photos drawer give way (Messages
+    /// closes them; the drawer would cover the menu's lower rows).
+    func showActions(_ overlay: MessageActionOverlay) {
+        endTextSelection()
+        view.endEditing(true)
+        dismissPhotoDrawer()
         overlay.present()
     }
 

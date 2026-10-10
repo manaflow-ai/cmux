@@ -109,6 +109,10 @@ public final class ConversationViewController: UIViewController {
     var timestampDrawerRelease: TimestampDrawerPhysics.Release?
     var timestampDrawerReleaseStart: CFTimeInterval?
     var timestampDrawerLink: CADisplayLink?
+    /// A held bubble growing before its menu opens (`MessagePressTiming`).
+    var pressedActions: MessageActionOverlay?
+    var pressBeganUptime: TimeInterval = 0
+    var pressStart: CGPoint = .zero
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
