@@ -193,16 +193,19 @@ fn the_reply_streams_to_the_conversation_before_it_is_posted() {
                "op": {"kind": "message.send", "client_msg_id": "ask-1",
                       "parts": [{"type": "text", "text": "stream please"}]}}),
     );
-    h.settle_posts();
-
-    // The posted reply, and every draft item before it.
+    // The brain hears the message over the link, runs the turn and posts.
     let is_reply = |v: &Value| {
         v.pointer("/item/message/author").and_then(Value::as_str) == Some("agent_mux")
     };
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while !lines.lock().unwrap().iter().any(|(_, v)| is_reply(v)) {
         assert!(Instant::now() < deadline, "no reply on the stream: {:?}", lines.lock().unwrap());
-        std::thread::sleep(Duration::from_millis(50));
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+        if h.brain.next_timer().is_some_and(|at| at <= Instant::now()) {
+            h.brain.on_timer();
+        }
     }
     let _ = follower.kill();
     let _ = follower.wait();
