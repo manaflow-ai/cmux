@@ -147,10 +147,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
             setPointerInside(false)
             return
         }
-        let windowPoint = window.convertFromScreen(
-            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
-        ).origin
-        let point = convert(windowPoint, from: nil)
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
         setPointerInside(bounds.contains(point))
     }
 

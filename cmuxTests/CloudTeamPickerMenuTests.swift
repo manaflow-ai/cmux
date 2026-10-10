@@ -12,10 +12,10 @@ import Testing
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
     private final class HoverWindow: NSWindow {
-        var pointerOnScreen = NSPoint.zero
+        var pointerInWindow = NSPoint.zero
 
         override var mouseLocationOutsideOfEventStream: NSPoint {
-            pointerOnScreen
+            pointerInWindow
         }
     }
 
@@ -226,9 +226,7 @@ struct CloudTeamPickerMenuTests {
             frame: NSRect(x: 0, y: 0, width: 120, height: 22)
         )
         window.contentView?.addSubview(anchor)
-        window.pointerOnScreen = window.convertToScreen(
-            NSRect(origin: NSPoint(x: 40, y: 10), size: .zero)
-        ).origin
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
 
         var hovers: [Bool] = []
         anchor.onHoverChange = { hovers.append($0) }
@@ -280,9 +278,7 @@ struct CloudTeamPickerMenuTests {
             frame: NSRect(x: 0, y: 0, width: 120, height: 22)
         )
         window.contentView?.addSubview(anchor)
-        window.pointerOnScreen = window.convertToScreen(
-            NSRect(origin: NSPoint(x: 40, y: 10), size: .zero)
-        ).origin
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
 
         var hovers: [Bool] = []
         anchor.onHoverChange = { hovers.append($0) }
