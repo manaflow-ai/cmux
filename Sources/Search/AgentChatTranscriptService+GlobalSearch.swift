@@ -29,7 +29,9 @@ extension AgentChatTranscriptService {
             sessionID: record.sessionID,
             agentKind: record.agentKind,
             transcriptPath: path,
-            paneTitle: paneTitle,
+            // Claude titles its pane after the task; Codex leaves the shell's
+            // title or sets "Terminal", which names nothing.
+            paneTitle: record.agentKind == .claude ? paneTitle : nil,
             conversationTitle: record.title
         )
     }
