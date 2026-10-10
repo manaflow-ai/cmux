@@ -519,3 +519,38 @@ feat-cmux-next with a relayed token (CORE). Still not done on Windows: the
 session reset of a host root, named terminal jobs for a restarted daemon's
 process reads (handoff item 8), the GPUI banner (cmux2-gpui, after the pin
 moves).
+
+## Stacked branch `gpui-windows-terminal-hosts-3` (2026-10-10, on 10b842f4d3c)
+
+`gpui-windows-terminal-hosts-2` stays at the gated head 10b842f4d3c (push
+to feat-cmux-next waits for the lift of the FREEZE on spec/commands.md,
+spec/sdk-schema.json and mux.rs, token d68977fe63d7). Follow-ups stack here.
+
+Named terminal jobs (handoff item 8), done:
+- Gap: with hosts, a terminal's shell runs in the host's job, so the
+  daemon's access rule (`windows_processes::open_started_by_us`, "in one of
+  this process's terminal jobs") refused every hosted process:
+  `process-info` gave null `foreground_executable` and `foreground_cwd`,
+  before and after a restart. Red: 28f7f0275a3, run 38075189953
+  (`a_hosted_terminals_processes_are_read_before_and_after_a_restart`).
+- Fix 3eae0bf40c8: `cmux_pty::windows_jobs` names each terminal job after
+  its first process (`job_name`: `Local\cmux-pty-job-<pid>`, default DACL of
+  the user; an existing name is never joined, that terminal then gets an
+  unnamed job). `named_job_contains(process, root_pid)` opens it with
+  `JOB_OBJECT_QUERY`. The access rule also admits a process that is in the
+  named job of itself or of an ancestor (ToolHelp parents, at most 64), with
+  the same user and session checks. No record field and no Cargo change:
+  the name derives from the shell pid, which the daemon already reads.
+- Green: run 38075248931 (5/5 host tests; rustfmt red), 2f9030a2b08 run
+  38076675107 (green except the two base reds).
+- Cost: a process outside the daemon's own jobs costs one ToolHelp snapshot
+  per access check (usage sampling of a hosted tree). Cache it if it shows.
+
+Session reset of a host root on Windows: not started. The whole saved-state
+reset refuses on Windows before the host root
+(`ensure_checked_reset_deletion_supported`: "safe saved-state reset is not
+supported on this platform"), and about 70 Unix-only blocks in
+`workspace_registry.rs` (fingerprints, checked deletion, live markers) have
+no Windows side. A host-root step alone would be unreachable. Needs a scope
+decision: the Windows saved-state reset as one item (with the host root), or
+leave it.
