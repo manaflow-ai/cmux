@@ -419,7 +419,7 @@ let package = Package(
         // No daemon; the App supplies the data source and the style setting.
         .target(
             name: "CmuxNextAppPermissions",
-            dependencies: ["CmuxNextApps", "CmuxNextDesign"],
+            dependencies: ["CmuxNextApps", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -732,7 +732,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],

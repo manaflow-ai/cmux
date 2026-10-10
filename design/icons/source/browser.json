@@ -608,6 +608,61 @@
    "replaces": [
     "macwindow.on.rectangle"
    ]
+  },
+  {
+   "name": "appearance.system",
+   "meaning": "Page color scheme follows the app (browser theme button)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 3.5a8.5 8.5 0 0 1 0 17Z' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 3.5a8.5 8.5 0 0 1 0 17Z' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Composite circle (ring with content), so full size r 8.5. Right half filled, like circle.lefthalf.filled. Pairs with appearance.light and appearance.dark. SF circle.lefthalf.filled stays with tunable.fades for catalog lookups.",
+   "replaces": [
+    "circle.lefthalf.filled (browser theme)"
+   ]
+  },
+  {
+   "name": "appearance.light",
+   "meaning": "Page color scheme forced light (browser theme button)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.75'/><path d='M18 12L20.25 12M16.243 16.243L17.834 17.834M12 18L12 20.25M7.757 16.243L6.166 17.834M6 12L3.75 12M7.757 7.757L6.166 6.166M12 6L12 3.75M16.243 7.757L17.834 6.166'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.75' fill='currentColor'/><path d='M18 12L20.25 12M16.243 16.243L17.834 17.834M12 18L12 20.25M7.757 16.243L6.166 17.834M6 12L3.75 12M7.757 7.757L6.166 6.166M12 6L12 3.75M16.243 7.757L17.834 6.166' stroke-width='2'/></svg>",
+   "alts": [],
+   "note": "Sun: disc r 3.75 and eight rays from r 6 to r 8.25 (18 units of ink). Solid fills the disc and thickens the rays.",
+   "replaces": [
+    "sun.max"
+   ]
+  },
+  {
+   "name": "appearance.dark",
+   "meaning": "Page color scheme forced dark (browser theme button)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M11.95 4A8 8 0 1 0 19.88 13.36A6.2 6.2 0 0 1 11.95 4Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M11.95 4A8 8 0 1 0 19.88 13.36A6.2 6.2 0 0 1 11.95 4Z' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Crescent: circle r 8 at 12,12 less a circle r 6.2 at 16.6,8.1, so the ink box is centered. Not state.idle, which owns SF moon for idle rows.",
+   "replaces": [
+    "moon (browser theme)"
+   ]
+  },
+  {
+   "name": "omnibar.switchtab",
+   "meaning": "Omnibar suggestion: switch to an open tab",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='9.5' width='12.5' height='10.5' rx='2'/><path d='M7.5 9.5V6a2 2 0 0 1 2-2h8.5a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-1.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='9.5' width='12.5' height='10.5' rx='2' fill='currentColor'/><path d='M7.5 9.5V6a2 2 0 0 1 2-2h8.5a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-1.5'/></svg>",
+   "alts": [],
+   "note": "A tab in front of another, rx 2 (small tiles). Solid fills the front tab.",
+   "replaces": [
+    "rectangle.on.rectangle"
+   ]
+  },
+  {
+   "name": "omnibar.answer",
+   "meaning": "Omnibar suggestion: a computed answer (calculator, conversion)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M8.75 10h6.5M8.75 14h6.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-omnibar-answer' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.75 10h6.5M8.75 14h6.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-omnibar-answer)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "Composite circle at full size r 8.5 with an equals sign; Solid fills the disc and cuts the sign out, like status.complete.",
+   "replaces": [
+    "equal.circle"
+   ]
   }
  ]
 }

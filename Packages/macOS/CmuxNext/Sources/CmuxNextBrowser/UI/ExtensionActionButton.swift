@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
@@ -52,7 +53,9 @@ final class ExtensionActionButton: NSButton {
             icon.size = NSSize(width: size, height: size)
             image = icon
         } else {
-            image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: action.name)
+            let icon = NSImage.icon(.extension, size: .iconRowSize(forLabelPointSize: OmnibarStyle.buttonSymbolSize))
+            icon.accessibilityDescription = action.name
+            image = icon
         }
         toolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
