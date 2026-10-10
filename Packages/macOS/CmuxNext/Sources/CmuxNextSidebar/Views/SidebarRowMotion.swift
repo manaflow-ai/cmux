@@ -86,6 +86,14 @@ struct RowMotion {
         guard let key = list.selectedRowKey, let before = old.row(for: key)?.y, let after = layout.row(for: key)?.y,
               before != after else { return }
         let block = Self.block(of: key)
+        let passed = targets.map(\.0).filter { view in
+            guard !block(view.key), let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
+            return (was < before) != (now < after)
+        }
+        // Only a block that crosses rows is raised: re-adding a view delays its
+        // first frames, so a row an insert pushes down would lag the new row
+        // opening above it (cx-ai79).
+        guard !passed.isEmpty else { return }
         if let top = list.subviews.last(where: { $0 is SidebarRowView }) {
             var anchor = top
             for row in layout.rows where block(row.key) {
@@ -94,9 +102,8 @@ struct RowMotion {
                 anchor = view
             }
         }
-        for (view, _) in targets where !block(view.key) {
-            guard let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y,
-                  (was < before) != (now < after), let hide = Motion.passOverAnimation(.move) else { continue }
+        for view in passed {
+            guard let hide = Motion.passOverAnimation(.move) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
         }
     }
