@@ -59,6 +59,14 @@ import Testing
         #expect(!state.isDrag)
     }
 
+    @Test func clipboardWriteCountKeepsTripleClickWritesTogether() {
+        #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: true, clickCount: 1) == 1)
+        #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: false, clickCount: 1) == 0)
+        #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: false, clickCount: 2) == 1)
+        #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: false, clickCount: 3) == 2)
+        #expect(TerminalPointerGestureState.clipboardWriteCount(isDrag: false, clickCount: 99) == 3)
+    }
+
     @Test func newerPressReplacesUnfinishedPress() throws {
         var state = TerminalPointerGestureState()
         state.begin(windowNumber: 7, timestamp: 10, modifierFlagsRawValue: 1, permitsLinkActivation: true)

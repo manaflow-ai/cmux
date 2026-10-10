@@ -885,10 +885,8 @@ class GhosttyApp {
             // Mac's clipboard without a user gesture or confirmation.
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let terminalSurface = callbackContext.terminalSurface,
-                  let content = content, len > 0 else { return }
-            guard terminalSurface.allowsAutomaticClipboardWrite
-                || (terminalSurface.ioMode == .manualMirror
-                    && terminalSurface.consumeClipboardWritePermit()) else { return }
+                  let content = content else { return }
+            guard terminalSurface.permitsClipboardWrite(contentLength: Int(len)) else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
 
@@ -8614,10 +8612,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
             && !codexActionHandled
         if let completion,
-           (completion.isDrag || event.clickCount > 1),
-           terminalSurface?.ioMode == .manualMirror,
-           terminalSurface?.allowsAutomaticClipboardWrite == false {
-            terminalSurface?.permitClipboardWriteForUserGesture()
+           let terminalSurface,
+           terminalSurface.ioMode == .manualMirror,
+           terminalSurface.allowsAutomaticClipboardWrite == false {
+            let callbackCount = TerminalPointerGestureState.clipboardWriteCount(
+                isDrag: completion.isDrag,
+                clickCount: event.clickCount
+            )
+            if callbackCount > 0 {
+                terminalSurface.permitClipboardWriteForUserGesture(writeCount: callbackCount)
+            }
         }
         _ = dispatchCommandClickRelease(
             surface: surface,

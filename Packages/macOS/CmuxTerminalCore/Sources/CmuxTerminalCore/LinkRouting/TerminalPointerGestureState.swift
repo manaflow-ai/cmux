@@ -6,6 +6,23 @@ public import Foundation
 /// no earlier than its press. Completion always clears the pending state, so a
 /// rejected release cannot be reused by a later event.
 public struct TerminalPointerGestureState: Equatable, Sendable {
+    /// Returns the number of asynchronous clipboard callbacks a completed gesture may produce.
+    ///
+    /// A drag produces one copy. A repeated click produces one callback for
+    /// the word selection and another for the line selection; the count is
+    /// bounded so an unusual AppKit click count cannot create an unbounded
+    /// clipboard admission window.
+    ///
+    /// - Parameters:
+    ///   - isDrag: Whether pointer motion completed a drag selection.
+    ///   - clickCount: AppKit's click count for the release event.
+    /// - Returns: The bounded callback count, or zero for a plain click.
+    public static func clipboardWriteCount(isDrag: Bool, clickCount: Int) -> Int {
+        if isDrag { return 1 }
+        guard clickCount > 1 else { return 0 }
+        return min(max(clickCount - 1, 1), 3)
+    }
+
     /// The press-time authorization captured for a matched release.
     public typealias Completion = (
         modifierFlagsRawValue: UInt,
