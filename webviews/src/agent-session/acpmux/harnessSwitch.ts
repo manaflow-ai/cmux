@@ -302,6 +302,7 @@ export class HarnessSwitch {
     if (!port || !live) return Promise.resolve();
     const pick = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
+    this.configPick = undefined;
     this.changed();
     return port.setModel(model).catch((error) => {
       if (this.modelPick !== pick) return;
@@ -325,6 +326,7 @@ export class HarnessSwitch {
       if (!port || !live) return false;
       const pick = { sessionId: live.sessionId, configId, from: live.current, value };
       this.configPick = pick;
+      this.modelPick = undefined;
       this.changed();
       void port.setConfig(configId, value).catch((error) => {
         if (this.configPick !== pick) return;
