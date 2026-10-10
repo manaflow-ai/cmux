@@ -30,6 +30,7 @@ mod inbox;
 mod mux_ack;
 mod outbox;
 mod prewarm;
+mod previews;
 mod recover;
 mod side;
 mod spawns;
@@ -182,6 +183,12 @@ pub enum Input {
     StopSubagent {
         name: String,
         reply: Sender<serde_json::Value>,
+    },
+    /// The link previews of reply `key` (its part index, the preview); a
+    /// card missing here keeps its URL only.
+    Previews {
+        key: String,
+        fetched: Vec<(usize, crate::link_preview::Fetched)>,
     },
 }
 
@@ -466,6 +473,8 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
+    /// Fetches link previews for replies' URL lines (None: replies stay text).
+    previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
 
 impl Brain {
@@ -542,6 +551,7 @@ impl Brain {
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
+            previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -738,6 +748,7 @@ impl Brain {
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }
+            Input::Previews { key, fetched } => self.previews_fetched(&key, fetched),
         }
     }
 
@@ -1032,6 +1043,7 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         not_before: None,
         attempted: false,
         rate_attempts: 0,
+        previews_until: None,
     }
 }
 

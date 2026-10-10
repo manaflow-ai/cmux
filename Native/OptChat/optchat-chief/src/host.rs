@@ -1249,6 +1249,10 @@ fn start(
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
+    // Link cards on the Chief's replies (link_preview.rs); `0` turns them off.
+    if env("OPTCHAT_CHIEF_LINK_PREVIEWS").as_deref() != Some("0") {
+        brain.set_previewer(Arc::new(crate::link_preview::HttpFetcher::new()));
+    }
     let probe_delay = Arc::new(ProbeDelay::default());
     spawn_probe(
         probe_delay.clone(),
