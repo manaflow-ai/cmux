@@ -2528,6 +2528,7 @@ enum CmuxEmbeddedConfigSchema {
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",

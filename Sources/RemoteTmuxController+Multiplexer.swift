@@ -113,7 +113,7 @@ extension RemoteTmuxController {
     @discardableResult
     func teardownMultiplexedMirror(key: String) -> RemoteTmuxSessionMirror? {
         channelsByHostSession.removeValue(forKey: key)?.releaseMirror()
-        guard let mirror = sessionMirrors.removeValue(forKey: key) else { return nil }
+        guard let mirror = removeSessionMirror(forKey: key) else { return nil }
         mirror.detachObserver()
         return mirror
     }
@@ -608,12 +608,12 @@ extension RemoteTmuxController {
             ))
         }
         for move in moves {
-            sessionMirrors[move.oldKey] = nil
+            _ = removeSessionMirror(forKey: move.oldKey)
             channelsByHostSession[move.oldKey] = nil
         }
         for move in moves {
             let newName = move.rename.view.sessionName
-            sessionMirrors[move.newKey] = move.mirror
+            insertSessionMirror(move.mirror, forKey: move.newKey)
             if let channel = move.channel {
                 channelsByHostSession[move.newKey] = channel
                 channel.setSessionName(newName)

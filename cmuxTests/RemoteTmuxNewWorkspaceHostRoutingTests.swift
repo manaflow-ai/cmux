@@ -102,7 +102,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let run = try await runCreateThenFailedAttach(sessionName: "orphan", killExit: 0)
             #expect(run.failures == [
-                .attach(sessionName: "orphan", removed: true, detail: "control stream refused"),
+                .attach(sessionName: "orphan", removed: true),
             ])
             #expect(run.argv.contains("'new-session' '-d' '-P' '-F' '#{session_name}'"))
             #expect(run.argv.contains("'kill-session' '-t' '=orphan'"))
@@ -116,7 +116,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let run = try await runCreateThenFailedAttach(sessionName: "stuck", killExit: 1)
             #expect(run.failures == [
-                .attach(sessionName: "stuck", removed: false, detail: "control stream refused"),
+                .attach(sessionName: "stuck", removed: false),
             ])
             #expect(run.argv.contains("'kill-session' '-t' '=stuck'"))
             #expect(run.tabs == 0)
@@ -124,25 +124,26 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     }
 
     /// The three outcomes read differently: only a creation failure says nothing
-    /// was created, and only a left-behind session is named.
+    /// was created, and only a left-behind session is named. Remote command output
+    /// is never copied into the alert.
     @Test func theAlertSaysWhichStepFailed() {
         let create = RemoteTmuxController.newSessionFailureAlertText(
-            host: hostA, failure: .create(detail: "banner\nduplicate session: dev\n")
+            host: hostA, failure: .create
         )
         let removed = RemoteTmuxController.newSessionFailureAlertText(
-            host: hostA, failure: .attach(sessionName: "orphan", removed: true, detail: "control stream refused")
+            host: hostA, failure: .attach(sessionName: "orphan", removed: true)
         )
         let left = RemoteTmuxController.newSessionFailureAlertText(
-            host: hostA, failure: .attach(sessionName: "stuck", removed: false, detail: "")
+            host: hostA, failure: .attach(sessionName: "stuck", removed: false)
         )
         #expect(create.title != removed.title)
         #expect(removed.title == left.title)
         #expect(create.title.contains(hostA.destination))
         #expect(removed.title.contains(hostA.destination))
-        #expect(create.message.hasSuffix("\n\nduplicate session: dev"))
+        #expect(!create.message.contains("duplicate session: dev"))
         #expect(!create.message.contains("banner"))
-        #expect(removed.message.hasSuffix("\n\ncontrol stream refused"))
-        #expect(!removed.message.contains("orphan"))
+        #expect(!removed.message.contains("control stream refused"))
+        #expect(removed.message.contains("orphan"))
         #expect(left.message.contains("stuck"))
         #expect(removed.message != left.message)
     }
@@ -257,7 +258,10 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             }
 
             let request = try #require(controller.newSessionRequest(in: manager))
-            await controller.createAndMirrorSession(request, in: manager)
+            var completionCount = 0
+            await controller.createAndMirrorSession(request, in: manager) {
+                completionCount += 1
+            }
 
             let recordedArgv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
             // RemoteTmuxHost.tmuxRemoteCommand single-quotes every word of the remote
@@ -266,6 +270,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let created = try #require(manager.tabs.first { $0.title == "brand-new" })
             #expect(created.isRemoteTmuxMirror)
             #expect(manager.selectedTab?.id == created.id)
+            #expect(completionCount == 1)
         }
     }
 

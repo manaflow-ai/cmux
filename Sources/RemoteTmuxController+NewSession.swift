@@ -43,10 +43,10 @@ extension RemoteTmuxController {
     /// behind.
     enum NewSessionFailure: Equatable {
         /// `tmux new-session` did not create a session.
-        case create(detail: String)
+        case create
         /// The session was created and could not be attached. `removed` says
         /// whether cmux managed to remove it again.
-        case attach(sessionName: String, removed: Bool, detail: String)
+        case attach(sessionName: String, removed: Bool)
     }
 
     /// Synchronous read of the "New Workspace on the remote host" setting, resolved through
@@ -57,7 +57,11 @@ extension RemoteTmuxController {
     }
 
     /// Creates a detached tmux session on the request's host and mirrors it into `manager`.
-    func createAndMirrorSession(_ request: NewSessionRequest, in manager: TabManager) async {
+    func createAndMirrorSession(
+        _ request: NewSessionRequest,
+        in manager: TabManager,
+        onCreated: (@MainActor () -> Void)? = nil
+    ) async {
         let host = request.host
         // The manager must still be a REGISTERED main-window context after each
         // ssh round trip. `windowId(for:)` would also answer for a closed window's
@@ -78,7 +82,10 @@ extension RemoteTmuxController {
             guard managerIsLive() else { return }
             let created = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             guard result.succeeded, !created.isEmpty else {
-                newSessionEnvironment.reportFailure(host, .create(detail: result.stderr), manager)
+                #if DEBUG
+                cmuxDebugLog("remote-tmux: new-session returned no session: \(result.stderr)")
+                #endif
+                newSessionEnvironment.reportFailure(host, .create, manager)
                 return
             }
             name = created
@@ -87,7 +94,7 @@ extension RemoteTmuxController {
             cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
             #endif
             guard managerIsLive() else { return }
-            newSessionEnvironment.reportFailure(host, .create(detail: error.localizedDescription), manager)
+            newSessionEnvironment.reportFailure(host, .create, manager)
             return
         }
         // Then attach to it like any discovered session. The session exists on
@@ -98,7 +105,8 @@ extension RemoteTmuxController {
             // The user may have moved on to another tab while the round trip
             // ran (mirror, but don't steal selection).
             let select = manager.selectedTab?.id == request.activeTabId
-            _ = try newSessionEnvironment.attach(self, host, name, manager, select)
+            let attached = try newSessionEnvironment.attach(self, host, name, manager, select)
+            if attached { onCreated?() }
         } catch {
             #if DEBUG
             cmuxDebugLog("remote-tmux: attaching the new session \(name) failed: \(error)")
@@ -109,36 +117,22 @@ extension RemoteTmuxController {
             guard managerIsLive() else { return }
             newSessionEnvironment.reportFailure(
                 host,
-                .attach(sessionName: name, removed: removed, detail: error.localizedDescription),
+                .attach(sessionName: name, removed: removed),
                 manager
             )
         }
     }
 
-    /// The part of a failed `tmux new-session`'s stderr that goes in the alert: its last
-    /// non-empty line, without control characters, at most 200 characters. That line is
-    /// tmux's or ssh's own reason ("duplicate session: x", "Permission denied"); the rest
-    /// can be a login banner of any length, which an alert should not reproduce.
-    static func newSessionFailureReason(_ detail: String) -> String? {
-        let lines = detail.split(whereSeparator: \.isNewline).map { line in
-            String(String.UnicodeScalarView(line.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }))
-                .trimmingCharacters(in: .whitespaces)
-        }
-        guard let reason = lines.last(where: { !$0.isEmpty }) else { return nil }
-        return reason.count > 200 ? String(reason.prefix(200)) + "…" : reason
-    }
-
-    /// The alert's title and message for a failed routed New Workspace. The
-    /// message ends with the host's own reason when there is one.
+    /// Fixed, localized alert text for a failed routed New Workspace. Remote stderr and
+    /// error descriptions stay in debug logs only; they may contain untrusted host output.
     static func newSessionFailureAlertText(
         host: RemoteTmuxHost,
         failure: NewSessionFailure
     ) -> (title: String, message: String) {
         let title: String
         let message: String
-        let detail: String
         switch failure {
-        case .create(let createDetail):
+        case .create:
             title = String(
                 localized: "dialog.remoteTmux.newSessionFailed.title",
                 defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
@@ -147,8 +141,7 @@ extension RemoteTmuxController {
                 localized: "dialog.remoteTmux.newSessionFailed.message",
                 defaultValue: "tmux new-session failed on the remote host. No workspace was created."
             )
-            detail = createDetail
-        case .attach(let sessionName, let removed, let attachDetail):
+        case .attach(let sessionName, let removed):
             title = String(
                 localized: "dialog.remoteTmux.newSessionAttachFailed.title",
                 defaultValue: "Couldn't Open the New tmux Session on \(host.destination)"
@@ -162,9 +155,8 @@ extension RemoteTmuxController {
                     localized: "dialog.remoteTmux.newSessionAttachFailed.left.message",
                     defaultValue: "The session “\(sessionName)” was created, but cmux couldn't attach to it. It is still running on the host."
                 )
-            detail = attachDetail
         }
-        return (title, newSessionFailureReason(detail).map { "\(message)\n\n\($0)" } ?? message)
+        return (title, message)
     }
 
     static func presentNewSessionFailureAlert(host: RemoteTmuxHost, failure: NewSessionFailure, manager: TabManager) {

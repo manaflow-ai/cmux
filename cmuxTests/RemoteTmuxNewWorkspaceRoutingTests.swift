@@ -56,38 +56,42 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
 
     /// A mirror detached while its workspace stays open and selected flips the
     /// predicate with no selection change. The menu cannot see that through
-    /// selection, so the controller's mirror-set revision has to move too.
-    @Test func detachingTheSelectedMirrorChangesTheMirrorSetRevision() async throws {
+    /// selection, so the controller's observable mirror-membership snapshot has to move too.
+    @Test func detachingTheSelectedMirrorChangesMirrorMembership() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let controller = RemoteTmuxController()
             let manager = TabManager()
-            let before = controller.mirrorSet.value
+            let before = controller.mirrorMembership.workspaceIDs
 
             let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
             defer { controller.detach(host: host, sessionName: "esc") }
-            let mirrored = controller.mirrorSet.value
+            let mirrored = controller.mirrorMembership.workspaceIDs
             #expect(mirrored != before)
             #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
 
             controller.detachMirrorWorkspaceKeptOpenLocally(workspaceId: mirrorWorkspace.id)
             #expect(manager.selectedTab?.id == mirrorWorkspace.id)
             #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
-            #expect(controller.mirrorSet.value != mirrored)
+            #expect(controller.mirrorMembership.workspaceIDs != mirrored)
         }
     }
 
-    /// The alert shows tmux's or ssh's own last line, never a whole stderr.
-    @Test func newSessionFailureReasonIsOneBoundedLine() {
-        #expect(RemoteTmuxController.newSessionFailureReason("") == nil)
-        #expect(RemoteTmuxController.newSessionFailureReason(" \n\t\n") == nil)
-        #expect(RemoteTmuxController.newSessionFailureReason("duplicate session: work\n") == "duplicate session: work")
-        let banner = "Welcome to host\nAuthorized use only\n\nPermission denied (publickey).\n\n"
-        #expect(RemoteTmuxController.newSessionFailureReason(banner) == "Permission denied (publickey).")
-        #expect(RemoteTmuxController.newSessionFailureReason("bad\u{1B}[31m name\u{07}") == "bad[31m name")
-        let long = String(repeating: "x", count: 500)
-        #expect(RemoteTmuxController.newSessionFailureReason(long) == String(repeating: "x", count: 200) + "…")
+    /// The alert uses fixed product copy and never reproduces untrusted remote output.
+    @Test func newSessionFailureAlertDoesNotExposeRemoteErrorText() {
+        let create = RemoteTmuxController.newSessionFailureAlertText(
+            host: host,
+            failure: .create
+        )
+        let attach = RemoteTmuxController.newSessionFailureAlertText(
+            host: host,
+            failure: .attach(sessionName: "stuck", removed: false)
+        )
+        #expect(!create.message.contains("Permission denied"))
+        #expect(!create.message.contains("banner"))
+        #expect(!attach.message.contains("control stream refused"))
+        #expect(attach.message.contains("stuck"))
     }
 
     /// New Local Workspace on an ACTIVE MIRROR creates a plain local workspace —

@@ -70,13 +70,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "browser.disabled",
     "browser.importHintDismissed",
     "browser.importHintVariant",
-    # Beta toggles.
-    "cloud.beta.machines.enabled",
-    "customSidebars.beta.enabled",
-    "extensions.beta.enabled",
-    "remoteTmux.beta.enabled",
-    "remoteTmux.beta.newWorkspaceOnHost.enabled",
-    "rightSidebar.beta.feed.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",

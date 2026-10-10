@@ -8550,18 +8550,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         placementOverride: WorkspacePlacement? = nil,
-        debugSource: String = "newWorkspace"
+        debugSource: String = "newWorkspace",
+        skipConfiguredAction: Bool = false
     ) -> Bool {
-        // This is the context-following path used by configured/sidebar
-        // actions. The primary Cmd-N/File/palette controls call
-        // `performNewLocalWorkspaceAction` so they always stay local.
+        // This is the context-following path used by the ordinary New Workspace
+        // controls. On an active remote-tmux mirror it follows the routing toggle;
+        // `performNewLocalWorkspaceAction` is the explicit local escape hatch.
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
-        if let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
+        if !skipConfiguredAction, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
             return deviceWorkspaceCreationCoordinator?.start(on: machine, in: manager) ?? false
         }
-        if let manager,
+        if !skipConfiguredAction, let manager,
            let vmID = manager.selectedWorkspace?.cloudVMID,
            !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
@@ -8573,7 +8574,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredTabManager: preferredTabManager,
             event: event,
             placementOverride: placementOverride,
-            debugSource: debugSource
+            debugSource: debugSource,
+            skipConfiguredAction: skipConfiguredAction
         )
     }
 
@@ -8597,6 +8599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             debugSource: debugSource,
             skipConfiguredAction: true,
+            forceLocal: true,
             inheritWorkingDirectoryOverride: manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
         )
     }
@@ -8845,6 +8848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
         skipConfiguredAction: Bool = false,
+        forceLocal: Bool = false,
         inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
@@ -8919,11 +8923,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // On a remote-tmux mirror workspace, a new terminal workspace means
         // "create a new tmux session on that workspace's host" — route it to the
         // remote and mirror it back instead of creating a local workspace. The
-        // browser variant always stays local, and `skipConfiguredAction` (the "New Local
-        // Workspace" command) is the explicit escape hatch for opening local
-        // work alongside mirrors.
+        // browser variant always stays local, and `forceLocal` (the "New Local
+        // Workspace" command) is the explicit escape hatch for opening local work
+        // alongside mirrors. `skipConfiguredAction` only preserves the primary
+        // Cmd+N/File menu behavior on ordinary local windows.
         if initialSurface == .terminal,
-           !skipConfiguredAction,
+           !forceLocal,
            let context,
            remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
             return true
@@ -8941,11 +8946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
-<<<<<<< HEAD
            !skipConfiguredAction,
-=======
-           !forceLocal,
->>>>>>> 0b5bdc386cc (remote-tmux: bind New Local Workspace to Control+Cmd+N)
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -15675,7 +15676,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            performNewWorkspaceAction(
+                event: event,
+                debugSource: "shortcut.cmdN",
+                skipConfiguredAction: true
+            )
             return true
         }
 
@@ -18220,9 +18225,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 // Same routing as Cmd+N: on an active mirror workspace the
                 // built-in action creates a session on that mirror's host.
-                if !remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
-                    guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
+                if remoteTmuxController.handleNewWorkspaceRequested(
+                    in: context.tabManager,
+                    onCreated: onExecuted
+                ) {
+                    return true
                 }
+                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)

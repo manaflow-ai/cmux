@@ -886,9 +886,10 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewLocalWorkspaceAction(
+                        appDelegate.performNewWorkspaceAction(
                             tabManager: activeTabManager,
-                            debugSource: "menu.newWorkspace"
+                            debugSource: "menu.newWorkspace",
+                            skipConfiguredAction: true
                         )
                     } else {
                         activeTabManager.addWorkspaceIfActive()
@@ -1439,13 +1440,13 @@ struct cmuxApp: App {
     /// window-focus and workspace-selection changes: the coordinator refreshes its
     /// state when focus history changes and when a window becomes key, and a window
     /// must become key before its menu bar opens. Also reads the controller's
-    /// `mirrorSet`, which changes when a mirror is added or removed. A workspace can
+    /// mirror-membership, which changes when a mirror is added or removed. A workspace can
     /// start or stop being a mirror while it stays selected, and neither focus nor
     /// selection changes when that happens.
     private var newLocalWorkspaceMenuItemVisible: Bool {
         let _ = historyMenuCoordinator.state
         guard let appDelegate = AppDelegate.shared else { return false }
-        let _ = appDelegate.remoteTmuxController.mirrorSet.value
+        let _ = appDelegate.remoteTmuxController.mirrorMembership.workspaceIDs
         return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
     }
 
