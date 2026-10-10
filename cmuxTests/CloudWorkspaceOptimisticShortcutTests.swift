@@ -14,7 +14,7 @@ import Testing
 @Suite(.serialized, .exclusiveAppContext)
 struct CloudWorkspaceOptimisticShortcutTests {
     @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
-          arguments: ["stay", "beforeResolution", "beforeProvider", "awayAndBack", "afterAdmission", "background"])
+          arguments: ["stay", "beforeResolution", "beforeProvider", "providerDelay", "awayAndBack", "afterAdmission", "background"])
     func optimisticSelection(navigation: String) async throws {
         let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
         defer { fixture.close() }
@@ -32,6 +32,10 @@ struct CloudWorkspaceOptimisticShortcutTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let pins = CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" })
+        let providerEntered = AsyncStream<Void>.makeStream()
+        let providerRelease = AsyncStream<Void>.makeStream()
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
         let operations = CloudWorkspaceOperationController(isAvailable: { true })
         fixture.app.cloudWorkspaceOperationController = operations
         defer { fixture.app.cloudWorkspaceCoordinator = nil; operations.cancelAll() }
@@ -47,25 +51,33 @@ struct CloudWorkspaceOptimisticShortcutTests {
             tabManager: { $0 == fixture.windowID ? manager : nil },
             provider: { id in
                 #expect(id == fixture.provider.machine.rawValue)
+                if navigation == "providerDelay" {
+                    providerEntered.continuation.yield(())
+                    for await _ in providerRelease.stream { break }
+                }
                 if navigation == "beforeProvider" { manager.selectWorkspace(other) }
                 return fixture.provider
             },
             catalog: fixture.catalog
         )
         fixture.provider.usesReceipt = true
-        let entered = AsyncStream<Void>.makeStream()
-        let release = AsyncStream<Void>.makeStream()
-        defer { release.continuation.finish() }
+        defer { providerRelease.continuation.finish(); release.continuation.finish() }
         fixture.provider.beforeCreate = {
             entered.continuation.yield(())
             for await _ in release.stream { break }
         }
 
         #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager))
-        for await _ in entered.stream { break }
-        let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
-        let reservation = try #require(operation.reservation)
-        let pending = try #require(manager.workspacesById[reservation.workspaceID])
+        if navigation == "providerDelay" {
+            for await _ in providerEntered.stream { break }
+        } else {
+            for await _ in entered.stream { break }
+        }
+        let pending = try #require(manager.tabs.first {
+            $0.cloudVMBinding?.vmID == fixture.provider.machine.rawValue
+                && !$0.cloudPendingCreations.isEmpty
+        })
+        let reservation = try #require(pending.cloudPendingCreations.values.first)
         let shouldSelect = navigation == "stay" || navigation == "afterAdmission"
         let previous = navigation == "beforeResolution" || navigation == "beforeProvider" ? other.id : original.id
         #expect(fixture.provider.createdWorkspaces.isEmpty, "The remote response is still held open")
@@ -74,6 +86,8 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(pending.cloudVMBinding?.remoteWorkspaceID == nil)
         #expect(pending.cloudPendingCreations[reservation.panelID] === reservation)
         if navigation == "afterAdmission" { manager.selectWorkspace(other) }
+        if navigation == "providerDelay" { providerRelease.continuation.yield(()) }
+        for await _ in entered.stream { break }
         release.continuation.yield(())
         await operations.waitForPendingOperations()
 

@@ -86,13 +86,29 @@ extension cmuxApp {
                           let manager, !manager.isFinalizedForWindowClose else { throw CancellationError() }
                 }
                 try validate()
+                let host = CloudWorkspaceCreationHost(manager: manager)
+                let focus = request.selectionRevision == manager.cloudWorkspaceSelection.revision
+                let reservation = try catalog.cloudWorkspaceCreationCoordinator.reserveLocalWorkspace(
+                    machine: .cloud(request.machineID),
+                    title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                    focus: focus,
+                    host: host,
+                    validateOperation: validate
+                )
+                var handedToCreation = false
+                defer {
+                    if !handedToCreation {
+                        host.discard(reservation, catalog: catalog)
+                    }
+                }
                 guard let provider = await provider(request.machineID) else {
                     throw VMClientError.backendUnreachable(url: AuthEnvironment.apiBaseURL.absoluteString, detail: "Cloud machine provider unavailable")
                 }
                 try validate()
+                handedToCreation = true
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(request.machineID), provider: provider, catalog: catalog,
-                    name: nil, focus: true, host: .init(manager: manager),
+                    name: nil, focus: focus, existingReservation: reservation, host: host,
                     validateOperation: validate
                 )
                 return result.opened?.workspaceID

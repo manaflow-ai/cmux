@@ -17,6 +17,7 @@ final class CloudWorkspaceCreationCoordinator {
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
         existingRemoteView: SurfaceRemoteView? = nil,
+        existingReservation: CloudTerminalPaneReservation? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
@@ -34,6 +35,14 @@ final class CloudWorkspaceCreationCoordinator {
         )
         operation.validateOperation = validateOperation
         operation.existingRemoteView = existingRemoteView
+        if let existingReservation {
+            guard existingReservation.machine == provider.machine,
+                  host?.isLive(existingReservation) == true else { throw CancellationError() }
+            operation.reservation = existingReservation
+            operation.wasPreAdmitted = true
+            let operationID = operation.id
+            existingReservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+        }
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
@@ -43,6 +52,28 @@ final class CloudWorkspaceCreationCoordinator {
             // perform's catch also owns the same idempotent cleanup on unwind.
             Task { @MainActor [weak self] in self?.cancel(operation.id) }
         }
+    }
+
+    /// Admits a local Cloud workspace before provider discovery. The returned
+    /// reservation must be handed to ``create`` or discarded by the caller.
+    func reserveLocalWorkspace(
+        machine: SurfaceMachineID,
+        title: String,
+        focus: Bool,
+        host: CloudWorkspaceCreationHost,
+        validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
+    ) throws -> CloudTerminalPaneReservation {
+        guard let catalog, host.isAvailable else { throw CancellationError() }
+        try validateOperation()
+        let reservation = try host.reserve(title: title, machine: machine, focus: focus)
+        catalog.bindCloudWorkspace(
+            localWorkspaceID: reservation.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: nil,
+            generatedTitle: title
+        )
+        catalog.notifyChange()
+        return reservation
     }
 
     /// Opens an already-authoritative Cloud workspace through the same local
@@ -309,7 +340,7 @@ final class CloudWorkspaceCreationCoordinator {
         operation.isRunning = true
         operation.failure = nil
         defer { operation.isRunning = false }
-        if let reservation = operation.reservation { operation.host?.restart(reservation) }
+        if let reservation = operation.reservation, !operation.wasPreAdmitted { operation.host?.restart(reservation) }
         do {
             return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                                  existingTerminal: existingTerminal, catalog: catalog)
