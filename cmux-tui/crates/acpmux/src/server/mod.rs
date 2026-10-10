@@ -747,6 +747,7 @@ async fn serve_connection_from(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    chats::push_activity(hub, conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -840,7 +841,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "tags"
             | "turn_started"
             | "turn_result" => rec.kind.as_str(),
-            "queued" | "dequeued" => "queue",
+            "queued" | "dequeued" | "queue_removed" => "queue",
             "permission_auto" => "permission_resolved",
             _ => return,
         };

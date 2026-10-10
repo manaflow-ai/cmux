@@ -247,6 +247,14 @@ enum AgentHandlers {
         let services = context.services
         guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
               let windowID = context.activeWindow?.state.id else { return false }
+        // Cmd-I again on a chat that has not started yet (loaded, untouched, no prompt sent):
+        // that chat is the one target, already on screen. It takes the keyboard; no second
+        // workspace, page load, loading mark or repaint (cx-vurv).
+        if let model = pane.currentTabKey.flatMap({ services.agentTabs.existingView($0) })?.model, model.sessionId == nil, model.newTab == nil,
+           model.hasHandshake, !model.userTouched, model.transport.sessions.isUnstarted {
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            return true
+        }
         let folder = pane.selectedTab?.cwd
         services.newTabKinds.record(.agent, folder: folder)
         let source = pane.agentSeedFromSelectedTab()

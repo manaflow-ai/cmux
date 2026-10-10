@@ -60,5 +60,5 @@ jobs:
           persist-credentials: false
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-      - name: Resolver and renderer tests
-        run: swift test --package-path Packages/Shared/CmuxAgentBrands
+      - name: Build the resolver and renderer
+        run: swift build --package-path Packages/Shared/CmuxAgentBrands

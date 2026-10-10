@@ -591,6 +591,7 @@ mod unix {
     pub(crate) mod adopt_launch;
     mod adopted_child;
     mod host_scope;
+    mod host_session;
     pub(crate) mod host_signals;
     mod host_start;
     mod pty_custody;
@@ -609,6 +610,8 @@ mod unix {
     use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use super::shared::host_start::start_host_runtime;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
+    pub use host_session::enter_terminal_host_process;
+    pub(crate) use host_session::host_session_env;
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
@@ -797,8 +800,9 @@ pub(crate) use unix::{
 };
 #[cfg(unix)]
 pub use unix::{
-    PtyCustody, TerminalHostAdoption, isolate_terminal_host_process_fds,
-    launch_terminal_host_adopting, request_terminal_host_pty_custody, terminal_host_root,
+    PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
+    isolate_terminal_host_process_fds, launch_terminal_host_adopting,
+    request_terminal_host_pty_custody, terminal_host_root,
 };
 
 #[cfg(not(unix))]
@@ -808,6 +812,11 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
 
 #[cfg(not(unix))]
 pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn enter_terminal_host_process() -> anyhow::Result<()> {
     Ok(())
 }
 
