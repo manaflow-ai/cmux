@@ -24,11 +24,10 @@ struct FloatingCardBrowser: OnboardingScreenVariant {
 
 final class FloatingCardBrowserBody: BrowserClaimView {
     private let status = OnboardingLabel.make(color: Palette.textSecondary, lines: 2)
-    private var button: NSButton!
+    private lazy var button: NSButton = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, prominent: true, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, prominent: true, target: self, action: #selector(requestClaim))
         button.setContentCompressionResistancePriority(.required, for: .horizontal)
         let row = NSStackView(views: [button, status])
         row.orientation = .horizontal

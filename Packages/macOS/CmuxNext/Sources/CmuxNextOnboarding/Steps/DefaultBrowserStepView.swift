@@ -6,13 +6,12 @@ import CmuxNextDesign
 final class DefaultBrowserStepView: NSView {
     private let model: DefaultAppsStepModel
     private let status = OnboardingLabel.make(color: Palette.textSecondary, lines: 2)
-    private var button: NSButton!
+    private lazy var button: NSButton = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(press))  // no IUO (crash program)
     private var loop: RenderLoop?
 
     init(model: DefaultAppsStepModel) {
         self.model = model
         super.init(frame: .zero)
-        button = OnboardingControl.button(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(press))
         let stack = NSStackView(views: [status, button])
         stack.orientation = .vertical
         stack.alignment = .leading

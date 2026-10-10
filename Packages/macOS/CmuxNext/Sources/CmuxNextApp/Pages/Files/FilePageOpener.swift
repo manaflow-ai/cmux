@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 
 /// The file viewer seam (R89 ``FileOpening``) for the file pages: every file open (Open File...,
 /// the cmux picker, `file.open` and `cmux file open`, Finder drops on a file page, a followed link
@@ -19,6 +20,12 @@ final class FilePageOpener: FileOpening {
     nonisolated static let previewExtensions: Set<String> = Set([
         "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
     ]).union(AgentPaneFileOpen.mediaExtensions)
+
+    /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
+    /// cannot decode (``LocalFileHandoff``), else nil (the default engine).
+    nonisolated static func tabEngine(for url: URL) -> String? {
+        url.localFileHandoff == .webKitTab ? BrowserEngineTag.webkit.rawValue : nil
+    }
 
     /// The page that opens `url`, nil for a file the browser tab previews.
     nonisolated static func kind(for url: URL) -> FilePageKind? {
@@ -42,7 +49,7 @@ final class FilePageOpener: FileOpening {
             services.viewers.editorPages.open(url, in: pane, focus: true, userChose: userChose)
         case nil:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
-            pane.newBrowserTab(url: url)
+            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url))
         }
         return nil
     }

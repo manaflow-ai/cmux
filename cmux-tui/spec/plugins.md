@@ -159,6 +159,35 @@ writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
 the previous child instead of leaving stale detection active.
 
+#### Bundled default
+
+Without an `agents.plugin` entry, the daemon supervises the screen detector
+that ships beside it: an executable file named `cmux-agent-screen-detection`
+in the directory of the daemon's own executable (symlinks resolved; the
+cmux-next app bundles it in `Contents/Resources/bin`). On Unix the file must be
+executable. It runs with producer ID `cmux_screen_detection`, `command` set to
+that absolute path, no `cwd`, and a `revision` derived from the file's identity
+(device, inode, size, modification time), so an app update that replaces the
+file restarts the child. Hook producers still win over it in the roster reducer.
+
+```json
+{ "agents": { "screen_detection": false } }
+```
+
+`agents.screen_detection: false` turns the bundled default off; it defaults to
+`true`. An explicit `agents.plugin` always replaces the default, even when
+`screen_detection` is `false`. The ID `cmux_screen_detection` is reserved for
+the bundled default; an explicit entry with it is refused. An explicit entry
+that is invalid (no ID, empty or relative command, reserved ID) disables agent
+plugins and never falls back to the bundled default. A config file that fails
+to parse (syntax error, non-object root, unknown top-level key) or an `agents`
+section that fails to parse (wrong type, unknown key) also starts nothing,
+because the user's choice is unknown. Removing the explicit entry
+(`cmux agent plugin remove`, or `cmux agent plugin use --builtin`) restores the
+default. Older cmux-tui builds do not know `screen_detection` and reject the
+whole `agents` section that contains it. The bundled default is Unix-only; other platforms never
+start it, and a daemon without the sibling file starts nothing.
+
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 `CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
 `CMUX_PLUGIN_REVISION`,

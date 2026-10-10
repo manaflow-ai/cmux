@@ -96,7 +96,7 @@ mod tests {
     use crate::resource::TerminalPublicId;
 
     #[test]
-    fn registry_lock_held_past_the_journal_deadline_does_not_fail_the_writer() {
+    fn registry_connection_held_past_the_journal_deadline_does_not_fail_the_writer() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-contention-{}-{}",
             std::process::id(),
@@ -108,12 +108,13 @@ mod tests {
         let (failed, failed_receiver) = sync_channel(1);
         mux.install_journal_failure_notifier_for_test(failed);
 
-        // A slow registry holder: longer than the writer's 2 s deadline.
+        // A slow registry connection holder (the writer's only lock): longer
+        // than the writer's 2 s deadline.
         let locked_mux = mux.clone();
         let (entered, entered_receiver) = sync_channel(1);
         let (release, release_receiver) = sync_channel(1);
         let blocker = std::thread::spawn(move || {
-            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+            locked_mux.hold_registry_connection_for_test(entered, release_receiver);
         });
         entered_receiver.recv().unwrap();
         let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 21)).unwrap());

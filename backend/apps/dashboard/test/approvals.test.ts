@@ -65,6 +65,9 @@ describe("integration approval feed items", () => {
     expect(parseApproval(feedItem({ kind: "confirm" }))).toBeNull()
     // Only the team named in the approval may have posted it (the API ignores any other answer).
     expect(parseApproval(feedItem({ poster: { kind: "integration", scope: "system:connections:team_2", label: "Integrations" } }))).toBeNull()
+    // A Cloud request from a device (cx-wb5.65) is posted by the same team's CloudDO.
+    expect(parseApproval(feedItem({ poster: { kind: "integration", scope: "system:cloud:team_1", label: "Cloud" } }))).toMatchObject({ request: REQUEST, team: "team_1" })
+    expect(parseApproval(feedItem({ poster: { kind: "integration", scope: "system:cloud:team_2", label: "Cloud" } }))).toBeNull()
     expect(parseApproval(feedItem({ prompt: { action: { input: { approval: { team: "team_1", request: "apr_bad", digest: DIGEST } } } } }))).toBeNull()
   })
 })

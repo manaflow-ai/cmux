@@ -47,6 +47,10 @@ public enum BrowserTabIntent {
     /// cancelled it. The host re-creates the tab in the other store with
     /// `url` (plans/cmux-next/remote-localhost.md section 3).
     case rerouteStore(URL)
+    /// The tab handed off a main-frame navigation to the local file `url`
+    /// (`LocalFileHandoff`) and stayed where it was. The host opens the file
+    /// in cmux's markdown page or a WebKit tab.
+    case openLocalFile(URL)
     /// The page did not handle an Escape key down (a popup panel closes on
     /// it; a tab ignores it).
     case unhandledEscape

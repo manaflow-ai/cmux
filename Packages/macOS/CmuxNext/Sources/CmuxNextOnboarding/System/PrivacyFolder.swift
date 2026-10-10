@@ -10,23 +10,11 @@ import Foundation
 public nonisolated enum PrivacyFolder: String, CaseIterable, Sendable {
     case desktop, documents, downloads, pictures, music, movies, iCloudDrive, cloudStorage, appData, volumes, network
 
-    /// The folders of this kind for the user whose home is `home`.
+    /// The folders of this kind for the user whose home is `home`, from the one
+    /// protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
     func roots(home: URL) -> [String] {
-        func inHome(_ relative: String) -> String { home.appending(path: relative).path }
-        return switch self {
-        case .desktop: [inHome("Desktop")]
-        case .documents: [inHome("Documents")]
-        case .downloads: [inHome("Downloads")]
-        case .pictures: [inHome("Pictures")]
-        case .music: [inHome("Music")]
-        case .movies: [inHome("Movies")]
-        case .iCloudDrive: [inHome("Library/Mobile Documents")]
-        case .cloudStorage: [inHome("Library/CloudStorage")]
-        case .appData: ["Library/Containers", "Library/Group Containers", "Library/Mail", "Library/Messages",
-                        "Library/Safari", "Library/Calendars"].map(inHome)
-        case .volumes: ["/Volumes"]
-        case .network: ["/Network", "/net"]
-        }
+        ProtectedFolderEntry.inHome.filter { $0.kind == rawValue }.map { home.appending(path: $0.path).path }
+            + ProtectedFolderEntry.roots.filter { $0.kind == rawValue }.map(\.path)
     }
 
     /// The kind `path` (absolute, standardized) sits in, if any. The Mac's

@@ -46,6 +46,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var defaultKind: String?
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
+    /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
+    /// "classic" or "terminal"); nil follows `layout`. The page validates it.
+    public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The home folder, so the field reads `~/path` as a folder.
@@ -54,11 +57,14 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var tools: [Tool]
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
+    /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
+    /// nil focuses it.
+    public var focusesField: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
-                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = []) {
+                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -69,6 +75,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.defaultKind = defaultKind
         self.layout = layout
+        self.template = template
         self.lastAgent = lastAgent
         self.home = home
         self.tools = tools

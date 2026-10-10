@@ -227,7 +227,7 @@ application-level rule on top of RFC 6455 framing.
 
 Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
 
-The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response`. Deployments that need less authority must use a future distinct relay profile.
+The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response` (deny only; approving a pairing needs a human surface, see Authentication and Pairing). Deployments that need less authority must use a future distinct relay profile.
 
 ## WebSocket
 
@@ -240,8 +240,10 @@ WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
 cmux --ws 127.0.0.1:7681
-cmux --headless --ws 127.0.0.1:7681
+cmux --headless --ws 127.0.0.1:7681 --ws-token <secret>
 ```
+
+A headless daemon has no TUI to approve a pairing, so `--headless --ws` without `--ws-token` (or `server.ws_token`) refuses to start (fail closed). The rule that only a human surface approves a pairing holds against same-user agents on signed builds only: on an unsigned DEV build the app's install-key prover is a same-user file, so a same-user process can pass as the app (identity.md threat model).
 
 The equivalent config is:
 
@@ -269,7 +271,7 @@ Every WebSocket authenticates before protocol commands are dispatched. Interacti
 {"pair":{"request":true}}
 ```
 
-The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval is an explicit action (the `y` key or the Approve button; Enter does not approve), so input typed while the prompt appears cannot admit a client. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
+The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. Only a human surface approves it: the TUI that runs the daemon (in process) or the verified cmux app (the `frontend` actor). Any other local connection, an attached or SSH-relayed TUI, an agent in a pane, a script or the CLI included, may deny but not approve (`pairing-response` and `pairing_request.resolve` refuse the approval with `origin_forbidden`). Approval is an explicit action (the `y` key or the Approve button; Enter does not approve), so input typed while the prompt appears cannot admit a client. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
 
 Set `--ws-token <token>` or `server.ws_token` to add a non-interactive static-token bypass; the command-line flag takes precedence over config:
 

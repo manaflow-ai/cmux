@@ -1,0 +1,4 @@
+/build/
+/.build/
+/.swiftpm/
+/Sources/CmuxMobileFFI/*.swift

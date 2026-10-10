@@ -144,13 +144,13 @@ public enum JSONValue: Sendable, Hashable {
             return "[\n" + body.joined(separator: ",\n") + "\n" + outer + "]"
         case .object(let members):
             guard !members.isEmpty else { return "{}" }
-            let keys = members.keys.sorted()
+            let sorted = members.sorted { $0.key < $1.key }
             guard let indent else {
-                return "{" + keys.map { Self.quote($0) + ":" + members[$0]!.render(indent: nil, level: 0) }.joined(separator: ",") + "}"
+                return "{" + sorted.map { Self.quote($0.key) + ":" + $0.value.render(indent: nil, level: 0) }.joined(separator: ",") + "}"
             }
             let inner = base + String(repeating: indent, count: level + 1)
             let outer = base + String(repeating: indent, count: level)
-            let body = keys.map { inner + Self.quote($0) + ": " + members[$0]!.render(indent: indent, level: level + 1, base: base) }
+            let body = sorted.map { inner + Self.quote($0.key) + ": " + $0.value.render(indent: indent, level: level + 1, base: base) }
             return "{\n" + body.joined(separator: ",\n") + "\n" + outer + "}"
         }
     }

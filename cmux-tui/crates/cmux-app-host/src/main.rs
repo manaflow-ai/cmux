@@ -1,5 +1,6 @@
 //! `cmux-app-host`: spawned by the daemon's app supervisor with fd 3 as its
-//! channel. `--sandbox-self-test <path>` exists for the integration tests.
+//! channel. `--profile script` runs a script session (the script limits);
+//! `--sandbox-self-test <path>` exists for the integration tests.
 
 use cmux_app_host::host_loop::{self, exit};
 use cmux_app_host::{Limits, sandbox};
@@ -9,11 +10,23 @@ fn main() {
     if args.first().map(String::as_str) == Some("--sandbox-self-test") {
         std::process::exit(sandbox::self_test(args.get(1).map_or("/etc/hosts", String::as_str)));
     }
-    std::process::exit(serve());
+    let code = match args.as_slice() {
+        [] => serve(Limits::default()),
+        [flag, profile]
+            if flag == "--profile" && profile == cmux_app_host::protocol::SCRIPT_PROFILE =>
+        {
+            serve(Limits::script())
+        }
+        _ => {
+            eprintln!("cmux-app-host: unknown arguments");
+            exit::PROTOCOL
+        }
+    };
+    std::process::exit(code);
 }
 
 #[cfg(unix)]
-fn serve() -> i32 {
+fn serve(limits: Limits) -> i32 {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
 
@@ -35,11 +48,11 @@ fn serve() -> i32 {
         Ok(write) => write,
         Err(_) => return exit::IO,
     };
-    host_loop::run(stream, write, Limits::default())
+    host_loop::run(stream, write, limits)
 }
 
 #[cfg(not(unix))]
-fn serve() -> i32 {
+fn serve(_limits: Limits) -> i32 {
     eprintln!("cmux-app-host: this platform has no app host");
     exit::SANDBOX
 }

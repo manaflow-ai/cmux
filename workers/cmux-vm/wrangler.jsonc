@@ -88,7 +88,14 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Stack team ids treated as dev/test in production (idle timeout <= 300 s).
-        "DEV_TEST_TENANT_IDS": "",
+        // cmux-vm-smoke-service is no Stack team: only the production smoke service key
+        // (teams ["cmux-vm-smoke-service"], role=chief VMs only) acts for it (smoke-production).
+        "DEV_TEST_TENANT_IDS": "cmux-vm-smoke-service",
+        // The manaflow-team flag (cx-b4h.16): production Stack teams entitled to create without billing
+        // during the internal phase; product tenants (no dev/test idle cap). Checked 2026-10-09 in the
+        // production Stack project: "cmux" (austin, aziz, lawrence) and those three people's personal teams
+        // (Lawrence Chen's workspace, AUSTIN, Aziz Albahar's Team). Add a team id here in a reviewed change.
+        "MANAFLOW_TEAM_TENANT_IDS": "d13acd51-c77d-438a-9610-5369455e2a2f,eff137f0-2e49-409e-bd6e-6e2d46cf3f1d,8e288bf9-264c-44a3-9d85-f22cbff2a6ad,50c7631c-c546-45d8-9b98-2a5744b4cdad",
         // JSON object of Stack team id to live VM limit; the default is 20.
         "TENANT_VM_QUOTAS": "{}",
         "STACK_API_URL": "https://api.stack-auth.com",

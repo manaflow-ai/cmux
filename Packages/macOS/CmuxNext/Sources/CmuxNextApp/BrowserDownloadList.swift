@@ -25,6 +25,9 @@ final class BrowserDownloadList {
     /// SiteSettings` opens that site's Site settings from it.
     private(set) var latestBlocked: (site: String, tab: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "downloads")
+    /// Each new download and its tab: the browser host reports it to an
+    /// agent driving that tab (`download.started`, then `download.finished`).
+    var onDownload: ((BrowserDownload, String) -> Void)?
 
     /// Adds `item` (from tab `key`); `notice` shows a line over that tab.
     func add(_ item: BrowserDownload, tab key: String, notice: @escaping (BrowserDownloadNotice) -> Void) {
@@ -32,6 +35,7 @@ final class BrowserDownloadList {
         items.append(item)
         if items.count > Self.limit { items.removeFirst(items.count - Self.limit) }
         logger.notice("download \(item.id, privacy: .public) started in tab \(key, privacy: .public)")
+        onDownload?(item, key)
         item.onFinish { [weak self] item in
             if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)

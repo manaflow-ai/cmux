@@ -87,7 +87,7 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
     push_due_at: null
   })
   const decision = (d.value.answer as { decision?: unknown } | null)?.decision === "allow" ? "allow" : "deny"
-  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, outbox: approvalDecision(next, decision) }
+  return { ok: true, state: withItems(state, [next], releaseDedupe(state.dedupe, item)), value: { item: next }, outbox: approvalDecision(next, decision, ctx.principal.sso_team) }
 }
 
 const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Result => {

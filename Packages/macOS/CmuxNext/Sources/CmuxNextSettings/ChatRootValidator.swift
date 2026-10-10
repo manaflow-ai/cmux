@@ -56,12 +56,12 @@ public nonisolated struct ChatRootValidator: Sendable {
             return SettingsText.keyed("settings.chats.root.home", "Choose a harness data folder, not your home folder.").text
         }
         func under(_ root: String) -> Bool { folded == root || folded.hasPrefix(root + "/") }
-        if ["volumes", "network", "net"].contains(where: under) {
+        // The one protected-folder list: cmux-tui/crates/acpmux/data/protected-folders.json.
+        let volumes = ProtectedFolderEntry.roots.map { $0.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+        if volumes.contains(where: under) {
             return SettingsText.keyed("settings.chats.root.volume", "Folders on other or network volumes are not allowed.").text
         }
-        let guarded = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Movies",
-                       "Library/Mobile Documents", "Library/CloudStorage", "Library/Containers",
-                       "Library/Group Containers", "Library/Mail", "Library/Messages", "Library/Safari", "Library/Calendars"]
+        let guarded = ProtectedFolderEntry.inHome.map(\.path)
         if homes.contains(where: { home in guarded.contains { under(home + "/" + $0.lowercased()) } }) {
             return SettingsText.keyed("settings.chats.root.protected", "This folder is protected by macOS privacy controls.").text
         }

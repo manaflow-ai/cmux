@@ -11,9 +11,10 @@ import rawEmoji from "../../icon-picker/generated/emoji-data.json";
 import { encodeIcon, type IconValue } from "../../icon-picker/iconValue";
 import { IconPicker } from "../../icon-picker/IconPicker";
 import { PickerStore } from "../../icon-picker/store";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import type { SymbolMode } from "../../icon-picker/symbols";
 import table from "./generated/strings.json";
-import { hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
+import { CLIPBOARD_WRITE, hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
 
 export interface MountedPicker {
   readonly store: PickerStore;
@@ -70,19 +71,25 @@ export function mountIconPicker(
       flushSync(render);
     });
   const reactRoot = makeRoot(root);
+  const copyText = client
+    ? (text: string) => void client.call(CLIPBOARD_WRITE, { text }).catch(() => undefined)
+    : undefined;
   const render = () =>
     reactRoot.render(
-      <IconPicker
-        key={session.id}
-        store={store}
-        strings={strings}
-        onPick={(value: IconValue) => finish({ value: encodeIcon(value) })}
-        onCancel={() => finish({ cancel: true })}
-        onClear={session.canClear ? () => finish({ clear: true }) : undefined}
-        assets={client && session.assets ? hostAssets(client) : undefined}
-        symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
-        error={failure}
-      />,
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <IconPicker
+          key={session.id}
+          store={store}
+          strings={strings}
+          onPick={(value: IconValue) => finish({ value: encodeIcon(value) })}
+          onCancel={() => finish({ cancel: true })}
+          onClear={session.canClear ? () => finish({ clear: true }) : undefined}
+          onCopyText={copyText}
+          assets={client && session.assets ? hostAssets(client) : undefined}
+          symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
+          error={failure}
+        />
+      </UiProvider>,
     );
   const open = (next: PickerSession) => {
     const catalog = sessionCatalog(next);
