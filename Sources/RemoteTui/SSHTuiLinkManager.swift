@@ -285,6 +285,10 @@ extension SSHTuiLinkManager {
                 ended.resolve(terminated.terminationStatus)
                 ready.resolve(nil)
             }
+            // Cancellation can arrive after the caller has created the start
+            // task but before this actor reaches Process.run(). Do not launch
+            // a forward for a route that has already stopped.
+            try Task.checkCancellation()
             try child.run()
             process = child
             exit = ended

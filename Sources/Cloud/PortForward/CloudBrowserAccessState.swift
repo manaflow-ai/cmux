@@ -384,9 +384,12 @@ final class CloudBrowserAccessState {
             return nil
         }
         guard navigationURL != url else { return nil }
+        // Keep the original request as the route's replay template. A forward
+        // child can exit after readiness and be replaced on a new listener;
+        // rebuilding from the URL alone would silently turn a POST into a GET
+        // and drop its headers/body on that recovery path.
         var request = pendingNavigationRequest ?? URLRequest(url: url)
         request.url = url
-        pendingNavigationRequest = nil
         navigationURL = url
         hasCommittedNavigation = false
         error = nil

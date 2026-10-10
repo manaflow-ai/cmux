@@ -129,7 +129,8 @@ struct CloudPortRoutePlanTests {
 
     @Test("SSH forward readiness preserves the submitted request")
     func forwardedRequestKeepsMethodHeadersAndBody() async throws {
-        let model = makeModel(forward: { _ in 46_902 }, route: .loopback)
+        var listenerPort: UInt16 = 46_902
+        let model = makeModel(forward: { _ in listenerPort }, route: .loopback)
         let state = CloudBrowserAccessState()
         let remote = URL(string: "http://10.0.0.7:3000/submit")!
         var request = URLRequest(url: remote)
@@ -148,6 +149,18 @@ struct CloudPortRoutePlanTests {
         #expect(forwarded.httpMethod == "POST")
         #expect(forwarded.httpBody == Data("name=cmux".utf8))
         #expect(forwarded.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+
+        // A dead SSH child is replaced on a new listener. The route must
+        // replay the same request template instead of silently downgrading it
+        // to a GET with no body.
+        listenerPort = 46_904
+        model.retry()
+        #expect(await wait { navigations.count == 2 })
+        let replayed = try #require(navigations.last)
+        #expect(replayed.url?.port == 46_904)
+        #expect(replayed.httpMethod == "POST")
+        #expect(replayed.httpBody == Data("name=cmux".utf8))
+        #expect(replayed.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
         await model.retire()
     }
 
