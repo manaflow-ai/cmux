@@ -53,14 +53,6 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "MessagesLabSidebarTests",
-            dependencies: ["MessagesLabSidebar"],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-                .define("APPKIT_NATIVE"),
-            ]
-        ),
-        .testTarget(
             name: "MessagesLabHomeTests",
             dependencies: [
                 "MessagesLabHome",
