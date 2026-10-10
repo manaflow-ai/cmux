@@ -838,6 +838,14 @@ probe_checkout_tree() {
   [[ "$legacy" == "$key" ]] && legacy=""
   [[ "$recheck" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_RECHECK_SECONDS must be whole seconds" >&2; exit 2; }
   refuse_dirty_source
+  # The exact commands that publish this checkout's tree: push its commit (for
+  # a pull request, the merge commit GitHub checked out, fetchable by SHA) to a
+  # cmux-tui-pin-* branch, whose cmux-tui artifacts run publishes it.
+  pin_push_hint() {
+    local sha
+    sha="$(git -C "$repo_root" rev-parse HEAD)"
+    printf 'Publish it with: git fetch origin %s && git push origin %s:refs/heads/cmux-tui-pin-%s (pin-cmux-tui.sh --help); the publish then starts the tree jobs' "$sha" "$sha" "${sha:0:12}"
+  }
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
     case "$source" in
@@ -880,14 +888,14 @@ probe_checkout_tree() {
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       else
-        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit push it to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
       fi ;;
     none)
       if [[ -z "$source" ]]; then
-        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. $(pin_push_hint)"
       else
-        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
       fi
       state=failed ;;
     *) state=failed
