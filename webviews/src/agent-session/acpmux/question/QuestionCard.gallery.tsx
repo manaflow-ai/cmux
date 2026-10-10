@@ -128,6 +128,10 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 520,
   checks: {
+    layoutShiftMax: {
+      value: 0.05,
+      reason: "Switching between prompts can change the in-flow option body while the question card remains in place.",
+    },
     longFrameFailMs: {
       value: 33,
       reason:
