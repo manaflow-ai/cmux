@@ -1140,7 +1140,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
                let typer = store.typingParticipantIDs.first, previous.message.senderID == typer {
                 return ConversationTheme.groupedSpacing
             }
-            return index > 0 && isMessage(index - 1) ? 10 : 0
+            switch rows[index] {
+            case .timestamp, .notice:
+                // Body to separator line as in Messages; the tail above hangs
+                // into the gap and our row's line sits below its top.
+                if index > 0, case let .message(previous) = rows[index - 1] {
+                    let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+                    return TimestampCell.gapAfterBody - overhang - TimestampCell.lineTop
+                }
+                return 0
+            default:
+                return index > 0 && isMessage(index - 1) ? 10 : 0
+            }
         }
         guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
         // Gaps run body to body; the previous row's tail hangs into this one.
