@@ -36,6 +36,8 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var eyebrow: String?
     public var title: String
     public var detail: String?
+    /// Short list lines under the detail (a changelog), one line each.
+    public var lines: [String]
     public var progress: Progress?
     public var actions: [Action]
     /// A shortcut as shown in menus ("⇧⌘P"), beside the buttons.
@@ -44,12 +46,13 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var dismissLabel: String?
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
-                progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil) {
+                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
         self.title = title
         self.detail = detail
+        self.lines = lines
         self.progress = progress
         self.actions = actions
         self.shortcut = shortcut
