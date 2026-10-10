@@ -118,6 +118,12 @@ impl HeadlessSource {
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
+        let weak = Arc::downgrade(&source);
+        source.driver.set_popup_hook(Some(Arc::new(move |popup: &str, opener: &str| {
+            if let Some(source) = weak.upgrade() {
+                source.adopt_popup(popup, opener);
+            }
+        })));
         Ok(source)
     }
 
@@ -168,6 +174,29 @@ impl HeadlessSource {
             };
             filters.iter().find_map(|f| f(request))
         })));
+    }
+
+    /// A popup is driven by the sessions that drive its opener, from before
+    /// its first request: their request filters and response checks apply
+    /// to it, and no other session's (cx-m0do). Only the maps change: the
+    /// popup is paused, so no CDP call here (the installed filter reads the
+    /// session tabs per request).
+    fn adopt_popup(&self, popup: &str, opener: &str) {
+        let sessions: Vec<u64> = {
+            let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner);
+            let sessions: Vec<u64> =
+                driven.get(opener).map(|s| s.iter().copied().collect()).unwrap_or_default();
+            if !sessions.is_empty() {
+                driven.entry(popup.to_owned()).or_default().extend(sessions.iter().copied());
+            }
+            sessions
+        };
+        let mut filters = self.filters.lock().unwrap_or_else(PoisonError::into_inner);
+        for session in sessions {
+            if let Some(filter) = filters.get_mut(&session) {
+                filter.tabs.insert(popup.to_owned());
+            }
+        }
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
