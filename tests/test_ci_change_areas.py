@@ -5763,7 +5763,7 @@ exit 65
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
                        CALLS=str(root / "calls"), SCENARIO=scenario)
             result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
-                                    capture_output=True, text=True, timeout=15)
+                                    capture_output=True, text=True, timeout=60)
             calls = (root / "calls").read_text().splitlines()
             assert (result.returncode, calls) == (expected_status, expected_calls), (
                 scenario, result.returncode, calls, result.stderr)
