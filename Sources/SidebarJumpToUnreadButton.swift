@@ -182,6 +182,11 @@ struct SidebarJumpToUnreadButton: View {
                                 .padding(.horizontal, 4)
                                 .frame(minWidth: 16, minHeight: 16)
                                 .background(Capsule().fill(cmuxAccent.color))
+                            // Compact keeps the key on screen at rest too: "↳ (3) ⇧⌘U".
+                            if style == .sCompact, let shortcutText = resolved.shortcutText {
+                                Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
+                                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                            }
                         }
                     }
                 }
