@@ -30,6 +30,8 @@ import {
 } from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
+import { Popover } from "../../ui/Popover";
+import { Select } from "../../ui/Select";
 
 const sum = (report: PlayReport, value: (step: PlayReport["steps"][number]) => number) =>
   report.steps.reduce((total, step) => total + value(step), 0);
@@ -373,258 +375,257 @@ export function Stage({
 
 export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: GalleryEnv) => void }) {
   const set = <K extends keyof GalleryEnv>(key: K, value: GalleryEnv[K]) => onChange({ ...env, [key]: value });
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState<HTMLButtonElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const darkThemes = themes.filter(themeIsDark);
   const lightThemes = themes.filter((theme) => !themeIsDark(theme));
-  const themeOptions = (selected: string) => (
-    <>
-      <optgroup label={`Dark (${darkThemes.length})`}>
-        {darkThemes.map((theme) => (
-          <option key={theme.name} value={theme.name}>
-            {theme.name}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label={`Light (${lightThemes.length})`}>
-        {lightThemes.map((theme) => (
-          <option key={theme.name} value={theme.name}>
-            {theme.name}
-          </option>
-        ))}
-      </optgroup>
-      {!themes.some((theme) => theme.name === selected) && <option value={selected}>{selected} (missing)</option>}
-    </>
-  );
+  const themeOptions = [
+    ...darkThemes.map((theme) => ({ value: theme.name, label: `Dark · ${theme.name}` })),
+    ...lightThemes.map((theme) => ({ value: theme.name, label: `Light · ${theme.name}` })),
+    ...(!themes.some((theme) => theme.name === env.theme)
+      ? [{ value: env.theme, label: `${env.theme} (missing)` }]
+      : []),
+  ];
+  const appearanceOptions = [
+    { value: "auto", label: "Auto" },
+    { value: "dark", label: "Dark" },
+    { value: "light", label: "Light" },
+  ];
+  const frameOptions = [
+    { value: "window", label: "Window" },
+    { value: "component", label: "Component" },
+  ];
+  const localeOptions = [...LOCALES, ...PSEUDO_LOCALES].map((locale) => ({
+    value: locale,
+    label: `${locale} · ${LOCALE_NAMES[locale]}`,
+  }));
+  const selectClass = "gallery-control-select";
   return (
     <div className="gallery-controls">
-      <label>
-        Locale
-        <select value={env.locale} onChange={(event) => set("locale", event.target.value)}>
-          {[...LOCALES, ...PSEUDO_LOCALES].map((locale) => (
-            <option key={locale} value={locale}>
-              {locale} · {LOCALE_NAMES[locale]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Theme
-        <select value={env.theme} onChange={(event) => set("theme", event.target.value)}>
-          {themeOptions(env.theme)}
-        </select>
-      </label>
-      <fieldset className="gallery-segmented">
-        <legend>Appearance</legend>
-        {(["auto", "dark", "light"] as const).map((scheme) => (
-          <label key={scheme}>
+      <Select
+        className={selectClass}
+        value={env.theme}
+        options={themeOptions}
+        onChange={(value) => set("theme", value)}
+        label="Theme"
+      />
+      <Select
+        className={selectClass}
+        value={env.colorScheme}
+        options={appearanceOptions}
+        onChange={(value) => set("colorScheme", value as GalleryEnv["colorScheme"])}
+        label="Appearance"
+      />
+      <button
+        ref={(node) => {
+          moreButtonRef.current = node;
+          setMoreAnchor(node);
+        }}
+        type="button"
+        className="gallery-more-button"
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen}
+        onClick={() => setMoreOpen((open) => !open)}
+      >
+        More
+      </button>
+      <Popover
+        open={moreOpen && moreAnchor !== null}
+        onOpenChange={setMoreOpen}
+        anchor={moreAnchor}
+        label="More gallery controls"
+        className="gallery-more-popover"
+        finalFocus={moreButtonRef}
+      >
+        <div className="gallery-more-grid">
+          <Select
+            className={selectClass}
+            value={env.locale}
+            options={localeOptions}
+            onChange={(value) => set("locale", value)}
+            label="Locale"
+          />
+          <label>
+            Font
             <input
-              type="radio"
-              name="colorScheme"
-              aria-label={`Appearance ${scheme}`}
-              checked={env.colorScheme === scheme}
-              onChange={() => set("colorScheme", scheme)}
+              list="gallery-fonts"
+              aria-label="Font"
+              value={env.fontFamily}
+              placeholder="page default"
+              onChange={(event) => set("fontFamily", event.target.value)}
             />
-            {scheme}
-          </label>
-        ))}
-      </fieldset>
-      <label>
-        Font
-        <input
-          list="gallery-fonts"
-          aria-label="Font"
-          value={env.fontFamily}
-          placeholder="page default"
-          onChange={(event) => set("fontFamily", event.target.value)}
-        />
-        <datalist id="gallery-fonts">
-          {FONTS.filter(Boolean).map((font) => (
-            <option key={font} value={font}>
-              {font}
-            </option>
-          ))}
-        </datalist>
-      </label>
-      <label>
-        Size
-        <input
-          type="number"
-          aria-label="Font size"
-          min={0}
-          max={40}
-          value={env.fontSize || ""}
-          placeholder="default"
-          onChange={(event) => set("fontSize", Number(event.target.value) || 0)}
-        />
-      </label>
-      <label>
-        Density
-        <select
-          title="The window chrome's metrics (MetricTunables); web pages have no density input"
-          value={env.density}
-          onChange={(event) => set("density", event.target.value as GalleryEnv["density"])}
-        >
-          {DENSITIES.map((density) => (
-            <option key={density}>{density}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Scale
-        <select value={env.scale} onChange={(event) => set("scale", Number(event.target.value))}>
-          {(SCALES as readonly number[]).includes(env.scale) ? null : <option value={env.scale}>{env.scale}</option>}
-          {SCALES.map((scale) => (
-            <option key={scale} value={scale}>
-              {Math.round(scale * 100)}%
-            </option>
-          ))}
-        </select>
-      </label>
-      <fieldset className="gallery-segmented">
-        <legend>Frame</legend>
-        {(["window", "component"] as const).map((frame) => (
-          <label key={frame}>
-            <input
-              type="radio"
-              name="frame"
-              aria-label={`Frame ${frame}`}
-              checked={env.frame === frame}
-              onChange={() => set("frame", frame)}
-            />
-            {frame}
-          </label>
-        ))}
-      </fieldset>
-      {env.frame === "window" && (
-        <>
-          <label>
-            Window
-            <select
-              value={env.window in WINDOW_PRESETS ? env.window : "custom"}
-              onChange={(event) =>
-                set(
-                  "window",
-                  event.target.value === "custom"
-                    ? `${windowSize(env.window).width}x${windowSize(env.window).height}`
-                    : event.target.value,
-                )
-              }
-            >
-              {Object.entries(WINDOW_PRESETS).map(([name, preset]) => (
-                <option key={name} value={name}>
-                  {preset.label} ({preset.width}x{preset.height})
+            <datalist id="gallery-fonts">
+              {FONTS.filter(Boolean).map((font) => (
+                <option key={font} value={font}>
+                  {font}
                 </option>
               ))}
-              <option value="custom">custom</option>
-            </select>
-            {!(env.window in WINDOW_PRESETS) && (
-              <input
-                value={env.window}
-                aria-label="Custom window size"
-                placeholder="1440x900"
-                onChange={(event) => /^\d{3,4}x\d{3,4}$/.test(event.target.value) && set("window", event.target.value)}
-              />
-            )}
+            </datalist>
           </label>
           <label>
-            Zoom
-            <select
-              value={String(env.zoom)}
-              onChange={(event) => set("zoom", event.target.value === "fit" ? "fit" : Number(event.target.value))}
-            >
-              {(ZOOMS as readonly (string | number)[]).includes(env.zoom) ? null : (
-                <option value={String(env.zoom)}>{env.zoom}</option>
-              )}
-              {ZOOMS.map((zoom) => (
-                <option key={zoom} value={String(zoom)}>
-                  {zoom === "fit" ? "fit" : `${Math.round(zoom * 100)}%`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Panes
-            <select value={env.layout} onChange={(event) => set("layout", event.target.value as PaneLayout)}>
-              {Object.entries(PANE_LAYOUTS).map(([name, label]) => (
-                <option key={name} value={name}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
-      {env.frame === "component" && (
-        <label>
-          Width
-          <select
-            value={typeof env.width === "number" ? "custom" : env.width}
-            onChange={(event) =>
-              set(
-                "width",
-                event.target.value === "custom" ? widthPx(env.width) : (event.target.value as keyof typeof WIDTHS),
-              )
-            }
-          >
-            {Object.entries(WIDTHS).map(([name, px]) => (
-              <option key={name} value={name}>
-                {name} ({px})
-              </option>
-            ))}
-            <option value="custom">custom</option>
-          </select>
-          {typeof env.width === "number" && (
+            Size
             <input
               type="number"
-              min={240}
-              max={3000}
-              value={env.width}
-              aria-label="Custom width"
-              onChange={(event) => set("width", Number(event.target.value) || 760)}
+              aria-label="Font size"
+              min={0}
+              max={40}
+              value={env.fontSize || ""}
+              placeholder="default"
+              onChange={(event) => set("fontSize", Number(event.target.value) || 0)}
             />
+          </label>
+          <Select
+            className={selectClass}
+            value={env.density}
+            options={DENSITIES.map((density) => ({ value: density, label: density }))}
+            onChange={(value) => set("density", value as GalleryEnv["density"])}
+            label="Density"
+          />
+          <Select
+            className={selectClass}
+            value={String(env.scale)}
+            options={[
+              ...(!(SCALES as readonly number[]).includes(env.scale)
+                ? [{ value: String(env.scale), label: `${Math.round(env.scale * 100)}%` }]
+                : []),
+              ...SCALES.map((scale) => ({ value: String(scale), label: `${Math.round(scale * 100)}%` })),
+            ]}
+            onChange={(value) => set("scale", Number(value))}
+            label="Scale"
+          />
+          <Select
+            className={selectClass}
+            value={env.frame}
+            options={frameOptions}
+            onChange={(value) => set("frame", value as GalleryEnv["frame"])}
+            label="Frame"
+          />
+          {env.frame === "window" && (
+            <>
+              <Select
+                className={selectClass}
+                value={env.window in WINDOW_PRESETS ? env.window : "custom"}
+                options={[
+                  ...Object.entries(WINDOW_PRESETS).map(([name, preset]) => ({
+                    value: name,
+                    label: `${preset.label} (${preset.width}x${preset.height})`,
+                  })),
+                  { value: "custom", label: "Custom" },
+                ]}
+                onChange={(value) =>
+                  set(
+                    "window",
+                    value === "custom" ? `${windowSize(env.window).width}x${windowSize(env.window).height}` : value,
+                  )
+                }
+                label="Window"
+              />
+              {!(env.window in WINDOW_PRESETS) && (
+                <label>
+                  Custom window
+                  <input
+                    value={env.window}
+                    aria-label="Custom window size"
+                    placeholder="1440x900"
+                    onChange={(event) =>
+                      /^\d{3,4}x\d{3,4}$/.test(event.target.value) && set("window", event.target.value)
+                    }
+                  />
+                </label>
+              )}
+              <Select
+                className={selectClass}
+                value={String(env.zoom)}
+                options={[
+                  ...(!(ZOOMS as readonly (string | number)[]).includes(env.zoom)
+                    ? [{ value: String(env.zoom), label: `${Math.round(Number(env.zoom) * 100)}%` }]
+                    : []),
+                  ...ZOOMS.map((zoom) => ({
+                    value: String(zoom),
+                    label: zoom === "fit" ? "Fit" : `${Math.round(Number(zoom) * 100)}%`,
+                  })),
+                ]}
+                onChange={(value) => set("zoom", value === "fit" ? "fit" : Number(value))}
+                label="Zoom"
+              />
+              <Select
+                className={selectClass}
+                value={env.layout}
+                options={Object.entries(PANE_LAYOUTS).map(([name, label]) => ({ value: name, label }))}
+                onChange={(value) => set("layout", value as PaneLayout)}
+                label="Panes"
+              />
+            </>
           )}
-        </label>
-      )}
-      <label title="Native only: web pages have no text size input">
-        Dynamic size
-        <select
-          value={env.dynamicSize}
-          onChange={(event) => set("dynamicSize", event.target.value as GalleryEnv["dynamicSize"])}
-        >
-          {DYNAMIC_SIZES.map((size) => (
-            <option key={size}>{size}</option>
-          ))}
-        </select>
-      </label>
-      <label className="gallery-check" title="Native only">
-        <input
-          type="checkbox"
-          aria-label="Inactive window"
-          checked={env.windowKey === "inactive"}
-          onChange={(event) => set("windowKey", event.target.checked ? "inactive" : "key")}
-        />
-        Inactive window
-      </label>
-      <label className="gallery-check">
-        <input
-          type="checkbox"
-          aria-label="Reduce motion"
-          checked={env.reducedMotion}
-          onChange={(event) => set("reducedMotion", event.target.checked)}
-        />
-        Reduce motion
-      </label>
-      <label className="gallery-check">
-        <input
-          type="checkbox"
-          aria-label="Increase contrast"
-          checked={env.highContrast}
-          onChange={(event) => set("highContrast", event.target.checked)}
-        />
-        Increase contrast
-      </label>
-      <button type="button" onClick={() => onChange(DEFAULT_ENV)}>
-        Reset
-      </button>
+          {env.frame === "component" && (
+            <>
+              <Select
+                className={selectClass}
+                value={typeof env.width === "number" ? "custom" : env.width}
+                options={[
+                  ...Object.entries(WIDTHS).map(([name, px]) => ({ value: name, label: `${name} (${px})` })),
+                  { value: "custom", label: "Custom" },
+                ]}
+                onChange={(value) =>
+                  set("width", value === "custom" ? widthPx(env.width) : (value as keyof typeof WIDTHS))
+                }
+                label="Width"
+              />
+              {typeof env.width === "number" && (
+                <label>
+                  Custom width
+                  <input
+                    type="number"
+                    min={240}
+                    max={3000}
+                    value={env.width}
+                    aria-label="Custom width"
+                    onChange={(event) => set("width", Number(event.target.value) || 760)}
+                  />
+                </label>
+              )}
+            </>
+          )}
+          <Select
+            className={selectClass}
+            value={env.dynamicSize}
+            options={DYNAMIC_SIZES.map((size) => ({ value: size, label: size }))}
+            onChange={(value) => set("dynamicSize", value as GalleryEnv["dynamicSize"])}
+            label="Dynamic size"
+          />
+          <label className="gallery-check" title="Native only">
+            <input
+              type="checkbox"
+              aria-label="Inactive window"
+              checked={env.windowKey === "inactive"}
+              onChange={(event) => set("windowKey", event.target.checked ? "inactive" : "key")}
+            />
+            Inactive window
+          </label>
+          <label className="gallery-check">
+            <input
+              type="checkbox"
+              aria-label="Reduce motion"
+              checked={env.reducedMotion}
+              onChange={(event) => set("reducedMotion", event.target.checked)}
+            />
+            Reduce motion
+          </label>
+          <label className="gallery-check">
+            <input
+              type="checkbox"
+              aria-label="Increase contrast"
+              checked={env.highContrast}
+              onChange={(event) => set("highContrast", event.target.checked)}
+            />
+            Increase contrast
+          </label>
+          <button type="button" className="gallery-more-reset" onClick={() => onChange(DEFAULT_ENV)}>
+            Reset
+          </button>
+        </div>
+      </Popover>
     </div>
   );
 }
