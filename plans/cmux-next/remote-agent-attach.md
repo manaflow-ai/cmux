@@ -109,6 +109,39 @@ Checked against the relay rules before landing on feat-cmux-next:
   local agent's records, and page actions a user clicks (open tab, app actions) act on this Mac
   as they do for a local chat.
 
+## Remote start (`agent-session-start-v1`, cx-d0tq)
+
+A new chat in a pane of a Cloud or SSH machine runs in that machine's acpmux. The app creates the
+agent tab in that machine's store with `host` = `registry:<identify.session_id>` and no session,
+then sends `agent-session-start {surface, harness?, cwd?}` to that daemon. The daemon starts the
+session in its own acpmux (starting acpmux once, as `cmux acp` does, when nothing listens) and
+binds it to the tab itself (the store's compare-and-swap from null), so the tab then shows through
+the attach path above with no other app change.
+
+Relay analysis (reviewed with the Cloud lane hq-84 and the chief, 2026-10-10):
+
+- Who: the same trusted local (Unix) connections as the attach verbs; the remote relay and
+  WebSocket clients are refused. A Team VM daemon runs as the member's own uid, so a member starts
+  only into a tab of their own store.
+- Local command or content execution: the verb starts an agent process on the daemon's machine.
+  That is the purpose, and the caller already has the owner's shell on that machine (the SSH or
+  Cloud carrier). The client names only an agent kind (`harness`, resolved by acpmux from its own
+  config) and an absolute folder (`cwd`, checked by acpmux). No command, argv, env, policy, mode,
+  peer, preset or MCP server param exists (`deny_unknown_fields`).
+- No widening: the session starts with policy `ask` whatever the daemon default is, and must sit
+  in a mode acpmux's remote table (`_acpmux/web_modes`, the remote guard's own data) lists as
+  asking. Refused families (Codex, opencode, D10) are refused before the start when named and
+  after it when a profile derives them; a session in a non-asking mode moves to its family's
+  asking default or is ended (`agent_session.not_asking`). This repeats the remote guard's
+  `session/new` rule because the daemon reaches acpmux over its unix socket, where that guard does
+  not run.
+- Access to unowned objects: only a tab of this store whose record names this store
+  (`registry:` + its own session id) and has no session; a tab recorded for another machine or
+  already bound is refused, and a start that loses the bind race ends its new session.
+- Gap: prompts and permission answers from the remote chat then go through the attach verbs on a
+  unix link (local control). Allow from that remote chat is deny-only on feat-cmux-next until
+  cx-0q7o; this start does not change that.
+
 ## Daemon config
 
 The daemon resolves its acpmux socket at start like `cmux acp`: `ACPMUX_SOCKET`, else
