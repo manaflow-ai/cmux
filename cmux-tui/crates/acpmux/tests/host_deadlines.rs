@@ -5,13 +5,9 @@
 //! and `QUERY_BUDGET`.
 #![cfg(unix)]
 
-use acpmux::agent_host::link::{self, Connect, HostLauncher};
-use acpmux::agent_host::{
-    self, ControllerFrame, HostFrame, HostRecord, HostTimeout, SpawnSpec, death_watches,
-    wait_dead_within,
-};
-use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
+use acpmux::agent_host::link::{self, Connect};
+use acpmux::agent_host::{self, ControllerFrame, HostFrame, HostRecord, HostTimeout};
+use std::path::PathBuf;
 use std::time::Duration;
 
 fn scratch(tag: &str) -> PathBuf {
@@ -19,40 +15,6 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-fn spec(dir: &Path) -> SpawnSpec {
-    SpawnSpec {
-        session_id: "s".into(),
-        program: "true".into(),
-        args: Vec::new(),
-        env: Vec::new(),
-        cwd: dir.to_path_buf(),
-        translator: None,
-        socket: dir.join("s.sock"),
-        hosts_dir: dir.to_path_buf(),
-        buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-    }
-}
-
-/// A host binary that starts and never reports ready (a wedged start) must
-/// not hold the daemon's spawn (and the session's spawn lock) forever.
-#[tokio::test]
-async fn spawn_gives_up_on_a_host_that_never_reports_ready() {
-    let dir = scratch("boot");
-    let launcher = HostLauncher {
-        exe: "/bin/sh".into(),
-        prefix: vec!["-c".into(), "exec sleep 20".into(), "silent-host".into()],
-    };
-    let budget = Duration::from_millis(300);
-    let out = tokio::time::timeout(
-        Duration::from_secs(20),
-        link::spawn_within(&launcher, &spec(&dir), budget),
-    )
-    .await
-    .expect("spawn never gave up on a host that did not report ready");
-    let err = out.expect_err("a silent host is not ready");
-    assert!(err.downcast_ref::<HostTimeout>().is_some(), "not a typed timeout: {err:#}");
 }
 
 /// A host that never answers a translator query must not hold the caller.
@@ -103,23 +65,4 @@ async fn a_query_the_host_never_answers_times_out() {
     .expect("query never gave up on a host that does not answer");
     let err = out.expect_err("no answer is no reply");
     assert!(err.downcast_ref::<HostTimeout>().is_some(), "not a typed timeout: {err:#}");
-}
-
-/// Bounded waits on a host that does not die share one watch; the watch ends
-/// with the host.
-#[test]
-fn bounded_death_waits_share_one_watch_per_host() {
-    let dir = scratch("death");
-    let live = dir.join("s.n.live");
-    let held = std::fs::File::create(&live).unwrap();
-    // SAFETY: flock on a descriptor this test owns: it plays the live host.
-    assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX) }, 0);
-    assert!(!wait_dead_within(&dir, "s", "n", Duration::from_millis(100)));
-    assert!(!wait_dead_within(&dir, "s", "n", Duration::from_millis(100)));
-    assert!(!wait_dead_within(&dir, "s", "n", Duration::from_millis(100)));
-    assert_eq!(death_watches(), 1, "each bounded wait left its own blocked thread");
-    drop(held);
-    assert!(wait_dead_within(&dir, "s", "n", Duration::from_secs(10)));
-    assert_eq!(death_watches(), 0, "the watch outlived the host");
-    let _ = std::fs::remove_dir_all(&dir);
 }

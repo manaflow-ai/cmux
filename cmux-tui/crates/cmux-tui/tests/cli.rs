@@ -3644,6 +3644,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/all_sessions_scope.rs"]
+mod all_sessions_scope;
+#[cfg(unix)]
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
@@ -3652,11 +3655,16 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/explicit_socket.rs"]
+mod explicit_socket;
+#[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/lone_width.rs"]
+mod lone_width;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

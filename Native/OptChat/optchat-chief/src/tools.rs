@@ -510,7 +510,8 @@ pub fn ask_browse(path: &Path) -> Result<String, String> {
 fn ask_json(path: &Path, request: &Value) -> Result<String, String> {
     let mut conn = UnixStream::connect(path)
         .map_err(|e| format!("the Chief host is not running ({}: {e})", path.display()))?;
-    // spawn waits for the view to settle (subagents.rs SETTLE_LIMIT).
+    // spawn waits for the view to settle (subagents.rs SETTLE_LIMIT, 10 s)
+    // and for its sessions to start.
     conn.set_read_timeout(Some(Duration::from_secs(300)))
         .map_err(|e| e.to_string())?;
     writeln!(conn, "{request}").map_err(|e| e.to_string())?;

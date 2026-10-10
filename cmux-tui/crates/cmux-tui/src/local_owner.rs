@@ -447,10 +447,12 @@ struct SpawnedOwner {
 const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
     ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
 
-/// Remove terminal identity claims from the detached owner while preserving
-/// configuration and socket variables inherited from the launching client.
+/// Remove terminal identity and agent caller claims
+/// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
+/// preserving configuration and socket variables inherited from the
+/// launching client.
 fn configure_detached_owner_environment(command: &mut Command) {
-    for key in DETACHED_OWNER_IDENTITY_ENV {
+    for key in DETACHED_OWNER_IDENTITY_ENV.into_iter().chain(crate::startup_env::AGENT_CALLER_ENV) {
         command.env_remove(key);
     }
 }
@@ -553,6 +555,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     configure_detached_owner_environment(&mut command);
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
+    }
+    // The app directory settings this client took at start go to the owner
+    // daemon it spawns only (cx-e0cs): the owner takes them out of its own
+    // environment again and applies the bundle rule (first_party_dir).
+    if let Some(dir) = cmux_tui_core::first_party_dir::taken() {
+        command.env(cmux_tui_core::first_party_dir::ENV, dir);
+    }
+    if let Some(dirs) = cmux_tui_core::first_party_dir::apps_dirs() {
+        command.env(cmux_tui_core::first_party_dir::DIRS_ENV, dirs);
     }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;

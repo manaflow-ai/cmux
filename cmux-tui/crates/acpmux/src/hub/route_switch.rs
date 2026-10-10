@@ -24,7 +24,15 @@ impl Hub {
         let family = crate::config::derive_family(&meta.harness, profile);
         let bindings = routes::bindings(&state);
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        let Some((id, scope)) = routes::bound_route(&bindings, &meta.id, workspace, &family) else {
+        // A profile's own route (the `cmux` harness) replaces a family or
+        // global binding; a chat or workspace binding still wins.
+        let bound = routes::bound_route(&bindings, &meta.id, workspace, &family);
+        let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
+        let Some((id, scope)) = (match (bound, profile_route) {
+            (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
+            (_, Some(id)) => Some((id, "profile")),
+            (bound, None) => bound,
+        }) else {
             return Ok(None);
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
@@ -33,7 +41,7 @@ impl Hub {
             )))
         })?;
         if !route.serves(&family) {
-            if scope == "chat" {
+            if matches!(scope, "chat" | "profile") {
                 return Err(route_error(&routes::RouteError::BadParams(format!(
                     "route {id} does not serve the {family} harness"
                 ))));

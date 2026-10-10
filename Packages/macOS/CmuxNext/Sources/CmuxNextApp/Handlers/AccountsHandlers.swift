@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCodeRouter
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 
@@ -26,7 +27,7 @@ enum AccountsHandlers {
             registry.track(Task { @MainActor in
                 // Fresh detection first: the CLI may run before the screen ever opened.
                 model.refresh()
-                for await busy in Observations({ model.isRefreshing }) where !busy { break }
+                for await busy in ObservationStream({ model.isRefreshing }) where !busy { break }
                 if model.row(provider).connectNeedsPaste {
                     try? services.settingsWindow.show(section: .accounts)
                     model.pasteTarget = provider

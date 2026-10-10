@@ -149,7 +149,7 @@ extension PaneController {
     /// again meanwhile. One tab, or an older daemon, takes one command per tab.
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
-        var commands: [(label: String, run: @Sendable (DaemonConnection) async throws -> Void)] = []
+        var commands: [(label: String, run: DaemonCommandBody)] = []
         var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
