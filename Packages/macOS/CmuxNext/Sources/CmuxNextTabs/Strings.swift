@@ -16,6 +16,8 @@ enum Strings {
     static func axTheme(_ name: String) -> String {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
+    static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
+    static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
     static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }

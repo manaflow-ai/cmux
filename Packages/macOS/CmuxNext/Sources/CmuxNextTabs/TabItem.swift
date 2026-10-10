@@ -51,6 +51,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// gives new tabs: a small dot of its color, named in the hover card and
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
+    /// A browser tab playing sound, or muted: a speaker after the title.
+    public var audio: TabAudio?
 
     public init(
         id: TabID,
@@ -77,6 +79,12 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.tint = tint
         self.machineBadge = machineBadge
     }
+}
+
+/// A browser tab's sound as the strip shows it (cx-d0d.24).
+public enum TabAudio: Hashable, Sendable {
+    case playing
+    case muted
 }
 
 /// A tab's browser profile as the strip shows it.

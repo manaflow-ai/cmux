@@ -257,7 +257,7 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab"]))
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.

@@ -22,5 +22,13 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let media = BrowserMediaState.report(message.body) else { return }
         tab?.apply(.mediaChanged(media))
+        tab?.keepAudioMute(after: media)
+    }
+}
+
+extension WebKitTab: BrowserAudioMuting {
+    public func setAudioMuted(_ muted: Bool) {
+        apply(.audioMutedChanged(muted))
+        Task { await media(.muteTab(muted)) }
     }
 }

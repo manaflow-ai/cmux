@@ -1,137 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "handlers.refusal.audioMuteUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs audio mute support in the cmux-next browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next のブラウザで音声ミュートへの対応が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب دعم كتم الصوت في متصفح cmux-next"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je podrška za utišavanje zvuka u cmux-next pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver understøttelse af lyd fra i cmux-next-browseren"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Stummschaltung im cmux-next-Browser"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere silenciar audio en el navegador de cmux-next"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la coupure du son dans le navigateur cmux-next"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il supporto per disattivare l’audio nel browser di cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការការគាំទ្របិទសំឡេងក្នុងកម្មវិធីរុករក cmux-next"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 브라우저에서 오디오 음소거 지원이 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever støtte for å dempe lyd i cmux-next-nettleseren"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga obsługi wyciszania dźwięku w przeglądarce cmux-next"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer suporte a silenciar áudio no navegador do cmux-next"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна поддержка отключения звука в браузере cmux-next"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องรองรับการปิดเสียงในเบราว์เซอร์ cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next tarayıcısında ses kapatma desteği gerekiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна підтримка вимкнення звуку в браузері cmux-next"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần hỗ trợ tắt tiếng trong trình duyệt cmux-next"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 浏览器支持音频静音"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 瀏覽器支援音訊靜音"
-          }
-        }
-      }
-    },
     "handlers.refusal.browserFindClosesWithEscape": {
       "extractionState": "manual",
       "localizations": {
@@ -23187,6 +23056,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此 App 沒有該 ID 的指令。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.audioMuteNeedsPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only a loaded browser tab can be muted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュートできるのは読み込み済みのブラウザタブだけです"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن كتم الصوت إلا في علامة تبويب متصفح محمّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "samo učitana kartica preglednika može se utišati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kun en indlæst browserfane kan få lyden slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nur ein geladener Browser-Tab kann stummgeschaltet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "solo se puede silenciar una pestaña del navegador cargada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "seul un onglet de navigateur chargé peut être mis en sourdine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "si può disattivare l'audio solo di una scheda del browser caricata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាចបិទសំឡេងបានតែផ្ទាំងកម្មវិធីរុករកដែលបានផ្ទុករួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로드된 브라우저 탭만 음소거할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bare en lastet nettleserfane kan dempes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "wyciszyć można tylko załadowaną kartę przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "só é possível silenciar uma aba do navegador carregada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "отключить звук можно только у загруженной вкладки браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดเสียงได้เฉพาะแท็บเบราว์เซอร์ที่โหลดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "yalnızca yüklenmiş bir tarayıcı sekmesinin sesi kapatılabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "вимкнути звук можна лише в завантаженій вкладці браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chỉ có thể tắt tiếng thẻ trình duyệt đã tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有已加载的浏览器标签页可以静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有已載入的瀏覽器分頁可以靜音"
           }
         }
       }

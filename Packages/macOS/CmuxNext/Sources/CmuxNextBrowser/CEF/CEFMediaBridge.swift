@@ -77,7 +77,15 @@ final class CEFMediaBridge {
         else { return false }
         if let payload = params["payload"] as? String, let media = BrowserMediaState.report(json: payload) {
             tab.machine.apply(.mediaChanged(media))
+            tab.keepAudioMute(after: media)
         }
         return true
+    }
+}
+
+extension CEFTab: BrowserAudioMuting {
+    public func setAudioMuted(_ muted: Bool) {
+        machine.apply(.audioMutedChanged(muted))
+        Task { await media(.muteTab(muted)) }
     }
 }
