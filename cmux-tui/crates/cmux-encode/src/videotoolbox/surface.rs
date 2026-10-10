@@ -157,11 +157,9 @@ impl SurfaceEncoder for VideoToolbox {
 mod tests {
     use super::*;
     use crate::videotoolbox::{
-        CFRelease, CFTypeRef, CVPixelBufferRef, dict,
-        kCVPixelBufferIOSurfacePropertiesKey,
+        CFRelease, CFTypeRef, CVPixelBufferRef, dict, kCVPixelBufferIOSurfacePropertiesKey,
     };
     use std::ptr::{null, null_mut};
-
 
     #[link(name = "CoreVideo", kind = "framework")]
     unsafe extern "C" {
@@ -222,7 +220,6 @@ mod tests {
             unsafe { CFRelease(self.0 as CFTypeRef) };
         }
     }
-
 
     #[test]
     fn a_frame_that_does_not_match_its_surface_is_refused() {
