@@ -40,10 +40,16 @@ struct PaneSplitCommand: Sendable {
         return created
     }
 
-    /// Whether `daemon` takes the optimistic split for this command: it serves the client keys,
-    /// and the split does not swap (a left or up split moves the original pane afterwards).
+    /// The optimistic split is off (cx-wb5.72): keys typed right after Cmd+D lost the tail of the
+    /// line in 1 of 8 proof runs. The landing that fixes the ordering sets this back to true.
+    static let optimisticSplitEnabled = false
+
+    /// Whether `daemon` takes the optimistic split for this command: the fast path is on, it serves
+    /// the client keys, and the split does not swap (a left or up split moves the original pane
+    /// afterwards).
     @MainActor func isOptimistic(on daemon: DaemonService) -> Bool {
-        swapTowards == nil && daemon.supports(DaemonCapabilities.shared.splitClientKeys)
+        Self.optimisticSplitEnabled && swapTowards == nil
+            && daemon.supports(DaemonCapabilities.shared.splitClientKeys)
     }
 }
 

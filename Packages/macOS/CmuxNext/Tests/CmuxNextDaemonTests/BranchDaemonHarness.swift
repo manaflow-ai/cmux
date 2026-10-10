@@ -40,14 +40,16 @@ struct BranchDaemonHarness {
                                    connection: connection, store: store, storeTask: storeTask)
     }
 
-    /// The live daemon's connection with test deadlines: these suites do not
-    /// test the deadlines (DeadlineTests does), and a host running 32 suite
-    /// processes missed the product's 5 s terminal start bound (create-terminal
-    /// timed out in three suites of one shard at once). The TEST GLOBAL STATE
-    /// rule: control-plane tests use 30 s deadlines.
-    static func configuration(terminalEnvironment: (@Sendable () async -> [String: String])?,
-                              sessionEvents: Bool) -> DaemonConnection.Configuration {
-        DaemonConnection.Configuration(requestTimeout: .seconds(30), snapshotTimeout: .seconds(30), spawnTimeout: .seconds(30),
+    /// The live daemon's connection without client deadlines: each request
+    /// waits for the daemon's own reply, and create-terminal answers once its
+    /// host is up (the event these suites need). A loaded host (32 suite
+    /// processes) missed the product's 5 s terminal start bound in three
+    /// suites of one shard at once, and a longer bound only moves that line.
+    /// These suites do not test the deadlines (DeadlineTests does); a hang
+    /// stops at each suite's `.timeLimit`.
+    static func configuration(terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+                              sessionEvents: Bool = false) -> DaemonConnection.Configuration {
+        DaemonConnection.Configuration(requestTimeout: nil, snapshotTimeout: nil,
                                        terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
     }
 
