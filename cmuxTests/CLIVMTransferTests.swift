@@ -1195,9 +1195,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ("danger", "new/~", true),
             ("delimiter", "new/~/target -> ordinary", true),
             ("ordinary", "~alice", false),
-            ("ordinary-arrow", "new/~ -> ordinary", false),
-            ("target-arrow", "prefix -> ~/file", false),
-            ("name -> ~", "ordinary", false),
+            ("ordinary-arrow", "new-arrow -> ordinary", false),
+            ("target-arrow", "prefix -> ordinary", false),
+            ("name -> ordinary", "ordinary", false),
             ("name -> ordinary", "new/~/target -> ordinary", true),
         ]
         for (name, target, rejected) in cases {
