@@ -8,6 +8,10 @@ matrix row is explicitly marked pending.
 
 | PR | Source head | Gallery entry and variants | Viewport widths (narrow / normal / wide) | Hosted matrix |
 | --- | --- | --- | --- | --- |
+| [#19001](https://github.com/manaflow-ai/cmux/pull/19001) | `c5bd5eb2b114fa7e0d0fc1551a052af2c2fe2337` | `agent-pane.file-search`: `idle`, `matches`, `pick`, `no-results`, `truncated`, `outside-repository`, `escape` | 360 / 520 / 760 px | Pending; no capture ID recorded |
+| [#19007](https://github.com/manaflow-ai/cmux/pull/19007) | `432ac73fb2fd0517cb8fc8976434378200378303` | `agent-pane.question-card`: `pending-single`, `multi-preview`, `submit`, `four-tabs`, `other-typing`, `answered-remote`, `cancelled`, `escape`, `skip` | 360 / 540 / 760 px | Pending; no capture ID recorded |
+| [#19011](https://github.com/manaflow-ai/cmux/pull/19011) | `e902cad507b0614979322d3e8881b3662a1b8f83` | `agent-pane.permission-panel`: `pending`, `expanded`, `allow-once`, `collecting`, `receipt`, `allowance`, `error`, `uncertain` | 360 / 540 / 760 px | Pending; no capture ID recorded |
+| [#19021](https://github.com/manaflow-ai/cmux/pull/19021) | `6e5fb2a0da208039e11086ab88fa73f612b7ac65` | `agent-pane.diff-panel`: `last-turn`, `toolbar`, `tree-selection`, `open-file-error`, `escape`, `loading`, `error`, `empty`, `loaded-scope` | 520 / 860 / 1180 px | Pending; no capture ID recorded |
 | [#19034](https://github.com/manaflow-ai/cmux/pull/19034) | `46283bd7fd044bebff58d00b6821d2b6321db681` | `agent-pane.home-lists`: `baseline`, `empty`, `cap-filter`, `click`, `keyboard` | 360 / 560 / 760 px | Pending; no capture ID recorded |
 | [#19048](https://github.com/manaflow-ai/cmux/pull/19048) | `59ca884c4b09caf8d19ea4fa170c554a244d71ad` | Gallery report code; no component entry | N/A; report-only fixture | Pending; no capture ID recorded |
 | [#19052](https://github.com/manaflow-ai/cmux/pull/19052) | `f9dbff74c2c5a41a1d01a61f348a6f5bfa555ad5` | `agent-pane.checkpoint-review`: `create-selection`, `keyboard-selection`, `partial-receipt`, `copy-replacement`, `retained` | 360 / 520 / 720 px | Pending; no capture ID recorded |
@@ -18,6 +22,33 @@ matrix row is explicitly marked pending.
 
 The component entries use the following interaction receipts and checks:
 
+- **#19001, File search:** the matches play types `Composer` and checks the highlighted
+  `aria-activedescendant`, ArrowDown movement, and result count; pick presses Enter and records
+  the second result; no-results, truncated, outside-repository, and Escape plays cover empty,
+  service-limit, repository-error, and dismissal states. The entry checks zero anchor movement,
+  zero layout shift, a 33 ms long-frame limit, and a 250 ms settle budget. The PR reports
+  focused typecheck, gallery-coverage test (6 passed; 55 entries, 531 variants), formatter
+  check, 7-case manifest, gallery build, and diff check as passing locally.
+- **#19007, Agent question card:** the multi-preview play moves the roving row and checks its
+  preview; submit toggles two number-key choices and presses Enter; four-tabs switches prompts;
+  other-typing preserves the inline answer; Escape hands focus back to the composer; Skip
+  records dismissal. Static variants cover pending single, remote answered, and cancelled asks.
+  The entry checks a 33 ms long-frame limit and a 350 ms settle budget. The PR reports focused
+  typecheck, gallery-coverage test (6 passed; 55 entries, 533 variants), formatter check, 9-case
+  manifest, gallery build, and diff check as passing locally.
+- **#19011, Permission panel:** the expanded play opens command details; allow-once records the
+  decision; receipt opens the resolved group; allowance exercises Revoke; error exercises
+  Refresh; uncertain exercises Check and retry. Static variants cover pending and collecting
+  groups. The entry checks a 33 ms long-frame limit and a 300 ms settle budget. The PR reports
+  focused typecheck, gallery-coverage test (6 passed; 55 entries, 532 variants), formatter
+  check, 8-case manifest, gallery build, and diff check as passing locally.
+- **#19021, Changes diff panel:** the toolbar play toggles tree visibility, wrapping, and split
+  layout; tree-selection reveals a selected file; open-file-error keeps the host refusal
+  visible; Escape closes the reader; loading, error, empty, and loaded-scope exercise async git
+  states and branch metadata. The entry uses 520 / 860 / 1180 px pane widths and declares no
+  explicit `checks` block or settle budget. The PR reports formatter, typecheck,
+  gallery-coverage test, 27-case narrow/normal/wide manifest, dry-run runner, gallery build, and
+  diff check as passing locally.
 - **#19034, Home session lists:** the click play activates `Polish the sidebar`; the keyboard play
   focuses `Fix the checkout page`, presses Enter, then focuses `Investigate the build cache` and
   presses Space. The entry requires zero anchor movement, zero layout shift, a 33 ms long-frame
