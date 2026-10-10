@@ -79,15 +79,35 @@ def collect_local(path: Path) -> list[Path]:
 
 
 def private_sources(body: str, root: Path) -> list[Path]:
-    found: list[Path] = []
-    seen: set[Path] = set()
+    """Collect private media once, pruning nested capture links first."""
+    candidates: list[Path] = []
+    seen_candidates: set[Path] = set()
+    root_resolved = root.resolve()
     for match in PRIVATE_RE.finditer(body):
         relative = Path(urllib.parse.unquote(match.group(1)))
         candidate = (root / relative).resolve()
         try:
-            candidate.relative_to(root.resolve())
+            candidate.relative_to(root_resolved)
         except ValueError as exc:
             raise RuntimeError(f"capture link escapes capture root: {relative}") from exc
+        if candidate not in seen_candidates:
+            seen_candidates.add(candidate)
+            candidates.append(candidate)
+
+    def nested(candidate: Path, other: Path) -> bool:
+        if candidate == other:
+            return False
+        try:
+            candidate.relative_to(other)
+        except ValueError:
+            return False
+        return other.is_dir()
+
+    roots = [candidate for candidate in candidates
+             if not any(nested(candidate, other) for other in candidates)]
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in roots:
         for path in collect_local(candidate):
             if path not in seen:
                 seen.add(path)
