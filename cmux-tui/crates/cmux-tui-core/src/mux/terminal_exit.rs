@@ -211,6 +211,10 @@ impl Mux {
                     end,
                 )
             });
+        // cx-6so.49: whether this loss may respawn, checked before the locks.
+        #[cfg(unix)]
+        let respawn_candidate =
+            settle_until_ms.is_none().then(|| self.respawn_candidate(incarnation, end)).flatten();
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -319,6 +323,23 @@ impl Mux {
             }
             self.emit_terminal_registry_changed(&registry, terminal_revision);
         }
+        // cx-6so.49 L2: a placed terminal whose shell was lost with its host
+        // gets a new shell under the same id. Decided in this critical
+        // section, so no tree read sees its tabs dead in between.
+        #[cfg(unix)]
+        let respawn = if replayed {
+            None
+        } else {
+            respawn_candidate.and_then(|candidate| {
+                self.plan_terminal_respawn_locked(
+                    &registry,
+                    &mut state,
+                    terminal_id,
+                    candidate,
+                    end,
+                )
+            })
+        };
         drop(state);
         drop(registry);
         #[cfg(unix)]
@@ -356,11 +377,10 @@ impl Mux {
                     loss.record();
                 }
             }
-            // cx-6so.49 L2: a placed terminal whose shell was lost with its
-            // host gets a new shell under the same id (it decides and marks
-            // the tabs respawning before the tree push below).
-            if settle_until_ms.is_none() {
-                self.schedule_terminal_respawn(terminal_id, incarnation, end);
+            // The respawn decided above starts here, with no lock held.
+            #[cfg(unix)]
+            if let Some(decision) = respawn {
+                self.start_terminal_respawn(terminal_id, end, decision);
             }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);

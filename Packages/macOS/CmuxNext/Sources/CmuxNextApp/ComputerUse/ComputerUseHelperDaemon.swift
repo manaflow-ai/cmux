@@ -134,7 +134,7 @@ final class ComputerUseHelperDaemon {
         observation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await computerUse in Observations({ settings.snapshot.computerUse }) {
+            for await computerUse in ObservationStream({ settings.snapshot.computerUse }) {
                 guard let self else { return }
                 await apply(computerUse, disabledByPolicy: disabledByPolicy())
             }

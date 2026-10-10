@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
 import Foundation
@@ -121,7 +122,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in Observations({
+            for await (connection, _) in ObservationStream({
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
@@ -132,7 +133,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
-            for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }

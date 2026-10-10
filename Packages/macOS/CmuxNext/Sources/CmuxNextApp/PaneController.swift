@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
@@ -34,7 +35,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingClosed: Set<String> = []
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
-    private(set) var pendingSelectSurface: SurfaceID?
+    var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
@@ -89,7 +90,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func observe() {
         observation = Task { [weak self] in
             guard let self else { return }
-            for await snapshot in Observations({ [weak self] in self?.snapshot() }) {
+            for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
                 guard let snapshot else { return }
                 self.apply(snapshot)
             }

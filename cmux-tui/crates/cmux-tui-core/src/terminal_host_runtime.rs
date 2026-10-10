@@ -737,7 +737,9 @@ pub use shared::records::{
     validate_terminal_host_record,
 };
 #[cfg(unix)]
-pub(crate) use shared::records::{live_successor_record, record_owner_token};
+pub(crate) use shared::records::{
+    live_successor_record, record_owner_token, wait_for_terminal_host_record_removals,
+};
 #[cfg(unix)]
 pub use shared::unadoptable::*;
 #[cfg(unix)]

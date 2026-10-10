@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -67,7 +68,7 @@ extension HomeService {
     /// is cancelled by the next local connection).
     private func chiefConnection() async -> DaemonConnection? {
         let chief = chief
-        for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+        for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
             if let connection { return connection }
         }
         return nil
@@ -146,7 +147,7 @@ extension HomeService {
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
-        for await workspace in Observations({ local.store.workspaces.first { $0.resourceID == home } }) {
+        for await workspace in ObservationStream({ local.store.workspaces.first { $0.resourceID == home } }) {
             if let workspace { found = workspace; break }
         }
         guard !Task.isCancelled, let workspace = found else { return }

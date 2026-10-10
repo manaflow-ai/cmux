@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
@@ -107,7 +108,7 @@ enum ChiefInspectorHandlers {
         }
         // The mirror reports the moved tab after the reply: show it once it does.
         let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in Observations({ context.allTabs.first { $0.tab.surface == surface } }) {
+            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
                 if let tab { return tab }
             }
             return nil as LocatedTab?

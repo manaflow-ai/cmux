@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -67,7 +68,7 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips) in Observations({
+            for await (updates, announcements, tips) in ObservationStream({
                 (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
                 self?.apply(updates)
