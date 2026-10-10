@@ -462,7 +462,8 @@
           {
             "key" : "settings.group.computerUse",
             "rows" : [
-              "computerUse.enabled"
+              "computerUse.enabled",
+              "computerUse.driver"
             ],
             "title" : {
               "key" : "settings.group.computerUse",
@@ -2804,6 +2805,70 @@
       "title" : {
         "key" : "settings.computerUse.enabled",
         "text" : "Computer Use"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "legacy",
+        "upstream"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.driver.legacy",
+            "text" : "Legacy"
+          },
+          "value" : "legacy"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.driver.upstream",
+            "text" : "Upstream"
+          },
+          "value" : "upstream"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "legacy",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.driver.help",
+        "text" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.driver",
+      "keywords" : [
+        "computer use",
+        "driver",
+        "cua",
+        "upstream",
+        "legacy",
+        "helper"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "driver"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.computerUse.driver",
+        "text" : "Computer Use Driver"
       },
       "validation" : "portable"
     },
@@ -17369,7 +17434,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4b8c0e8798b2f98d1c04bdb60bca4e23821d965561f03ea323742a18e630bc60",
+  "schema_hash" : "df6810ee16b91feb7371629e6db9cd869543d4ca55a2938f9504710b314009f6",
   "sections" : [
     {
       "id" : "general",

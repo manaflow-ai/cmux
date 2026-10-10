@@ -690,6 +690,16 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "computerUse.driver" : {
+      "default" : "legacy",
+      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+      "enum" : [
+        "legacy",
+        "upstream"
+      ],
+      "title" : "Computer Use Driver",
+      "type" : "string"
+    },
     "computerUse.enabled" : {
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
