@@ -1,7 +1,6 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -70,10 +69,23 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(exit_code) => return exit_code,
         }
     }
+    // The caller's terminal belongs to the session its environment names; an
+    // explicit route targets that session's current workspace.
+    let caller_route = global.socket.is_none() && global.session.is_none();
+    // A browser tab in a session a cmux app owns is the app's to render.
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        &global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
+    }
     if !plan.resolve.is_empty() {
-        // The caller's terminal belongs to the session its environment
-        // names; an explicit route targets that session's current workspace.
-        let caller_route = global.socket.is_none() && global.session.is_none();
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -140,8 +152,8 @@ impl KeyReport {
         Self { key: key.map(str::to_owned), done: std::cell::Cell::new(false) }
     }
 
-    /// A successful mutation has nothing to retry.
-    fn succeeded(&self) {
+    /// Nothing to retry: the mutation succeeded, or the app never ran it.
+    pub(super) fn succeeded(&self) {
         self.done.set(true);
     }
 
@@ -439,13 +451,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    let result = plan.view.project(result);
-                    let shown = match global.output {
-                        OutputMode::Human => human_view(plan, &result),
-                        _ => std::borrow::Cow::Borrowed(&result),
-                    };
-                    let code = print_success(&shown, global.output);
-                    return if code == 0 { success_exit_code(plan, &result) } else { code };
+                    return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
@@ -564,6 +570,18 @@ pub(super) fn read_envelope(
             .map(Some)
             .map_err(|error| format!("protocol error: invalid JSON response: {error}"));
     }
+}
+
+/// Prints a request's successful result as the command shows it; returns
+/// the exit code.
+pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Value) -> i32 {
+    let result = plan.view.project(result);
+    let shown = match global.output {
+        OutputMode::Human => human_view(plan, &result),
+        _ => std::borrow::Cow::Borrowed(&result),
+    };
+    let code = print_success(&shown, global.output);
+    if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
 /// `terminal <id> screen wait` reports a timeout as a normal result with
@@ -925,57 +943,15 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-/// Resolve a socket and report whether it belongs to cmux's private runtime
-/// directory. Environment-selected and explicit paths remain caller-managed.
-pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
-    resolve_socket_with_env(global, |name| std::env::var_os(name))
-}
-
-pub(super) fn resolve_socket_with_env(
-    global: &GlobalArgs,
-    env: impl Fn(&str) -> Option<std::ffi::OsString>,
-) -> anyhow::Result<(PathBuf, bool)> {
-    if let Some(path) = &global.socket {
-        return Ok((path.clone(), false));
-    }
-    if let Some(session) = &global.session {
-        // The bundling app starts its own session under the Darwin per-user
-        // temp directory, whatever this process's TMPDIR is.
-        #[cfg(target_os = "macos")]
-        if let Some(identity) = crate::app_identity::AppIdentity::detect(
-            |name| env(name).and_then(|value| value.into_string().ok()),
-            std::env::current_exe().ok().as_deref(),
-        ) && identity.daemon_session().as_deref() == Some(session.as_str())
-            && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
-        {
-            return Ok((path, true));
-        }
-        return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = env(name)
-            && !path.is_empty()
-        {
-            return Ok((PathBuf::from(path), false));
-        }
-    }
-    // The `cmux` bundled in a cmux app talks to that app's session.
-    #[cfg(target_os = "macos")]
-    if let Some(identity) = crate::app_identity::AppIdentity::detect(
-        |name| env(name).and_then(|value| value.into_string().ok()),
-        std::env::current_exe().ok().as_deref(),
-    ) && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
-    {
-        return Ok((path, true));
-    }
-    Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
-}
-
 mod closed_view;
 mod hints;
 mod sanitize;
+mod socket;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+#[cfg(test)]
+pub(super) use socket::resolve_socket_with_env;
+pub(super) use socket::resolve_socket_with_origin;
 
 #[cfg(test)]
 mod tests;

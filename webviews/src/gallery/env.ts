@@ -162,12 +162,17 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   return params;
 }
 
-/** What a stage frame renders: one variant of one entry, under the controls. */
-export type StageAddress = { entry: string; variant: string };
+/**
+ * What a stage frame renders: one variant of one entry, under the controls. `tune` is the web
+ * gallery's edited tunables (experiments/tunable.ts `writeTunes`), outside the shared contract:
+ * the native gallery has no tunables.
+ */
+export type StageAddress = { entry: string; variant: string; tune?: string };
 
 export function frameQuery(address: StageAddress, env: GalleryEnv): string {
   const params = writeEnv(env);
   params.set("entry", address.entry);
   params.set("variant", address.variant);
+  if (address.tune) params.set("tune", address.tune);
   return params.toString();
 }

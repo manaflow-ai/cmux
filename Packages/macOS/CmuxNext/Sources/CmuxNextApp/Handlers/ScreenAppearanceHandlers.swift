@@ -41,26 +41,33 @@ enum ScreenAppearanceHandlers {
         })
         registry.bind("screen.setIcon", invoke: { invocation in
             guard let ref = metadataTarget(invocation, ctx) else { return }
+            let history = IconHistory.screen(ctx), screen = ref.screen
             if let icon = invocation["icon"]?.stringValue.flatMap(ScreenHandlers.nonEmpty) {
-                return ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
+                return change(history, screen, to: icon, origin: invocation.origin)
             }
             guard let anchor = ctx.services.iconPicker.activeWindowAnchor() ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
             ctx.services.iconPicker.pick(current: ref.screen.icon, target: "screen:\(ref.screen.id)", at: anchor) { result in
                 switch result {
-                case .set(let icon): ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
-                case .clear: ScreenCommands.setIcon(ref.screen, nil, daemon: ref.daemon)
+                case .set(let icon): change(history, screen, to: icon, origin: .user)
+                case .clear: change(history, screen, to: nil, origin: .user)
                 case .cancel: break
                 }
             }
         })
         registry.bind("screen.clearIcon", invoke: { invocation in
             guard let ref = metadataTarget(invocation, ctx) else { return }
-            ScreenCommands.setIcon(ref.screen, nil, daemon: ref.daemon)
+            change(IconHistory.screen(ctx), ref.screen, to: nil, origin: invocation.origin)
         })
         registry.bind("screen.togglePin", invoke: { invocation in
             guard let ref = metadataTarget(invocation, ctx) else { return }
             ScreenCommands.setPinned(ref.screen, !ref.screen.pinned, daemon: ref.daemon)
         })
+    }
+
+    /// Sets (nil removes) a screen's icon; a user's change offers an undo toast.
+    private static func change(_ history: IconHistory, _ screen: ScreenModel, to icon: String?, origin: ActionOrigin) {
+        // The target already passed the screen-metadata check, so the change cannot throw.
+        try? history.change(screen.id, from: screen.icon, to: icon, origin: origin)
     }
 
     /// The targeted screen on a daemon with `screen-metadata-v1`.

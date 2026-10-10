@@ -73,6 +73,7 @@ impl std::error::Error for Refusal {}
 pub struct ListenerPolicy {
     port: u16,
     check_host: bool,
+    address_literal_hosts: bool,
     extra_hosts: Vec<String>,
     extra_origins: Vec<String>,
 }
@@ -82,7 +83,13 @@ impl ListenerPolicy {
     /// `http://127.0.0.1:<port>`, `http://localhost:<port>` and
     /// `http://[::1]:<port>`.
     pub fn loopback(port: u16) -> Self {
-        Self { port, check_host: true, extra_hosts: Vec::new(), extra_origins: Vec::new() }
+        Self {
+            port,
+            check_host: true,
+            address_literal_hosts: false,
+            extra_hosts: Vec::new(),
+            extra_origins: Vec::new(),
+        }
     }
 
     /// The policy for a listener bound on `address`. A loopback bind gets
@@ -94,6 +101,19 @@ impl ListenerPolicy {
     pub fn for_bind(address: std::net::SocketAddr) -> Self {
         let mut policy = Self::loopback(address.port());
         policy.check_host = address.ip().is_loopback();
+        policy
+    }
+
+    /// The policy for a listener bound on `address` that keeps the `Host`
+    /// rule on every bind. A non-loopback bind also accepts any IP address
+    /// literal in `Host` (clients dial it by address; a DNS-rebound page
+    /// always sends the domain name it loaded from), and names it is reached
+    /// by must be added with [`ListenerPolicy::with_host`]. Use this where a
+    /// wide bind must not turn the rebinding defense off (the daemon `--ws`
+    /// listener).
+    pub fn for_bind_keeping_host_rule(address: std::net::SocketAddr) -> Self {
+        let mut policy = Self::loopback(address.port());
+        policy.address_literal_hosts = !address.ip().is_loopback();
         policy
     }
 
@@ -142,7 +162,9 @@ impl ListenerPolicy {
     fn host_allowed(&self, value: &str) -> bool {
         let Some(name) = host_without_port(value.trim()) else { return false };
         let name = normalize_host_name(name);
-        is_loopback_name(&name) || self.extra_hosts.contains(&name)
+        is_loopback_name(&name)
+            || self.extra_hosts.contains(&name)
+            || (self.address_literal_hosts && name.parse::<std::net::IpAddr>().is_ok())
     }
 
     fn origin_allowed(&self, value: &str) -> Result<(), Refusal> {

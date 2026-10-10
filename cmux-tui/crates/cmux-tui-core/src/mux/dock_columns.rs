@@ -13,7 +13,7 @@
 
 use super::*;
 use crate::model::{
-    ColumnDock, DockEdge, DockMode, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    ColumnDock, DockEdge, DockMode, DockRole, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
     dock_columns_are_consistent, dock_flags_are_consistent,
 };
 
@@ -31,7 +31,7 @@ pub enum ColumnDockError {
     ColumnNotFound { pane: PaneId },
     /// The change would leave no scrolling column.
     LastScrollingColumn,
-    /// An `edge` or `mode` value is not one of the documented strings.
+    /// An `edge`, `mode` or `role` value is not one of the documented strings.
     InvalidArgument { field: &'static str, value: String },
     /// The reducer was given a column index outside the screen.
     NoSuchColumn { index: usize },
@@ -74,6 +74,9 @@ impl fmt::Display for ColumnDockError {
             Self::InvalidArgument { field: "edge", value } => {
                 write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }
+            Self::InvalidArgument { field: "role", value } => {
+                write!(formatter, "bad role {value:?} (want \"agent_chat\")")
+            }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
             }
@@ -101,12 +104,14 @@ pub struct ColumnDockOutcome {
     pub changed: bool,
 }
 
-/// Parse the wire fields of `set-column-dock`. `edge` defaults to right and
-/// `mode` to docked. Values are validated even when `dock` is false.
+/// Parse the wire fields of `set-column-dock`. `edge` defaults to right,
+/// `mode` to docked and `role` to none (`dock-column-role-v1`). Values are
+/// validated even when `dock` is false; undocking drops the role.
 pub fn parse_column_dock(
     dock: bool,
     edge: Option<&str>,
     mode: Option<&str>,
+    role: Option<&str>,
 ) -> Result<Option<ColumnDock>, ColumnDockError> {
     let edge = edge
         .map(|value| {
@@ -126,7 +131,15 @@ pub fn parse_column_dock(
         })
         .transpose()?
         .unwrap_or(DockMode::Docked);
-    Ok(dock.then_some(ColumnDock { edge, mode, permanent: false }))
+    let role = role
+        .map(|value| {
+            DockRole::parse(value).ok_or_else(|| ColumnDockError::InvalidArgument {
+                field: "role",
+                value: value.to_string(),
+            })
+        })
+        .transpose()?;
+    Ok(dock.then_some(ColumnDock { edge, mode, role, permanent: false }))
 }
 
 /// The pure reducer of `set-column-dock`: the screen's column flags in
@@ -217,8 +230,9 @@ impl Mux {
     /// edge, or clear its flag with `None`. `transaction` is the requesting
     /// `(client, transaction)` pair; changes with the same pair coalesce into
     /// one layout-undo entry, like viewport resizes.
-    pub fn set_column_dock(
+    pub fn set_column_dock_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         dock: Option<ColumnDock>,
         transaction: Option<(u64, u64)>,
@@ -266,7 +280,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-column-dock"),
+                &WorkspaceMutation::local("cmux-tui-column-dock", actor.clone()),
                 COLUMN_DOCK_OPERATION,
                 &fingerprint,
                 None,
@@ -391,7 +405,7 @@ mod tests {
         let mut flags = vec![None];
         for edge in DockEdge::ALL {
             for mode in [DockMode::Docked, DockMode::Overlay] {
-                flags.push(Some(ColumnDock { edge, mode, permanent: false }));
+                flags.push(Some(ColumnDock::new(edge, mode)));
             }
         }
         flags

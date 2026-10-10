@@ -36,10 +36,13 @@ extension AgentPaneTransport {
         /// credit), and the handoff it names, if any.
         var foreignSource = false
         var handoffId: String?
+        /// `_acpmux/harness_enable`: the native sheet decides it (``confirmHarnessEnable(_:)``).
+        var harnessEnable = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
+                && !harnessEnable
         }
     }
 
@@ -78,6 +81,20 @@ extension AgentPaneTransport {
 
         /// Frees a large frame here, off the main thread.
         func free() { frame.withLock { $0 = [:] } }
+
+        /// A string param of the frame (after the folder check made folders canonical).
+        func param(_ key: String) -> String? {
+            frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
+        }
+
+        /// Sets a string param of the frame.
+        func setParam(_ key: String, _ value: String) {
+            frame.withLock { object in
+                var params = object["params"] as? [String: Any] ?? [:]
+                params[key] = value
+                object["params"] = params
+            }
+        }
     }
 
     /// What one off-main pass over the line's frames did: the results of the frames it finished,
@@ -168,14 +185,27 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// The frame's paths against the pane's roots and the folders the user added.
+    private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
+        let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+        return await Self.checkPaths(box, scope: scope)
+    }
+
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        var rootRequested = false
         if facts.needsPathCheck {
-            let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                               agentHome: agentHome(), home: homeFolder, granted: addedRoots)
-            let result = await Self.checkPaths(box, scope: scope)
+            var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A folder outside every root that the user typed: their gesture adds it as a root, at
+            // once and without a sheet (Lawrence 2026-10-07, "Remove dialogues."). A folder harness
+            // never: its program comes from that folder, so outside the roots it stays refused.
+            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+               !facts.harnessEnable, gestures.consume() {
+                if !addedRoots.contains(folder) { addedRoots.append(folder) }
+                result = await checkPathsInScope(box)
+                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            }
             switch result {
             case .success(let gestureRootsUsed):
                 // A folder of the new tab page's scan counts only when the user picked it.
@@ -186,9 +216,7 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
-                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket,
-                                   rootRequested: rootRequested)
+                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket)
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
@@ -199,8 +227,9 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
-                // a session of this pane. A ticket is spent even when it does not match.
+                // B2: only set_mode, set_config_option and a prompt held for the trust answer (its
+                // promptId) redeem a ticket, for their exact pick, into a session of this pane. A
+                // ticket is spent even when it does not match.
                 let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
@@ -212,9 +241,10 @@ extension AgentPaneTransport {
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
         }
-        // R2 and P2: a mode, or a config option that is not free, needs the user's native
-        // confirmation unless the daemon says that the value keeps the session asking.
-        if let setting = facts.setting {
+        // P2: a config option that is not free needs the user's native confirmation unless the
+        // daemon says that the value keeps the session asking. A mode needs only the gesture rule
+        // (Lawrence 2026-10-07: no sheet for full access).
+        if let setting = facts.setting, setting.asked.needsSheet {
             let answer = await webModes(setting.sessionId, setting.configId, setting.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             let asks = answer?.freeConfigIds.contains(setting.configId) == true || answer?.asks == true
@@ -223,6 +253,12 @@ extension AgentPaneTransport {
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
                 if !confirmed { return Self.refuse(.refuse(.modeNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
             }
+        }
+        // A folder harness: the user's Enable on the native sheet, then the prompt's sha256.
+        if facts.harnessEnable {
+            let confirmed = await confirmHarnessEnable(box)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            if !confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?

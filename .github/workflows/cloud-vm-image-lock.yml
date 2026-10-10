@@ -1,7 +1,6 @@
 name: Cloud VM image lock
 
-# Validates images/cmux-vm/inputs.lock.json, the sshd policy checker and the VM
-# agent (fake server, cloud-vectors.json) on every
+# Validates images/cmux-vm/inputs.lock.json and the sshd policy checker on every
 # change to the cmux-next image definition (plans/cmux-next/vm-image.md 4.11).
 # No Freestyle access and no bake: bakes spend Freestyle resources, so
 # cloud-vm-image-bake.yml stays workflow_dispatch only (coordinator decision,
@@ -16,7 +15,6 @@ on:
       - web/scripts/cmux-vm-image/**
       - web/tests/vm-image-cmux-vm-lock.test.ts
       - web/tests/vm-image-cmux-vm-sshd.test.ts
-      - web/tests/vm-image-vm-agent.test.ts
       - .github/workflows/cloud-vm-image-lock.yml
   push:
     branches: [feat-cmux-next]
@@ -25,7 +23,6 @@ on:
       - web/scripts/cmux-vm-image/**
       - web/tests/vm-image-cmux-vm-lock.test.ts
       - web/tests/vm-image-cmux-vm-sshd.test.ts
-      - web/tests/vm-image-vm-agent.test.ts
       - .github/workflows/cloud-vm-image-lock.yml
   workflow_dispatch:
 
@@ -51,4 +48,4 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-vm-agent.test.ts
+      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts

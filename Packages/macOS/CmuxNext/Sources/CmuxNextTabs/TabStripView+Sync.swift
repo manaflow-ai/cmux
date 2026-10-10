@@ -109,6 +109,7 @@ extension TabStripView {
         cell.titleFont = Typography.body
         cell.themeScope = themeScope
         cell.scale = window?.backingScaleFactor ?? 2
+        cell.isWindowMain = windowMain.isMain
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }

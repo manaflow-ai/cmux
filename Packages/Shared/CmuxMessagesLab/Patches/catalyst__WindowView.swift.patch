@@ -1,6 +1,29 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -255,7 +255,10 @@
+@@ -24,7 +24,7 @@
+     /// `--transcript collection` selects UICollectionView.
+     static let useRecycler: Bool = {
+         let a = ProcessInfo.processInfo.arguments
+-        return !(a.firstIndex(of: "--transcript").map { $0 + 1 < a.count && a[$0 + 1] == "collection" } ?? false)
++        return !(a.firstIndex(of: "--transcript").map { a.dropFirst($0 + 1).first == "collection" } /* cmux: no index math */ ?? false)
+     }()
+     let header = HeaderView()
+     let compose = ComposeView()
+@@ -112,9 +112,10 @@
+         collection.showsVerticalScrollIndicator = false
+         clip.addSubview(collection)
+         if let r = collection as? RowRecycler {
+-            r.configure = { [unowned self] cell, i in self.decorate(cell, i) }
+-            r.key = { [unowned self] i in self.model.rows[i].spec.key }
+-            r.count = { [unowned self] in self.model.count }
++            // cmux: weak captures, not unowned; a recycler that outlives this view gets the recycler defaults ("" and 0).
++            r.configure = { [weak self] cell, i in self?.decorate(cell, i) }
++            r.key = { [weak self] i in self?.model.rows[i].spec.key ?? "" }
++            r.count = { [weak self] in self?.model.count ?? 0 }
+         }
+ 
+         threadDim.backgroundColor = .clear
+@@ -258,7 +259,10 @@
          let anchor = visibleAnchor()
          layoutFrames()
          compose.layoutIfNeeded()
@@ -12,8 +35,8 @@
              Metrics.current = Metrics(width: bounds.width)
              let st = store.state
              let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: clock()), width: bounds.width)
-@@ -268,9 +271,12 @@
-         restore(anchor)
+@@ -274,9 +278,12 @@
+         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
      }
  
 +    /// cmux: the width this view's rows were derived for.
@@ -26,7 +49,17 @@
          model.set(rows, at: 0, ghosts: false)
          _ = layout.rebaseIfNeeded(force: true)
          layout.invalidateLayout()
-@@ -389,7 +395,8 @@
+@@ -290,7 +297,8 @@
+     private func visibleAnchor() -> (key: String, y: CGFloat)? {
+         guard !store.state.ui.scroll.pinnedToBottom, model.count > 0 else { return nil }
+         let i = firstVisibleRow
+-        return (model.rows[i].spec.key, windowY(contentY: layout.contentTop(i)))
++        guard let key = model.rows[checked: i]?.spec.key else { return nil } // cmux: checked
++        return (key, windowY(contentY: layout.contentTop(i)))
+     }
+     private func restore(_ a: (key: String, y: CGFloat)?) {
+         collection.contentInset.top = -minOffset
+@@ -395,7 +403,8 @@
      }
      func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
          if case .setScroll = action { return }
@@ -36,7 +69,35 @@
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
          RowCell.transitionDepth += 1
          defer { RowCell.transitionDepth -= 1 }
-@@ -561,13 +568,13 @@
+@@ -406,7 +415,7 @@
+             MessagesWindowView.createdInCommits += RowCell.created - created0
+             MessagesWindowView.destroyedInCommits += RowCell.destroyed - destroyed0
+             if MessagesWindowView.logCells, RowCell.destroyed - destroyed0 > 0 {
+-                FileHandle.standardError.write("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".data(using: .utf8)!)
++                FileHandle.standardError.write(Data("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".utf8)) // cmux: no force unwrap
+             }
+         }
+         let t0 = CACurrentMediaTime()
+@@ -445,7 +454,7 @@
+         let oldField = compose.fieldRect
+         let oldFieldTop = fieldTop
+         let anchorRow = state.ui.scroll.pinnedToBottom && !paging ? nil : firstVisibleKey
+-        let anchorOldTop = anchorRow.flatMap { model.index[$0] }.map { model.contentTop($0) + oldRowsTop }
++        let anchorOldTop = anchorRow.flatMap { model.index.value(for: $0) } /* cmux: dictionary read */.map { model.contentTop($0) + oldRowsTop }
+         // The rows before the change (none copied: rows the change keeps are read from the model).
+         var oldSnap = model.tailSnapshot(from: model.count)
+ 
+@@ -512,8 +521,7 @@
+             landingTarget = nil
+             if target < 0 {
+                 newOffset = pinnedOffset
+-            } else if target < state.conversation.messages.count {
+-                let id = state.conversation.messages[target].id
++            } else if target < state.conversation.messages.count, let id = state.conversation.messages[checked: target]?.id { // cmux: checked
+                 if let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) {
+                     newOffset = layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8
+                 }
+@@ -567,20 +575,20 @@
          let msgs = state.conversation.messages
          let now = store.date(at: t)
          guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
@@ -46,22 +107,47 @@
          // A deleted message (tombstone) owns no rows: the cut below must start at a message
          // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
          // send after a delete showed empty bands, self-test coverage step).
-         while from > 0, msgs[from].deletedAt != nil { from -= 1 }
+-        while from > 0, msgs[from].deletedAt != nil { from -= 1 }
 -        guard from > 0 else { return (0, RowBuilder.rows(state, messages: msgs, now: now)) }
-+        guard from > 0 else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)) }
-         let firstID = Substring(msgs[from].id)
+-        let firstID = Substring(msgs[from].id)
++        while from > 0, msgs[checked: from]?.deletedAt != nil { from -= 1 } // cmux: checked (a missing message counts as deleted)
++        guard from > 0, let first = msgs[checked: from] else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)) } // cmux
++        let firstID = Substring(first.id)
          // Rows of `firstID` and later messages are at the tail: scan back over the live rows from
          // the end (a trailing typing row is always re-derived), without allocating.
-@@ -584,7 +591,7 @@
+         var cut = model.liveCount, live = model.liveCount, i = model.count, found = false, last = true
+         while i > 0 {
+             i -= 1
+-            let r = model.rows[i]
++            guard let r = model.rows[checked: i] else { continue } // cmux: checked
+             if r.ghost { continue }
+             live -= 1
+             if last { last = false; if r.spec.key == "typing" { cut = live; continue } }
+@@ -589,8 +597,8 @@
+         // The live row above the cut (its kind decides the first new row's spacing).
          var above: RowSpec.Kind?
          var j = model.modelIndex(ofLive: cut)
-         while j > 0 { j -= 1; if !model.rows[j].ghost { above = model.rows[j].spec.kind; break } }
+-        while j > 0 { j -= 1; if !model.rows[j].ghost { above = model.rows[j].spec.kind; break } }
 -        return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil))
++        while j > 0 { j -= 1; if let row = model.rows[checked: j], !row.ghost { above = row.spec.kind; break } } // cmux: checked
 +        return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil, width: bounds.width))
      }
  
      /// Whether the derived rows equal the model's live rows (only the re-derived tail is compared).
-@@ -614,6 +621,7 @@
+@@ -599,10 +607,10 @@
+         var k = d.tail.count, i = model.count
+         while k > 0, i > 0 {
+             i -= 1
+-            let r = model.rows[i]
++            guard let r = model.rows[checked: i] else { return false } // cmux: checked
+             if r.ghost { continue }
+             k -= 1
+-            if r.spec != d.tail[k] { return false }
++            if r.spec != d.tail[checked: k] { return false } // cmux: checked
+         }
+         return true
+     }
+@@ -620,6 +628,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
          case .typing: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -69,8 +155,32 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -657,14 +665,14 @@
-                     || owner(rows[rows.count - 1 - i].spec.key).map({ ids.contains($0) }) == true { i += 1 }
+@@ -629,7 +638,7 @@
+         case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _), let .setCustomPart(id, _, _):
+             guard let i = index(id) else { return nil }
+             idx.append(i)
+-            if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
++            if let r = msgs[checked: i]?.replyTo, let ri = index(r.messageId) { idx.append(ri) } // cmux: checked
+         default: return nil
+         }
+         return idx.min().map { max(0, $0 - 1) }
+@@ -654,33 +663,38 @@
+         }
+         func countHead(_ ids: Set<Substring>) -> Int {
+             var i = 0
+-            while i < rows.count, let o = owner(rows[i].spec.key), ids.contains(o) { i += 1 }
++            while i < rows.count, let o = rows[checked: i].flatMap({ owner($0.spec.key) }), ids.contains(o) { i += 1 } // cmux: checked
+             return i
+         }
+         func countTail(_ ids: Set<Substring>) -> Int {
+             var i = 0
+-            while i < rows.count, rows[rows.count - 1 - i].spec.key == "typing"
+-                    || owner(rows[rows.count - 1 - i].spec.key).map({ ids.contains($0) }) == true { i += 1 }
++            // cmux: the rows from the end, no index math.
++            for row in rows.reversed() {
++                guard row.spec.key == "typing" || owner(row.spec.key).map({ ids.contains($0) }) == true else { break }
++                i += 1
++            }
              return i
          }
 -        func derive(_ r: Range<Int>) -> [RowSpec] { RowBuilder.rows(state, messages: msgs, now: now, range: r) }
@@ -87,25 +197,249 @@
          case let .prependPage(page):
              guard msgs.count > page.count else { return nil }
              let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" }
-@@ -674,7 +682,7 @@
+-            return (countHead([Substring(msgs[page.count].id)]), head, 0, [])
++            guard let firstNew = msgs[checked: page.count] else { return nil } // cmux: checked (msgs.count > page.count)
++            return (countHead([Substring(firstNew.id)]), head, 0, [])
+         case let .appendPage(page):
+             let n = msgs.count
              guard n > page.count else { return nil }
-             let drop = countTail([Substring(msgs[n - page.count - 1].id)])
-             let above = rows.count - drop - 1 >= 0 ? rows[rows.count - drop - 1].spec.kind : nil
+-            let drop = countTail([Substring(msgs[n - page.count - 1].id)])
+-            let above = rows.count - drop - 1 >= 0 ? rows[rows.count - drop - 1].spec.kind : nil
 -            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above))
++            guard let lastKept = msgs[checked: n - page.count - 1] else { return nil } // cmux: checked (n > page.count)
++            let drop = countTail([Substring(lastKept.id)])
++            let above = rows.dropLast(drop).last?.spec.kind // cmux: no index math
 +            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above, width: bounds.width))
          case let .evict(top, bottom):
              let o = old.conversation.messages
              var headIDs = Set(o.prefix(top).map { Substring($0.id) })
-@@ -684,7 +692,7 @@
+@@ -689,8 +703,8 @@
+             if bottom > 0 { tailIDs.insert(Substring(last.id)) }
              let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" } : []
              let dropTail = bottom > 0 ? countTail(tailIDs) : 0
-             let above = rows.count - dropTail - 1 >= 0 ? rows[rows.count - dropTail - 1].spec.kind : nil
+-            let above = rows.count - dropTail - 1 >= 0 ? rows[rows.count - dropTail - 1].spec.kind : nil
 -            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above) : []
++            let above = rows.dropLast(dropTail).last?.spec.kind // cmux: no index math
 +            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above, width: bounds.width) : []
              return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
          default:
              return nil
-@@ -1297,7 +1305,7 @@
+@@ -754,23 +768,25 @@
+         let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
+         var deltas: [String: CGFloat] = [:]
+         var lastDelta: CGFloat?
+-        var pendingNew: [Int] = []
++        var pendingNew: [String] = [] // cmux: keys, not indices (crash program)
+         for i in band {
+-            let key = model.rows[i].spec.key
++            guard let row = model.rows[checked: i] else { continue } // cmux: checked
++            let key = row.spec.key
+             let newWin = layout.contentTop(i) - newOffset
+-            if let ot = oldSnap.contentTop(key), oldSnap.row(oldSnap.index(key)!).ghost == model.rows[i].ghost || model.rows[i].ghost {
++            // cmux: no force unwrap; contentTop(key) found the key, so index(key) does too.
++            if let ot = oldSnap.contentTop(key), let oi = oldSnap.index(key), let oldRow = oldSnap.row(oi), oldRow.ghost == row.ghost || row.ghost {
+                 let d = (ot + oldRowsTop - oldOffset) - newWin
+-                deltas[key] = d
+-                for j in pendingNew { deltas[model.rows[j].spec.key] = d }
++                deltas.updateValue(d, forKey: key)
++                for pending in pendingNew { deltas.updateValue(d, forKey: pending) }
+                 pendingNew = []
+                 lastDelta = d
+             } else if let ld = lastDelta {
+-                deltas[key] = ld
++                deltas.updateValue(ld, forKey: key)
+             } else {
+-                pendingNew.append(i)
++                pendingNew.append(key)
+             }
+         }
+-        for j in pendingNew { deltas[model.rows[j].spec.key] = 0 }
++        for pending in pendingNew { deltas.updateValue(0, forKey: pending) } // cmux
+         // Container motion: the displacement most rows share moves the transcript layer's
+         // sublayer transform once (one additive spring, not one per row); a row adds only its
+         // difference from it. Window-space result per row: unchanged (shared + own = d).
+@@ -787,7 +803,7 @@
+             // moves by d, the gradient moves by -d inside it (it was placed at
+             // the row's final window y, so a long slide left the bubble
+             // outside its fill). Only rows that draw that fill.
+-            if let i = model.index[key], RowDraw.needsFill(model.rows[i].spec) {
++            if let i = model.index[key], let spec = model.rows[checked: i]?.spec, RowDraw.needsFill(spec) { // cmux: checked
+                 ledger.add(key, .fillGradient, "position.y", from: Double(-d), to: 0, el, begin: begin)
+             }
+             morphs[key]?.shift(by: Double(d), el, begin: begin)
+@@ -803,19 +819,19 @@
+             overscanUntil = max(overscanUntil, begin + el.settleTime)
+         }
+         // Connectors: the arc hangs from the root, the stroke's bottom from the reply.
+-        let topDelta = band.first.flatMap { deltas[model.rows[$0].spec.key] } ?? 0
++        let topDelta = band.first.flatMap { model.rows[checked: $0] }.flatMap { deltas[$0.spec.key] } ?? 0 // cmux: checked
+         for i in band {
+-            guard case let .part(p) = model.rows[i].spec.kind, let root = p.connectorRoot else { continue }
+-            let key = model.rows[i].spec.key
++            guard let row = model.rows[checked: i], case let .part(p) = row.spec.kind, let root = p.connectorRoot else { continue } // cmux
++            let key = row.spec.key
+             let rel = Double((deltas[root] ?? topDelta) - (deltas[key] ?? 0))
+             guard abs(rel) > 0.01 else { continue }
+             ledger.add(key, .connector, "position.y", from: rel, to: 0, el, begin: begin)
+             ledger.add(key, .connectorLine, "bounds.size.height", from: -rel, to: 0, el, begin: begin)
+         }
+         // Fades and pops.
+-        let newKeys = Set(band.map { model.rows[$0].spec.key })
++        let newKeys = Set(band.compactMap { model.rows[checked: $0]?.spec.key }) // cmux: checked
+         for i in band {
+-            let r = model.rows[i]
++            guard let r = model.rows[checked: i] else { continue } // cmux: checked
+             let key = r.spec.key
+             if r.ghost, r.removedAt == t {
+                 ledger.add(key, .content, "opacity", from: 1, to: 0, key == "typing" ? Springs.typingOut : Springs.ghostOut, begin: begin)
+@@ -823,16 +839,16 @@
+             }
+             guard r.insertedAt == t, oldSnap.index(key) == nil, newKeys.contains(key) else {
+                 // A receipt that changed text cross-fades.
+-                if case let .receipt(nb, _) = r.spec.kind, let oi = oldSnap.index(key),
+-                   case let .receipt(ob, orest) = oldSnap.row(oi).spec.kind, ob != nb {
+-                    receiptChanges[key] = (ob, orest, oldSnap.row(oi).spec)
++                if case let .receipt(nb, _) = r.spec.kind, let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, // cmux: checked
++                   case let .receipt(ob, orest) = oldSpec.kind, ob != nb {
++                    receiptChanges.updateValue((ob, orest, oldSpec), forKey: key) // cmux: dictionary write
+                     ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptOldOut, begin: begin)
+                     ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptNewIn, begin: begin)
+                 }
+                 // A link card replacing its loading square fades in while the rows
+                 // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
+                 if case let .part(np) = r.spec.kind, case let .link(_, nt, ns, ni, _) = np.part, !Sizing.linkPending(title: nt, site: ns, image: ni),
+-                   let oi = oldSnap.index(key), case let .part(op) = oldSnap.row(oi).spec.kind,
++                   let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, case let .part(op) = oldSpec.kind, // cmux: checked
+                    case let .link(_, ot, os, oimg, _) = op.part, Sizing.linkPending(title: ot, site: os, image: oimg) {
+                     ledger.add(key, .content, "opacity", from: 0.35, to: 1, Springs.ghostOut, begin: begin)
+                 }
+@@ -877,10 +893,14 @@
+         guard !containerMotions.isEmpty else { return }
+         let now = Animate.now(layer)
+         containerMotions.removeAll { $0.3 < now }
+-        for k in containerMotions.indices where !containerMotions[k].4.contains(key) {
+-            let (d, el, begin, _, _) = containerMotions[k]
++        // cmux: no index math (crash program).
++        containerMotions = containerMotions.map { motion in
++            guard !motion.4.contains(key) else { return motion }
++            var motion = motion
++            let (d, el, begin, _, _) = motion
+             ledger.add(key, .cell, "position.y", from: -d, to: 0, el, begin: begin)
+-            containerMotions[k].4.insert(key)
++            motion.4.insert(key)
++            return motion
+         }
+     }
+     /// The transcript layer's presented sublayer translation (y) from the live container motions'
+@@ -923,8 +943,7 @@
+             guard delay > 2.0 / 60 else { return }
+             let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
+             for i in band.reversed() {
+-                let r = model.rows[i]
+-                guard r.insertedAt == t else { continue }
++                guard let r = model.rows[checked: i], r.insertedAt == t else { continue } // cmux: checked
+                 guard !r.ghost, case let .part(p) = r.spec.kind, !p.outgoing, !Springs.isMedia(p.part),
+                       oldSnap.index(r.spec.key) == nil, !TiledBubble.applies(r.spec) else { continue }
+                 deferRow(r.spec.key, until: t + delay)
+@@ -947,7 +966,7 @@
+         for k in due.keys { deferredReveals[k] = nil; RowCell.deferredKeys.remove(k) }
+         RowCell.transitionDepth += 1
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+-        for case let cell as RowCell in collection.visibleCells where cell.spec.map({ due[$0.key] != nil }) == true { cell.showNow() }
++        for case let cell as RowCell in collection.visibleCells where cell.spec.map({ due.keys.contains($0.key) }) == true { cell.showNow() } // cmux
+         CATransaction.commit()
+         RowCell.transitionDepth -= 1
+     }
+@@ -958,13 +977,13 @@
+     private func morphRow(_ m: Message) -> (String, Int)? {
+         guard let ti = m.parts.firstIndex(where: { $0.plainText != nil }) else { return nil }
+         let key = "part:\(m.id):\(ti)"
+-        guard let i = model.index[key], case let .part(p) = model.rows[i].spec.kind, p.text != nil else { return nil }
++        guard let i = model.index[key], case let .part(p)? = model.rows[checked: i]?.spec.kind, p.text != nil else { return nil } // cmux: checked
+         return (key, i)
+     }
+ 
+     private func startMorph(_ m: Message, from field: CGRect, begin: CFTimeInterval) {
+-        guard let (key, i) = morphRow(m), case let .part(p) = model.rows[i].spec.kind, let tl = p.text else { return }
+-        let body = RowDraw.bodyRect(model.rows[i].spec)
++        guard let (key, i) = morphRow(m), let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { return } // cmux
++        let body = RowDraw.bodyRect(spec)
+         let top = windowY(contentY: layout.contentTop(i))
+         let target = CGRect(x: body.minX, y: top, width: body.width, height: body.height)
+         // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
+@@ -1051,13 +1070,14 @@
+     func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { model.count }
+ 
+     func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
+-        let cell = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip) as! RowCell
++        let dequeued = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip)
++        guard let cell = dequeued as? RowCell else { return dequeued }
+         decorate(cell, ip.item)
+         return cell
+     }
+ 
+     func collectionView(_ cv: UICollectionView, prefetchItemsAt ips: [IndexPath]) {
+-        let specs = ips.compactMap { $0.item < model.count ? model.rows[$0.item].spec : nil }
++        let specs = ips.compactMap { $0.item < model.count ? model.rows[checked: $0.item]?.spec : nil } // cmux: checked
+         for s in specs where !RowBitmaps.shared.has(s) {
+             switch s.kind { case .receipt, .typing: continue; default: RowBitmaps.shared.request(s) }
+         }
+@@ -1073,7 +1093,7 @@
+                 let t0 = CACurrentMediaTime(), a0 = Animate.serial, r0 = RowCell.syncRenders, d0 = RowCell.deferredRenders
+                 decorate(cell, ip.item)
+                 let us = (CACurrentMediaTime() - t0) * 1e6
+-                if us > 40 { slow.append((us, "\(Int(us))us \(model.rows[ip.item].spec.key.prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0) d\(RowCell.deferredRenders - d0)")) }
++                if us > 40 { slow.append((us, "\(CrashGuard.int(us))us \((model.rows[checked: ip.item]?.spec.key ?? "").prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0) d\(RowCell.deferredRenders - d0)")) }
+             } else {
+                 decorate(cell, ip.item)
+             }
+@@ -1086,7 +1106,7 @@
+ 
+     /// Configure a cell for row i and add the row's live ledger components.
+     private func decorate(_ cell: RowCell, _ i: Int) {
+-        let r = model.rows[i]
++        guard let r = model.rows[checked: i] else { return } // cmux: a stale row configures nothing
+         MessagesWindowView.decorateCalls += 1
+         let profile = MessagesWindowView.profileDecorate
+         var mark = profile ? MallocCounter.mainAllocations : 0
+@@ -1117,7 +1137,7 @@
+         // Connector from the root's vertical center down to this bubble.
+         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
+             let cellTop = layout.frame(for: i).minY
+-            let rootCenter = model.index[rootKey].map { layout.contentTop($0) + model.rows[$0].spec.height / 2 } ?? layout.rowsTop
++            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) / 2 } ?? layout.rowsTop // cmux
+             let myTop = layout.contentTop(i)
+             cell.setConnector(top: myTop - 8.5 > rootCenter ? rootCenter - cellTop : nil, bottom: myTop - 8.5 - cellTop, mirrored: p.outgoing)
+         } else {
+@@ -1207,7 +1227,7 @@
+         guard model.count > 0 else { return 0 }
+         let top = collection.contentOffset.y + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - layout.rowsTop
+         let r = model.range(top, top + 1)
+-        return min(model.count - 1, r.first { model.contentTop($0) + model.rows[$0].spec.height > top } ?? r.lowerBound)
++        return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // cmux: checked
+     }
+     /// True when an outgoing row (the model's outgoing flag) shows a link card for
+     /// `url` in a visible cell: the LinkPresentation fallback runs only then.
+@@ -1226,7 +1246,7 @@
+         }
+         return out
+     }
+-    var firstVisibleKey: String? { model.count > 0 ? model.rows[firstVisibleRow].spec.key : nil }
++    var firstVisibleKey: String? { model.count > 0 ? model.rows[checked: firstVisibleRow]?.spec.key : nil } // cmux: checked
+ 
+     var firstVisibleSeq: Int {
+         let st = store.state
+@@ -1266,8 +1286,7 @@
+     /// Show message `index` of the window under the header.
+     func show(seqIndex index: Int) {
+         let msgs = store.state.conversation.messages
+-        guard index >= 0, index < msgs.count else { return }
+-        let id = msgs[index].id
++        guard index >= 0, index < msgs.count, let id = msgs[checked: index]?.id else { return } // cmux: checked
+         guard let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) else { return }
+         setOffset(max(minOffset, layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8))
+         collection.setNeedsLayout(); collection.layoutIfNeeded()
+@@ -1304,7 +1323,7 @@
              return
          }
          let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
@@ -114,3 +448,88 @@
          let opening = threadLayer.isHidden || threadClosing > 0
          threadLayer.isHidden = false
          guard rows != threadSpecs || opening else { return }
+@@ -1411,11 +1430,11 @@
+ 
+     /// For self tests: the last text part row (mine or theirs) in the loaded window.
+     func lastTextRow(mine: Bool, where accept: (PartRow) -> Bool = { _ in true }) -> Hit? {
+-        for i in stride(from: model.count - 1, through: 0, by: -1) where !model.rows[i].ghost {
+-            if case let .part(p) = model.rows[i].spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
+-                let body = RowDraw.bodyRect(model.rows[i].spec)
++        for (i, row) in model.rows.enumerated().reversed() where !row.ghost { // cmux: no index math
++            if case let .part(p) = row.spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
++                let body = RowDraw.bodyRect(row.spec)
+                 let y = windowY(contentY: layout.contentTop(i))
+-                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: model.rows[i].spec.key)
++                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key)
+             }
+         }
+         return nil
+@@ -1425,7 +1444,8 @@
+     var anchorProbe: (key: String, y: CGFloat, estimatedRows: Int)? {
+         guard model.count > 0 else { return nil }
+         let i = firstVisibleRow
+-        return (model.rows[i].spec.key, windowY(contentY: layout.contentTop(i)), model.rows.filter(\.spec.estimated).count)
++        guard let key = model.rows[checked: i]?.spec.key else { return nil } // cmux: checked
++        return (key, windowY(contentY: layout.contentTop(i)), model.rows.filter(\.spec.estimated).count)
+     }
+ }
+ 
+@@ -1443,7 +1463,7 @@
+     /// CAFilter inputRadius 10 gives sigma 9.5 pt (refit live on cmux-lawrence-2 against swipe-full).
+     static var radius: CGFloat = {
+         let a = ProcessInfo.processInfo.arguments
+-        return a.firstIndex(of: "--thread-blur-r").flatMap { $0 + 1 < a.count ? Double(a[$0 + 1]).map { CGFloat($0) } : nil } ?? 10.0
++        return a.firstIndex(of: "--thread-blur-r").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? 10.0 // cmux: no index math
+     }()
+     static let gain: CGFloat = 0.384, base: CGFloat = 5.5
+     static let openDuration: CFTimeInterval = 0.28, closeDuration: CFTimeInterval = 0.27
+@@ -1550,17 +1570,17 @@
+     ///   the head, the band and the rows above come down from one viewport above.
+     /// Rows below stay laid out during the slide (recycler overscan), never vanish.
+     func setLongTextFolded(_ fold: Bool, id: ID, key: String) {
+-        guard let i0 = model.index[key], case let .part(p0) = model.rows[i0].spec.kind, case let .text(t, _) = p0.part else { return }
+-        let width = model.rows[i0].spec.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
++        guard let i0 = model.index[key], let spec0 = model.rows[checked: i0]?.spec, case let .part(p0) = spec0.kind, case let .text(t, _) = p0.part else { return } // cmux
++        let width = spec0.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
+         let l = LongTextStore.shared.layout(t, width: width, message: id, markdown: p0.markdownFormat)
+         let head = pad + CGFloat(LongTextFold.headLines) * lh
+         let oldAnchor = fold ? pad + CGFloat(l.totalLines) * lh : head
+         let newAnchor = fold ? pad + CGFloat(LongTextFold.headLines + LongTextFold.tailLines) * lh + LongTextFold.bandHeight : head
+         let oldOffset = collection.contentOffset.y
+-        let oldTop = layout.contentTop(i0), oldBody = model.rows[i0].spec.height
++        let oldTop = layout.contentTop(i0), oldBody = spec0.height // cmux
+         var before: [String: CGFloat] = [:]
+         for case let c as RowCell in collection.visibleCells {
+-            if let k = c.spec?.key { before[k] = c.convert(c.bounds, to: self).minY }
++            if let k = c.spec?.key { before.updateValue(c.convert(c.bounds, to: self).minY, forKey: k) } // cmux
+         }
+         let tFold0 = CACurrentMediaTime()
+         TiledBody.noMainTiles += 1
+@@ -1685,12 +1705,13 @@
+         let pinned = store.state.ui.scroll.pinnedToBottom && store.state.atNewest
+         let oldOffset = collection.contentOffset.y
+         let i0 = firstVisibleRow
+-        let key0 = model.rows[i0].spec.key
++        guard let spec0 = model.rows[checked: i0]?.spec else { apply(); return } // cmux: checked; the measured heights still apply (apply runs once)
++        let key0 = spec0.key
+         let oldTop = layout.contentTop(i0)
+         var inner: (LongTextLayout, LongTextLayout.Anchor, CGFloat)?
+         let textTop = Fixture.bubblePadY
+-        if case let .part(p) = model.rows[i0].spec.kind, case let .text(t, _) = p.part, p.text == nil {
+-            let l = LongTextStore.shared.layout(t, width: model.rows[i0].spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
++        if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil { // cmux
++            let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
+             let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
+             inner = (l, l.anchor(atTextY: y), y)
+         }
+@@ -1722,8 +1743,8 @@
+             newOffset = pinnedOffset
+         } else if let i = model.index[key0] {
+             newOffset += layout.contentTop(i) - (oldTop + rebase)
+-            if let (old, a, y) = inner, case let .part(p) = model.rows[i].spec.kind, case let .text(t, _) = p.part {
+-                let l = LongTextStore.shared.layout(t, width: model.rows[i].spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
++            if let (old, a, y) = inner, let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, case let .text(t, _) = p.part { // cmux
++                let l = LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
+                 newOffset += (l === old ? old.textY(of: a) : l.textY(of: a)) - y
+             }
+         }

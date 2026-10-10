@@ -260,6 +260,31 @@ fn cmux_harness_is_acp_harness() {
     assert!(text(&short.stdout).contains("cmux harness doctor"), "{}", text(&short.stdout));
 }
 
+/// `cmux chats …` and `cmux harness …` name themselves in usage and errors,
+/// not the long `cmux acp chats …` spelling.
+#[test]
+fn chats_and_harness_aliases_name_the_short_command_in_usage() {
+    let names = Names::new("alias-usage");
+    for (args, expected) in [
+        (&["chats", "--help"][..], "Usage: cmux chats"),
+        (&["chats", "open", "--help"][..], "Usage: cmux chats open"),
+        (&["harness", "--help"][..], "Usage: cmux harness"),
+    ] {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "{args:?} printed:\n{stdout}");
+        assert!(!stdout.contains("cmux acp"), "{args:?} printed:\n{stdout}");
+    }
+    let output = names.run("cmux", &["chats", "bogus"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("Usage: cmux chats"), "{stderr}");
+    assert!(!stderr.contains("cmux acp"), "{stderr}");
+    let long = names.run("cmux", &["acp", "chats", "--help"]);
+    assert!(text(&long.stdout).contains("Usage: cmux acp chats"), "{}", text(&long.stdout));
+}
+
 #[test]
 fn link_help_succeeds_on_stdout() {
     let names = Names::new("link-help");

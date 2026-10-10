@@ -66,7 +66,7 @@ fn public_member(member: &Value) -> Value {
 pub(crate) fn public_item(record: &Value) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
     let first = members.first().map(public_member).unwrap_or_else(|| json!({}));
-    json!({
+    let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
         "name": first["name"],
@@ -78,7 +78,13 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "window": record["window"],
         "member_count": members.len(),
         "members": members.iter().map(public_member).collect::<Vec<_>>(),
-    })
+    });
+    // A deleted personal workspace group names the group it forms again.
+    if let Some(group) = record.get("group").filter(|group| group.is_object()) {
+        item["group"] =
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+    }
+    item
 }
 
 /// The newest [`DEFAULT_LIST_LIMIT`] groups of every window.

@@ -43,6 +43,8 @@ public final class MockOnboardingServices: OnboardingServices {
     /// Each `openProjects` call's folders.
     public private(set) var openedProjects: [[URL]] = []
     public var agentChats: [AgentChat] = []
+    /// The chat ids classic cmux had open.
+    public var classicOpenChats: Set<String> = []
     public private(set) var resumedChats: [[AgentChat]] = []
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
@@ -77,6 +79,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
+    public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
     public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
@@ -125,6 +128,17 @@ public final class MockOnboardingServices: OnboardingServices {
 
     public var hasAccountsStep: Bool { accountsView != nil }
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
+    /// Whether the first run offers the Ctrl-1…9 choice.
+    public var offersTabKeys = false
+    /// What `currentTabKeys` answers (nil: bound by hand).
+    public var tabKeys: TabKeysChoice? = .tabs
+    /// Each `applyTabKeys` call, in order.
+    public private(set) var appliedTabKeys: [TabKeysChoice] = []
+    public func currentTabKeys() async -> TabKeysChoice? { tabKeys }
+    public func applyTabKeys(_ choice: TabKeysChoice) {
+        appliedTabKeys.append(choice)
+        tabKeys = choice
+    }
     public func makeAccountsStepView() -> NSView? { accountsView }
 
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
@@ -132,9 +146,16 @@ public final class MockOnboardingServices: OnboardingServices {
 
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
-    /// Each first-run step the model reported, in order.
+    /// Each first-run step the model reported, in order, and whether the person moved there.
     public private(set) var reached: [OnboardingModel.Step] = []
-    public func onboardingDidReach(_ step: OnboardingModel.Step) { reached.append(step) }
+    public private(set) var reachedInteracted: [Bool] = []
+    public func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        reached.append(step)
+        reachedInteracted.append(interacted)
+    }
+    /// How the first-run window last closed without Skip or Done (nil: it did not).
+    public private(set) var leftNotNow: Bool?
+    public func onboardingDidLeave(notNow: Bool) { leftNotNow = notNow }
 
     /// Sample data for the gallery: four browsers, the given themes and accounts view.
     public static func gallerySample(themes: [ThemeChoice], accountsView: NSView?) -> MockOnboardingServices {
@@ -142,6 +163,7 @@ public final class MockOnboardingServices: OnboardingServices {
         services.themeChoices = themes
         services.accountsView = accountsView
         services.firstTaskView = ThemedView()
+        services.offersTabKeys = true
         let day: TimeInterval = 86_400
         let now = Date()
         services.agentProjects = [

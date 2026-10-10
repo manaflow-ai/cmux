@@ -111,7 +111,7 @@ public struct DaemonLauncher: Sendable {
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
-    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns.
+    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns.
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],
@@ -131,8 +131,11 @@ public struct DaemonLauncher: Sendable {
                                           binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
+        // A terminal the daemon starts with no caller env gets this env; its
+        // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
+        let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         return DaemonLauncher(configuration: configuration, environment: appEnvironment(
-            cache: .shared, base: processEnvironment, overrides: overrides))
+            cache: .shared, base: processEnvironment, overrides: overrides, cli: cli))
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -155,9 +158,9 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity.
+    /// variables only, never a build's `CMUX_*` identity; and the brain's tools socket (chief.*).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET"]
         return base.filter { kept.contains($0.key) }
     }
 
@@ -165,19 +168,22 @@ public struct DaemonLauncher: Sendable {
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,
     /// else the app's own), filtered, plus the app's identity keys and
-    /// `overrides`. It never waits for `$SHELL -l -i`, which takes 5-17 s
-    /// on some setups; the app's terminals do not depend on it, because
-    /// each carries its own login `env` (`TerminalEnvironment.shared`).
+    /// `overrides`, then `cli` (the bundled `cmux` first on `PATH`). It
+    /// never waits for `$SHELL -l -i`, which takes 5-17 s on some setups;
+    /// the app's terminals do not depend on it, because each carries its
+    /// own login `env` (`TerminalEnvironment.shared`).
     static func appEnvironment(
         cache: LoginEnvironmentCache,
         base: [String: String],
-        overrides: [String: String]
+        overrides: [String: String],
+        cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.immediate()
             DaemonLaunchTimings.shared.mark("daemon.login_env_end")
-            return LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            return cli?.apply(to: environment) ?? environment
         }
     }
 
@@ -364,9 +370,8 @@ public struct DaemonLauncher: Sendable {
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
-        guard let open = version.firstIndex(of: "(") else { return nil }
-        let rest = version[version.index(after: open)...]
-        let commit = rest.prefix { $0.isHexDigit }
+        guard version.contains("(") else { return nil }
+        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
         return commit.count >= 7 ? String(commit) : nil
     }
 

@@ -22,9 +22,19 @@ nonisolated enum NewTabSubmit: Equatable {
 
     /// `search` is the explicit web-search choice (the field's search row):
     /// it searches any text but a `!` command (R86: no Search/Ask mode).
+    /// `fixesHostTypos`: the user typed the text (the palette), so a
+    /// top-level-domain typo is fixed as the omnibar fixes it
+    /// (`OmniboxResolver.commitTypoFix`); never for CLI, MCP or scripts.
     static func plan(text: String, search: Bool, agent: String?, resolver: OmniboxResolver,
-                     home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabSubmit {
-        switch NewTabIntent.classify(text, home: home) {
+                     home: URL? = FileManager.default.homeDirectoryForCurrentUser, fixesHostTypos: Bool = false) -> NewTabSubmit {
+        let intent = NewTabIntent.classify(text, home: home)
+        switch intent {
+        case .url, .prompt:
+            if fixesHostTypos, !search, let fixed = resolver.commitTypoFix(for: text) { return .browser(fixed) }
+        case .none, .terminal:
+            break
+        }
+        switch intent {
         case .none: return .page
         case .terminal(let command): return .terminal(command: command)
         case .url(let address) where !search: return URL(string: address).map(NewTabSubmit.browser) ?? .page
@@ -37,6 +47,17 @@ nonisolated enum NewTabSubmit: Equatable {
 }
 
 extension NewTabSubmit {
+    /// The `openBrowser` run that opens `url` for `invocation`: the same
+    /// target and origin, so openBrowser's guard (agents never open
+    /// Chromium's own pages, CLI/MCP/script tabs are agent-driven) covers
+    /// this action too.
+    static func browserInvocation(_ url: URL, from invocation: ActionInvocation) -> ActionInvocation? {
+        var open = ActionInvocation(target: invocation.target, arguments: ["url": .string(url.absoluteString)],
+                                    origin: invocation.origin, focusRequested: invocation.focusRequested)
+        open.keyContext = invocation.keyContext
+        return open
+    }
+
     /// Runs the action in the invocation's pane.
     @MainActor
     static func run(_ invocation: ActionInvocation, _ ctx: AppActionContext) {
@@ -45,7 +66,7 @@ extension NewTabSubmit {
         let text = invocation.arguments["text"]?.stringValue ?? ""
         let search = invocation.arguments["search"]?.boolValue == true
         let plan = plan(text: text, search: search, agent: invocation.arguments["agent"]?.stringValue,
-                        resolver: services.cache.suggestionEngine.resolver)
+                        resolver: services.cache.suggestionEngine.resolver, fixesHostTypos: invocation.origin == .user)
         let cwd = pane.selectedTab?.cwd
         switch plan {
         case .page:
@@ -54,8 +75,8 @@ extension NewTabSubmit {
             services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
-            services.newTabKinds.record(.browser(engine: nil), folder: cwd)
-            pane.newBrowserTab(url: url)
+            guard let open = browserInvocation(url, from: invocation) else { return }
+            TabLifecycle.newBrowser(ctx, open)
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))

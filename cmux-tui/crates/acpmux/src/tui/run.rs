@@ -337,6 +337,7 @@ pub(super) fn make_app(
         buttons: Vec::new(),
         perm_rows: Vec::new(),
         dialog_rect: Rect::default(),
+        answering: None,
     })
 }
 

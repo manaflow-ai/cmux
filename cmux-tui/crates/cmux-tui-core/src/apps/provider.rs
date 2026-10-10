@@ -37,24 +37,53 @@ use super::timer::TimerId;
 /// `net.fetch`) and the daemon's catalog ops are never routed.
 /// The allowlist stays explicit: a new family is a decision, never "any
 /// family the daemon does not own".
-pub const FAMILIES: &[&str] =
-    &["fs", "action", "app.settings", "power", "feed", "integration", "team", "app", "coderouter"];
+/// `credential` is the host credential relay (`relay.rs`): first-party app
+/// servers' Cloud API calls, sent by the Mac app with its install token.
+pub const FAMILIES: &[&str] = &[
+    "fs",
+    "action",
+    "app.settings",
+    "power",
+    "feed",
+    "integration",
+    "team",
+    "app",
+    "coderouter",
+    "credential",
+];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
 const WAITS_FOR_USER: &[&str] = &["fs.pick"];
 /// Largest params a routed call may carry (the provider's control queue is
 /// bounded; an untrusted app must not be able to overflow it).
-const MAX_PARAMS_BYTES: usize = 64 * 1024;
+pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
 /// Calls one provider may have outstanding across every app.
-const MAX_OUTSTANDING: usize = 64;
+pub(super) const MAX_OUTSTANDING: usize = 64;
+
+/// Who waits for a provider call's answer.
+pub(super) enum Target {
+    /// An app host's call; `cb` is its callback in that host process.
+    Host { host: HostKey, generation: u64, cb: u64 },
+    /// An app server's `relay.op` or `relay.session` line (`relay.rs`),
+    /// answered on that server process's input.
+    Relay { app: String, generation: u64, id: Value, session: bool },
+}
 
 pub(super) struct ProviderCall {
     pub client: u64,
     pub op: String,
-    pub host: HostKey,
-    pub generation: u64,
-    pub cb: u64,
+    pub target: Target,
     pub timer: TimerId,
+}
+
+/// How a provider call ended.
+pub(super) enum Ending {
+    /// The provider answered (`body` in the ABI shape).
+    Answer { ok: bool, body: Value },
+    /// It timed out.
+    Timeout,
+    /// No provider could take it (the send failed or the provider left).
+    Gone,
 }
 
 /// The provider family of `op`.
@@ -86,7 +115,7 @@ pub fn normalize_method(params: &mut Value) {
 }
 
 /// A provider's error body in the ABI shape `{code, message, retryable}`.
-fn error_body(body: Value) -> Value {
+pub(super) fn error_body(body: Value) -> Value {
     let code = body.get("code").and_then(Value::as_str).unwrap_or("operation.failed").to_string();
     let message = body
         .get("message")
@@ -194,7 +223,9 @@ impl Supervisor {
         origin: Origin,
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
-        if !FAMILIES.contains(&family_of(op)) {
+        // The credential relay serves app servers' relay lines only
+        // (`relay.rs`), never an app host's call, whatever its scopes say.
+        if !FAMILIES.contains(&family_of(op)) || family_of(op) == "credential" {
             return Err(
                 json!({ "code": "operation.unsupported", "message": format!("{op} has no owner reachable from apps yet"), "details": { "op": op }, "retryable": false }),
             );
@@ -228,7 +259,12 @@ impl Supervisor {
         });
         inner.provider_calls.insert(
             request_id,
-            ProviderCall { client, op: op.to_string(), host: key.clone(), generation, cb, timer },
+            ProviderCall {
+                client,
+                op: op.to_string(),
+                target: Target::Host { host: key.clone(), generation, cb },
+                timer,
+            },
         );
         if let Some(host) = inner.hosts.get_mut(key) {
             host.inflight += 1;
@@ -263,8 +299,7 @@ impl Supervisor {
             let mut inner = self.inner.lock().unwrap();
             let Some(call) = inner.provider_calls.remove(&request_id) else { return };
             self.timers.cancel(call.timer);
-            let body = unavailable(&call.op);
-            self.finish_locked(&mut inner, &call, ToHost::Resolve { cb: call.cb, ok: false, body })
+            self.finish_locked(&mut inner, &call, Ending::Gone)
         };
         self.emit(outs);
     }
@@ -280,15 +315,16 @@ impl Supervisor {
         let ids: Vec<u64> = inner
             .provider_calls
             .iter()
-            .filter(|(_, c)| c.host == *key)
+            .filter(|(_, c)| matches!(&c.target, Target::Host { host, .. } if host == key))
             .map(|(id, _)| *id)
             .collect();
         let mut outs = Vec::new();
         for id in ids {
             let call = inner.provider_calls.remove(&id).expect("listed");
             self.timers.cancel(call.timer);
-            if let Some(host) =
-                inner.hosts.get_mut(&call.host).filter(|h| h.generation == call.generation)
+            if let Target::Host { host, generation, .. } = &call.target
+                && let Some(host) =
+                    inner.hosts.get_mut(host).filter(|h| h.generation == *generation)
             {
                 host.inflight = host.inflight.saturating_sub(1);
             }
@@ -300,11 +336,37 @@ impl Supervisor {
         outs
     }
 
-    /// Answers the host that asked (same process only), then lets an idle
-    /// host stop.
-    fn finish_locked(&self, inner: &mut Inner, call: &ProviderCall, message: ToHost) -> Vec<Out> {
-        answer_locked(inner, call, message);
-        self.idle_check_locked(inner, &call.host)
+    /// Answers whoever waits for `call`: the host that asked (same process
+    /// only, then an idle host may stop) or the server's relay line.
+    pub(super) fn finish_locked(
+        &self,
+        inner: &mut Inner,
+        call: &ProviderCall,
+        ending: Ending,
+    ) -> Vec<Out> {
+        match &call.target {
+            Target::Host { host, generation, cb } => {
+                let (ok, body) = match ending {
+                    Ending::Answer { ok, body } => (ok, body),
+                    Ending::Timeout => (
+                        false,
+                        json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
+                    ),
+                    Ending::Gone => (false, unavailable(&call.op)),
+                };
+                answer_locked(inner, host, *generation, ToHost::Resolve { cb: *cb, ok, body });
+                self.idle_check_locked(inner, host)
+            }
+            Target::Relay { app, generation, id, session } => {
+                let reply = super::relay::relay_reply(id, *session, ending);
+                if let Some(server) =
+                    inner.servers.get(app).filter(|s| s.generation == *generation && !s.stopping)
+                {
+                    server.process.send(super::servers::line(&reply));
+                }
+                vec![]
+            }
+        }
     }
 
     /// `apps-provider-result`: only the provider the call went to may answer.
@@ -332,22 +394,17 @@ impl Supervisor {
             (true, false) => json!({ "value": body }),
             (false, _) => error_body(body),
         };
-        let outs = self.finish_locked(&mut inner, &call, ToHost::Resolve { cb: call.cb, ok, body });
+        let outs = self.finish_locked(&mut inner, &call, Ending::Answer { ok, body });
         drop(inner);
         self.emit(outs);
         Ok(json!({}))
     }
 
-    fn provider_timeout(&self, request_id: u64) {
+    pub(super) fn provider_timeout(&self, request_id: u64) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let Some(call) = inner.provider_calls.remove(&request_id) else { return };
-            let body = json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true });
-            let mut outs = self.finish_locked(
-                &mut inner,
-                &call,
-                ToHost::Resolve { cb: call.cb, ok: false, body },
-            );
+            let mut outs = self.finish_locked(&mut inner, &call, Ending::Timeout);
             outs.push(Out::Client(
                 call.client,
                 json!({ "event": "apps-provider-cancel", "request_id": request_id, "reason": "timeout" }),
@@ -371,21 +428,15 @@ impl Supervisor {
         for id in gone {
             let call = inner.provider_calls.remove(&id).expect("listed");
             self.timers.cancel(call.timer);
-            let body = unavailable(&call.op);
-            outs.extend(self.finish_locked(
-                inner,
-                &call,
-                ToHost::Resolve { cb: call.cb, ok: false, body },
-            ));
+            outs.extend(self.finish_locked(inner, &call, Ending::Gone));
         }
         outs
     }
 }
 
 /// Answers the host that asked, if it is still the same process.
-fn answer_locked(inner: &mut Inner, call: &ProviderCall, message: ToHost) {
-    if let Some(host) = inner.hosts.get_mut(&call.host).filter(|h| h.generation == call.generation)
-    {
+fn answer_locked(inner: &mut Inner, host: &HostKey, generation: u64, message: ToHost) {
+    if let Some(host) = inner.hosts.get_mut(host).filter(|h| h.generation == generation) {
         host.inflight = host.inflight.saturating_sub(1);
         if let Some(process) = &host.process {
             process.send(&message);
@@ -393,7 +444,7 @@ fn answer_locked(inner: &mut Inner, call: &ProviderCall, message: ToHost) {
     }
 }
 
-fn deadline_ms(deadline: Duration) -> u64 {
+pub(super) fn deadline_ms(deadline: Duration) -> u64 {
     deadline.as_millis().min(u128::from(u64::MAX)) as u64
 }
 

@@ -16967,6 +16967,1009 @@
    }
   },
   {
+   "name": "chief: the owner may not post a question",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "q1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q1",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "chief: the chief posts a question",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "agent_alicechief",
+    "idempotency_key": "q1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q1",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 2,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 1,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 4,
+        "gap_ms": 2000
+       },
+       "history_visible": "all"
+      },
+      "invites": [],
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_CHIEF",
+      "seq": 1,
+      "client_msg_id": "q1",
+      "author": "agent_alicechief",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "pending"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_CHIEF",
+       "seq": 1,
+       "client_msg_id": "q1",
+       "author": "agent_alicechief",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "pending"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: the chief may not answer",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 1,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_alicechief",
+    "idempotency_key": "a1",
+    "op": {
+     "kind": "question.answer",
+     "message_id": "msg_00000000000000000000000001",
+     "part_index": 0,
+     "answer": {
+      "selections": {
+       "q0": {
+        "option_ids": [
+         "oauth"
+        ]
+       }
+      }
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "human_only"
+   }
+  },
+  {
+   "name": "chief: the owner answers",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 1,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "a1",
+    "op": {
+     "kind": "question.answer",
+     "message_id": "msg_00000000000000000000000001",
+     "part_index": 0,
+     "answer": {
+      "selections": {
+       "q0": {
+        "option_ids": [
+         "oauth"
+        ]
+       }
+      }
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 4,
+        "gap_ms": 2000
+       },
+       "history_visible": "all"
+      },
+      "invites": [],
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_CHIEF",
+      "seq": 1,
+      "client_msg_id": "q1",
+      "author": "agent_alicechief",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "answered",
+         "answer": {
+          "selections": {
+           "q0": {
+            "option_ids": [
+             "oauth"
+            ]
+           }
+          },
+          "respondent": {
+           "participant": "user_alice",
+           "display_name": "Alice",
+           "remote": false
+          },
+          "answered_at": "2026-10-01T12:00:00.000Z"
+         }
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_CHIEF",
+       "seq": 1,
+       "client_msg_id": "q1",
+       "author": "agent_alicechief",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "answered",
+          "answer": {
+           "selections": {
+            "q0": {
+             "option_ids": [
+              "oauth"
+             ]
+            }
+           },
+           "respondent": {
+            "participant": "user_alice",
+            "display_name": "Alice",
+            "remote": false
+           },
+           "answered_at": "2026-10-01T12:00:00.000Z"
+          }
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: a second answer",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "a2",
+    "op": {
+     "kind": "question.answer",
+     "message_id": "msg_00000000000000000000000001",
+     "part_index": 0,
+     "answer": {
+      "selections": {
+       "q0": {
+        "option_ids": [
+         "keys"
+        ]
+       }
+      }
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "answered",
+        "answer": {
+         "selections": {
+          "q0": {
+           "option_ids": [
+            "oauth"
+           ]
+          }
+         },
+         "respondent": {
+          "participant": "user_alice",
+          "display_name": "Alice",
+          "remote": false
+         },
+         "answered_at": "2026-10-01T12:00:00.000Z"
+        }
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "answered",
+        "answer": {
+         "selections": {
+          "q0": {
+           "option_ids": [
+            "oauth"
+           ]
+          }
+         },
+         "respondent": {
+          "participant": "user_alice",
+          "display_name": "Alice",
+          "remote": false
+         },
+         "answered_at": "2026-10-01T12:00:00.000Z"
+        }
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "question_closed"
+   }
+  },
+  {
    "name": "local head: cloud ops are unsupported",
    "head": {
     "id": "conv_TEST",

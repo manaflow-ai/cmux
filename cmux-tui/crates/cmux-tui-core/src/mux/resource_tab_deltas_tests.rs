@@ -48,7 +48,7 @@ fn move_terminal(mux: &Arc<Mux>, surface: SurfaceId, pane: PaneId, index: usize)
         mux.resource_selectors_for_pane(Some(pane)).unwrap(),
         index,
         None,
-        &WorkspaceMutation::local("resource-tab-deltas-test"),
+        &WorkspaceMutation::daemon_local("resource-tab-deltas-test"),
     )
     .unwrap();
 }
@@ -67,7 +67,7 @@ fn terminal_project_into_the_middle_of_a_pane_emits_tab_added_at_its_index() {
         1,
         None,
         None,
-        &WorkspaceMutation::local("resource-tab-deltas-test"),
+        &WorkspaceMutation::daemon_local("resource-tab-deltas-test"),
     )
     .unwrap();
 

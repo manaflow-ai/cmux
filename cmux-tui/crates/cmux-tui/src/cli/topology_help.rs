@@ -28,6 +28,7 @@ USAGE
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
+    [--icon <emoji or SF Symbol name>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
@@ -46,7 +47,9 @@ is not the sidebar order. list --order personal gives the sidebar order: loose
 workspaces, and each group's workspaces where the group shows. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
---clear-top-index puts it after every loose workspace.
+--clear-top-index puts it after every loose workspace. --icon sets a group's
+icon (one emoji or an SF Symbol name); --clear-icon removes it. --pinned true
+saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
@@ -86,6 +89,7 @@ USAGE
   cmux tab <selector> pin|unpin
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
+  cmux tab <selector> update --icon <value>|--clear-icon
   cmux tab create terminal [--correlation-key <value>] [OPTIONS]
   cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux tab <selector> terminal|browser ...

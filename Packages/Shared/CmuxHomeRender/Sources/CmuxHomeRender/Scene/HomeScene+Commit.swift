@@ -59,21 +59,21 @@ extension HomeScene {
         let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + size.height + 600)
         var deltas: [String: CGFloat] = [:]
         var lastDelta: CGFloat?
-        var pendingNew: [Int] = []
+        var pendingNew: [String] = []
         for i in band {
-            let row = model.rows[i]
+            guard let row = model.rows[checked: i] else { continue }
             let key = row.spec.key
             let newWin = layout.contentTop(i) - newOffset
-            if let oldTop = oldSnap.contentTop(key), let oi = oldSnap.index[key], oldSnap.rows[oi].ghost == row.ghost || row.ghost {
+            if let oldTop = oldSnap.contentTop(key), let oi = oldSnap.index[key], let oldRow = oldSnap.rows[checked: oi], oldRow.ghost == row.ghost || row.ghost {
                 let d = (oldTop + oldRowsTop - oldOffset) - newWin
                 deltas[key] = d
-                for j in pendingNew { deltas[model.rows[j].spec.key] = d }
+                for pending in pendingNew { deltas[pending] = d }
                 pendingNew = []
                 lastDelta = d
             } else if let last = lastDelta {
                 deltas[key] = last
             } else {
-                pendingNew.append(i)
+                pendingNew.append(key)
             }
         }
         for (key, d) in deltas where abs(d) > 0.01 {
@@ -81,17 +81,17 @@ extension HomeScene {
             morphs[key]?.shift(by: Double(d), element, begin: begin)
         }
         for i in band {
-            let row = model.rows[i]
+            guard let row = model.rows[checked: i] else { continue }
             let key = row.spec.key
             if row.ghost, row.removedAt == begin {
                 let fade = key == "typing" ? HomeMotion.typingOut : HomeMotion.rowFade
                 ledger.add(key, .content, "opacity", from: 1, to: 0, motion(fade), begin: begin)
                 continue
             }
-            guard row.insertedAt == begin, oldSnap.index[key] == nil else {
-                if case .receipt(let new) = row.spec.kind, let oi = oldSnap.index[key],
-                   case .receipt(let old) = oldSnap.rows[oi].spec.kind, old != new {
-                    receiptChanges[key] = oldSnap.rows[oi].spec
+            guard row.insertedAt == begin, !oldSnap.index.keys.contains(key) else {
+                if case .receipt(let new) = row.spec.kind, let oi = oldSnap.index[key], let oldSpec = oldSnap.rows[checked: oi]?.spec,
+                   case .receipt(let old) = oldSpec.kind, old != new {
+                    receiptChanges[key] = oldSpec
                     ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, motion(HomeMotion.receiptOldOut), begin: begin)
                     ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, motion(HomeMotion.receiptNewIn), begin: begin)
                 }
@@ -125,11 +125,11 @@ extension HomeScene {
     /// attachment from its draft thumbnail when the host gave one.
     private func startMorph(_ item: String, from field: CGRect, origins: [Int: CGRect], begin: CFTimeInterval) {
         let prefix = "part:\(item):"
-        for i in model.rows.indices where model.rows[i].spec.key.hasPrefix(prefix) && !model.rows[i].ghost {
-            guard let p = model.rows[i].spec.partRow else { continue }
-            let key = model.rows[i].spec.key
+        for (i, row) in model.rows.enumerated() where row.spec.key.hasPrefix(prefix) && !row.ghost {
+            guard let p = row.spec.partRow else { continue }
+            let key = row.spec.key
             let partIndex = Int(key.dropFirst(prefix.count)) ?? 0
-            let body = RowArt.bodyRect(model.rows[i].spec, metrics: metrics)
+            let body = RowArt.bodyRect(row.spec, metrics: metrics)
             let top = windowY(contentY: layout.contentTop(i))
             let target = CGRect(x: body.minX, y: top, width: body.width, height: p.size.height)
             let start = p.text == nil ? origins[partIndex] ?? field : field
@@ -155,7 +155,7 @@ extension HomeScene {
             let image = Canvas.image(size: size) { AttachmentDrawing.drawChip($0, file, in: rect, outgoing: true, palette: palette) }
             return MorphBubble.Face(image: image, fill: nil, tail: p.tail, scalesWithBody: false)
         case .media(let part):
-            let maxPixel = Int((max(size.width, size.height) * bitmaps.scale).rounded(.up))
+            let maxPixel = CrashGuard.int((max(size.width, size.height) * bitmaps.scale).rounded(.up))
             let picture = media.image(for: part, maxPixel: maxPixel)
             let image = picture.flatMap { picture in
                 Canvas.image(size: size) { ctx in

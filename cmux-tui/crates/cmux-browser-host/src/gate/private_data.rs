@@ -99,12 +99,9 @@ mod tests {
         let sink: crate::driver::EventSink =
             Arc::new(move |event| seen.lock().unwrap().push(event));
         let host_log = Arc::new(PrivateDataLog::default());
-        let gate = Gate::new(
-            Arc::new(CookieEngine),
-            Grants { raw_cdp: false, remote: false, signed_in_profile: false },
-        )
-        .with_input_events("agent-s", sink)
-        .with_private_data_log(host_log.clone());
+        let gate = Gate::new(Arc::new(CookieEngine), Grants::default())
+            .with_input_events("agent-s", sink)
+            .with_private_data_log(host_log.clone());
         let id = "host:0123456789abcdef0123456789abcdef";
         gate.driver_call("cookies.clear", json!({"targetId": "T", "name": "sid"})).unwrap();
         gate.driver_call("cookies.restore", json!({"restoreId": id})).unwrap();

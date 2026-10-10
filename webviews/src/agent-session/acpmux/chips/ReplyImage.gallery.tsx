@@ -29,7 +29,10 @@ export default componentEntry<ReplyImageProps>({
   id: "agent-pane.reply-image",
   title: "Reply images",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/chips/ReplyImage.tsx#ReplyImage"],
+  covers: [
+    "agent-session/acpmux/chips/ReplyImage.tsx#ReplyImage",
+    "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
+  ],
   load: () => import("./ReplyImage").then((module) => module.ReplyImage),
   styles: () =>
     Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),

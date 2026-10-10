@@ -1,3 +1,4 @@
+public import CmuxAgentQuestion
 public import Foundation
 
 /// A typed change the client asks an owner to make. Every op travels with an
@@ -25,6 +26,9 @@ public enum HomeOp: Hashable, Sendable {
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
     case addReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
+    /// `question.answer`: the signed-in person answers the question part at
+    /// `partIndex`. Only the selections travel; the owner stamps who answered.
+    case answerQuestion(message: MessageID, conversation: ConversationID, partIndex: Int, answer: AgentQuestionAnswer)
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
@@ -35,6 +39,7 @@ public enum HomeOp: Hashable, Sendable {
         case .sendMessage(let conversation, _),
              .setReadCursor(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -50,6 +55,7 @@ public enum HomeOp: Hashable, Sendable {
              .setPinned(let conversation, _),
              .setMuted(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -106,9 +112,22 @@ public struct InviteReceipt: Hashable, Sendable {
     }
 }
 
+/// A source sent nothing: the op's owner is not connected, while the
+/// merged connection may stay online (another owner answers, as the cloud
+/// does for a router whose local Chief owner is down). `HomeStore` keeps a
+/// send waiting for the owner's `.ownerRecovered` ("sending", then "Not
+/// Delivered" past `HomeStore.offlineSendDeadline`, never "May Not Have
+/// Been Delivered") and refuses any other op with `ownerUnreachable`. It
+/// never reaches the store's callers.
+public struct HomeOwnerOffline: Error, Hashable, Sendable {
+    public init() {}
+}
+
 /// Why the owner refused an op, or why the client refused to send it.
 public enum HomeRejection: Error, Hashable, Sendable {
-    /// The owner is unreachable; nothing queues (U5).
+    /// The owner is unreachable. Ops other than sends are refused (U5); a
+    /// send waits for the reconnect and fails with this only after
+    /// `HomeStore.offlineSendDeadline` (Messages parity).
     case ownerUnreachable
     case notAuthorized
     case invalid(String)

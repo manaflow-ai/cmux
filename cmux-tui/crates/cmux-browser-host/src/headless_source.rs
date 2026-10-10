@@ -20,7 +20,8 @@ use crate::tab_source::{PolicyLogSink, TabCall, TabRow, TabSource};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::time::Instant;
 
 type Subscribers = Arc<Mutex<Vec<(u64, EventSink)>>>;
 
@@ -50,6 +51,9 @@ pub struct HeadlessSource {
     activity: Mutex<crate::headless_activity::Activity>,
     /// Each session's `session.configure` options (item 4d).
     pub(crate) configs: Mutex<crate::headless_configure::Configs>,
+    /// When an unused browser closes (`crate::headless_linger`).
+    linger: Mutex<crate::headless_linger::Linger>,
+    linger_wake: Condvar,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -109,6 +113,8 @@ impl HeadlessSource {
             driven: Mutex::default(),
             activity: Mutex::default(),
             configs: Mutex::default(),
+            linger: Mutex::default(),
+            linger_wake: Condvar::new(),
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -218,7 +224,7 @@ impl HeadlessSource {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             // The clock is injected at Activity's API (its tests pass times).
-            .drove(target, std::time::Instant::now());
+            .drove(target, Instant::now());
         for (tab, throttled) in changes {
             self.driver.set_tab_throttled(&tab, throttled);
         }
@@ -647,7 +653,8 @@ pub fn browser_for(
 
 /// One headless session: the session engine over the shared browser. When
 /// the session ends and the browser has no other session and no open tab,
-/// the browser closes (D3).
+/// the browser closes (D3) after `headless_linger::LINGER`, unless another
+/// session took it meanwhile.
 pub struct HeadlessSession {
     engine: Option<crate::provider_engine::ProviderEngine>,
     source: Arc<HeadlessSource>,
@@ -676,13 +683,72 @@ impl HeadlessSession {
         self.engine.as_ref().ok_or_else(|| DriverError::closed("the session was closed"))
     }
 
-    /// Drops the browser from the host when nothing uses it.
+    /// Drops the browser from the host when nothing uses it, after the
+    /// linger time (the next one-shot call reuses it instead of launching
+    /// Chromium again).
     fn release_if_idle(&self) {
-        let Some(browsers) = self.browsers.upgrade() else { return };
-        let mut map = browsers.lock().unwrap_or_else(PoisonError::into_inner);
-        if !self.source.in_use() {
-            map.retain(|_, source| !Arc::ptr_eq(source, &self.source));
+        if self.browsers.upgrade().is_none() || self.source.in_use() {
+            return;
         }
+        let start = self
+            .source
+            .linger
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .idle(Instant::now(), crate::headless_linger::LINGER);
+        if start {
+            let browsers = self.browsers.clone();
+            let source = Arc::downgrade(&self.source);
+            let spawned = std::thread::Builder::new()
+                .name("headless-linger".into())
+                .spawn(move || release_after_linger(&browsers, &source));
+            if spawned.is_err() {
+                // No thread: close it now, as before the linger.
+                release_now(&self.browsers, &self.source);
+            }
+        }
+    }
+}
+
+/// The linger thread of one browser: waits for the deadline (moved later by
+/// each session that ends meanwhile), then closes the browser if it is still
+/// unused. The host keeps the browser in its map until then.
+fn release_after_linger(
+    browsers: &Weak<Mutex<HashMap<String, Arc<HeadlessSource>>>>,
+    source: &Weak<HeadlessSource>,
+) {
+    use crate::headless_linger::Next;
+    loop {
+        let Some(src) = source.upgrade() else { return };
+        let mut linger = src.linger.lock().unwrap_or_else(PoisonError::into_inner);
+        match linger.wait(Instant::now()) {
+            Next::Sleep(delay) => {
+                // Bounded wait for the deadline, then ask again.
+                drop(
+                    src.linger_wake
+                        .wait_timeout(linger, delay)
+                        .unwrap_or_else(PoisonError::into_inner),
+                );
+            }
+            Next::Release => {
+                drop(linger);
+                release_now(browsers, &src);
+                return;
+            }
+            Next::Stop => return,
+        }
+    }
+}
+
+/// Removes `source` from the host's browsers if no session and no tab uses it.
+fn release_now(
+    browsers: &Weak<Mutex<HashMap<String, Arc<HeadlessSource>>>>,
+    source: &Arc<HeadlessSource>,
+) {
+    let Some(browsers) = browsers.upgrade() else { return };
+    let mut map = browsers.lock().unwrap_or_else(PoisonError::into_inner);
+    if !source.in_use() {
+        map.retain(|_, held| !Arc::ptr_eq(held, source));
     }
 }
 

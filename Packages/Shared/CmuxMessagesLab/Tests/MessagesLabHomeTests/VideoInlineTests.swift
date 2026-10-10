@@ -32,13 +32,13 @@ import Testing
                                   createdAt: Fixture2.start.addingTimeInterval(200), delivery: .committed, messageID: MessageID("m4"))
         p.apply(items: Fixture2.history(3) + [item], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded()
-        c.demo.collection.layoutIfNeeded()
+        c.demo!.collection.layoutIfNeeded()
         return (window, p, c, MessagesLabHome.PartRef(messageId: "vid", partIndex: 0), asked)
     }
 
     /// The visible cell of a part row, and its bubble's centre in host coordinates.
     private func cell(_ c: ChatController, _ ref: MessagesLabHome.PartRef) throws -> (RowCell, CGPoint) {
-        let cell = try #require(c.demo.collection.visibleCells.compactMap { $0 as? RowCell }.first {
+        let cell = try #require(c.demo!.collection.visibleCells.compactMap { $0 as? RowCell }.first {
             if let spec = $0.spec, case let .part(p) = spec.kind { return p.ref == ref }
             return false
         })
@@ -51,7 +51,7 @@ import Testing
         let (window, p, c, ref, asked) = try host()
         defer { window.close() }
         let (cell, point) = try cell(c, ref)
-        #expect(c.demo.hit(point)?.row.ref == ref, "the click lands on the video bubble")
+        #expect(c.demo!.hit(point)?.row.ref == ref, "the click lands on the video bubble")
         c.clicked(point)
         #expect(p.videoState(ref) == .loading, "a click starts playback (fetching the URL)")
         await p.video.playback.settled()
