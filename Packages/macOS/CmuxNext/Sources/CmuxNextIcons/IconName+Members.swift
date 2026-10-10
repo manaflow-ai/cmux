@@ -34,6 +34,7 @@ extension IconName {
     nonisolated public static let agentChatEmpty = IconName("agent.chat.empty")
     nonisolated public static let agentChatList = IconName("agent.chat.list")
     nonisolated public static let agentChatNew = IconName("agent.chat.new")
+    nonisolated public static let agentChief = IconName("agent.chief")
     nonisolated public static let agentFork = IconName("agent.fork")
     nonisolated public static let agentHandoff = IconName("agent.handoff")
     nonisolated public static let agentQuestion = IconName("agent.question")

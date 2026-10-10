@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// `dashboard`: a card per role with counts, and the pairing card.
@@ -11,22 +12,22 @@ struct DashboardPanel: View {
         VStack(spacing: 8) {
             Grid(horizontalSpacing: 8, verticalSpacing: 8) {
                 GridRow {
-                    RoleCard(symbol: "terminal", title: ServerStrings.terminals, value: "\(snapshot.terminals)",
+                    RoleCard(icon: .terminal, title: ServerStrings.terminals, value: "\(snapshot.terminals)",
                              state: snapshot.state(of: .session))
-                    RoleCard(symbol: "square.stack.3d.up", title: ServerStrings.apps, value: facts.appsValue,
+                    RoleCard(icon: .appsStack, title: ServerStrings.apps, value: facts.appsValue,
                              state: facts.appsTroubled ? .failed : snapshot.state(of: .apps))
                 }
                 GridRow {
-                    RoleCard(symbol: "cylinder.split.1x2", title: ServerStrings.database, value: facts.databaseValue,
+                    RoleCard(icon: .database, title: ServerStrings.database, value: facts.databaseValue,
                              state: snapshot.state(of: .postgres),
                              usage: snapshot.databases.map(\.usage).max())
-                    RoleCard(symbol: "globe", title: ServerStrings.browser, value: facts.browserValue,
+                    RoleCard(icon: .browser, title: ServerStrings.browser, value: facts.browserValue,
                              state: snapshot.state(of: .browser))
                 }
                 GridRow {
-                    RoleCard(symbol: "bolt.horizontal", title: ServerStrings.automations, value: "\(snapshot.automations)",
+                    RoleCard(icon: .automation, title: ServerStrings.automations, value: "\(snapshot.automations)",
                              state: snapshot.state(of: .automations))
-                    RoleCard(symbol: "heart.text.square", title: ServerStrings.health, value: facts.healthValue,
+                    RoleCard(icon: .serverHealth, title: ServerStrings.health, value: facts.healthValue,
                              state: .on, tint: colors.severity(HealthOrdering.worst(facts.issues)), action: model.openHealth)
                 }
             }
@@ -36,7 +37,7 @@ struct DashboardPanel: View {
 }
 
 struct RoleCard: View {
-    let symbol: String
+    let icon: IconName
     let title: String
     let value: String
     let state: ServerRoleState
@@ -50,7 +51,7 @@ struct RoleCard: View {
         let dim = state == .off || state == .unavailable
         let card = VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(colors.secondary)
+                Icon(icon, size: 14).foregroundStyle(colors.secondary)
                 Text(title).font(.system(size: 11.5)).foregroundStyle(colors.secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 if let dot = tint ?? stateColor { StateDot(color: dot, size: 6) }
@@ -103,23 +104,23 @@ struct PairingCard: View {
                 }
                 Spacer()
             case .unpaired(nil):
-                Image(systemName: "qrcode").foregroundStyle(colors.secondary)
+                Icon(.mobilePairQr, size: 15).foregroundStyle(colors.secondary)
                 Text(ServerStrings.unpaired).font(.system(size: 12.5)).foregroundStyle(colors.secondary)
                 Spacer()
                 PillButton(title: ServerStrings.pairThisServer, action: model.showPairingCode)
             case .pairing:
-                Image(systemName: "link").foregroundStyle(colors.secondary)
+                Icon(.devicePairing, size: 15).foregroundStyle(colors.secondary)
                 Text(ServerStrings.pairing).font(.system(size: 12.5)).foregroundStyle(colors.secondary)
                 Spacer()
             case let .paired(info):
-                Image(systemName: "person.2").font(.system(size: 12)).foregroundStyle(colors.secondary)
+                Icon(.team, size: 15).foregroundStyle(colors.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(verbatim: "\(info.team) · \(info.owner)").font(.system(size: 12.5)).foregroundStyle(colors.primary)
                     Text(verbatim: info.hostID).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(colors.tertiary)
                 }
                 Spacer()
                 Text(verbatim: "\(model.snapshot?.devices.count ?? 0)").font(.system(size: 12.5).monospacedDigit()).foregroundStyle(colors.secondary)
-                Image(systemName: "laptopcomputer.and.iphone").font(.system(size: 11)).foregroundStyle(colors.tertiary)
+                Icon(.devicesPaired, size: 13).foregroundStyle(colors.tertiary)
             }
         }
         .padding(10)
