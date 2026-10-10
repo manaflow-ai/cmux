@@ -18,7 +18,7 @@
   margin: 0;
   padding: 0 12px;
   box-sizing: border-box;
-  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
+  border: 0;
   background: none;
   box-shadow: inset 0 .5px 0 var(--acpmux-composer-edge);
   color: var(--agent-muted);
