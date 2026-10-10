@@ -709,6 +709,26 @@ export default agentPaneEntry({
         );
       },
     },
+    "keyboard-copy": {
+      note: "Play: select a transcript range, invoke both Ctrl-C and Cmd-C, and keep the range focused for copy feedback.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+        await ctx.press("Control+c");
+        await ctx.press("Meta+c");
+        await ctx.waitFor(() => {
+          const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
+          return answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement);
+        });
+      },
+    },
     "keyboard-focus": {
       note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
       snapshot: chat(keyboardRows),
