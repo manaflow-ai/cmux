@@ -1054,6 +1054,15 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
+                # Settings values are data the settings schema describes, not
+                # the catalog (plans/cmux-next/settings-react.md section 2).
+                "operations.settings.set.params.fields.value",
+                "operations.settings.schema.result",
+                "operations.settings.list.result.items",
+                "operations.settings.get.result",
+                "operations.settings.snapshot.result",
+                "errors.settings.invalid.details.fields.accepted",
+                "errors.settings.invalid.details.fields.value",
                 # Sidebar layout sections and items: the reducer validates
                 # them, and a newer app's values and keys must survive a
                 # round trip (sidebar-sections.md L5), which a closed
