@@ -52,6 +52,7 @@
     "chief.stop",
     "chief.update",
     "clipboard.write",
+    "closed.delete",
     "closed.list",
     "closed.reopen",
     "cloud.auth.status",
