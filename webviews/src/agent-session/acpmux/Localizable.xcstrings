@@ -28772,7 +28772,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拷貝"
+            "value": "複製"
           }
         }
       }
@@ -73520,7 +73520,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "拷貝"
+            "value": "複製"
           }
         }
       }
@@ -73652,7 +73652,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "拷貝為 Markdown"
+            "value": "複製為 Markdown"
           }
         }
       }
@@ -73784,7 +73784,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "拷貝最後一則回覆"
+            "value": "複製最後一則回覆"
           }
         }
       }
@@ -99903,7 +99903,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拷貝"
+            "value": "複製"
           }
         }
       }

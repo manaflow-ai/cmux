@@ -69,6 +69,8 @@ test("Copy offers the link with its keycap, the last response and the chat as Ma
     { id: "4", version: 1, at: 4, kind: "activity", text: "ls -l" },
     { id: "5", version: 1, at: 5, kind: "assistant", text: "a.txt" },
     { id: "6", version: 1, at: 6, kind: "assistant", text: "by 2 KB." },
+    // A prompt that failed to send starts no turn: the answer above stays the last one.
+    { id: "7", version: 1, at: 7, kind: "user", text: "And the oldest?", failed: true },
   ];
   const copy = copyRow({ link: "cmux://chat/s1", rows: transcript }, (text) => void copyText(text));
   root = createRoot(doc.getElementById("root")!);
@@ -86,8 +88,13 @@ test("Copy offers the link with its keycap, the last response and the chat as Ma
   expect(popups.length).toBe(2);
   expect(rows(popups[1])).toEqual([["Copy link", "⇧⌘C"], ["Copy last response"], ["Copy as Markdown"]]);
   const items = [...popups[1].querySelectorAll<HTMLElement>(".acpmux-chat-menu-item")];
-  await act(async () => items[2].click());
+  await act(async () => items[1].click());
+  await act(async () => void openPicker("Chat actions"));
+  await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
+  const reopened = [...doc.querySelectorAll(".acpmux-chat-menu-popover")].at(-1)!;
+  await act(async () => [...reopened.querySelectorAll<HTMLElement>(".acpmux-chat-menu-item")][2].click());
   expect(copied).toEqual([
+    "a.txt\n\nby 2 KB.",
     "> List the files\n\nTwo files.\n\n---\n\n> Which is larger?\n> By bytes\n\na.txt\n\nby 2 KB.",
   ]);
 });

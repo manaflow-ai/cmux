@@ -10,9 +10,9 @@ export function copyRow(
   copy: (text: string) => void,
   t: Translate = translate,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
-  const { link } = chat;
-  const response = lastResponse(chat.rows);
-  const markdown = chatMarkdown(chat.rows);
+  const { link, rows } = chat;
+  // The menu's rows are read on every render: only check here, build the text on selection.
+  const answered = rows.some((row) => row.kind === "assistant" && text(row));
   const children: ChatMenuChild[] = [];
   if (link)
     children.push({
@@ -21,20 +21,22 @@ export function copyRow(
       shortcutAction: SHORTCUT_ACTIONS.copyTabLink,
       onSelect: () => copy(link),
     });
-  if (response)
-    children.push({ key: "copyResponse", label: t("chatMenu.copyResponse"), onSelect: () => copy(response) });
-  if (markdown)
-    children.push({ key: "copyMarkdown", label: t("chatMenu.copyMarkdown"), onSelect: () => copy(markdown) });
+  if (answered && lastResponse(rows))
+    children.push({ key: "copyResponse", label: t("chatMenu.copyResponse"), onSelect: () => copy(lastResponse(rows)) });
+  if (answered)
+    children.push({ key: "copyMarkdown", label: t("chatMenu.copyMarkdown"), onSelect: () => copy(chatMarkdown(rows)) });
   if (!children.length) return undefined;
   return { key: "copy", label: t("chatMenu.copy"), icon: "action.copy", children };
 }
 
 const text = (row: AcpmuxRow) => row.text?.trim() ?? "";
+/// A prompt the agent got: not one still sending, failed, or queued behind a harness switch.
+const sent = (row: AcpmuxRow) => row.kind === "user" && !row.pending && !row.failed && !row.queued;
 
-/// The answer after the last prompt: its text rows, in order.
+/// The answer after the last sent prompt: its text rows, in order.
 function lastResponse(rows: readonly AcpmuxRow[]): string {
   let start = rows.length;
-  while (start > 0 && rows[start - 1].kind !== "user") start--;
+  while (start > 0 && !sent(rows[start - 1])) start--;
   return rows
     .slice(start)
     .filter((row) => row.kind === "assistant")
@@ -47,11 +49,11 @@ function chatMarkdown(rows: readonly AcpmuxRow[]): string {
   const blocks: string[] = [];
   for (const row of rows) {
     const body = text(row);
-    if (!body) continue;
-    if (row.kind === "user") {
+    if (sent(row)) {
       if (blocks.length) blocks.push("---");
-      blocks.push(body.replace(/^/gm, "> "));
-    } else if (row.kind === "assistant") {
+      // A prompt of attachments alone still starts its turn.
+      if (body) blocks.push(body.replace(/^/gm, "> "));
+    } else if (row.kind === "assistant" && body) {
       blocks.push(body);
     }
   }
