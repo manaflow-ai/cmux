@@ -236,9 +236,16 @@ enum ConversationTheme {
     /// Messages fills outgoing bubbles from a gradient fixed to the screen:
     /// lighter near the top, the plain service color at the bottom. Stops
     /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB).
-    struct ScreenGradient: Sendable {
+    struct ScreenGradient: Sendable, Equatable {
         var light: [(CGFloat, CGFloat, CGFloat)]
         var dark: [(CGFloat, CGFloat, CGFloat)]
+
+        static func == (a: ScreenGradient, b: ScreenGradient) -> Bool {
+            func same(_ x: [(CGFloat, CGFloat, CGFloat)], _ y: [(CGFloat, CGFloat, CGFloat)]) -> Bool {
+                x.count == y.count && zip(x, y).allSatisfy { $0 == $1 }
+            }
+            return same(a.light, b.light) && same(a.dark, b.dark)
+        }
 
         /// Colors and locations covering window fractions `top...bottom`.
         func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {

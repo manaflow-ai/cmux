@@ -35,14 +35,15 @@ enum BubbleShape {
 
 /// A filled bubble outline that redraws whenever its bounds change.
 final class BubbleBackgroundView: UIView {
-    var side: BubbleShape.Side = .trailing { didSet { setNeedsLayout() } }
-    var hasTail = true { didSet { setNeedsLayout() } }
-    var fillColor: UIColor = ConversationTheme.outgoingBubble { didSet { updateColors() } }
-    var strokeColor: UIColor? { didSet { updateColors() } }
+    // Cells set every property on each configure; only real changes redraw.
+    var side: BubbleShape.Side = .trailing { didSet { if side != oldValue { setNeedsLayout() } } }
+    var hasTail = true { didSet { if hasTail != oldValue { setNeedsLayout() } } }
+    var fillColor: UIColor = ConversationTheme.outgoingBubble { didSet { if fillColor != oldValue { updateColors() } } }
+    var strokeColor: UIColor? { didSet { if strokeColor != oldValue { updateColors() } } }
     /// Fill with Messages' screen-anchored gradient instead of `fillColor`:
     /// the shade depends on where the bubble sits in the window, so call
     /// `updateScreenGradient()` when it moves without relayout (scrolling).
-    var screenGradient: ConversationTheme.ScreenGradient? { didSet { updateColors() } }
+    var screenGradient: ConversationTheme.ScreenGradient? { didSet { if screenGradient != oldValue { updateColors() } } }
     private var gradientLayer: CAGradientLayer?
     /// Over a conversation background, this bubble (an incoming one) turns
     /// into a translucent material, as ChatKit's `forcesMaterialBackground`

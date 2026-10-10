@@ -48,6 +48,7 @@ final class MessageCell: UICollectionViewCell {
     private var imageRowID: String?
     private(set) var cellLayout: MessageCellLayout?
     private var imageTasks: [Task<Void, Never>] = []
+    private var timeLabelSizedFor: (text: String?, font: UIFont?)?
 
     /// Swipe-left timestamp reveal, 0...1 of the reveal distance (applied by the controller).
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
@@ -345,7 +346,12 @@ final class MessageCell: UICollectionViewCell {
         placeShiftable()
         guard let cellLayout else { return }
         // The time waits just past the trailing edge until a swipe reveals it.
-        timeLabel.sizeToFit()
+        // Measured only when its text or font changes (layout runs on every
+        // reuse and scroll-in).
+        if timeLabelSizedFor?.text != timeLabel.text || timeLabelSizedFor?.font != timeLabel.font {
+            timeLabel.sizeToFit()
+            timeLabelSizedFor = (timeLabel.text, timeLabel.font)
+        }
         let anchor = cellLayout.contentFrame
         timeLabel.setUntransformedFrame(CGRect(x: TimestampDrawerLabelGeometry.minX(width: contentView.bounds.width, labelWidth: timeLabel.bounds.width, fraction: 0), y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
         replyIndicator.place(at: replyIndicatorCenter)
