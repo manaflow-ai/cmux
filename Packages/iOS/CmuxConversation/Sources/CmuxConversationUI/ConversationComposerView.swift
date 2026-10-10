@@ -47,9 +47,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
     let micButton = UIButton(type: .system)
-    private let attachmentStrip = UIScrollView()
-    private let attachmentSeparator = UIView()
-    private var attachmentViews: [UIView] = []
+    /// Queued photos above the text row (Messages' photo shelf).
+    let attachmentShelf = ComposerAttachmentShelf()
     private(set) var attachments: [ComposerAttachment] = []
     /// A preview's remove button was tapped (after the attachment is dropped).
     var onRemoveAttachment: ((UUID) -> Void)?
@@ -87,12 +86,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private var sendLaterHeight: CGFloat { sendLaterDate == nil ? 0 : SendLaterChipView.height + 10 }
 
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
-    // Messages' attachment card: 154 pt previews inset 6 pt, 6 pt apart, then a
-    // separator inset 16 pt that sits 7 pt below them.
-    private let attachmentHeight: CGFloat = 154
-    private let attachmentInset: CGFloat = 6
-    private let attachmentGap: CGFloat = 6
-    private var attachmentBand: CGFloat { attachmentInset + attachmentHeight + 7 }
+    /// Messages' photo shelf: 155 pt previews inset 6 pt, then a 1 pt divider.
+    private var attachmentBand: CGFloat { ComposerAttachmentShelfGeometry.bandHeight }
     /// How far the keyboard has risen (0 hidden, 1 fully shown). Messages
     /// widens the composer as the keyboard rises: both side insets shrink by
     /// 12 pt, in step with the keyboard (measured on iOS 26 Messages).
@@ -148,17 +143,17 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         addSubview(fieldGlass)
         fieldGlass.layer.borderWidth = 0.5
         fieldGlass.layer.borderColor = UIColor.separator.cgColor
-        fieldGlass.contentView.addSubview(attachmentStrip)
-        fieldGlass.contentView.addSubview(attachmentSeparator)
+        fieldGlass.contentView.addSubview(attachmentShelf)
         fieldGlass.contentView.addSubview(linkPreview.container)
         linkPreview.onChange = { [weak self] in
             self?.setNeedsLayout()
             self?.updateHeight()
         }
-        attachmentSeparator.backgroundColor = .separator
-        attachmentStrip.showsHorizontalScrollIndicator = false
-        attachmentStrip.isHidden = true
-        attachmentSeparator.isHidden = true
+        attachmentShelf.isHidden = true
+        attachmentShelf.onRemove = { [weak self] id in
+            self?.removeAttachment(id: id)
+            self?.onRemoveAttachment?(id)
+        }
 
         textView.font = ConversationTheme.bodyFont
         textView.baseTypingAttributes = [
@@ -263,12 +258,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
                 sendLaterChip.center = CGPoint(x: 8 + chip.width / 2, y: 8 + chip.height / 2)
             }
         }
-        if !attachments.isEmpty {
-            attachmentStrip.frame = CGRect(x: 0, y: textTop + attachmentInset, width: field.width, height: attachmentHeight)
-            attachmentSeparator.frame = CGRect(x: 16, y: textTop + attachmentBand, width: field.width - 32, height: 0.5)
-            textTop += attachmentBand
-            layoutAttachments()
-        }
+        attachmentShelf.frame = CGRect(x: 0, y: textTop, width: field.width, height: attachments.isEmpty ? 0 : attachmentBand)
+        textTop += attachmentShelf.frame.height
         if linkPreview.preview != nil {
             linkPreview.layout(fieldWidth: field.width)
             linkPreview.container.frame.origin.y = textTop
@@ -434,8 +425,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.clearTypingDecorations()
     }
 
-    /// Grows by whole lines in the same frame as the edit, with no animation.
-    func updateHeight() {
+    /// Grows by whole lines in the same frame as the edit, with no animation;
+    /// `animated` (the photo shelf opening or closing) moves on the shelf spring.
+    func updateHeight(animated: Bool = false) {
         let width = max(1, (fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120) - fieldTextInset - sendSize.width - 10)
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
@@ -448,6 +440,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.isScrollEnabled = natural > maximumFieldHeight
         guard height != fieldHeight else { return }
         fieldHeight = height
+        guard !animated else {
+            ComposerAttachmentShelf.animate {
+                self.setNeedsLayout()
+                self.layoutIfNeeded()
+                self.delegate?.composerDidChangeHeight(self)
+            }
+            return
+        }
         UIView.performWithoutAnimation {
             self.setNeedsLayout()
             self.layoutIfNeeded()
@@ -462,82 +462,47 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
-        attachmentsChanged()
+        let opening = attachments.count == 1
+        if opening {
+            // The shelf opens at the field's current top and is revealed as
+            // the field grows (Messages pins the previews to the shelf top).
+            UIView.performWithoutAnimation {
+                attachmentShelf.frame = CGRect(x: 0, y: attachmentShelf.frame.minY, width: fieldGlass.bounds.width, height: 0)
+                attachmentShelf.isHidden = false
+                attachmentShelf.layoutIfNeeded()
+            }
+        }
+        attachmentShelf.append(id: attachment.id, image: attachment.image, animated: window != nil)
+        attachmentsChanged(shelfToggled: opening)
     }
 
     func removeAttachment(id: UUID) {
+        guard attachments.contains(where: { $0.id == id }) else { return }
         attachments.removeAll { $0.id == id }
-        attachmentsChanged()
+        // The last photo leaves at once and the field collapses around it.
+        if attachments.isEmpty {
+            attachmentShelf.removeAll()
+            attachmentShelf.isHidden = true
+        } else {
+            attachmentShelf.remove(id: id, animated: window != nil)
+        }
+        attachmentsChanged(shelfToggled: attachments.isEmpty)
     }
 
-    private func attachmentsChanged() {
-        attachmentViews.forEach { $0.removeFromSuperview() }
-        attachmentViews = attachments.map { attachment in
-            let container = UIView()
-            let imageView = UIImageView(image: attachment.image)
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = 12
-            imageView.layer.cornerCurve = .continuous
-            container.addSubview(imageView)
-            // A 19 pt neutral gray disc with a white cross (Messages), inside a
-            // 32 pt hit target.
-            let close = UIButton(type: .custom)
-            let disc = UIView(frame: CGRect(x: 6.5, y: 6.5, width: 19, height: 19))
-            disc.backgroundColor = UIColor(white: 0.46, alpha: 1)
-            disc.layer.cornerRadius = 9.5
-            disc.isUserInteractionEnabled = false
-            let cross = UIImageView(image: UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)))
-            cross.tintColor = .white
-            cross.contentMode = .center
-            cross.frame = disc.bounds
-            disc.addSubview(cross)
-            close.addSubview(disc)
-            close.accessibilityLabel = String(localized: "conversation.composer.removeAttachment", defaultValue: "Remove attachment", bundle: .module)
-            let id = attachment.id
-            close.addAction(UIAction { [weak self] _ in
-                self?.removeAttachment(id: id)
-                self?.onRemoveAttachment?(id)
-            }, for: .touchUpInside)
-            container.addSubview(close)
-            attachmentStrip.addSubview(container)
-            return container
-        }
-        attachmentStrip.isHidden = attachments.isEmpty
-        attachmentSeparator.isHidden = attachments.isEmpty
+    /// Messages swaps the placeholder and the send button at once; the field
+    /// grows or collapses on the shelf spring when the shelf opens or closes.
+    private func attachmentsChanged(shelfToggled: Bool) {
         updateEmojiScale()
         updatePlaceholder()
-        updateSendButton(animated: true)
+        updateSendButton(animated: false)
         setNeedsLayout()
-        updateHeight()
-        layoutIfNeeded()
-        // The newest pick scrolls into view; earlier ones clip at the card edge.
-        let maxX = max(0, attachmentStrip.contentSize.width - attachmentStrip.bounds.width)
-        attachmentStrip.setContentOffset(CGPoint(x: maxX, y: 0), animated: false)
-    }
-
-    private func layoutAttachments() {
-        var x = attachmentInset
-        let maxWidth = max(1, attachmentStrip.bounds.width - 2 * attachmentInset)
-        for (index, view) in attachmentViews.enumerated() {
-            let image = attachments[index].image
-            let aspect = image.size.width / max(image.size.height, 1)
-            let width = min(maxWidth, max(60, (attachmentHeight * aspect).rounded()))
-            view.frame = CGRect(x: x, y: 0, width: width, height: attachmentHeight)
-            view.subviews.first?.frame = view.bounds
-            // The cross centers 13.3 pt in from the preview's top-right corner.
-            view.subviews.last?.frame = CGRect(x: width - 13.3 - 16, y: 13.3 - 16, width: 32, height: 32)
-            x += width + attachmentGap
-        }
-        attachmentStrip.contentSize = CGSize(width: x - attachmentGap + attachmentInset, height: attachmentHeight)
+        updateHeight(animated: shelfToggled && window != nil)
     }
 
     func clearAfterSend() {
         attachments = []
-        attachmentViews.forEach { $0.removeFromSuperview() }
-        attachmentViews = []
-        attachmentStrip.isHidden = true
-        attachmentSeparator.isHidden = true
+        attachmentShelf.removeAll()
+        attachmentShelf.isHidden = true
         textView.text = ""
         mentionController.reset()
         textView.resetFormatting()

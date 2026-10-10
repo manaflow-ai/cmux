@@ -122,7 +122,8 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         }
         UISelectionFeedbackGenerator().selectionChanged()
         for case let cell as Cell in collectionView.visibleCells {
-            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 }, animated: true)
+            // Messages shows and hides the badge and the lightening at once.
+            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 })
         }
         onToggle?(asset, selected)
     }
@@ -135,7 +136,8 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         guard let index = selection.firstIndex(of: assetID) else { return }
         selection.remove(at: index)
         for case let cell as Cell in grid.visibleCells {
-            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 }, animated: true)
+            // Messages shows and hides the badge and the lightening at once.
+            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 })
         }
     }
 
