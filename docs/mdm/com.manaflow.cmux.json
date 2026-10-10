@@ -2101,6 +2101,12 @@
       "title" : "New Tab Button",
       "type" : "string"
     },
+    "tabs.swapCmdTAndCmdN" : {
+      "default" : false,
+      "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
+      "title" : "Swap Cmd-T and Cmd-N",
+      "type" : "boolean"
+    },
     "tasks.layout" : {
       "default" : "inbox",
       "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
