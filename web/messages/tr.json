@@ -3173,6 +3173,7 @@
       "accountChatgpt": "ChatGPT aboneliği (kişisel veya ekip çalışma alanı)",
       "accountOpenAiKey": "OpenAI API anahtarı",
       "accountOpenRouterKey": "OpenRouter API anahtarı",
+      "accountXaiKey": "xAI API anahtarı",
       "accountOpencodeGo": "OpenCode Go aboneliği",
       "accountClaudeSubscription": "Claude Max veya Pro (Claude Code kurulum token'ı)",
       "accountAnthropicKey": "Anthropic API anahtarı",

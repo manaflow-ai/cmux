@@ -501,6 +501,7 @@ function accountProvider(value: unknown): string | null {
     "anthropic-apikey",
     "opencode-go",
     "openrouter-apikey",
+    "xai-apikey",
   ]);
 }
 

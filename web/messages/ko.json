@@ -3172,6 +3172,7 @@
       "accountChatgpt": "ChatGPT 구독(개인 또는 팀 워크스페이스)",
       "accountOpenAiKey": "OpenAI API 키",
       "accountOpenRouterKey": "OpenRouter API 키",
+      "accountXaiKey": "xAI API 키",
       "accountOpencodeGo": "OpenCode Go 구독",
       "accountClaudeSubscription": "Claude Max 또는 Pro(Claude Code 설정 토큰)",
       "accountAnthropicKey": "Anthropic API 키",

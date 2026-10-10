@@ -1299,7 +1299,7 @@ export const subrouterTenants = pgTable(
  * live in the envelope-encrypted coderouterCredentials table; this table
  * coordinates selection and rotating refresh-token leases.
  */
-type CodeRouterProviderColumn = "codex" | "opencode-go" | "openai-apikey" | "openrouter-apikey";
+type CodeRouterProviderColumn = "codex" | "opencode-go" | "openai-apikey" | "openrouter-apikey" | "xai-apikey";
 
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",

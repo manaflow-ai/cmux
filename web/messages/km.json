@@ -3173,6 +3173,7 @@
       "accountChatgpt": "ការជាវ ChatGPT (workspace ផ្ទាល់ខ្លួន ឬរបស់ក្រុម)",
       "accountOpenAiKey": "API key របស់ OpenAI",
       "accountOpenRouterKey": "API key របស់ OpenRouter",
+      "accountXaiKey": "API key របស់ xAI",
       "accountOpencodeGo": "ការជាវ OpenCode Go",
       "accountClaudeSubscription": "Claude Max ឬ Pro (setup token របស់ Claude Code)",
       "accountAnthropicKey": "API key របស់ Anthropic",

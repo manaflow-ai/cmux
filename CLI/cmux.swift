@@ -4973,15 +4973,21 @@ struct CMUXCLI {
             )
         }
 
-        let command = args[index]
-        let rawCommandArgs = Array(args[(index + 1)...])
+        let invokedCommand = args[index]
+        let invokedCommandArgs = Array(args[(index + 1)...])
+        // `cr add grok` has no CodeRouter CLI flow; cmux owns it as `coderouter grok add`.
+        let crAddGrokArgs = invokedCommand == "cr" || invokedCommand == "coderouter"
+            ? Self.cmuxOwnedCrAddArguments(invokedCommandArgs)
+            : nil
+        let command = crAddGrokArgs == nil ? invokedCommand : "coderouter"
+        let rawCommandArgs = crAddGrokArgs ?? invokedCommandArgs
         if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
             exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
         // `cmux coderouter` keeps that passthrough except for the verbs cmux
-        // owns (`status`, `machines`, `claude`, help), which manage the team's
+        // owns (`status`, `machines`, `claude`, `grok`, help), which manage the team's
         // model plane through the app socket (CMUXCLI+Coderouter.swift).
         if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
             try runCoderouterAlias(commandArgs: rawCommandArgs)

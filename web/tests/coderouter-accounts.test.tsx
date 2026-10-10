@@ -257,6 +257,7 @@ describe("coderouter accounts section", () => {
       "Amazon Bedrock",
       "OpenAI API key",
       "OpenRouter API key",
+      "xAI API key",
       "Codex",
       "OpenCode",
     ]);

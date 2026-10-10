@@ -457,6 +457,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.hasPrefix("OK added Claude upstream account: anthropic_api_key sk-ant-...wxyz\n"), result.stdout)
     }
 
+    func testCoderouterGrokAddUploadsTheXAIKeyAndNeverEchoesIt() throws {
+        nonisolated(unsafe) var receivedParams: [String: Any] = [:]
+        let apiKey = "xai-0123456789abcdefghijklmnopqrstuvwxyz"
+        let (result, state) = try runCoderouterCLI(
+            ["cr", "add", "grok", "--stdin", "--label", "grok work", "--team", "team_explicit"],
+            socketName: "coderouter-add-grok",
+            standardInput: "\(apiKey)\n"
+        ) { method, params in
+            guard method == "coderouter.api_key.add" else { return nil }
+            receivedParams = params
+            return self.okResponse(["account": ["id": Self.accountA, "provider": "xai-apikey", "label": "grok work"]])
+        }
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedParams["provider"] as? String, "xai-apikey")
+        XCTAssertEqual(receivedParams["apiKey"] as? String, apiKey)
+        XCTAssertEqual(receivedParams["label"] as? String, "grok work")
+        XCTAssertEqual(receivedParams["teamId"] as? String, "team_explicit")
+        XCTAssertTrue(result.stdout.hasPrefix("OK added Grok account: grok work\n"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(apiKey), "the secret must never be printed")
+        XCTAssertFalse(result.stderr.contains(apiKey), "the secret must never be printed")
+        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.api_key.add""#) }.count, 1)
+    }
+
+    func testCoderouterGrokAddRejectsANonXAIKeyBeforeTheSocket() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "grok", "add"],
+            socketName: "coderouter-add-grok-bad",
+            extraEnvironment: ["XAI_API_KEY": "sk-proj-0123456789abcdefghijklmnop"],
+            waitForSocket: false
+        ) { _, _ in nil }
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("not an xAI API key"), result.stderr)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("coderouter.api_key.add") },
+            "a malformed key must not be sent to the app: \(state.commands)"
+        )
+    }
+
     func testCoderouterClaudeAddBedrockReadsAWSEnvironmentAndModelMap() throws {
         nonisolated(unsafe) var receivedParams: [String: Any] = [:]
         let (result, _) = try runCoderouterCLI(

@@ -3172,6 +3172,7 @@
       "accountChatgpt": "ChatGPT-abonnement (personligt eller team-arbejdsområde)",
       "accountOpenAiKey": "OpenAI API-nøgle",
       "accountOpenRouterKey": "OpenRouter API-nøgle",
+      "accountXaiKey": "xAI API-nøgle",
       "accountOpencodeGo": "OpenCode Go-abonnement",
       "accountClaudeSubscription": "Claude Max eller Pro (Claude Code-opsætningstoken)",
       "accountAnthropicKey": "Anthropic API-nøgle",

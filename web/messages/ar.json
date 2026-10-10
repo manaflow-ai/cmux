@@ -3172,6 +3172,7 @@
       "accountChatgpt": "اشتراك ChatGPT (مساحة عمل شخصية أو مساحة عمل فريق)",
       "accountOpenAiKey": "مفتاح OpenAI API",
       "accountOpenRouterKey": "مفتاح OpenRouter API",
+      "accountXaiKey": "مفتاح xAI API",
       "accountOpencodeGo": "اشتراك OpenCode Go",
       "accountClaudeSubscription": "Claude Max أو Pro (رمز إعداد Claude Code)",
       "accountAnthropicKey": "مفتاح Anthropic API",
