@@ -1104,6 +1104,13 @@ def main():
     if os.path.exists(SOCKET):
         sys.exit(f"{SOCKET} exists: another {TAG} app runs; pick a fresh tag")
     stop_sessions()  # an earlier run's Chief owner of this tag must not answer this run's Home
+    # The app's Home cache of this Chief home (`cmux-home/cmux-chief-<home id>/home.json`) keeps
+    # an earlier run's conversation: the run deletes the home, the new host makes a new
+    # conversation, and Home sent to the old one (no turn ever came; cx-ebm.55).
+    cache = os.path.expanduser(f"~/Library/Caches/cmux-home/cmux-chief-{HOME_ID}")
+    if os.path.isdir(cache):
+        print(f"removing the stale Home cache {cache}", flush=True)
+        shutil.rmtree(cache)
     os.makedirs(WORK, exist_ok=True)
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")
