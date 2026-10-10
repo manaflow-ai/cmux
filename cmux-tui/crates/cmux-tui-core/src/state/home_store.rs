@@ -1,5 +1,7 @@
 //! `workspace-kind-v1`: the home workspace record (plans/cmux-next/home.md
-//! section 7). A workspace is `normal` unless a row here marks it `home`.
+//! section 7). A workspace is `normal` unless a row here marks it `home`, or
+//! `app` with its `app_id` (`app-screens-v1`, state/app_workspaces.rs: one
+//! live app workspace per app).
 //!
 //! Owner rules, all enforced in the store:
 //! - At most one home per store: a unique index on `kind`, and
@@ -34,20 +36,64 @@ pub(crate) fn create_home_schema(transaction: &Transaction<'_>) -> anyhow::Resul
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_kind (
            workspace_id TEXT PRIMARY KEY NOT NULL,
-           kind TEXT NOT NULL CHECK(kind = 'home')
+           kind TEXT NOT NULL CHECK(kind IN ('home', 'app')),
+           app_id TEXT,
+           workspace_key TEXT,
+           CHECK((kind = 'app') = (app_id IS NOT NULL))
+         );",
+    )?;
+    rebuild_home_only_kind_table(transaction)?;
+    transaction.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_home
+           ON workspace_kind(kind) WHERE kind = 'home';
+         CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_app
+           ON workspace_kind(app_id) WHERE kind = 'app';",
+    )?;
+    Ok(())
+}
+
+/// The kind table of builds before `app-screens-v1` allows only `home`
+/// (`CHECK(kind = 'home')`, a unique index on `kind`). SQLite cannot change
+/// a CHECK, so the table is rebuilt once with the `app` kind and `app_id`;
+/// the home row keeps its workspace id. Older builds read the new table
+/// unchanged: their queries name `kind = 'home'` only.
+fn rebuild_home_only_kind_table(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let sql: Option<String> = transaction
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'workspace_kind'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if sql.as_deref().is_none_or(|sql| sql.contains("app_id")) {
+        return Ok(());
+    }
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS workspace_kind_one_home;
+         CREATE TABLE workspace_kind_app_screens (
+           workspace_id TEXT PRIMARY KEY NOT NULL,
+           kind TEXT NOT NULL CHECK(kind IN ('home', 'app')),
+           app_id TEXT,
+           workspace_key TEXT,
+           CHECK((kind = 'app') = (app_id IS NOT NULL))
          );
-         CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_home ON workspace_kind(kind);",
+         INSERT INTO workspace_kind_app_screens(workspace_id, kind)
+           SELECT workspace_id, kind FROM workspace_kind;
+         DROP TABLE workspace_kind;
+         ALTER TABLE workspace_kind_app_screens RENAME TO workspace_kind;",
     )?;
     Ok(())
 }
 
 /// The state row an empty workspace creation writes in its own commit.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) enum EmptyWorkspaceMark {
     #[default]
     None,
     Ephemeral,
     Home,
+    /// The app workspace of this app (`app-screens-v1`).
+    App(String),
 }
 
 impl EmptyWorkspaceMark {
@@ -55,23 +101,24 @@ impl EmptyWorkspaceMark {
         if ephemeral { Self::Ephemeral } else { Self::None }
     }
 
-    pub(crate) fn writes(self) -> bool {
-        self != Self::None
+    pub(crate) fn writes(&self) -> bool {
+        *self != Self::None
     }
 
     /// The field the creation fingerprint carries for this mark.
-    pub(crate) fn fingerprint_field(self) -> Option<(&'static str, serde_json::Value)> {
+    pub(crate) fn fingerprint_field(&self) -> Option<(&'static str, serde_json::Value)> {
         match self {
             Self::None => None,
             Self::Ephemeral => Some(("ephemeral", serde_json::Value::Bool(true))),
             Self::Home => Some(("kind", serde_json::Value::String(HOME_KIND.to_string()))),
+            Self::App(app) => Some(("app", serde_json::Value::String(app.clone()))),
         }
     }
 
     /// The rows this mark writes in the transaction that creates the
     /// workspace.
     pub(crate) fn write(
-        self,
+        &self,
         transaction: &Transaction<'_>,
         workspace_id: &str,
         workspace_key: &str,
@@ -85,8 +132,68 @@ impl EmptyWorkspaceMark {
                 mark_workspace_home(transaction, workspace_id)?;
                 place_home_first(transaction, workspace_key)
             }
+            Self::App(app) => mark_workspace_app(transaction, workspace_id, workspace_key, app),
         }
     }
+}
+
+/// The kind row of a new app workspace. The row of an earlier workspace of
+/// the same app whose workspace closed is replaced (a reopened copy of it
+/// comes back as an ordinary workspace); a live one refuses.
+fn mark_workspace_app(
+    transaction: &Transaction<'_>,
+    workspace_id: &str,
+    workspace_key: &str,
+    app: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        live_app_workspace(transaction, app)?.is_none(),
+        "bad request: app {app} already has a workspace"
+    );
+    transaction.execute("DELETE FROM workspace_kind WHERE kind = 'app' AND app_id = ?1", [app])?;
+    transaction.execute(
+        "INSERT INTO workspace_kind(workspace_id, kind, app_id, workspace_key)
+         VALUES(?1, 'app', ?2, ?3)",
+        [workspace_id, app, workspace_key],
+    )?;
+    Ok(())
+}
+
+/// The live app workspace of `app`: its public id and key.
+pub(crate) fn live_app_workspace(
+    connection: &Connection,
+    app: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    Ok(connection
+        .query_row(
+            "SELECT k.workspace_id, rw.workspace_key
+             FROM workspace_kind AS k
+             JOIN resource_workspaces AS rw ON rw.public_id = k.workspace_id
+             WHERE k.kind = 'app' AND k.app_id = ?1 AND rw.deleted_revision IS NULL",
+            [app],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?)
+}
+
+/// The app of every live app workspace, by workspace key (the raw tree's
+/// presentation snapshot). Liveness comes from the workspace registry row,
+/// which the staging commit of a new app workspace writes with its kind row,
+/// so the workspace's first tree delta already shows its kind (its resource
+/// row comes later, with the projection).
+pub(crate) fn live_app_workspaces(
+    connection: &Connection,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    let mut statement = connection.prepare(
+        "SELECT k.workspace_key, k.app_id
+         FROM workspace_kind AS k
+         JOIN workspaces AS w ON w.workspace_key = k.workspace_key
+         WHERE k.kind = 'app' AND w.tombstoned = 0",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
 }
 
 fn mark_workspace_home(transaction: &Transaction<'_>, workspace_id: &str) -> anyhow::Result<()> {
@@ -153,16 +260,17 @@ pub(crate) fn live_home(connection: &Connection) -> anyhow::Result<Option<(Strin
         .optional()?)
 }
 
-/// The kind a workspace snapshot shows in `extra.kind`; `None` is normal.
+/// The kind a workspace snapshot shows in `extra.kind` and, for an app
+/// workspace, its app (`extra.app`); `None` is normal.
 pub(crate) fn workspace_kind(
     connection: &Connection,
     workspace_id: &str,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Option<(String, Option<String>)>> {
     Ok(connection
         .query_row(
-            "SELECT kind FROM workspace_kind WHERE workspace_id = ?1",
+            "SELECT kind, app_id FROM workspace_kind WHERE workspace_id = ?1",
             [workspace_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?)
 }
