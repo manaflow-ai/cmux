@@ -405,6 +405,14 @@ final class CloudBrowserAccessState {
     /// The routed URL for callers that only need a GET navigation.
     func nextURL() -> URL? { nextRequest()?.url }
 
+    /// Replaces the request template used if the shared forward must be
+    /// recreated. BrowserPanel calls this for each new service navigation so
+    /// recovery replays the current request rather than an older POST.
+    func rememberNavigationRequest(_ request: URLRequest) {
+        guard request.url != nil else { return }
+        pendingNavigationRequest = request
+    }
+
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
         guard let url, navigationURL != nil else { return }
         activeNavigationID = navigationID

@@ -5665,6 +5665,9 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
+        if cloudAccess.model != nil, cloudAccess.owns(url) {
+            cloudAccess.rememberNavigationRequest(request)
+        }
         if trustedInternalNavigation {
             if url.isFileURL {
                 beginTrustedLocalFileNavigation(url)
