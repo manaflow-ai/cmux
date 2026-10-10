@@ -217,3 +217,4 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:12px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state{color:var(--agent-danger)}
+.nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
