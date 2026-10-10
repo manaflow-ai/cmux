@@ -95,7 +95,10 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
     /// the read queue.
     private static func readTranscript(_ source: AgentSessionSearchSource, existing: AgentSessionSearchTranscript?) -> Read? {
         guard let path = transcriptPath(for: source, cachedPath: existing?.path) else { return nil }
-        let reusable = existing.flatMap { $0.path == path && $0.agentKind == source.agentKind ? $0 : nil }
+        var reusable = existing
+        if reusable?.path != path || reusable?.agentKind != source.agentKind {
+            reusable = nil
+        }
         var reader = reusable ?? AgentSessionSearchTranscript(path: path, agentKind: source.agentKind)
         let changed = reader.refresh()
         return Read(reader: reader, changed: changed || reusable == nil)

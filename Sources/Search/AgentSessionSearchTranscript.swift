@@ -33,7 +33,11 @@ struct AgentSessionSearchTranscript: Sendable {
     private var lineCount = 0
     private var parseState = ChatTranscriptParseState()
 
-    init(path: String, agentKind: ChatAgentKind, readByteLimit: UInt64 = defaultReadByteLimit) {
+    init(
+        path: String,
+        agentKind: ChatAgentKind,
+        readByteLimit: UInt64 = AgentSessionSearchTranscript.defaultReadByteLimit
+    ) {
         self.path = path
         self.agentKind = agentKind
         self.readByteLimit = readByteLimit
