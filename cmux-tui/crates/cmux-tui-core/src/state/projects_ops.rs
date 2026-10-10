@@ -10,6 +10,7 @@ use serde_json::json;
 use crate::mux::*;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
+use crate::state::project_sources::{self, SourceScan};
 use crate::state::projects::{Observation, OverlayEdit, ProjectReject, Projects};
 use crate::state::projects_store::{self as store, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
@@ -57,6 +58,18 @@ fn rejected(reject: ProjectReject) -> anyhow::Error {
         | ProjectReject::InvalidName(detail) => detail.clone(),
     };
     anyhow::anyhow!("bad request: {}: {detail}", reject.code())
+}
+
+/// This machine's editor sources. Unit tests read fixtures through
+/// `project_sources` directly, so the protocol tests never see the test
+/// host's own editors.
+fn editor_scans() -> Vec<SourceScan> {
+    if cfg!(test) {
+        return Vec::new();
+    }
+    project_sources::Layout::current()
+        .map(|layout| project_sources::scan_all(&layout))
+        .unwrap_or_default()
 }
 
 /// The commit's events and result for the `changed` paths of `projects`.
@@ -168,8 +181,10 @@ impl Mux {
         })
     }
 
-    /// `project.sync` (app activation): the disk facts the app checked with its
-    /// privacy rules (rule 4); the store reads no disk itself.
+    /// `project.sync` (app launch and activation): the disk facts the app
+    /// checked with its privacy rules (rule 4), and a fresh read of the editor
+    /// sources (section 3), each one's list `complete`. The store never checks
+    /// whether a project folder exists itself.
     pub(crate) fn state_project_sync(
         &self,
         mutation: &WorkspaceMutation,
@@ -181,8 +196,17 @@ impl Mux {
             "bad request: at most {MAX_OBSERVATIONS} paths per sync"
         );
         let fingerprint = json!({"operation": "project.sync", "existing": existing, "gone": gone});
+        let scans = editor_scans();
+        let refusals = store::refusals();
+        let now = now_ms();
         self.commit_projects(mutation, "project.sync", &fingerprint, |projects| {
-            Ok(projects.apply_disk(existing, gone))
+            let mut changed = std::collections::BTreeSet::new();
+            for scan in &scans {
+                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                changed.extend(observed.map_err(rejected)?);
+            }
+            changed.extend(projects.apply_disk(existing, gone));
+            Ok(changed.into_iter().collect())
         })
     }
 }
