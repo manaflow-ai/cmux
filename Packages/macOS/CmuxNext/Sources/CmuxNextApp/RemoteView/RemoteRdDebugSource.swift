@@ -1,7 +1,7 @@
 #if DEBUG
 import CmuxNextRemoteView
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Development builds only (cx-wb5.75): the stream source, input sink and
 /// upstream control of a real rd desktop session, over a transport that is
