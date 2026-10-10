@@ -1,5 +1,6 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import Observation
 
@@ -13,7 +14,7 @@ enum BookmarkSuggestionFeed {
         // task-owner: lives as long as the engine and the service; both weak.
         Task { [weak service, weak engine] in
             guard let service else { return }
-            for await nodes in Observations({ service.tree(profile).bookmarks }) {
+            for await nodes in ObservationStream({ service.tree(profile).bookmarks }) {
                 guard let engine else { return }
                 engine.setBookmarks(rows(nodes))
             }

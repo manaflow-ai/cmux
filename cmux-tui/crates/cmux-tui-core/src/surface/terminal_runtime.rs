@@ -15,6 +15,11 @@ impl ReaderCompletion {
         *self.finished.lock().unwrap() = false;
     }
 
+    /// Whether the reader thread has ended.
+    pub(super) fn is_complete(&self) -> bool {
+        *self.finished.lock().unwrap()
+    }
+
     pub(super) fn complete(&self) {
         let mut finished = self.finished.lock().unwrap();
         *finished = true;

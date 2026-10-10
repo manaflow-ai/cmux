@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextTabs
@@ -135,16 +136,18 @@ final class InternalPageTabStore {
     // MARK: Store page tabs
 
     /// A store page tab's strip title and icon, from the page it shows.
-    func storeTabItem(_ tab: TabModel) -> (title: String, icon: TabIcon)? {
-        guard let page = tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+    func storeTabItem(_ tab: TabModel, page: InternalPageID? = nil) -> (title: String, icon: TabIcon)? {
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         return (provider.title(for: storeKeys[tab.id] ?? ""), Self.tabIcon(provider))
     }
 
-    /// The view of store page tab `tab` (its `page` source), made on first
-    /// show under a provider key of its own.
-    func view(forStoreTab tab: TabModel, in store: DaemonStore, window: WindowController?) -> InternalPageView? {
+    /// The view of store page tab `tab` (its `page` source, or `page` for an
+    /// app tab, `app-screens-v1`), made on first show under a provider key of
+    /// its own.
+    func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore,
+              window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] { return view }
-        guard let page = tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
@@ -301,7 +304,7 @@ final class InternalPageTabStore {
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in Observations({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
+            for await live in ObservationStream({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)

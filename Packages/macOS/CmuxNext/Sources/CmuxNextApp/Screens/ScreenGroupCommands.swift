@@ -94,7 +94,7 @@ enum ScreenGroupCommands {
     /// fresh idempotency key when the daemon serves `state-resources-v1`,
     /// else the raw command `raw`.
     static func change(_ label: String, _ state: ScreenGroupStateClient.Operation?, daemon: DaemonService,
-                       raw: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                       raw: @escaping DaemonCommandBody) {
         guard let state, daemon.supports(DaemonCapabilities.shared.stateResources) else { return daemon.send(label, raw) }
         let key = idempotencyKey(label)
         daemon.send(label) { _ = try await ScreenGroupStateClient(connection: $0).send(state, idempotencyKey: key) }

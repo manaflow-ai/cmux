@@ -152,7 +152,7 @@ pub(super) fn set_viewport_pane_width(
             )
         },
     )?;
-    Ok(json!({}))
+    rows::viewport_width_result(mux, pane)
 }
 
 #[allow(clippy::too_many_arguments)]

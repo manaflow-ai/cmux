@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextPages
@@ -33,14 +34,14 @@ enum SidebarCardFeed {
     /// tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
-        guard let window else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, state: window)
+        guard window != nil else { return cards }
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
     static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil) -> Task<Void, Never> {
         Task {
-            for await (card, updated, notice) in Observations({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
+            for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
                 (updateCard(updater), updatedCard(updater), noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }

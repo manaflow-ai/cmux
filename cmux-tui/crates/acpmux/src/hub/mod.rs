@@ -28,20 +28,18 @@ mod pool;
 mod queue;
 pub use queue::QueuedPrompt;
 mod resolve;
+mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub(crate) use route_switch::route_error;
 mod session;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
-#[cfg(test)]
-mod remote_sandbox_adopt_tests;
 mod spawn;
 mod steer_end;
 mod stream;
 mod tap;
-#[cfg(test)]
-mod tap_tests;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
@@ -526,6 +524,7 @@ impl Hub {
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
+            route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(false),

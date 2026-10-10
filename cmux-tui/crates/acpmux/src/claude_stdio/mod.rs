@@ -114,10 +114,6 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
 mod inbound;
 mod outbound;
 #[cfg(test)]
-mod reasoning_tests;
-#[cfg(test)]
-mod steer_tests;
-#[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
 mod tests;

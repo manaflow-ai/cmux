@@ -70,7 +70,7 @@
      var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
      var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
      var text: String { view.string }
-@@ -281,32 +298,34 @@
+@@ -281,32 +298,35 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -80,6 +80,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
++    @available(macOS 15, *) // cmux: macOS 14
      static let writingTools: NSWritingToolsBehavior = {
          let a = ProcessInfo.processInfo.arguments
 -        switch a.firstIndex(of: "--writing-tools").flatMap({ $0 + 1 < a.count ? a[$0 + 1] : nil }) {
@@ -111,7 +112,7 @@
      /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
      /// commit asked for one).
      private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -333,7 +352,8 @@
+@@ -333,7 +353,8 @@
              l.actions = none; l.contentsScale = DisplayScale.current
          }
          buttons.isUserInteractionEnabled = false
@@ -121,7 +122,16 @@
          addSubview(buttons)
          glass.anchorPoint = CGPoint(x: 0.5, y: 1)
          layer.addSublayer(glass)
-@@ -503,8 +523,9 @@
+@@ -390,7 +411,7 @@
+         tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
+         tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
+         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
+-        tv.writingToolsBehavior = ComposeView.writingTools
++        if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
+         tv.setAccessibilityLabel(Strings.placeholder)
+ 
+         caret.backgroundColor = Fixture.caret.cgColor
+@@ -503,8 +524,9 @@
              let grey = NSColor(white: 55 / 255, alpha: 1)
              let space = CGColorSpace(name: CGColorSpace.sRGB)
              for (stops, fromTop) in [(top, true), (bottom, false)] {
@@ -132,7 +142,7 @@
                  c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
              }
              c.restoreGState()
-@@ -521,11 +542,11 @@
+@@ -521,11 +543,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -146,7 +156,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -586,7 +607,7 @@
+@@ -586,7 +608,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -155,7 +165,7 @@
          let old = fieldHeight
          fieldHeight = h
          if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -625,10 +646,11 @@
+@@ -625,10 +647,11 @@
      /// faded (catalyst's `tintOverBubble`).
      func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
          let e = Springs.fieldOpacity
@@ -171,7 +181,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.values = values.map { NSNumber(value: $0) }
          a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
-@@ -651,7 +673,8 @@
+@@ -651,7 +674,8 @@
          // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
          // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
          let scale = tv.window?.backingScaleFactor ?? DisplayScale.current
@@ -181,7 +191,7 @@
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
             let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
                                           bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
-@@ -679,7 +702,7 @@
+@@ -679,7 +703,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

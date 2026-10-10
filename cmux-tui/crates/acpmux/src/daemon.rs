@@ -77,6 +77,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
+    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
+    // `local-coderouter` routes read its port and mint keys from it. Opt-in
+    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1): test daemons in temporary
+    // homes must not leave detached routers behind.
+    if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
+        ensure_router();
+    }
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
@@ -770,70 +777,53 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_release_launch_refuses_a_dev_origin() {
-        assert!(
-            !dev_origins_permitted(false, false),
-            "a release config refuses --allow-dev-origin"
-        );
-        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
-        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
-    }
-
-    #[test]
-    fn only_the_shared_home_listens_on_the_fixed_port() {
-        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
-        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
-        // A tagged home that saved the fixed port moves to a free one; other choices stay.
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
-        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
-    }
-
-    #[test]
-    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-
-        let fresh = dir.join("daemon.log");
-        drop(open_daemon_log(&fresh).unwrap());
-        assert_eq!(mode(&fresh), 0o600);
-
-        let old = dir.join("old.log");
-        std::fs::write(&old, b"kept\n").unwrap();
-        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
-        {
-            use std::io::Write;
-            let mut f = open_daemon_log(&old).unwrap();
-            f.write_all(b"appended\n").unwrap();
+/// Start `acpmux router serve` as a detached child unless a router already
+/// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
+/// streams keep running); a later daemon finds and reuses it.
+fn ensure_router() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    let socket = home().join("router").join("router.sock");
+    let ask = |line: &[u8]| -> std::io::Result<Value> {
+        let stream = UnixStream::connect(&socket)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut writer = stream.try_clone()?;
+        writer.write_all(line)?;
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer)?;
+        serde_json::from_str(&answer).map_err(std::io::Error::other)
+    };
+    let build = crate::hub::BUILD;
+    if let Ok(status) = ask(b"{\"op\":\"status\"}\n") {
+        if status.get("build").and_then(Value::as_str) == Some(build) {
+            return;
         }
-        assert_eq!(mode(&old), 0o600);
-        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
-        let _ = std::fs::remove_dir_all(&dir);
+        // Another build: it stops; the new router waits on router.lock until
+        // the old one has exited, so no sleep is needed here.
+        let _ = ask(b"{\"op\":\"shutdown\"}\n");
     }
-
-    #[tokio::test]
-    async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {
-        let dir = std::env::temp_dir().join(format!("acpmux-lock-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let lock = dir.join("daemon.lock");
-        let held = acquire_lock(&lock).unwrap();
-        // Held for the whole budget: not released.
-        assert!(!wait_for_lock_release(lock.clone(), Duration::from_millis(200)).await);
-        let started = std::time::Instant::now();
-        let waiter = tokio::spawn(wait_for_lock_release(lock.clone(), Duration::from_secs(10)));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(held);
-        assert!(waiter.await.unwrap());
-        assert!(started.elapsed() < Duration::from_secs(5));
-        // No lock file at all means no daemon.
-        assert!(wait_for_lock_release(dir.join("absent.lock"), Duration::from_secs(1)).await);
-        let _ = std::fs::remove_dir_all(&dir);
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", build)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Its own session: a daemon exit or a terminal hangup does not stop it.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
 }

@@ -106,7 +106,11 @@ final class ChatsOpenCoordinator {
         guard let services else { return }
         let chat = services.chatsFeed?.chats.first { $0.id == key }
         let title = chat?.title
-        let subject = ChatOpenSubject(title: title, harness: chat?.harness, sessionID: chat?.sessionID, cwd: chat?.cwd)
+        // A chat past the feed's window (the New Tab list pages the whole index) still names its
+        // harness and session id in its key (`harness:sessionId`).
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        let subject = ChatOpenSubject(title: title, harness: chat?.harness ?? parts.first,
+                                      sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd)
         switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose

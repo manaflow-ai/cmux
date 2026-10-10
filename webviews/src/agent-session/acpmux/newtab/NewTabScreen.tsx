@@ -4,7 +4,9 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
+import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import {
@@ -32,6 +34,10 @@ export type NewTabScreenActions = {
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
+  /// Open in terminal from an All chats row's right-click menu.
+  onOpenChatInTerminal?(key: string): void;
+  /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
+  loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
@@ -130,6 +136,10 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const device = useDeviceChats();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
+  // the cards keep only the chats that are running or need the user.
+  const allChats = sections.chats !== "none" && !!props.loadChatsPage && !!props.onOpenChat;
+  const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
@@ -273,53 +283,67 @@ export function NewTabScreen(props: Props) {
   const chatFolder = project ?? props.cwd;
 
   return (
-    <div ref={screen} className="nt-screen" data-shell={shell || undefined} data-template={template}>
-      <div className="nt-pickers" onPointerDownCapture={touch}>
-        <ProjectChooser
-          projects={props.projects ?? []}
-          current={project}
-          {...(project ? { currentLabel: projectLabel(project) } : {})}
-          icon={<FolderIcon />}
-          onPick={pickProject}
-          {...(browseProject ? { onBrowse: browseProject } : {})}
-          side="bottom"
-        />
-        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-            switch is the one Enter reuses. */}
-        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-      </div>
+    <div
+      ref={screen}
+      className="nt-screen"
+      data-shell={shell || undefined}
+      data-template={template}
+      data-all-chats={allChats || undefined}
+    >
+      {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
+          row, the Return glyph at the end. */}
       <div className="nt-box">
-        {shell ? (
-          <span className="nt-shell-glyph" aria-hidden="true">
-            !
-          </span>
-        ) : (
-          sections.prompt && (
-            <span className="nt-prompt-glyph" aria-hidden="true">
-              &gt;
+        <div className="nt-input">
+          {shell ? (
+            <span className="nt-shell-glyph" aria-hidden="true">
+              !
             </span>
-          )
-        )}
-        <input
-          ref={field}
-          className="nt-field"
-          aria-label={shell ? t("composer.shell") : nt("placeholder")}
-          placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
-          value={text}
-          aria-controls="nt-rows"
-          aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
-          spellCheck={!shell}
-          autoCapitalize="off"
-          autoCorrect="off"
-          onChange={(event) => edit(event.target.value)}
-          onKeyDown={keyDown}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onCompositionEnd={() => {
-            composing.current = false;
-          }}
-        />
+          ) : (
+            sections.prompt && (
+              <span className="nt-prompt-glyph" aria-hidden="true">
+                &gt;
+              </span>
+            )
+          )}
+          <input
+            ref={field}
+            className="nt-field"
+            data-focus-ring="none"
+            aria-label={shell ? t("composer.shell") : nt("placeholder")}
+            placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+            value={text}
+            aria-controls="nt-rows"
+            aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
+            spellCheck={!shell}
+            autoCapitalize="off"
+            autoCorrect="off"
+            onChange={(event) => edit(event.target.value)}
+            onKeyDown={keyDown}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+          />
+        </div>
+        <div className="nt-pickers" onPointerDownCapture={touch}>
+          <ProjectChooser
+            projects={props.projects ?? []}
+            current={project}
+            {...(project ? { currentLabel: projectLabel(project) } : {})}
+            icon={<FolderIcon />}
+            onPick={pickProject}
+            {...(browseProject ? { onBrowse: browseProject } : {})}
+            side="bottom"
+          />
+          {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+              switch is the one Enter reuses. */}
+          {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+          <kbd className="nt-enter" aria-hidden="true">
+            ↵
+          </kbd>
+        </div>
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -354,15 +378,28 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      {sections.chats !== "none" && (
+      {sections.tools && (tools.length > 0 || props.onAddHarness) && (
+        <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
+      )}
+      {sections.chats !== "none" && !allChats && (
         <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
       )}
-      {sections.tools && props.onAddHarness && (
-        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
-          {t("newtab.addHarness")}
-        </button>
+      {allChats && props.loadChatsPage && props.onOpenChat && (
+        <AllChatsList
+          load={props.loadChatsPage}
+          onOpen={props.onOpenChat}
+          active={activeCards.map((card) => ({
+            id: card.sessionId,
+            title: card.title,
+            ...(card.harness ? { harness: card.harness } : {}),
+            state: card.state,
+            label: nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
+          }))}
+          onOpenActive={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
+          {...(now !== undefined ? { now } : {})}
+        />
       )}
-      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
     </div>
   );
 }
@@ -384,51 +421,92 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
-function ToolsSection({
+/// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
+/// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
+/// down) are in its right-click menu. "Integrate a harness" ends the row.
+function ToolsRow({
   tools,
   onRunAction,
+  onAddHarness,
 }: {
   tools: NonNullable<NewTabHost["tools"]>;
   onRunAction?: (id: string) => void;
+  onAddHarness?: () => void;
 }) {
   const t = useT();
-  if (!tools.length) return null;
   return (
-    <section className="nt-tools" aria-labelledby="nt-tools-heading">
-      <h2 id="nt-tools-heading">{t("newTabPage.tools")}</h2>
-      <div className="nt-tools-grid">
-        {tools.map((tool) => (
-          <div className="nt-tool-card" key={tool.id}>
-            <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
-              <span className="nt-tool-icon" aria-hidden="true">
-                {toolIcon(tool.symbol)}
-              </span>
-              <span>{toolTitle(t, tool)}</span>
-              {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
-            </button>
-            {tool.menu.length > 0 && (
-              <div className="nt-tool-menu">
-                <button type="button" aria-label={t("newTabPage.moreOptions")}>
-                  …
-                </button>
-                <div className="nt-tool-menu-popover">
-                  {tool.menu.map((id) => (
-                    <button type="button" key={id} onClick={() => onRunAction?.(id)}>
-                      {toolMenuTitle(t, id)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
+    <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
+      {tools.map((tool) => {
+        const button = (
+          <button
+            type="button"
+            className="nt-tool"
+            // The shortcut in the tooltip: shown inline on hover it moved every later tool.
+            title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
+            onClick={() => onRunAction?.(tool.id)}
+          >
+            <span className="nt-tool-icon" aria-hidden="true">
+              {toolIcon(tool.symbol)}
+            </span>
+            <span>{toolTitle(t, tool)}</span>
+          </button>
+        );
+        return tool.menu.length > 0 ? (
+          <ContextMenu
+            key={tool.id}
+            className="nt-tool-host"
+            items={tool.menu.map((id) => ({ id, label: toolMenuTitle(t, id), onSelect: () => onRunAction?.(id) }))}
+          >
+            {button}
+          </ContextMenu>
+        ) : (
+          <React.Fragment key={tool.id}>{button}</React.Fragment>
+        );
+      })}
+      {onAddHarness && (
+        <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
+          <span className="nt-tool-icon" aria-hidden="true">
+            {toolIcon("plus")}
+          </span>
+          <span>{t("newtab.addHarness")}</span>
+        </button>
+      )}
+    </nav>
   );
 }
 
-function toolIcon(symbol: string): string {
-  return { plusminus: "±", terminal: "›_", folder: "▱", "bubble.left.and.text.bubble.right": "◌" }[symbol] ?? "•";
+/// 14 px stroke icons in currentColor for the host actions, by SF Symbol name.
+function toolIcon(symbol: string): React.ReactNode {
+  const path: Record<string, React.ReactNode> = {
+    plusminus: <path d="M4 4.5h4M6 2.5v4M4 11.5h8M10 4.5h2" />,
+    terminal: (
+      <>
+        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+        <path d="m4.75 6.25 2 1.75-2 1.75M8.5 10h2.75" />
+      </>
+    ),
+    folder: (
+      <path d="M1.75 4.25c0-.8.65-1.5 1.5-1.5h2.6l1.5 1.5h5.4c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H3.25c-.85 0-1.5-.65-1.5-1.5z" />
+    ),
+    "bubble.left.and.text.bubble.right": (
+      <path d="M2.25 4c0-.85.65-1.5 1.5-1.5h8.5c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H7l-3 2.5V11h-.25c-.85 0-1.5-.65-1.5-1.5zM5 5.75h6M5 8h4" />
+    ),
+    plus: <path d="M8 3v10M3 8h10" />,
+  };
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {path[symbol] ?? <circle cx="8" cy="8" r="2" />}
+    </svg>
+  );
 }
 
 function toolMenuTitle(t: Translate, id: string): string {
