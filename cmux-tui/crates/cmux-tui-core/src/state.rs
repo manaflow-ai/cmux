@@ -72,6 +72,8 @@ pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod status_meta;
+pub(crate) mod status_owners;
 pub(crate) mod store;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;

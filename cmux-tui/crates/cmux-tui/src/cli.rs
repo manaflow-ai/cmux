@@ -46,6 +46,8 @@ mod screen_help;
 #[cfg(unix)]
 mod script;
 mod shorthand;
+#[cfg(unix)]
+mod status;
 mod surface;
 mod topology_help;
 mod wire;
@@ -248,6 +250,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
+        .or_else(|| status::run_args(args))
     {
         return code;
     }

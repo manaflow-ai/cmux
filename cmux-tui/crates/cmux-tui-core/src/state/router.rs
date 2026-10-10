@@ -117,6 +117,28 @@ fn state_error(error: anyhow::Error) -> ResourceError {
     resource_operation_error(error)
 }
 
+/// The loading-indicator fields of `workspace_status.set`. A process owner
+/// is accepted only from a local caller (the user's own CLI or the verified
+/// app): an app's or a remote peer's process id names nothing it owns on
+/// this machine. Whether the process runs is checked inside the commit,
+/// after the replay check.
+fn status_set_meta(
+    request: &ParsedResourceRequest,
+) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
+    use crate::workspace_registry::Actor;
+    let meta =
+        crate::state::status_meta::StatusMeta::from_fields(&request.fields).map_err(state_error)?;
+    let local = matches!(request.actor, Actor::User { .. } | Actor::Frontend { .. } | Actor::Daemon);
+    if meta.owner_pid.is_some() && !local {
+        return Err(ResourceError::operation_failed(
+            "workspace_status.set",
+            "owner.pid requires a trusted local connection",
+            json!({"required_authority": "trusted_local"}),
+        ));
+    }
+    Ok(meta)
+}
+
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
     request.mutation().map_err(resource_operation_error)
 }
@@ -718,12 +740,17 @@ pub(crate) fn dispatch(
         | Op::WorkspaceProgressClear
         | Op::WorkspaceLogAppend
         | Op::WorkspaceLogClear => {
+            let meta = match operation {
+                Op::WorkspaceStatusSet => Some(status_set_meta(&request)?),
+                _ => None,
+            };
             let change = match operation {
                 Op::WorkspaceStatusSet => WorkspaceStatusChange::Set {
                     key: string(fields, "key").unwrap_or_default(),
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
+                    meta: Box::new(meta.clone().unwrap_or_default()),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }
@@ -749,6 +776,14 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            if let Some(meta) = meta {
+                crate::state::status_owners::watch_owners(
+                    mux,
+                    meta.owner_terminal.as_deref(),
+                    meta.owner_pid,
+                    meta.ttl_ms.is_some(),
+                );
+            }
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)

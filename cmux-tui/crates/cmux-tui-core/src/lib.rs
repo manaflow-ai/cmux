@@ -71,6 +71,7 @@ use cmux_tui_util::stream_interrupt;
 mod surface;
 #[cfg(unix)]
 mod terminal_backend;
+mod terminal_activity;
 mod terminal_end;
 #[cfg(unix)]
 mod terminal_loss_cause;
