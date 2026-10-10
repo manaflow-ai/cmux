@@ -131,9 +131,13 @@ public struct AgentNotificationReconciler: Sendable {
             // receipt from the prior turn and reset its lifecycle projection
             // before later hooks can reuse the old StopFailure state.
             boundaryInvalidations.append(contentsOf: session.delivered.values)
+            let seenTurns = session.seenTurns
             session = Session()
             session.surfaceID = draft.surfaceId
             session.agentKey = draft.agentKey
+            // Keep the old turn watermark so a late completion from the
+            // superseded turn remains stale after the recovery reset.
+            session.seenTurns = seenTurns
         }
         let movedFromPreviousSurface = session.surfaceID != nil && session.surfaceID != draft.surfaceId
         session.surfaceID = draft.surfaceId
