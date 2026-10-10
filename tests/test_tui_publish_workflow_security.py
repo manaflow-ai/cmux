@@ -281,12 +281,15 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "retaining publication for superseded tree" in preflight
     assert "deterministic owner" in preflight
     assert "owner_run_id" in preflight
+    # cx-73f2: the expensive jobs are grouped by the tree key alone, so runs of
+    # one key share a builder and no key is cancelled or delayed by another.
     for job, prefix in (("build", "cmux-tui-build-"), ("cmux-next-daemon-tests", "cmux-tui-daemon-")):
         body = workflow_job(artifacts, job)
-        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in body
+        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}\n" in body
         assert "cancel-in-progress: false" in body
     tree_publisher = workflow_job(artifacts, "publish-tree")
-    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
+    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}\n" in tree_publisher
+    assert "cancel-in-progress: false" in tree_publisher
     assert "replaces an older pending job" in artifacts
 
 
