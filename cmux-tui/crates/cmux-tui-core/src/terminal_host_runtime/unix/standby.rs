@@ -23,7 +23,18 @@ impl StandbyTerminalHost {
         // never run skewed builds.
         // On macOS: its content-addressed copy outside the app bundle, with no
         // path in its command line (host_exe.rs, cx-0tgl LF).
+        // No pre_exec: std then starts the host with posix_spawn instead of
+        // fork(), whose cost grew with every daemon thread (host_session.rs).
+        // A durable host must not share the daemon's controlling terminal,
+        // session, or process group (a shell hangup or group interrupt meant
+        // for the daemon would kill every hosted PTY), and the host and its
+        // shell get the open-file limit cmux started with: the host does
+        // both as its first steps (`enter_terminal_host_process`).
+        let session_env = host_session_env();
         let child = crate::host_exe::spawn_host(|command| {
+            if let Some((name, value)) = &session_env {
+                command.env(name, value);
+            }
             command
                 .args(["__terminal-host", "--bootstrap-stdio"])
                 .stdin(Stdio::piped())
@@ -31,23 +42,6 @@ impl StandbyTerminalHost {
                 // A host outlives its daemon, so it must not retain a daemon
                 // log pipe whose EOF is itself used as a lifecycle signal.
                 .stderr(Stdio::null());
-            // A durable host must not share the daemon's controlling
-            // terminal, session, or process group. Otherwise a shell hangup
-            // or group interrupt intended for the daemon can also kill every
-            // hosted PTY.
-            // SAFETY: setsid(2) is async-signal-safe and touches no Rust
-            // state in the post-fork child. A freshly forked child is not a
-            // process-group leader, so failure is an actual launch error.
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    // The host and the shell it owns get the limit cmux
-                    // started with (setrlimit(2) is async-signal-safe).
-                    cmux_pty::restore_open_file_limit_in_child()
-                });
-            }
         })
         .context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess { child: Some(child) };

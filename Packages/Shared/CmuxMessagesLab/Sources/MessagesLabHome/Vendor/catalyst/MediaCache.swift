@@ -268,6 +268,11 @@ final class ScrollPrefetcher {
     func update(_ r: RowRecycler) {
         guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
         let y = r.bounds.minY, t = r.clock()
+        if t < r.pageJumpUntil {
+            // A track-click page: the jump is no velocity, and the page code prepares its rows.
+            r.leadTop = 0; r.leadBottom = 0; velocity = 0; lastY = y; lastT = t
+            return
+        }
         if !lastY.isNaN, t - lastT > 0.001, t - lastT < 0.25 {
             velocity = 0.5 * velocity + 0.5 * (y - lastY) / CGFloat(t - lastT)
         } else if t - lastT >= 0.25 { velocity = 0 }

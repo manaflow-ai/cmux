@@ -27,7 +27,17 @@
          }
      }
  
-@@ -219,7 +220,7 @@
+@@ -115,6 +116,9 @@
+     }
+ 
+     var isEmpty: Bool { anchor == nil || anchor == focus }
++    /// cmux: MessagesLab ced183d's NativeScroll asks it (this file stays at bd65bbf): something is
++    /// highlighted, a text selection or a selected bubble.
++    var showsHighlight: Bool { !isEmpty || selectedKey != nil }
+ 
+     // MARK: Selected message (a click on a bubble)
+ 
+@@ -219,7 +223,7 @@
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
          guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
@@ -36,7 +46,7 @@
          let str = NSAttributedString(string: tl.text)
          guard str.length > 0 else { return false }
          let r = str.doubleClick(at: min(pos.offset, str.length - 1))
-@@ -255,28 +256,31 @@
+@@ -255,28 +259,31 @@
          if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
          if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
          let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
@@ -77,7 +87,7 @@
              let len = (tl.text as NSString).length
              let from = key == s.key ? s.offset : 0
              let to = key == e.key ? e.offset : len
-@@ -300,7 +304,7 @@
+@@ -300,7 +307,7 @@
                      let inter = NSIntersectionRange(sel, line.range)
                      let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
                      guard inter.length > 0 || empty else { continue }

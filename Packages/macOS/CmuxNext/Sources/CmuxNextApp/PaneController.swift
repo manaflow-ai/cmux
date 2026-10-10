@@ -173,10 +173,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
     /// address, load state and favicon, else the address and favicon its record names.
     private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
-        _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
-        let address = services.cache.pageRequests.proxiedTabs.appFetchableFavicon(page.map { $0.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: services.cache.existingBrowser(key)?.tab)
-        let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
+        let image = services.browserFavicon(key: key, recordFavicon: recordFavicon)
         let url = page?.url ?? recordURL.flatMap(URL.init(string:))
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
     }

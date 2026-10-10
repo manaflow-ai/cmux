@@ -83,6 +83,30 @@ fn macos_max_files_per_process() -> u64 {
     if ok && value > 0 { value as u64 } else { 10_240 }
 }
 
+/// The soft limit this process had before [`raise_open_file_limit`] raised
+/// it, or `None` when it did not raise it. A child started without a
+/// `pre_exec` hook (`posix_spawn`) receives it and calls
+/// [`restore_open_file_limit`] itself.
+pub fn original_open_file_limit() -> Option<u64> {
+    ORIGINAL_SOFT_LIMIT.load(Ordering::Acquire).checked_sub(1)
+}
+
+/// Set this process's soft limit to `soft` (at most the hard limit): the
+/// first step of a child that received [`original_open_file_limit`].
+pub fn restore_open_file_limit(soft: u64) -> io::Result<()> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid writable storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let restored = libc::rlimit { rlim_cur: soft.min(limit.rlim_max), rlim_max: limit.rlim_max };
+    // SAFETY: `restored` is a valid rlimit at or below the hard limit.
+    if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const restored) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Give a child the soft limit this process had before
 /// [`raise_open_file_limit`]. Call it between fork and exec: it only calls
 /// `setrlimit(2)`, which is async-signal-safe. Without an earlier raise it
