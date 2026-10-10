@@ -8,9 +8,9 @@ name: cmux-next web
 # push's first-parent diff, so a push that touches no web path runs only its
 # scope job and the Agent Session web tests. Linux only.
 on:
-  push:
-    branches: [feat-cmux-next]
-
+  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10);
+  # dispatch this workflow on a ref to run it.
+  workflow_dispatch:
 permissions:
   contents: read
 

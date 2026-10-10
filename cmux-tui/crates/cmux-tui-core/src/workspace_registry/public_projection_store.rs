@@ -114,8 +114,7 @@ struct StoredNotification {
     created_at_ms: WireDecimal,
     unread: bool,
     /// Read marks at commit time are always empty; the durable truth is the
-    /// `resource_notification_reads` table, so this field is decoded and
-    /// ignored.
+    /// `resource_notification_reads` table, so this field is decoded and ignored.
     #[serde(default)]
     read_by: Vec<String>,
     #[serde(default)]
@@ -239,9 +238,8 @@ impl WorkspaceRegistry {
         })
     }
 
-    /// Current agent projections, optionally filtered by terminal and state,
-    /// decoded from their stored results (adapter and hook session id
-    /// included).
+    /// Current agent projections, optionally filtered by terminal and state, decoded from
+    /// their stored results (adapter and hook session id included).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -265,7 +263,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
-    fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    pub(super) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT public_id
@@ -279,7 +277,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    fn durable_notifications(
+    pub(super) fn durable_notifications(
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
@@ -359,7 +357,9 @@ impl WorkspaceRegistry {
                 .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
-            let unread = stored.unread && !acked.contains(stored.id.as_str());
+            // A closed terminal's notification has no ring to restore.
+            let live = stored.terminal_id.as_ref().is_none_or(|id| live_terminals.contains(id));
+            let unread = stored.unread && live && !acked.contains(stored.id.as_str());
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,

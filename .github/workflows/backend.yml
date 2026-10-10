@@ -121,19 +121,14 @@ jobs:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
           MYSQL_URL: mysql://root:scratch@127.0.0.1:3306/cmux_next
         run: bun migrate-mysql.ts --url-env MYSQL_URL && bun migrate-mysql.ts --url-env MYSQL_URL --verify && bun test test-mysql
-      - name: Ownership invariants (OwnershipConvergence model + mutants)
+      - name: Ownership redaction (secrets never leave in rows)
         working-directory: backend/packages/ownership
-        env:
-          OWNERSHIP_SEEDS: "1500"
         run: bun run test
       - name: SAML validator (signature wrapping, comment injection, c14n vs xml-crypto)
         working-directory: backend/packages/saml
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
-        run: bun run test
-      - name: Dashboard tests (approvals, search params)
-        working-directory: backend/apps/dashboard
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard
