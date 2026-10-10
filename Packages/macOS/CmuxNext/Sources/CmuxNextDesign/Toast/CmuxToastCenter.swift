@@ -105,7 +105,7 @@ public final class CmuxToastCenter {
     func end(_ serial: Int, _ reason: CmuxToastDismissReason, relayout again: Bool = true) {
         guard let entry = entries.removeValue(forKey: serial) else { return }
         entry.timer.cancel()
-        host.hide(entry.view)
+        host.hide(entry.view, animated: reason != .replaced)
         if let window = entry.window {
             let key = ObjectIdentifier(window)
             stacks[key]?.remove(serial)

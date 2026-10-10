@@ -14,6 +14,8 @@ Surfaces:
   tabs   tab open, close, move right and left, a drag reorder
   panes  split right, split down, close, equalize, zoom
   focus  focus moves between panes (left, right)
+  toasts a toast appears (pin a tab), a second stacks under it (a tab icon),
+         and the newest ends (undo) while the other slides back down
 
 Usage: motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR
        [--surface NAME ...] [--only SCENARIO ...]
@@ -147,7 +149,14 @@ def focus():
     record("focus", "right", lambda: action("focusRight"))
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus}
+def toasts():
+    save_layout("toasts")
+    record("toasts", "appear", lambda: action("palette.toggleTabPin"))
+    record("toasts", "stack", lambda: action("tab.setIcon", args={"icon": "star"}))
+    record("toasts", "undo", lambda: action("undo"))
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts}
 
 
 def main():
