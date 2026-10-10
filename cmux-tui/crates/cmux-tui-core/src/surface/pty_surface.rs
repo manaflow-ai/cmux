@@ -292,9 +292,9 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
-        let mut term = self.term.lock().unwrap();
+        let term = self.term.lock().unwrap();
         let generation = self.render_generation.load(Ordering::Acquire);
-        let _ = self.build_frame_locked(&mut term, generation, true);
+        let _ = self.build_producer_frame(term, generation);
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
@@ -316,17 +316,39 @@ impl PtySurface {
         // observe a live terminal or a complete, inert final snapshot.
         self.host_connection_state
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+        drop(term);
+        self.mark_output_dirty();
     }
 
     pub(super) fn mark_output_dirty(&self) {
-        if !self.dirty.swap(true, Ordering::AcqRel)
-            && let Some(mux) = self.mux.upgrade()
-        {
+        if self.dirty.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::OutputEventStarted);
+        if let Some(mux) = self.mux.upgrade() {
             mux.emit_terminal_output(self.event_surface_id);
         }
     }
 
+    /// Build a producer-driven frame, release `term`, then publish
+    /// `SurfaceOutput`. The output event takes `Mux::state`, which is ordered
+    /// before `term` (see [`PtyTerminalRuntime`]), so it must not run while the
+    /// terminal lock is held.
+    pub(super) fn build_producer_frame(
+        &self,
+        mut term: std::sync::MutexGuard<'_, Box<Terminal>>,
+        generation: u64,
+    ) -> ghostty_vt::Result<bool> {
+        let built = self.build_frame_locked(&mut term, generation, true);
+        drop(term);
+        self.mark_output_dirty();
+        built
+    }
+
     /// Build and fan out one immutable frame while the caller holds `term`.
+    /// This never calls into the mux; a producer-driven caller publishes the
+    /// output event through [`Self::build_producer_frame`] after unlocking.
     pub(super) fn build_frame_locked(
         &self,
         term: &mut Terminal,
@@ -367,10 +389,6 @@ impl PtySurface {
                 true
             }
         };
-
-        if producer_driven {
-            self.mark_output_dirty();
-        }
         Ok(built)
     }
 

@@ -238,3 +238,30 @@ async fn an_image_block_reaches_claude_as_a_base64_image_before_the_text() {
     );
     assert_eq!(content[1], json!({"type": "text", "text": "what does this say?"}));
 }
+
+/// OptChat's compactor probe warns when the session's Claude Code is too
+/// old to know the compactor model (it prices it at default rates and
+/// checks it with one more request per session): the init's Claude Code
+/// version goes into the session info.
+#[tokio::test]
+async fn init_reports_the_claude_code_version() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let msgs = t
+        .inbound(&json!({"type": "system", "subtype": "init", "session_id": "s1",
+            "tools": [], "mcp_servers": [], "model": "claude-haiku-5-5",
+            "claude_code_version": "2.1.287"}))
+        .await;
+    let info = msgs
+        .iter()
+        .find_map(|m| match m {
+            Message::Notification { params: Some(p), .. }
+                if p["update"]["sessionUpdate"] == "session_info_update" =>
+            {
+                Some(p["update"]["_meta"]["claude"].clone())
+            }
+            _ => None,
+        })
+        .expect("a session_info_update");
+    assert_eq!(info["version"], "2.1.287");
+    assert_eq!(info["model"], "claude-haiku-5-5");
+}
