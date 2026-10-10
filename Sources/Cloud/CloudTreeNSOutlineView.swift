@@ -68,6 +68,8 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// control that opened the menu does not fade out from under it.
     private var trackingMenus: Set<ObjectIdentifier> = []
     private var menuPinnedNodeID: String?
+    /// Called when scrolling changes which machine rows are in the viewport.
+    var onViewportChange: (() -> Void)?
 
     /// The outline owns exactly one hover target. Cells cannot retain independent
     /// enter/exit state across tracking-area replacement, scrolling, or reloads.
@@ -136,6 +138,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
         refreshHover()
+        onViewportChange?()
     }
 
     override func updateTrackingAreas() {
