@@ -87,9 +87,10 @@ final class ScreenContentView: NSView {
 
     /// Applies a new layout. Returns true if springs need frames.
     ///
-    /// A structural change (split, close, move, new column) lands in one
-    /// frame: panes and dividers snap to their targets and a new pane is
-    /// fully opaque at once, so its content can draw in the same frame.
+    /// A split grows its new pane in from the edge of the pane it split, on
+    /// `move` with the split pane and the divider (`PaneArrival`, cx-f6i7).
+    /// Other structural changes (close, move, new column) land in one frame:
+    /// panes and dividers snap to their targets.
     /// Ratio and width changes (equalize, width presets, another client's
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
@@ -108,7 +109,10 @@ final class ScreenContentView: NSView {
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        let animateFrames = animate && !structural
+        // A split grows its new pane in from the edge (`PaneArrival`); other
+        // structural changes (close, move, a new strip column) land in one frame.
+        let arrivals = animate && structural ? Self.arrivals(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
+        let animateFrames = animate && (!structural || !arrivals.isEmpty)
 
         // Panes.
         let style = context.style
@@ -122,7 +126,9 @@ final class ScreenContentView: NSView {
                 if host.superview !== self {
                     addSubview(host, positioned: .below, relativeTo: firstDividerView)
                 }
-                paneFrames[pane] = AnimatedFrame(target)
+                var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
+                frame.setTarget(target)
+                paneFrames[pane] = frame
             }
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius)
         }
@@ -160,7 +166,11 @@ final class ScreenContentView: NSView {
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
             } else {
-                dividerFrames[kind] = AnimatedFrame(target.rect)
+                // A split's new divider starts on the edge its pane grows from.
+                let offset = arrivals.values.first?.edgeOffset ?? .zero
+                var frame = AnimatedFrame(target.rect.offsetBy(dx: offset.dx, dy: offset.dy))
+                frame.setTarget(target.rect)
+                dividerFrames[kind] = frame
             }
         }
         for kind in dividerViews.keys where targets[kind] == nil {
@@ -175,6 +185,15 @@ final class ScreenContentView: NSView {
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
         return animate && hasMotion
+    }
+
+    /// The arrivals of a split: exactly one new pane, nothing removed, and
+    /// an existing pane gave up its space. Empty otherwise.
+    static func arrivals(_ previous: [PaneID: CGRect], _ next: [PaneID: CGRect]) -> [PaneID: PaneArrival] {
+        let added = next.keys.filter { previous[$0] == nil }
+        guard added.count == 1, previous.keys.allSatisfy({ next[$0] != nil }), let pane = added.first, let target = next[pane],
+              let arrival = PaneArrival.of(target: target, previous: previous, next: next) else { return [:] }
+        return [pane: arrival]
     }
 
     private var firstDividerView: NSView? {
