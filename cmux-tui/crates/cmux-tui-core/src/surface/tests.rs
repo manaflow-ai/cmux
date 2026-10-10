@@ -45,7 +45,11 @@ impl Write for TerminalProbeDuringWrite {
         let Some(surface) = self.surface.upgrade() else {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "surface was dropped"));
         };
-        surface.with_terminal(|_| ());
+        // The PTY write holds `runtime`, which ranks after `term`: probe
+        // without blocking so the lock-rank checker allows it.
+        if matches!(surface.as_pty().unwrap().term.try_lock(), Err(TryLockError::WouldBlock)) {
+            return Err(std::io::Error::other("terminal lock held during the PTY write"));
+        }
         self.written.lock().unwrap().extend_from_slice(bytes);
         Ok(bytes.len())
     }

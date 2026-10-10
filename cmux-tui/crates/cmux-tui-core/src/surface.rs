@@ -144,6 +144,7 @@ use ghostty_vt::{
 };
 
 use crate::daemon_env::set_env;
+use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
@@ -759,12 +760,20 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: Mutex::new(Box::new(term)),
+                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
-                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+                mouse_encoders: RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.mouse_encoders",
+                    Box::new(mouse_encoders),
+                ),
+                runtime: RankedMutex::new(
+                    LockRank::Runtime,
+                    "pty.runtime",
+                    PtyRuntime::Hosted(Box::new(attachment)),
+                ),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
@@ -782,17 +791,21 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
-                title: Mutex::new(title),
+                title: RankedMutex::new(LockRank::Leaf, "pty.title", title),
                 directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
                 published_directory: Mutex::new(PublishedDirectory::Unreported),
                 directory_pending: AtomicBool::new(true),
-                geometry: Mutex::new(PtyGeometry {
-                    cols: snapshot.cols,
-                    rows: snapshot.rows,
-                    cell_width: snapshot.cell_pixels.0,
-                    cell_height: snapshot.cell_pixels.1,
-                }),
+                geometry: RankedMutex::new(
+                    LockRank::Geometry,
+                    "pty.geometry",
+                    PtyGeometry {
+                        cols: snapshot.cols,
+                        rows: snapshot.rows,
+                        cell_width: snapshot.cell_pixels.0,
+                        cell_height: snapshot.cell_pixels.1,
+                    },
+                ),
                 kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
@@ -803,19 +816,27 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux: mux.clone(),
-                taps: Mutex::new(Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 snapshot_position: Default::default(),
-                last_attach_colors: Mutex::new(None),
-                render: Arc::new(Mutex::new(RenderHub {
-                    state: Box::new(render_state),
-                    built_generation: 0,
-                    latest: None,
-                    initial_graphics: None,
-                    final_initial: None,
-                    taps: Vec::new(),
-                })),
+                last_attach_colors: RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.last_attach_colors",
+                    None,
+                ),
+                render: Arc::new(RankedMutex::new(
+                    LockRank::Leaf,
+                    "pty.render",
+                    RenderHub {
+                        state: Box::new(render_state),
+                        built_generation: 0,
+                        latest: None,
+                        initial_graphics: None,
+                        final_initial: None,
+                        taps: Vec::new(),
+                    },
+                )),
                 render_generation: AtomicU64::new(1),
                 frame_requests,
                 #[cfg(test)]
@@ -833,7 +854,7 @@ impl Surface {
         // control-write failure can convert this Err into a live orphan.
         let hosted_reader = HostedReader {
             id,
-            mux: mux.clone(),
+            mux,
             scrollback: opts.scrollback,
             control_responses,
             sequence_boundary,
@@ -886,8 +907,10 @@ impl Surface {
             host.commit_launched_host();
         }
         #[cfg(debug_assertions)]
-        if let Some(delay) =
-            mux.upgrade().and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
+        if let Some(delay) = surface
+            .as_pty()
+            .and_then(|pty| pty.mux.upgrade())
+            .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
             let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(

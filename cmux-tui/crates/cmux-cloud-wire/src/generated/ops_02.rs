@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudMachineDeleteOp {
+        name: "cloud.machine.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: CloudMachineDeleteParams,
+        result: CloudMachineDeleteResult,
+        error: CloudMachineDeleteError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineDeleteParams {
     pub machine: MachineId,
@@ -17,6 +32,10 @@ pub struct CloudMachineDeleteResult {
 wire_errors! {
     /// The error codes cloud.machine.delete declares.
     CloudMachineDeleteError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -297,7 +316,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    /// Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudMachineResizeOp {
         name: "cloud.machine.resize",
         class: Mutation,
@@ -325,6 +344,10 @@ pub struct CloudMachineResizeResult {
 wire_errors! {
     /// The error codes cloud.machine.resize declares.
     CloudMachineResizeError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -605,7 +628,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudSnapshotCreateOp {
         name: "cloud.snapshot.create",
         class: Mutation,
@@ -634,6 +657,10 @@ pub struct CloudSnapshotCreateResult {
 wire_errors! {
     /// The error codes cloud.snapshot.create declares.
     CloudSnapshotCreateError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -653,7 +680,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    /// Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudSnapshotDeleteOp {
         name: "cloud.snapshot.delete",
         class: Mutation,
@@ -680,6 +707,10 @@ pub struct CloudSnapshotDeleteResult {
 wire_errors! {
     /// The error codes cloud.snapshot.delete declares.
     CloudSnapshotDeleteError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -737,7 +768,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    /// Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudSnapshotRestoreOp {
         name: "cloud.snapshot.restore",
         class: Mutation,
@@ -766,6 +797,10 @@ pub struct CloudSnapshotRestoreResult {
 wire_errors! {
     /// The error codes cloud.snapshot.restore declares.
     CloudSnapshotRestoreError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -861,44 +896,4 @@ pub struct CloudVmSelfGetParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmSelfGetResult {
     pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.self.get declares.
-    CloudVmSelfGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmStatusReportOp {
-        name: "cloud.vm.status.report",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmStatusReportParams,
-        result: CloudVmStatusReportResult,
-        error: CloudVmStatusReportError,
-    }
-}
-
-wire_enum! {
-    CloudVmStatusReportParamsState {
-        Running = "running",
-        Degraded = "degraded",
-        Stopping = "stopping",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsDaemon {
-    pub version: String,
-    pub capabilities: Vec<String>,
 }
