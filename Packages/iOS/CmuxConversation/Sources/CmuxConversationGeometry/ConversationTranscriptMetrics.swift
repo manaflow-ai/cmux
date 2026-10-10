@@ -46,4 +46,50 @@ public enum ConversationTranscriptMetrics {
     public static func gradientSpan(windowHeight: CGFloat, bottomSafeInset: CGFloat) -> CGFloat {
         max(1, windowHeight - bottomSafeInset - gradientEntryBarHeight)
     }
+
+    // MARK: Spacing at every text size
+
+    /// ChatKit's transcript spaces at Large: `balloonContiguousSpace` (between
+    /// bubbles in a run), `balloonNonContiguousSpace` (between runs),
+    /// `smallTranscriptSpace` (a bubble to its "Delivered"),
+    /// `mediumTranscriptSpace` and `mediumLargeTranscriptSpace` (around a
+    /// timestamp).
+    public static let contiguousSpace: CGFloat = 4
+    public static let nonContiguousSpace: CGFloat = 10
+    public static let smallSpace: CGFloat = 6
+    public static let mediumSpace: CGFloat = 10
+    public static let mediumLargeSpace: CGFloat = 16
+
+    /// The caption 2 line spacing (line height plus leading) at Large, 13 pt
+    /// (11 pt type), that ChatKit's spaces are drawn for.
+    public static let referenceCaptionLineSpacing: CGFloat = 13
+
+    /// A transcript space at the reader's text size. ChatKit scales every
+    /// space by the caption 2 font's line spacing over its 13 pt at Large and
+    /// rounds to the pixel grid; up to Large nothing changes. Logged from
+    /// `CKUIBehavior` on iOS 26.5 and 27.0: between runs 10, 14, 15.33, 17,
+    /// 19.33, 22.33, 27 at Large, XL, XXL, XXXL, AX1, AX2, AX3 (caption line
+    /// spacing 13, 18, 20, 22, 25, 29, 35).
+    public static func space(_ base: CGFloat, captionLineSpacing: CGFloat, scale: CGFloat) -> CGFloat {
+        base
+    }
+
+    /// `CKUIBehavior.transcriptBoldTextAlignmentInsets` (top, bottom) for the
+    /// caption 2 point size (iOS 26.5 and 27.0): how far a timestamp's line
+    /// box reaches beyond its type. Sizes between the logged ones interpolate.
+    public static func captionAlignmentInsets(pointSize: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        (0, 0)
+    }
+
+    /// Bubble body bottom to the timestamp's line box: ChatKit puts the type
+    /// `mediumLargeSpace` under the body.
+    public static func timestampLineGap(captionLineSpacing: CGFloat, captionPointSize: CGFloat, scale: CGFloat) -> CGFloat {
+        13.67
+    }
+
+    /// The timestamp's line box to the next bubble body: `mediumSpace` from
+    /// the type.
+    public static func timestampFollowingGap(captionLineSpacing: CGFloat, captionPointSize: CGFloat, scale: CGFloat) -> CGFloat {
+        7
+    }
 }
