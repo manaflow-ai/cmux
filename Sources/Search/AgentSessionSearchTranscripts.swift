@@ -122,7 +122,7 @@ actor AgentSessionSearchTranscripts: AgentSessionTranscriptStore {
         _ source: AgentSessionSearchSource,
         existing: AgentSessionSearchTranscript?
     ) async -> Read? {
-        guard let path = await transcriptPath(
+        guard let path = await Self.transcriptPath(
             for: source,
             cachedPath: existing?.path,
             codexRolloutPaths: codexRolloutPaths
