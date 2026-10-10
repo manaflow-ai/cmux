@@ -653,8 +653,6 @@ impl App {
 }
 
 #[cfg(test)]
-mod answering_tests;
-#[cfg(test)]
 mod interaction_tests {
     use super::*;
     pub(super) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {

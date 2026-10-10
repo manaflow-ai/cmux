@@ -54,7 +54,7 @@ final class WindowOverlayLayer {
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
     /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
-    private var layoutDepth = 0
+    private(set) var layoutDepth = 0
     /// Interactive rects changed during the layout pass: applied after it.
     private var rectsChangedInLayout = false
     /// Placement and child order checks asked for during the layout pass.

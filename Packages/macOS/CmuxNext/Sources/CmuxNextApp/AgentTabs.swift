@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -182,7 +183,7 @@ final class AgentTabStore {
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
         shortcutObservation = Task { [weak self] in
-            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+            for await value in ObservationStream({ AgentPaneShortcuts.read(registry) }) {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }

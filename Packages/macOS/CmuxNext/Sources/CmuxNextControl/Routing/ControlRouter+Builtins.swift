@@ -12,9 +12,12 @@ extension ControlRouter {
             .snapshot("system.ping") { [identity] _ in
                 ["pong": true, "app": .string(identity.appName), "protocol_version": JSONValue(Self.protocolVersion)]
             },
-            .snapshot("system.identify") { [weak self] _ in
+            .snapshot("system.identify") { [weak self] call in
                 guard let self else { throw Self.stopped }
-                return self.identify()
+                guard case .object(var members) = self.identify() else { return self.identify() }
+                // `caller`: where the agent or terminal that asks is, and `beside`, where its tabs open.
+                try ControlCallerLocation.annotate(&members, params: call.params, topology: call.snapshot.topology)
+                return .object(members)
             },
             .snapshot("system.capabilities") { [weak self] _ in
                 guard let self else { throw Self.stopped }
@@ -80,13 +83,15 @@ extension ControlRouter {
         } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
-                return [
+                var members: [String: JSONValue] = [
                     "sequence": JSONValue.number(Double(snapshot.topology.daemonSequence)),
                     "generation": JSONValue(Int(truncatingIfNeeded: snapshot.generation)),
                     "published_uptime_ns": .number(Double(snapshot.publishedAtUptimeNanos)),
                     "tab_count": JSONValue(snapshot.topology.tabCount),
                     "topology": snapshot.topology.json,
                 ]
+                try ControlCallerLocation.annotate(&members, params: call.params, topology: snapshot.topology)
+                return .object(members)
             },
         ] + diagnosticMethods()
     }
