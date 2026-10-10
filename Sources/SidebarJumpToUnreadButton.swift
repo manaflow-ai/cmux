@@ -159,7 +159,7 @@ struct SidebarJumpToUnreadButton: View {
                     } else {
                         let arrow = SidebarJumpToUnreadButtonPresentation.systemName
                         CmuxSystemSymbolImage(systemName: arrow, pointSize: 11, weight: .semibold, tint: cmuxAccent.color)
-                        title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Jump to Unread"))
+                        title(String(localized: "sidebar.jumpToUnread.title", defaultValue: "Last unread"))
                         // Hovering swaps the count for the key that does the same thing.
                         if isHovered, let shortcutText = resolved.shortcutText {
                             Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
@@ -211,7 +211,6 @@ struct SidebarJumpToUnreadButton: View {
             if isConfirmingHide {
                 withAnimation(.easeOut(duration: 0.2)) {
                     isHiddenByUser = true
-                    showsHiddenNote = true
                     isConfirmingHide = false
                 }
             } else {
@@ -238,7 +237,6 @@ struct SidebarJumpToUnreadButton: View {
     private var contextMenuItems: some View {
         Button(String(localized: "sidebar.jumpToUnread.hide", defaultValue: "Hide Jump to Unread Button")) {
             isHiddenByUser = true
-            showsHiddenNote = true
         }
 #if DEBUG
         Divider()
