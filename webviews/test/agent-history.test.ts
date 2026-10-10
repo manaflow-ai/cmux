@@ -132,7 +132,9 @@ await requireBrowserLane("agent-history.test.ts", async () => {
       // Enter on a row opens the selection too.
       await row(page, "Fix the build").click({ modifiers: ["Meta"] });
       await row(page, "Port the sidebar").click({ modifiers: ["Meta"] });
-      await row(page, "Port the sidebar").press("Enter");
+      // WebKit leaves no row focused after a click; Enter still reaches the selection.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.keyboard.press("Enter");
       const entered = await opened(page);
 
       expect({ title, titles, plain, range, openedBySelecting, brought, afterBring, entered }).toEqual({

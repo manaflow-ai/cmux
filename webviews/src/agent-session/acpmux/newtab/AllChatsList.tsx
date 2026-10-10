@@ -144,7 +144,7 @@ function useSelection(rows: AllChatsRow[], query: string) {
     setSelected([]);
     return false;
   };
-  const clear = () => setSelected([]);
+  const clear = useCallback(() => setSelected([]), []);
   return { selected, click, clear };
 }
 
@@ -175,18 +175,26 @@ export function AllChatsList({
   const selection = useSelection(rows, state.query);
   // The menu acts on the selection when the clicked row is in it, else on that row.
   const menuKeys = menuTarget ? (selection.selected.includes(menuTarget) ? selection.selected : [menuTarget]) : [];
-  // A row's Enter opens the selection when there is one (else the row, as its click does).
-  const onRowKey = (event: React.KeyboardEvent) => {
-    if (!onBring || selection.selected.length === 0) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      onBring(selection.selected);
-      selection.clear();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      selection.clear();
-    }
-  };
+  // While rows are selected, Enter opens them and Escape clears them. The page listens, not the
+  // rows: WebKit does not focus a button on click, so after Cmd/Shift-click no row has focus.
+  const { selected, clear } = selection;
+  useEffect(() => {
+    if (!onBring || selected.length === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onBring(selected);
+        clear();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        clear();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onBring, selected, clear]);
   const count = rows.length + (nextCursor ? 1 : 0);
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
@@ -222,7 +230,6 @@ export function AllChatsList({
             if (onBring && selection.click(event, row.key)) return;
             onOpen(row.key);
           }}
-          onKeyDown={onBring ? onRowKey : undefined}
         >
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
