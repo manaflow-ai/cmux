@@ -40,9 +40,14 @@ def run(runner, extension_id):
         return
     stamp = str(int(time.time() * 1000))
 
+    def rpc(method, params):
+        reply = runner.app.call(method, params)
+        if reply.get("error"):
+            raise RuntimeError(f"{method}: {json.dumps(reply['error'])[:200]}")
+        return reply.get("result") or {}
+
     def cmux(text):
-        listed = runner.app.call("bookmark.list", {"profile": "default", "text": text}).get("result") or {}
-        return listed.get("bookmarks") or []
+        return rpc("bookmark.list", {"profile": "default", "text": text}).get("bookmarks") or []
 
     def chrome(title):
         return worker.evaluate(f"chrome.bookmarks.search({{title: {json.dumps(title)}}})"
@@ -51,14 +56,14 @@ def run(runner, extension_id):
     try:
         title = f"cxt cmux mark {stamp}"
         url = f"https://example.com/cmux-{stamp}"
-        added = runner.app.call("action.run", {"action": "bookmark.add",
-                                               "args": {"url": url, "title": title, "profile": "default"}})
+        rpc("action.run", {"action": "bookmark.add",
+                           "args": {"url": url, "title": title, "profile": "default", "folder": "bar"}})
         found = poll(lambda: chrome(title))
         # "1" is Chromium's Bookmarks bar node.
         ok = bool(found) and found[0].get("url") == url and found[0].get("parentId") == "1"
         runner.note("mv3", "bookmarks", "cmux_to_chrome", "pass" if ok else "fail",
-                    json.dumps(found)[:200] if found else f"not in chrome.bookmarks ({json.dumps(added)[:120]})")
-        runner.app.call("action.run", {"action": "bookmark.remove", "args": {"bookmark": url, "profile": "default"}})
+                    json.dumps(found)[:200] if found else "not in chrome.bookmarks")
+        rpc("action.run", {"action": "bookmark.remove", "args": {"bookmark": url, "profile": "default"}})
 
         folder_title, mark_title = f"cxt bridge folder {stamp}", f"cxt bridge mark {stamp}"
         folder = worker.evaluate(f"chrome.bookmarks.create({{title: {json.dumps(folder_title)}}}).then((n) => n.id)")
@@ -67,13 +72,21 @@ def run(runner, extension_id):
         mark = poll(lambda: [n for n in cmux(mark_title) if n.get("path", "").endswith(folder_title)])
         runner.note("mv3", "bookmarks", "chrome_to_cmux", "pass" if mark else "fail",
                     json.dumps(mark)[:200] if mark else f"cmux has {json.dumps(cmux(mark_title))[:160]}")
+        if not mark:
+            runner.note("mv3", "bookmarks", "chrome_remove_to_cmux", "fail", "needs chrome_to_cmux")
+            return
 
         worker.evaluate(f"chrome.bookmarks.removeTree({json.dumps(folder)})")
         gone = poll(lambda: not cmux(mark_title) and not cmux(folder_title))
-        # The folder must still be gone in Chromium: cmux's next sync did not bring it back.
-        time.sleep(1.0)
+        # A cmux-side change syncs Chromium again; the folder must not come back.
+        marker = f"https://example.com/cmux-sync-{stamp}"
+        rpc("action.run", {"action": "bookmark.add",
+                           "args": {"url": marker, "title": f"cxt sync {stamp}", "profile": "default", "folder": "bar"}})
+        synced = poll(lambda: chrome(f"cxt sync {stamp}"))
         back = chrome(folder_title)
-        runner.note("mv3", "bookmarks", "chrome_remove_to_cmux", "pass" if gone and not back else "fail",
-                    "" if gone and not back else f"cmux {json.dumps(cmux(mark_title))[:120]}, chrome {json.dumps(back)[:80]}")
+        rpc("action.run", {"action": "bookmark.remove", "args": {"bookmark": marker, "profile": "default"}})
+        ok = gone and bool(synced) and not back
+        runner.note("mv3", "bookmarks", "chrome_remove_to_cmux", "pass" if ok else "fail",
+                    "" if ok else f"cmux {json.dumps(cmux(mark_title))[:120]}, synced {bool(synced)}, chrome {json.dumps(back)[:80]}")
     finally:
         worker.close()

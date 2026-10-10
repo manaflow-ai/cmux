@@ -17,6 +17,7 @@ extension BookmarkService {
             for await serves in ObservationStream({ [weak self] in self?.usesDaemon ?? false }) {
                 guard let self else { return }
                 fetched.removeAll()
+                loadedFromDaemon.removeAll()
                 if serves {
                     await migrateFileToDaemon()
                     for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) { fetch(profile) }
@@ -39,6 +40,7 @@ extension BookmarkService {
                 let list = try await connection.listBookmarks(browserProfileID: profile)
                 guard let self else { return }
                 trees[profile] = BookmarkTree(ordered: list.bookmarks.map(Self.node(from:)))
+                loadedFromDaemon.insert(profile)
                 changed(profiles: [profile])
             } catch {
                 self?.fetched.remove(profile)

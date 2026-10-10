@@ -27,6 +27,8 @@ final class BookmarkService {
     @ObservationIgnored var importStore: ImportedDataStore?
     /// Profiles whose daemon tree was fetched on this connection.
     @ObservationIgnored var fetched: Set<String> = []
+    /// Profiles whose tree came from a daemon reply since the last switch to the daemon.
+    @ObservationIgnored var loadedFromDaemon: Set<String> = []
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var fileTrees: [String: [BookmarkNode]] = [:]
     @ObservationIgnored var fileLoaded = false
@@ -113,8 +115,14 @@ final class BookmarkService {
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
 
     /// `profile`'s tree is the stored one, not an empty placeholder: with the
-    /// daemon, only its reply (or a local edit on top of it) sets the tree.
-    func isLoaded(_ profile: String) -> Bool { usesDaemon ? trees[profile] != nil : fileLoaded }
+    /// daemon, once its reply arrived; with the file, once the file is read
+    /// and the home daemon is known not to serve bookmarks (it answered
+    /// without the capability, or is unavailable), so the file is the truth.
+    func isLoaded(_ profile: String) -> Bool {
+        if usesDaemon { return loadedFromDaemon.contains(profile) }
+        let home = services.machines.local
+        return fileLoaded && (home.store.identity != nil || home.startup != .connecting)
+    }
 
     /// The folder a new bookmark goes to: the last one used, else the bar.
     func defaultFolder(profile: String) -> String {
@@ -182,6 +190,7 @@ final class BookmarkService {
     func dropProfile(_ profile: String) {
         trees[profile] = nil
         fetched.remove(profile)
+        loadedFromDaemon.remove(profile)
         if !usesDaemon, fileTrees[profile] != nil { saveFile(profile: profile) }
     }
 }

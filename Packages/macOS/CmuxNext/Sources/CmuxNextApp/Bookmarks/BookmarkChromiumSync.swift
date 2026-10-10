@@ -11,15 +11,34 @@ import os
 /// nothing to change. cmux wins: a change cmux refuses is undone in Chromium
 /// by syncing the store again. Ids: `bm_<32 hex>` in cmux is that UUID in
 /// Chromium; the roots are `bar` and `other` on both sides.
+///
+/// Syncs are debounced per store, and each event from a store pushes its
+/// sync back: Chromium's events are posted, so a sync sent while an
+/// extension's later change is still queued would undo that change. A store
+/// whose cmux tree is not loaded yet waits, and is synced once it is.
 final class BookmarkChromiumSync {
+    static let settle: Duration = .milliseconds(400)
     private unowned let service: BookmarkService
     private let bridge = CEFBookmarkBridge.shared
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
+    /// Store to its cmux profile, for stores whose sync waits for the tree to load.
+    private var waiting: [String: String] = [:]
+    private var scheduled: [String: Task<Void, Never>] = [:]
+    private var homeObservation: Task<Void, Never>?
 
     init(service: BookmarkService) {
         self.service = service
         bridge.onEvent = { [weak self] profile, store, event in
             self?.handle(event, profile: BrowserProfileRecord.wireID(for: profile), store: store)
+        }
+        // task-owner: lives as long as the service; event-driven (Observation).
+        // The file becomes the truth once the home daemon answered or gave up.
+        homeObservation = Task { [weak self] in
+            let home = service.services.machines.local
+            for await _ in ObservationStream({ home.store.identity != nil || home.startup != .connecting }) {
+                guard let self else { return }
+                retryWaiting()
+            }
         }
     }
 
@@ -28,25 +47,38 @@ final class BookmarkChromiumSync {
         for (engine, stores) in bridge.stores {
             let profile = BrowserProfileRecord.wireID(for: engine)
             guard profiles.contains(profile) else { continue }
-            for store in stores { sync(store, profile: profile) }
+            for store in stores { schedule(store, profile: profile) }
         }
+        retryWaiting()
+    }
+
+    private func retryWaiting() {
+        for (store, profile) in waiting where service.isLoaded(profile) { schedule(store, profile: profile) }
     }
 
     private func handle(_ event: CEFBookmarkEvent, profile: String, store: String) {
+        // Chromium is still changing this store: its sync waits until it settles.
+        defer { schedule(store, profile: profile) }
         // Before cmux's tree is loaded a change would land on an empty
         // placeholder; the sync after the load wins instead (cmux wins at start).
-        guard service.isLoaded(profile) || event == .loaded || event == .reset else {
+        guard service.isLoaded(profile) else {
+            waiting[store] = profile
             _ = service.tree(profile)
             return
         }
         do {
             switch event {
             case .loaded, .reset:
-                sync(store, profile: profile)
+                break
             case .added(let nodes):
                 for node in nodes { try create(node, profile: profile) }
             case .changed(let id, let title, let url):
-                try service.apply(.update(id: Self.cmuxID(id), title: title, url: url.flatMap(URL.init(string:))), profile: profile)
+                var parsed: URL?
+                if let url {
+                    guard let value = URL(string: url) else { throw BookmarkChromiumSyncError.badURL }
+                    parsed = value
+                }
+                try service.apply(.update(id: Self.cmuxID(id), title: title, url: parsed), profile: profile)
             case .moved(let id, let parent, let index):
                 try service.apply(.move(id: Self.cmuxID(id), parent: Self.cmuxID(parent), index: index), profile: profile)
             case .removed(let id):
@@ -58,8 +90,8 @@ final class BookmarkChromiumSync {
                 }
             }
         } catch {
+            // The deferred sync puts cmux's tree back in Chromium.
             logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
-            sync(store, profile: profile)
         }
     }
 
@@ -79,12 +111,29 @@ final class BookmarkChromiumSync {
         }
     }
 
+    /// Syncs `store` once its events have settled for `settle`; a later
+    /// call starts the wait again.
+    private func schedule(_ store: String, profile: String) {
+        scheduled[store]?.cancel()
+        // task-owner: one debounced sync per store; replaced by the next schedule
+        scheduled[store] = Task { [weak self] in
+            try? await Task.sleep(for: Self.settle)
+            guard !Task.isCancelled, let self else { return }
+            scheduled[store] = nil
+            sync(store, profile: profile)
+        }
+    }
+
     /// Syncs once cmux's tree of `profile` is loaded: a sync before would
     /// empty Chromium's model. Reading the tree starts its fetch, whose
     /// `changed` comes back here.
     private func sync(_ store: String, profile: String) {
         let tree = service.tree(profile)
-        guard service.isLoaded(profile) else { return }
+        guard service.isLoaded(profile) else {
+            waiting[store] = profile
+            return
+        }
+        waiting[store] = nil
         if bridge.sync(store: store, treeJSON: Self.json(tree)) < 0 {
             logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
         }
