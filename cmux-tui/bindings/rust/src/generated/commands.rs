@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 212eba9e751a44b8d3cc84ccd3fec120d038b69d5b9cd83afb322a32f310fd45.
+// cmux-tui mux protocol 12, IR 4439f0cc6d7d083091ce91f267dc8423b97ca0405e90960be83ec73bf19b1cc1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2903,7 +2903,7 @@ pub struct SetViewportPaneWidthRequest {
 }
 
 #[rustfmt::skip]
-pub type SetViewportPaneWidthResult = T::EmptyResult;
+pub type SetViewportPaneWidthResult = T::ViewportPaneWidthResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
