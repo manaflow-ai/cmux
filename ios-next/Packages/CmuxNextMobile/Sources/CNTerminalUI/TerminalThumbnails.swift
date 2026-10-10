@@ -36,6 +36,12 @@ public final class TerminalThumbnails {
     @ObservationIgnored private var cardSize = CGSize(width: 180, height: 300)
     @ObservationIgnored private var generation = -1
     @ObservationIgnored private var style: UIUserInterfaceStyle = .light
+    /// `show` was called with `.unspecified`: follow the app's windows.
+    @ObservationIgnored private var followsSystem = false
+    /// The last text drawn per terminal, so a style or size change redraws
+    /// every card at once (live or not) without waiting for output.
+    @ObservationIgnored private var lastLines: [String: (lines: [String], grid: (cols: Int, rows: Int))] = [:]
+    @ObservationIgnored private var observedWindows: [ObjectIdentifier: any UITraitChangeRegistration] = [:]
 
     public init(connection: HostConnection, maxLive: Int = 20, refreshInterval: Duration = .milliseconds(500)) {
         self.connection = connection
@@ -46,11 +52,16 @@ public final class TerminalThumbnails {
     /// Keeps these terminals live (attached and re-rendered on output).
     /// Others beyond `maxLive` are detached, oldest first. Cards render at
     /// `cardSize` (points) in `style` (light or dark).
+    /// `.unspecified` follows the app's windows (their light/dark changes
+    /// redraw the cards by themselves).
     public func show(_ terminalIds: [String], cardSize: CGSize, style: UIUserInterfaceStyle = .unspecified) {
-        let resolved = style == .unspecified ? UITraitCollection.current.userInterfaceStyle : style
+        followsSystem = style == .unspecified
+        if followsSystem { observeWindows() }
+        let resolved = followsSystem ? windowStyle : style
         let restyled = resolved != self.style || cardSize != self.cardSize
         self.cardSize = cardSize
         self.style = resolved
+        if restyled { redrawAll() }
         if connection.generation != generation {
             // A new link: every stream is gone, attach again.
             generation = connection.generation
@@ -86,11 +97,47 @@ public final class TerminalThumbnails {
     public func forget(_ terminalId: String) {
         live.removeValue(forKey: terminalId)?.stop()
         images[terminalId] = nil
+        lastLines[terminalId] = nil
         order.removeAll { $0 == terminalId }
     }
 
     private func render(_ id: String, lines: [String], grid: (cols: Int, rows: Int)) {
+        lastLines[id] = (lines, grid)
         images[id] = TerminalCardRenderer.image(lines: lines, cols: grid.cols, size: cardSize, style: style)
+    }
+
+    /// Redraws every card from its last text in the current style and size.
+    private func redrawAll() {
+        for (id, entry) in lastLines {
+            images[id] = TerminalCardRenderer.image(lines: entry.lines, cols: entry.grid.cols, size: cardSize, style: style)
+        }
+    }
+
+    /// The light/dark style of the app's key window (its override included).
+    private var windowStyle: UIUserInterfaceStyle {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        let window = windows.first(where: \.isKeyWindow) ?? windows.first
+        let style = window?.traitCollection.userInterfaceStyle ?? UITraitCollection.current.userInterfaceStyle
+        return style == .dark ? .dark : .light
+    }
+
+    /// Redraws when any app window switches between light and dark.
+    private func observeWindows() {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for window in windows where observedWindows[ObjectIdentifier(window)] == nil {
+            observedWindows[ObjectIdentifier(window)] = window.registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+                [weak self] (_: UIWindow, _: UITraitCollection) in
+                self?.systemStyleChanged()
+            }
+        }
+    }
+
+    private func systemStyleChanged() {
+        guard followsSystem else { return }
+        let resolved = windowStyle
+        guard resolved != style else { return }
+        style = resolved
+        redrawAll()
     }
 }
 

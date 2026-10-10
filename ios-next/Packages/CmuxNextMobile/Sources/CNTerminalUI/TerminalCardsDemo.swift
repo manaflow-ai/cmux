@@ -13,7 +13,6 @@ struct TerminalCardsDemo: View {
     let terminals: [Terminal]
     @State private var thumbnails: TerminalThumbnails
     @State private var open: TerminalHandle?
-    @Environment(\.colorScheme) private var scheme
 
     init(connection: HostConnection, terminals: [Terminal]) {
         self.connection = connection
@@ -72,8 +71,8 @@ struct TerminalCardsDemo: View {
                 }
             }
         }
-        .onAppear { thumbnails.show(terminals.map(\.id), cardSize: card, style: scheme == .dark ? .dark : .light) }
-        .onChange(of: scheme) { _, s in thumbnails.show(terminals.map(\.id), cardSize: card, style: s == .dark ? .dark : .light) }
+        // `.unspecified`: the thumbnails follow the app's light/dark themselves.
+        .onAppear { thumbnails.show(terminals.map(\.id), cardSize: card) }
         .onDisappear { thumbnails.stopAll() }
     }
 }
