@@ -31,7 +31,8 @@ export interface ComboboxProps {
   cancelOnBlur?: boolean;
   /** Disabled rows remain visible but cannot be highlighted or submitted. */
   isItemDisabled?(value: string): boolean;
-  autoHighlight?: boolean;
+  /** true: the first row highlights while filtering; "always": also before any typing. */
+  autoHighlight?: boolean | "always";
   /** Handle a shortcut while the Base UI input owns focus. */
   onCommand?(event: KeyboardEvent<HTMLInputElement>): void;
   /** Class for the Base UI root when the field and list are laid out together. */
