@@ -11,9 +11,16 @@ import { CdpConnection } from "./cdp.ts";
 import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint, retireUnsafeProfileChrome } from "./chrome.ts";
 
 /** Frames the host keeps in flight before holding CDP acks (flow control). */
-export const MAX_UNACKED = 4;
+export const MAX_UNACKED = envNumber("CMUX_NEXT_SCREENCAST_UNACKED", 4);
 /** JPEG quality of the screencast (one setting: restarting the screencast to change it costs frames). */
-export const SCREENCAST_QUALITY = 65;
+export const SCREENCAST_QUALITY = envNumber("CMUX_NEXT_SCREENCAST_QUALITY", 65);
+/** Highest pixel density the screencast is encoded at (the page still renders at the phone's scale). */
+export const SCREENCAST_MAX_SCALE = envNumber("CMUX_NEXT_SCREENCAST_MAX_SCALE", 3);
+
+function envNumber(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
 /** Header flag on the format byte: an extended header follows (PROTOCOL.md §3). */
 export const FRAME_META_FLAG = 0x80;
 export const IPHONE_USER_AGENT =
@@ -609,8 +616,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       {
         format: "jpeg",
         quality: SCREENCAST_QUALITY,
-        maxWidth: Math.round(cast.width * cast.scale),
-        maxHeight: Math.round(cast.height * cast.scale),
+        maxWidth: Math.round(cast.width * Math.min(cast.scale, SCREENCAST_MAX_SCALE)),
+        maxHeight: Math.round(cast.height * Math.min(cast.scale, SCREENCAST_MAX_SCALE)),
         everyNthFrame: 1,
       },
       sid,
