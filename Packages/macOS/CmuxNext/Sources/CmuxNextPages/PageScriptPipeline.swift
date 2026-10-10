@@ -146,6 +146,7 @@ nonisolated struct PageScriptBudget: Sendable {
 
 /// A reply object converted off the main actor. The graph is freshly built from Foundation value
 /// types (NSNull, NSNumber, String, arrays and dictionaries of them) and handed over once.
+// crash-allow: the object graph is built fresh from Foundation value types and handed over once.
 nonisolated struct PageReplyObject: @unchecked Sendable {
     let object: Any
 
