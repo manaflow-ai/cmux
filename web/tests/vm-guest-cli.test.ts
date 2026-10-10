@@ -1565,6 +1565,11 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(refused.status).toBe(1);
       expect(refused.stderr).toContain(`vm push on ${peer} failed: is-directory /root/app`);
       expect(refused.calls.at(-1)?.slice(2)).toEqual(["--json", "terminal", "term_2", "close"]);
+      const tilde = await runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "~", "--json"]);
+      expect(tilde.status).toBe(1);
+      expect(tilde.stdout).toBe("");
+      expect(tilde.stderr).toContain("unexpanded '~'");
+      expect(tilde.stderr).not.toContain("rm -rf");
     });
 
     test("agent --wait blocks on the peer terminal's exit, --output pages its stream, and the exit code is the agent's", async () => {

@@ -120205,6 +120205,73 @@
             "value": "%1$@에 확장되지 않은 '~' 경로 구성 요소가 있습니다. 확장하거나 절대 경로를 사용하세요"
           }
         }
+      ,
+        "bs": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ sadrži neproširenu komponentu putanje „~“; proširite je ili koristite apsolutnu putanju"
+                  }
+                },
+        "da": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ indeholder en ikke-udvidet sti-komponent „~“; udvid den, eller brug en absolut sti"
+                  }
+                },
+        "it": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ contiene un componente di percorso “~” non espanso; espandilo oppure usa un percorso assoluto"
+                  }
+                },
+        "km": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ មាន​សមាសភាគ​ផ្លូវ “~” ដែល​មិន​បាន​ពង្រីក; ពង្រីក​វា ឬ​ប្រើ​ផ្លូវ​ដាច់ខាត"
+                  }
+                },
+        "nb": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ inneholder en ikke-utvidet sti-komponent «~»; utvid den eller bruk en absolutt sti"
+                  }
+                },
+        "pl": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ zawiera nierozwinięty składnik ścieżki „~”; rozwiń go lub użyj ścieżki bezwzględnej"
+                  }
+                },
+        "pt-BR": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ contém um componente de caminho “~” não expandido; expanda-o ou use um caminho absoluto"
+                  }
+                },
+        "ru": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ содержит нераскрытый компонент пути «~»; раскройте его или используйте абсолютный путь"
+                  }
+                },
+        "th": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ มีส่วนประกอบเส้นทาง “~” ที่ยังไม่ได้ขยาย ให้ขยายหรือใช้เส้นทางแบบสัมบูรณ์"
+                  }
+                },
+        "tr": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ genişletilmemiş bir “~” yol bileşeni içeriyor; genişletin veya mutlak yol kullanın"
+                  }
+                },
+        "uk": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$@ містить нерозгорнутий компонент шляху «~»; розгорніть його або використовуйте абсолютний шлях"
+                  }
+                }
       }
     },
     "cli.vm.push.progress": {
@@ -644221,6 +644288,574 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法驗證推送封存檔中的路徑。"
+          }
+        }
+      ,
+        "bs": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Nije moguće provjeriti putanje u arhivi za slanje."
+                  }
+                },
+        "da": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Stierne i push-arkivet kunne ikke valideres."
+                  }
+                },
+        "it": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Impossibile convalidare i percorsi nell’archivio da inviare."
+                  }
+                },
+        "km": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "មិនអាច​ធ្វើ​សុពលភាព​ផ្លូវ​ក្នុង​ប័ណ្ណសារ​ផ្ញើ​បាន​ទេ។"
+                  }
+                },
+        "nb": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Kunne ikke validere stiene i push-arkivet."
+                  }
+                },
+        "pl": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Nie można zweryfikować ścieżek w archiwum do wysłania."
+                  }
+                },
+        "pt-BR": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Não foi possível validar os caminhos no arquivo a ser enviado."
+                  }
+                },
+        "ru": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Не удалось проверить пути в архиве для отправки."
+                  }
+                },
+        "th": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "ไม่สามารถตรวจสอบเส้นทางในไฟล์เก็บถาวรที่จะส่งได้"
+                  }
+                },
+        "tr": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Gönderim arşivindeki yollar doğrulanamadı."
+                  }
+                },
+        "uk": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "Не вдалося перевірити шляхи в архіві для надсилання."
+                  }
+                }
+      }
+    },
+    "cli.vm.push.destinationResolutionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not resolve the push destination."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديد مسار وجهة الإرسال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Ziel für den Upload konnte nicht aufgelöst werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo resolver la ruta de destino del envío."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de résoudre la destination de l’envoi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信先のパスを解決できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송 대상 경로를 확인할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析推送目标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解析推送目的地。"
+          }
+        }
+      ,
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće razriješiti odredište slanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push-destinationen kunne ikke løses."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile risolvere la destinazione dell’invio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាច​ដោះស្រាយ​ទីតាំង​ផ្ញើ​បាន​ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke løse push-målet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można rozwiązać celu wysyłania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível resolver o destino do envio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось определить назначение отправки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแก้ไขปลายทางการส่งได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gönderim hedefi çözülemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося визначити призначення надсилання."
+          }
+        }
+      }
+    },
+    "cli.vm.path.remote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote path"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المسار البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "udaljena putanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjernsti"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Pfad"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ruta remota"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chemin distant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "percorso remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートパス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 경로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ekstern sti"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ścieżka zdalna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "caminho remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "удалённый путь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นทางระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uzak yol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "віддалений шлях"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端路徑"
+          }
+        }
+      }
+    },
+    "cli.vm.path.archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "push archive path"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار أرشيف الإرسال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "putanja arhive za slanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sti i push-arkivet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfad im Upload-Archiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ruta del archivo de envío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chemin de l’archive à envoyer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "percorso nell’archivio da inviare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信アーカイブのパス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវ​ក្នុង​ប័ណ្ណសារ​ផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송 아카이브 경로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sti i push-arkivet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ścieżka w archiwum do wysłania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "caminho do arquivo a ser enviado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "путь в архиве для отправки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นทางในไฟล์เก็บถาวรที่จะส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gönderim arşivi yolu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "шлях в архіві для надсилання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送归档路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送封存檔路徑"
+          }
+        }
+      }
+    },
+    "cli.vm.path.symlinkTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "push archive symlink target"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هدف الرابط الرمزي في أرشيف الإرسال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "odredište simboličke veze u arhivi za slanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbolsk link-mål i push-arkivet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel des symbolischen Links im Upload-Archiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "destino del enlace simbólico del archivo de envío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cible du lien symbolique de l’archive à envoyer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "destinazione del collegamento simbolico nell’archivio da inviare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信アーカイブのシンボリックリンク先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គោលដៅ​តំណ​និមិត្តសញ្ញា​ក្នុង​ប័ណ្ណសារ​ផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송 아카이브 심볼릭 링크 대상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mål for symbolsk lenke i push-arkivet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cel dowiązania symbolicznego w archiwum do wysłania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "destino do link simbólico no arquivo a ser enviado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цель символической ссылки в архиве для отправки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมายลิงก์สัญลักษณ์ในไฟล์เก็บถาวรที่จะส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gönderim arşivindeki sembolik bağlantı hedefi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ціль символічного посилання в архіві для надсилання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送归档符号链接目标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送封存檔符號連結目標"
           }
         }
       }

@@ -178,7 +178,10 @@ extension CMUXCLI {
         let localPath = (positional[1] as NSString).expandingTildeInPath
         let localURL = URL(fileURLWithPath: localPath)
         let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
-        try Self.rejectLiteralTildePath(remotePath, operation: "vm push remote path")
+        try Self.rejectLiteralTildePath(
+            remotePath,
+            operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+        )
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDirectory) else {
@@ -350,9 +353,12 @@ extension CMUXCLI {
         vmID: String, localURL: URL, localPath: String, isDirectory: Bool,
         remotePath: String, excludes: [String], client: SocketClient, phase: inout String
     ) throws -> VMPushOutcome {
-        let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
-        try Self.rejectLiteralTildePath(destination, operation: "vm push remote path")
-        guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
+        let requestedDestination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
+        try Self.rejectLiteralTildePath(
+            requestedDestination,
+            operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+        )
+        guard !requestedDestination.utf8.contains(0), !requestedDestination.contains("\n"), !requestedDestination.contains("\r") else {
             throw CLIError(message: "Cloud file destination contains an unsupported control character.")
         }
         let started = Date()
@@ -403,10 +409,43 @@ extension CMUXCLI {
             endpoint = renewed
         }
         try ("cmux-scp " + endpoint.hostPublicKey + "\n").write(to: transferDirectory.appendingPathComponent("known_hosts"), atomically: true, encoding: .utf8)
-        let parent = (destination as NSString).deletingLastPathComponent
-        let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
-        let prepare = "umask 077; mkdir -p -- \(shellQuote(parent.isEmpty ? "." : parent)) && mktemp -d -- \(shellQuote(template))"
         phase = "connect"
+        let requestedParent = (requestedDestination as NSString).deletingLastPathComponent
+        // Validate the guest's filesystem interpretation before mkdir or staging.
+        // NUL-delimited output preserves whitespace and lets us reject control
+        // characters introduced by a symlink rather than silently trimming them.
+        let resolved = try runSCPProcess(
+            "/usr/bin/ssh",
+            arguments: ["-p", String(endpoint.port), "--", endpoint.destination,
+                        "realpath -mz -- \(shellQuote(requestedDestination)) \(shellQuote(requestedParent.isEmpty ? "." : requestedParent))"],
+            endpoint: endpoint, directory: transferDirectory
+        )
+        let resolvedPaths = resolved.utf8.split(separator: 0, omittingEmptySubsequences: false)
+        guard resolvedPaths.count == 3, resolvedPaths[2].isEmpty,
+              resolvedPaths[0].first == 0x2f, resolvedPaths[1].first == 0x2f else {
+            throw CLIError(message: String(
+                localized: "cli.vm.push.destinationResolutionFailed",
+                defaultValue: "Could not resolve the push destination."
+            ))
+        }
+        let resolvedDestination = String(decoding: resolvedPaths[0], as: UTF8.self)
+        let parent = String(decoding: resolvedPaths[1], as: UTF8.self)
+        for path in [resolvedDestination, parent] {
+            try Self.rejectLiteralTildePath(
+                path,
+                operation: String(localized: "cli.vm.path.remote", defaultValue: "remote path")
+            )
+            guard !path.contains("\n"), !path.contains("\r") else {
+                throw CLIError(message: "Cloud file destination contains an unsupported control character.")
+            }
+        }
+        // A file push replaces a final symlink instead of overwriting its
+        // target. Resolve its parent while preserving that existing behavior.
+        let destination = isDirectory
+            ? resolvedDestination
+            : parent + "/" + (requestedDestination as NSString).lastPathComponent
+        let template = parent + "/.cmux-push.XXXXXXXXXX"
+        let prepare = "umask 077; mkdir -p -- \(shellQuote(parent)) && mktemp -d -- \(shellQuote(template))"
         let remoteDirectory = try runSCPProcess(
             "/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, prepare],
             endpoint: endpoint, directory: transferDirectory
@@ -1707,7 +1746,10 @@ extension CMUXCLI {
             // macOS tar escapes embedded ASCII newlines and backslashes in names.
             // Split only its LF record delimiter; other Unicode newlines are filenames.
             for entry in result.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
-                try Self.rejectLiteralTildePath(String(decoding: entry, as: UTF8.self), operation: "vm push archive path")
+                try Self.rejectLiteralTildePath(
+                    String(decoding: entry, as: UTF8.self),
+                    operation: String(localized: "cli.vm.path.archive", defaultValue: "push archive path")
+                )
             }
 
             let verbose = CLIProcessRunner.runProcessData(
@@ -1724,7 +1766,10 @@ extension CMUXCLI {
             for entry in verbose.stdout.split(separator: 0x0a, omittingEmptySubsequences: true) {
                 let line = String(decoding: entry, as: UTF8.self)
                 guard line.first == "l", let arrow = line.range(of: " -> ", options: .backwards) else { continue }
-                try Self.rejectLiteralTildePath(String(line[arrow.upperBound...]), operation: "vm push archive symlink target")
+                try Self.rejectLiteralTildePath(
+                    String(line[arrow.upperBound...]),
+                    operation: String(localized: "cli.vm.path.symlinkTarget", defaultValue: "push archive symlink target")
+                )
             }
         } catch let error as CLIError {
             throw VMPushLocalValidationError(cliError: error)

@@ -52,9 +52,11 @@ impl WorkspaceRoot {
         if !supplied.is_absolute() {
             return Err(invalid_path("workspace root must be absolute"));
         }
+        reject_literal_tilde_component(&supplied)?;
         let canonical = tokio::fs::canonicalize(&supplied)
             .await
             .map_err(|error| io_error("open-workspace", &supplied, error))?;
+        reject_literal_tilde_component(&canonical)?;
         let metadata = tokio::fs::metadata(&canonical)
             .await
             .map_err(|error| io_error("open-workspace", &canonical, error))?;
@@ -721,6 +723,16 @@ fn path_cstring(path: &Path) -> Result<CString, RpcError> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| invalid_path("path contains a NUL byte"))
 }
 
+fn reject_literal_tilde_component(path: &Path) -> Result<(), RpcError> {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if name == OsStr::new("~")))
+    {
+        return Err(invalid_path("path contains an unexpanded '~' component"));
+    }
+    Ok(())
+}
+
 #[cfg(not(unix))]
 fn reject_resolved_tilde_component(root: &Path, resolved: &Path) -> Result<(), RpcError> {
     let relative = resolved.strip_prefix(root).map_err(|_| {
@@ -929,6 +941,42 @@ mod tests {
 
         let error = root.resolve_existing("~").await.unwrap_err();
         assert_eq!(error.code, "invalid-path");
+    }
+
+    #[tokio::test]
+    async fn rejects_literal_tilde_workspace_roots_before_canonicalization() {
+        let directory = tempdir().unwrap();
+        let tilde_root = directory.path().join("~");
+        tokio::fs::create_dir(&tilde_root).await.unwrap();
+
+        let error = WorkspaceRoot::open(
+            WorkspaceId("tilde-root".into()),
+            tilde_root.to_str().unwrap(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid-path");
+        assert!(!error.message.contains("rm -rf"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_workspace_roots_that_resolve_to_a_tilde_component() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let tilde_root = directory.path().join("~");
+        tokio::fs::create_dir(&tilde_root).await.unwrap();
+        symlink("~", directory.path().join("alias")).unwrap();
+
+        let error = WorkspaceRoot::open(
+            WorkspaceId("tilde-root-symlink".into()),
+            directory.path().join("alias").to_str().unwrap(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid-path");
+        assert!(!error.message.contains("rm -rf"));
     }
 
     #[cfg(unix)]

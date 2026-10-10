@@ -214,6 +214,15 @@ LogLevel ERROR
                     assert result.returncode == 0, result.stderr
                 assert (guest / "work/~alice/file").read_bytes() == payload.read_bytes()
                 assert (guest / "work/~alice/tree/child").read_text() == "directory payload"
+                # Canonicalizing the parent must preserve atomic replacement
+                # of a final symlink instead of overwriting its target.
+                (guest / "work/original").write_text("keep target")
+                (guest / "work/final-link").symlink_to("original")
+                result = push(payload, "work/final-link")
+                assert result.returncode == 0, result.stderr
+                assert not (guest / "work/final-link").is_symlink()
+                assert (guest / "work/final-link").read_bytes() == payload.read_bytes()
+                assert (guest / "work/original").read_text() == "keep target"
                 assert not list(guest.rglob(".cmux-push.*"))
                 print("PASS resolved symlink destinations reject tilde before staging", flush=True)
                 return

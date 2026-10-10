@@ -1246,7 +1246,7 @@ file_mode_ok() {
 # guidance can expand it to the machine user's home. Reject before mkdir/mv.
 reject_literal_tilde_path() {
   case "/\${1}/" in
-    */~/*) printf 'CMUX-FILE-ERR unexpanded-tilde-path\\n'; return 1 ;;
+    */~/*) return 1 ;;
   esac
   return 0
 }
@@ -1283,11 +1283,13 @@ guest_file_receive() {
   done
   [ -n "\$cmux_fr_path" ] || { printf 'CMUX-FILE-ERR usage cmux file receive <path> [--mode <octal>]\\n'; exit 2; }
   file_mode_ok "\$cmux_fr_mode" || { printf 'CMUX-FILE-ERR bad-mode %s\\n' "\$cmux_fr_mode"; exit 2; }
-  reject_literal_tilde_path "\$cmux_fr_path" || exit 1
+  reject_literal_tilde_path "\$cmux_fr_path" || { printf 'CMUX-FILE-ERR unexpanded-tilde-path\\n'; exit 1; }
   case "\$cmux_fr_path" in
     /*) ;;
     *) cmux_fr_path="\${HOME:-/root}/\$cmux_fr_path" ;;
   esac
+  cmux_fr_resolved="\$(realpath -m -- "\$cmux_fr_path" 2>/dev/null)" || { printf 'CMUX-FILE-ERR path-resolution-failed\\n'; exit 1; }
+  reject_literal_tilde_path "\$cmux_fr_resolved" || { printf 'CMUX-FILE-ERR unexpanded-tilde-path\\n'; exit 1; }
   if [ -d "\$cmux_fr_path" ]; then printf 'CMUX-FILE-ERR is-directory %s\\n' "\$cmux_fr_path"; exit 1; fi
   umask 077
   cmux_fr_tty=0
