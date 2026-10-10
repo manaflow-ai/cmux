@@ -12722,7 +12722,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // materialize their portal anchor before readiness is checked.
         if !layoutFollowUpNeedsGeometryPass,
            (layoutFollowUpBrowserPanelId != nil ||
-            layoutFollowUpTerminalFocusPanelId != nil) {
+            layoutFollowUpTerminalFocusPanelId != nil ||
+            browserVisibilityPendingBefore) {
             flushWorkspaceWindowLayouts()
         }
 

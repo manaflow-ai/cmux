@@ -232,6 +232,48 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
+    @Test func browserVisibilityRetryAfterGeometryPassFlushesOwningWindow() throws {
+        let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = VisibleLayoutWindow(
+            contentRect: contentView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.orderOut(nil) }
+        window.orderFrontRegardless()
+
+        let manager = TabManager()
+        manager.window = window
+        let workspace = try #require(manager.selectedWorkspace)
+        let browserID = try #require(workspace.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
+        let browser = try #require(workspace.browserPanel(for: browserID))
+        defer {
+            workspace.setPortalRenderingEnabled(false, reason: "test.cleanup")
+            BrowserWindowPortalRegistry.detach(webView: browser.webView)
+        }
+
+        // Reset any setup follow-up, then enter through the geometry-only path.
+        // The browser anchor is still unattached, so browser visibility remains
+        // pending after the geometry pass and must trigger a second scoped flush.
+        workspace.setPortalRenderingEnabled(false, reason: "test.reset")
+        contentView.layoutFlushCount = 0
+        workspace.setPortalRenderingEnabled(true, reason: "test.geometryOnly")
+
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while contentView.layoutFlushCount < 2, Date() < deadline {
+            RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date(timeIntervalSinceNow: 0.01))
+            )
+        }
+        #expect(
+            contentView.layoutFlushCount >= 2,
+            "A browser visibility retry after geometry convergence must flush its owner"
+        )
+    }
+
     @Test func portalRefreshDefersWebKitLayoutUntilOuterLayoutCompletes() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
