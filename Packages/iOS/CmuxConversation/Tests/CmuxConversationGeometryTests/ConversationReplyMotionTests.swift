@@ -54,6 +54,39 @@ import Testing
         #expect(abs(ConversationReplyMotion.step(easing: 0.89, frameDuration: 1.0 / 60) - 0.11) < 0.0001)
     }
 
+    /// Messages on an iPhone 17 Pro Max (956 pt tall, 60 fps recording): a
+    /// 62 pt bubble whose thread slot is centred at y 530 covers 12.5 % of
+    /// its remaining trip per frame going in and 16.9 % coming back, at
+    /// every point of the trip (the easing is fixed by the slot, paced from
+    /// the middle of the whole view).
+    @Test func threadEasingIsFixedByTheSlotAndPacedFromTheViewMiddle() {
+        let frame = 1.0 / 60
+        let into = ConversationReplyMotion.threadEasing(slotCenterY: 530, itemHeight: 62, viewHeight: 956, animatingOut: false)
+        let back = ConversationReplyMotion.threadEasing(slotCenterY: 530, itemHeight: 62, viewHeight: 956, animatingOut: true)
+        #expect(abs(ConversationReplyMotion.step(easing: into, frameDuration: frame) - 0.125) < 0.006)
+        #expect(abs(ConversationReplyMotion.step(easing: back, frameDuration: frame) - 0.169) < 0.006)
+        // The bottom bubble (43 pt, slot centred at 540) measured 12.3 %.
+        let bottom = ConversationReplyMotion.threadEasing(slotCenterY: 540, itemHeight: 43, viewHeight: 956, animatingOut: false)
+        #expect(abs(ConversationReplyMotion.step(easing: bottom, frameDuration: frame) - 0.123) < 0.006)
+    }
+
+    /// Going in a row lands within 0.25 px of its slot; coming back Messages
+    /// snaps it home from 2 px out (0.68 pt left -> home in one frame).
+    @Test func snapDistanceIsWiderOnTheWayBack() {
+        #expect(ConversationReplyMotion.snapDistance(scale: 3, animatingOut: false) == 0.25 / 3)
+        #expect(ConversationReplyMotion.snapDistance(scale: 3, animatingOut: true) == 2.0 / 3)
+    }
+
+    /// The arrow's 26 pt box starts at the bubble's leading edge on both
+    /// sides: Messages draws an incoming arrow's centre 12.1 pt right of the
+    /// bubble body (20.4 -> 32.5 pt), not past the 6 pt tail.
+    @Test func arrowBoxStartsAtTheBubbleEdge() {
+        let incoming = CGRect(x: 16, y: 0, width: 200, height: 40)
+        #expect(ConversationReplyMotion.indicatorMinX(balloon: incoming, isOutgoing: false) == 16)
+        let outgoing = CGRect(x: 200, y: 0, width: 200, height: 40)
+        #expect(ConversationReplyMotion.indicatorMinX(balloon: outgoing, isOutgoing: true) == 200)
+    }
+
     @Test func easeInOutMatchesCoreAnimation() {
         #expect(ConversationReplyMotion.easeInOut(0) == 0)
         #expect(abs(ConversationReplyMotion.easeInOut(0.5) - 0.5) < 0.0001)
