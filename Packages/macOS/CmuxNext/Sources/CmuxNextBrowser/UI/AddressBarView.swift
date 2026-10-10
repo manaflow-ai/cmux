@@ -60,6 +60,7 @@ public final class AddressBarView: NSView {
             guard let self else { return OmniboxDelivery.finished }
             var request = request
             request.tabKey = tabKey
+            request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
         }
     )
@@ -216,6 +217,10 @@ public final class AddressBarView: NSView {
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
     }
+
+    /// Shows the page's URL again after a commit that loaded nothing in
+    /// this tab (`chrome://settings` opened Settings instead).
+    public func showPageURL() { controller.send(.pageURLChanged(reportedURL)) }
 
     /// Shows the page's URL. While editing, typed text never changes.
     public func update(url: URL?, security: BrowserSecurityState) {

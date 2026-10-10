@@ -105,7 +105,8 @@ enum NewTabPage {
                 let browser = tab.kind == .browser
                 tabs.append(AgentPaneOmnibar.Tab(
                     id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
-                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName
+                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName,
+                    icon: browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
                 ))
             }
             if workspace.id != current {
@@ -116,7 +117,7 @@ enum NewTabPage {
             }
         }
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
+            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
@@ -224,6 +225,7 @@ enum NewTabPage {
         switch target {
         case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
         case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
+        case .here: break // only a split's page lists tabs to move (NewTabPage.split)
         }
     }
 
@@ -271,7 +273,7 @@ extension PaneController {
     /// else a new tab page, whose field takes the keyboard. ⌃L stays the
     /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
-        let newTabKey = currentTabKey.flatMap { services.agentTabs.isNewTabPage($0) ? $0 : nil }
+        let newTabKey = currentTabKey.flatMap { services.agentTabs.isNewTabPage($0) && AgentHistoryPage.title($0, services) == nil ? $0 : nil }
         var showsBrowser = false
         if case .browser = currentContent { showsBrowser = true }
         switch NewTabPage.locationTarget(showsBrowser: showsBrowser, showsNewTabPage: newTabKey != nil) {
@@ -298,7 +300,7 @@ extension NewTabPage {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
-        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
+        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key), AgentHistoryPage.title(key, services) == nil {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             services.agentTabs.view(for: key)?.focusLocation()

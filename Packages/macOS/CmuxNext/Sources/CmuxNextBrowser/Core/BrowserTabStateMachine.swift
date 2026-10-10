@@ -25,6 +25,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case processExited(BrowserProcessExit)
     /// The content process stopped (true) or resumed (false) handling input.
     case unresponsiveChanged(Bool)
+    /// The page's media report (`BrowserMediaState+Scripts`); nil when it stopped.
+    case mediaChanged(BrowserMediaState?)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -83,6 +85,8 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
                 state.faviconURL = nil
             }
             state.title = nil
+            // A new document plays nothing until its script reports.
+            state.media = nil
             state.phase = .committed
             state.security = Self.security(for: state.url)
             committedURL = state.url
@@ -156,6 +160,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             // opens what the user asked for.
             state.processExit = exit
             state.isUnresponsive = false
+            state.media = nil
             state.progress = 0
             state.activeNavigation = nil
             if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
@@ -163,6 +168,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .unresponsiveChanged(let unresponsive):
             guard state.processExit == nil else { return }
             state.isUnresponsive = unresponsive
+
+        case .mediaChanged(let media):
+            state.media = media
         }
     }
 

@@ -15,13 +15,15 @@ pub use client::{Client, Config};
 pub use handles::state_ops::{
     CONVERSATION_TABS_CAPABILITY, ClosedItemSnapshot, ClosedListOptions, ClosedMemberRecord,
     ClosedReopenOptions, ClosedReopenResult, ClosedScreenRecord, ClosedTabRecord, ColumnEdge,
-    ColumnMode, SavedTabGroupReopenResult, SavedTabGroupSnapshot, SavedTabMemberSnapshot,
-    StateDeleteResult, TAB_GROUP_MAX_TABS, TAB_HISTORY_MAX_URLS, TabGroupCreateOptions,
-    TabGroupMoveOptions, TabGroupReleaseResult, TabGroupSnapshot, TabGroupUpdateOptions,
-    TabUpdateOptions, WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,
-    WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot,
-    WorkspaceGroupUpdateOptions, WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef,
-    WorkspaceUpdateOptions,
+    ColumnMode, PALETTE_USAGE_CAPABILITY, PALETTE_USAGE_IMPORT_MAX_ROWS,
+    PALETTE_USAGE_KEY_MAX_CHARS, PaletteUsageImportResult, PaletteUsageImportRow, PaletteUsagePick,
+    PaletteUsageRevision, PaletteUsageRow, PaletteUsageSnapshot, SavedTabGroupReopenResult,
+    SavedTabGroupSnapshot, SavedTabMemberSnapshot, StateDeleteResult, TAB_GROUP_MAX_TABS,
+    TAB_HISTORY_MAX_URLS, TabGroupCreateOptions, TabGroupMoveOptions, TabGroupReleaseResult,
+    TabGroupSnapshot, TabGroupUpdateOptions, TabUpdateOptions, WINDOW_RECORD_MAX_BYTES,
+    WindowRecordDeleteResult, WindowRecordSnapshot, WorkspaceGroupCreateOptions,
+    WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot, WorkspaceGroupUpdateOptions,
+    WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef, WorkspaceUpdateOptions,
 };
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,

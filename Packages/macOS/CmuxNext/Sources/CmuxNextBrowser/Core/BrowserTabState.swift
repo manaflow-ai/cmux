@@ -59,6 +59,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var processExit: BrowserProcessExit?
     /// The page stopped handling input ("Page unresponsive").
     public var isUnresponsive: Bool
+    /// What the page plays (`BrowserMediaState+Scripts`); nil when nothing.
+    public var media: BrowserMediaState?
 
     public init(
         url: URL? = nil,
@@ -73,7 +75,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         security: BrowserSecurityState = .none,
         activeNavigation: BrowserNavigationID? = nil,
         processExit: BrowserProcessExit? = nil,
-        isUnresponsive: Bool = false
+        isUnresponsive: Bool = false,
+        media: BrowserMediaState? = nil
     ) {
         self.url = url
         self.title = title
@@ -88,6 +91,7 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         self.activeNavigation = activeNavigation
         self.processExit = processExit
         self.isUnresponsive = isUnresponsive
+        self.media = media
     }
 
     public var isLoading: Bool {
@@ -95,6 +99,13 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         case .provisional, .committed: true
         case .idle, .finished, .failed: false
         }
+    }
+
+    /// The request is out and no response committed yet: Chromium's waiting throbber
+    /// (counter-clockwise), before the loading one (clockwise) once the page commits.
+    public var isWaiting: Bool {
+        if case .provisional = phase { return true }
+        return false
     }
 
     public var loadError: BrowserLoadError? {
