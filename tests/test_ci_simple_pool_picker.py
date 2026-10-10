@@ -18,8 +18,9 @@ sys.modules[spec.name] = picker
 spec.loader.exec_module(picker)
 
 
-def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0, free: int | None = None):
-    return picker.Pool(label, capacity, running, queued, free=free, reserved=reserved)
+def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0,
+         free: int | None = None, xcode_app: str = ""):
+    return picker.Pool(label, capacity, running, queued, free=free, reserved=reserved, xcode_app=xcode_app)
 
 
 class PickRuleTests(unittest.TestCase):
@@ -72,6 +73,46 @@ class PickRuleTests(unittest.TestCase):
         state = picker.State(jobs=3, owned=(pool("glaeda-std-xcode-26.6", 8, running=5, queued=20),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True)
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_gui_required_skips_aws_owned_pool(self):
+        state = picker.State(
+            jobs=1,
+            owned=(pool("glaeda-aws-std-xcode-26.6", 5, free=5),),
+            blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+            owned_enabled=True,
+            gui_required=True,
+        )
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, picker.BLACKSMITH[1])
+        self.assertFalse(choice.owned)
+
+    def test_gui_required_prefers_a_gui_capable_mini_over_aws(self):
+        state = picker.State(
+            jobs=1,
+            owned=(
+                pool("glaeda-aws-std-xcode-26.6", 5, free=5),
+                pool("glaeda-std-xcode-26.6", 5, free=5),
+            ),
+            blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+            owned_enabled=True,
+            gui_required=True,
+        )
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_owned_retry_uses_matching_blacksmith_xcode(self):
+        state = picker.State(
+            jobs=1,
+            owned=(pool("glaeda-aws-std-xcode-26.3", 5, free=5,
+                        xcode_app="/Applications/Xcode_26.3.app"),),
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, xcode_app="/Applications/Xcode_26.6.app"),
+                pool(picker.BLACKSMITH[2], 10, xcode_app="/Applications/Xcode_26.3.app"),
+            ),
+            owned_enabled=True,
+        )
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, "glaeda-aws-std-xcode-26.3")
+        self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
 LIGHT = "glaeda-light-xcode-26.6"

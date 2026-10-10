@@ -219,6 +219,20 @@ Notes:
   point cmux-cua refuses with `background_occluded` naming the occluder
   instead of clicking the wrong window. Retry with `delivery_mode:"foreground"`
   or front the target.
+- The bundled Codex compatibility profile exposes `delivery_mode` on `click`
+  and `drag`. A click can be retried with `delivery_mode:"foreground"`; this
+  briefly fronts the snapshotted window, dispatches the click, and restores the
+  previous app. The action remains unverified until a fresh state call confirms
+  its effect.
+- macOS obstruction checks use WindowServer rectangles. System-owned surfaces
+  such as the Dock can be reported at a point that is not visible in the app
+  screenshot, so `background_occluded` is a safety stop rather than proof that
+  the target is visibly covered. Keep the protection and use the foreground
+  retry when bringing the target forward is acceptable.
+- Background coordinate drags are unavailable on macOS and return
+  `background_unavailable`; pass `delivery_mode:"foreground"` with the
+  snapshotted target window for a real drag. A report that dragging fails is
+  not independently verified by this contract change.
 
 ## The branded agent cursor
 

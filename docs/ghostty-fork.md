@@ -12,6 +12,84 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### OSC 7501 program status protocol
+
+- Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.
+- Commits: upstream `bae2c3cdbf73f2ac33a67e4b0b7811165f0f62d4` was cherry-picked
+  with `-x` as `abfda426093`; cmux-specific protocol forwarding and C ABI work
+  follows through Ghostty `7e880f6b63e`.
+- Summary: OSC 7501 queries echo the fixed query body and terminator, validated
+  reports reach the full-app surface action path, prompt-start and RIS clear
+  events are emitted, and Ghostty terminfo advertises `Pst`.
+- Conflict notes: the upstream patch was based on a newer Ghostty tree. The
+  fork kept its clipboard, APC, CJK, stream-handler, and action behavior while
+  adding the parser, dispatch, callback, and ABI pieces. `kitty_metadata.zig`
+  was restored as the shared parser helper required by the upstream parser.
+- Coverage: upstream parser and stream-terminal behavior tests are present, with
+  an added `build-ghosttykit.yml` filtered `program_status` lane. Hosted run
+  [37878143382](https://github.com/manaflow-ai/cmux/actions/runs/37878143382)
+  passed all tests and published
+  [GhosttyKit 7e880f6b63e](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7e880f6b63ef63f3e3a1b7618e6e13283f155c61-crashsubdir-cmux-crash-sentry-off-noi18n-v2).
+  The archive SHA-256 is `a06ac56041f5624c7f16b6a28a6ed552593aabc31d12f007e23fecf64690ba9b`.
+
+### CJK fallback avoids repeated font collection scans
+
+- Branch: `issue-18648-cjk-fallback-latency`, based on the cmux pin
+  `17357e12a`.
+- Commits: `cf8b9d396` (regression test), `fff35f432` (fix),
+  `76f5f8c7c` (backend coverage guard).
+- Summary: CoreText fallback used `CTFontCollection` discovery for Japanese
+  kana and other CJK ranges. Every missing glyph could synchronously enumerate
+  and score the installed fonts before the terminal rendered it. CJK fallback
+  now uses CoreText's locale-aware `CTFontCreateForString` result directly;
+  non-CJK fallback keeps the existing collection path.
+- Coverage: `coretext CJK fallback keeps the direct codepoint result` failed on
+  the pre-fix commit with `expected 1, found 39`, then passed in the local
+  74-test Ghostty suite. The test now runs only for CoreText backends without
+  FreeType, matching the direct lookup implementation. The existing CJK
+  punctuation suite also passed. The hosted GhosttyKit build and its CJK,
+  shaping, and compatibility lanes passed in
+  [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294);
+  the hosted regression step passed in
+  [run 37852501997](https://github.com/manaflow-ai/cmux/actions/runs/37852501997).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-76f5f8c7cc614d4f42cf67031cda488cbf8bae0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- The coverage-only `76f5f8c7c` follow-up leaves the ReleaseFast binary
+  byte-identical to `fff35f432`; the exact-SHA release reuses that verified
+  archive after the hosted build dispatch had no runner assignment.
+- Conflict note: keep the CJK ranges on CoreText's direct fallback path so
+  locale-sensitive selection and the deferred face loading behavior remain
+  intact. Leave generic collection discovery available for other scripts.
+
+### CJK punctuation keeps the resolver's font
+
+- Branch: `fix-10733-cjk-punctuation-width`
+  ([manaflow-ai/ghostty#265](https://github.com/manaflow-ai/ghostty/pull/265)),
+  based on the current cmux pin `01f4e0fe2`.
+- Commits: `b970b6677` (regression test), `17357e12a` (fix).
+- Summary: the bidi run iterator no longer replaces a neutral character's
+  resolved font with the preceding run's face. In `看——Ghostty` and `你……好`,
+  the punctuation now uses its resolved narrow font instead of overflowing
+  its one-cell slot with PingFang SC's full-width glyph. Explicit codepoint
+  maps are also respected. itijah still owns bidi direction and visual order.
+- Coverage: CoreText's `shape CJK punctuation preserves resolved fonts`
+  exercises the reported strings, spacing/Latin/line-start controls, explicit
+  fallback and codepoint maps, and cursor/selection boundaries. The
+  `build-ghosttykit.yml` packaging lane runs it and the shaper regression suite.
+  Test-only commit `b970b6677` failed with expected primary index 0, actual
+  PingFang index 3 in [run 37702657286](https://github.com/manaflow-ai/cmux/actions/runs/37702657286).
+  The fixed regression passed 74/74 tests and the native shaper suite
+  passed 122/122 tests in
+  [run 37702833993](https://github.com/manaflow-ai/cmux/actions/runs/37702833993).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-17357e12a0ac4a50841d8635ef593d4aaa6552c1-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `edc3f83d1c196310c4db643db5bc6a7e77b9a495a65361596776a84a988de7b0`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: preserve resolver-selected fonts in both the visual boundary
+  scan and the logical contents pass of `src/font/shaper/run.zig`. Do not
+  reintroduce coverage-only neutral coalescing; a face containing a codepoint
+  does not mean its glyph fits that codepoint's terminal cell width.
+
 ### Layer display after teardown no longer reaches the freed renderer
 
 - Branch: `fix-metal-layer-display-cb-uaf`
@@ -180,8 +258,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `01f4e0fe2`, the script-aware CJK fallback
-sizing fix on top of `e2a26bc94` (the layer display teardown fix,
+The submodule pinned by this branch is `17357e12a`, the punctuation font
+selection fix on top of `01f4e0fe2`. The previous pin `01f4e0fe2` is the
+script-aware CJK fallback sizing fix on top of `e2a26bc94` (the layer display teardown fix,
 manaflow-ai/ghostty#258). Artifact
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 has SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`, pinned in

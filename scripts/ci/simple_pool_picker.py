@@ -136,6 +136,7 @@ class State:
     owned_enabled: bool = False
     overflow_enabled: bool = True
     fallback: str = BLACKSMITH[1]
+    gui_required: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -158,6 +159,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             blacksmith=tuple(_pool(item) for item in state.get("blacksmith", ())),
             fork=bool(state.get("fork", False)), owned_enabled=bool(state.get("owned_enabled", False)),
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
+            gui_required=bool(state.get("gui_required", False)),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -169,14 +171,41 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
     if state.owned_enabled and not state.fork:
         # The retry pool must carry the owned label's Xcode (the lane's pin):
         # only the Blacksmith pools that keep the lane's own pin qualify.
-        lane = _pick_blacksmith(dataclasses.replace(
-            state, blacksmith=tuple(pool for pool in state.blacksmith if not pool.xcode_app)))
-        retry = lane.label if lane.label and not lane.blocked else state.fallback
         for pool in sorted(state.owned, key=lambda pool: owned_order(pool.label)):
+            # AWS is deliberately compile-only until its console login is
+            # reliable. Keep GUI suites on a pool that advertises a GUI token.
+            if state.gui_required and _owned_namespace(pool.label) == "aws":
+                continue
             if fits(pool):
+                retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
                               pool.xcode_app, True, retry_label=retry)
     return blacksmith
+
+
+def _owned_namespace(label: str) -> str:
+    """Return an owned pool's namespace, or an empty string for the minis."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    return match.group("namespace") or "" if match else ""
+
+
+def _xcode_version(path: str) -> tuple[int, ...]:
+    """Extract an Xcode app version for matching a retry image."""
+    match = re.search(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app(?:/|$)", path or "")
+    return _version_key(match.group(1)) if match else ()
+
+
+def _retry_label(state: State, owned: Pool) -> str:
+    """Choose a Blacksmith rescue image with the owned pool's Xcode when known."""
+    wanted = _xcode_version(owned.xcode_app)
+    if wanted:
+        matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
+        if matching:
+            lane = _pick_blacksmith(dataclasses.replace(state, blacksmith=matching))
+            return lane.label if lane.label and not lane.blocked else state.fallback
+    lane = _pick_blacksmith(dataclasses.replace(
+        state, blacksmith=tuple(pool for pool in state.blacksmith if not pool.xcode_app)))
+    return lane.label if lane.label and not lane.blocked else state.fallback
 
 
 def _pick_blacksmith(state: State) -> Choice:
@@ -323,7 +352,8 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
                        for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
-                 (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback)
+                 (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
+                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
 
 
 def planned_jobs(env: Mapping[str, str]) -> int:

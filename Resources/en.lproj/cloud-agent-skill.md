@@ -59,7 +59,7 @@ cmux vm tree                                             # the surface catalog: 
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 cmux cloud domains publish vivid-newt 3000                # public HTTPS hostname, personal access by default
-cmux pane resize vivid-newt --disk 40G                      # grow persistent disk (4 GiB steps; never shrinks)
+cmux vm resize vivid-newt --disk 40G                       # grow persistent disk (4 GiB steps; never shrinks)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one. For a machine the router creates, `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB; read `vm ls --json` → `limits.memoryOptionsMb` first because the server advertises the current plan's allowed choices and resolves unsupported requests to its default.
@@ -70,7 +70,7 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
 4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` for a new devbox; add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
-5. Persistent disk growth → `cmux pane resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps; the operation is grow-only, keeps the machine data and identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
+5. Persistent disk growth → `cmux vm resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps, subject to the current plan's `vm ls --json` → `limits.maxDiskMb`; the operation is grow-only, keeps the machine data and identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
 6. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Publish a VM port safely
@@ -236,11 +236,11 @@ cmux vm self <id> [<path>] [--json]   # the machine's reflection (name, owner, t
 Create and name:
 
 ```bash
-cmux vm new [--base] [--size <2g|4g|8g|16g|32g>] [--detach|-d]
+cmux vm new [--base] [--size <4g|8g|16g|24g|32g|64g>] [--detach|-d]
 cmux vm rename <id> <new-label>      # label only; the id stays the address
 ```
 
-`vm new` takes no positional arguments (rejected so a typo cannot provision a paid machine). A bare `vm new` creates a persistent machine with its own durable home, up to the plan limit. The backend picks the provider.
+`vm new` takes no positional arguments (rejected so a typo cannot provision a paid machine). A bare `vm new` creates a persistent machine with its own durable home, up to the plan limit. Pro and Team can use 4g, 8g, and 16g (2, 4, and 8 vCPU); Max also unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU). The backend picks the provider.
 
 Base:
 
@@ -294,7 +294,7 @@ Run commands:
 
 ```bash
 cmux vm exec [--timeout <s>] <id> -- <command...>   # one command, 30 s default up to 900 s, exit code passes through
-cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <s>] [--timeout <seconds>] [--wait [--output]] -- <command...>
+cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] [--wait [--output]] -- <command...>
 cmux vm route [--cwd <dir>]              # print which machine vm run/agent would pick, and why
 cmux vm wait <id> [--timeout <seconds>] [--wake]
 cmux vm dev <id> [<folder>] [--name <ws>] [--layout <file>] [--command "<cmd>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--dry-run] [--json]
@@ -305,7 +305,7 @@ cmux vm dev <id> [<folder>] [--name <ws>] [--layout <file>] [--command "<cmd>"] 
 Coding agents on machines:
 
 ```bash
-cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
+cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
 ```
 
 The agent starts as a detached terminal in the machine's cmux-tui session: it keeps running when the pane closes, and `cmux vm open <machine>/<ws>/<term>` reattaches from any device. A bare prompt runs the agent's one-shot form; leading flags or known subcommands pass through verbatim. Credentials for cloud agents come from `cmux ai-accounts upload`. `--wait` blocks until the agent's process exits (Ctrl-C stops the wait, not the agent), `--output` then prints everything it wrote, and the agent's exit code becomes yours (1 on timeout or signal). Without `--wait`, `cmux vm terminal wait-exit` + `terminal output` on the printed terminal id do the same later.

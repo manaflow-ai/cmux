@@ -88,13 +88,57 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 #else
     @Sendable
 #endif
+    func prepareFastPath(
+        _ request: TerminalPastePreparationRequest
+    ) async throws -> TerminalPastePreparationResult? {
+        guard let plainTextWorkerPool,
+              case .terminal? = request.destination else {
+            return nil
+        }
+        switch request.mode {
+        case .paste?, .plainText?:
+            break
+        default:
+            return nil
+        }
+
+        let response = try await plainTextWorkerPool.request(
+            JSONEncoder().encode(request)
+        )
+        try Task.checkCancellation()
+        guard response.status == 0 else {
+            // Status 73 means the resident helper cannot safely answer this
+            // request (for example an image or faithful rich-text fallback).
+            // The caller must send it through the isolated full worker lane.
+            return nil
+        }
+        guard let text = String(data: response.payload, encoding: .utf8) else {
+            throw TerminalPastePreparationWorkerError.invalidWorkerResponse
+        }
+        return .terminal(text.isEmpty ? .reject : .insertText(text))
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     func prepare(
         _ request: TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult {
         try Task.checkCancellation()
         var didProbePlainText = false
-        if case .paste? = request.mode,
-           case .terminal? = request.destination,
+        // Native pastes and terminal-initiated reads both use the resident
+        // helper first. The helper applies the request mode's flavor policy;
+        // only native pastes may fall back to image/file preparation.
+        let canUsePlainTextWorker: Bool
+        switch (request.mode, request.destination) {
+        case (.paste?, .terminal?), (.plainText?, .terminal?):
+            canUsePlainTextWorker = true
+        default:
+            canUsePlainTextWorker = false
+        }
+        if canUsePlainTextWorker,
            let plainTextWorkerPool {
             let response = try await plainTextWorkerPool.request(JSONEncoder().encode(request))
             try Task.checkCancellation()
@@ -125,8 +169,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         // worker. A stalled/crashed provider must fail locally, not run twice.
         var status: Int32 = 73
         if !didProbePlainText,
-           case .paste? = request.mode,
-           case .terminal? = request.destination,
+           canUsePlainTextWorker,
            let plainTextExecutableURL {
             status = try await runWorker(
                 executable: plainTextExecutableURL,

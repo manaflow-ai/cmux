@@ -78,7 +78,34 @@ beside the cmux-tui binary), its hooks call `cmux-tui agent hook emit`
 instead. If `CMUX_TUI_HOOK` still names a working helper in that case, the
 installed hooks run as well and each event is delivered twice.
 
-### Shell startup files can bypass the shim
+## Codex without an install
+
+Codex started through the `codex` shim gets the same journal hooks without a
+Codex config edit. The shim runs `cmux-tui agent codex-wrapper`, which passes
+the socket and terminal id inside every hook command. This is required when
+Codex reuses an app-server: the daemon can start a hook after the original
+shell has gone away, so it cannot inherit that shell's `CMUX_TUI_SOCKET`.
+The launch flags trust only these generated session hooks and disable the
+installed cmux copies for that invocation, leaving user hooks and their trust
+settings unchanged. `exec`, `resume`, and `fork` sessions are covered;
+management commands and informational flags pass through.
+
+The wrapper also works in an SSH workspace where the host received the
+standalone cmux-tui binary. If the wrapper is launched in a tmux pane without cmux
+variables, it resolves the attached Linux tmux client using the same route as
+the installed helper, then binds hooks to that terminal for the launch. An
+already-running tmux server may not have the shim on PATH; start Codex through
+`cmux-tui agent codex-wrapper` in that case. Restart Codex after moving its
+session to a different cmux-tui terminal. Set
+`CMUX_TUI_CODEX_HOOKS_DISABLED=1` to skip injection. Codex 0.162 can select
+embedded mode when given launch-time config; this does not repair a shared
+daemon's authorization for direct `cmux notify` calls.
+
+`ssh-tmux` mirrored workspaces use tmux's control transport rather than the
+cmux-tui journal and currently have no agent-status subscription, so this
+wrapper does not add badges to those mirrors.
+
+## Shell startup files can bypass the shim
 
 The shim only works while its directory stays ahead of the real `claude` on
 `PATH`. A login or interactive shell startup file that prepends a directory

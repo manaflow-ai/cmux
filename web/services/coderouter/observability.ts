@@ -30,7 +30,7 @@ export type CoderouterFailureOptions = {
    * `tenant` marks state the team owns and must fix, such as a revoked
    * provider sign-in. It stays visible as a warning but never pages anyone.
    */
-  readonly fault?: "tenant";
+  readonly fault?: "tenant" | "upstream";
 };
 
 export type CoderouterFailureSeverity = {
@@ -104,7 +104,8 @@ export function coderouterFailureSeverity(
   failure: CodeRouterFailure,
   options: CoderouterFailureOptions = {},
 ): CoderouterFailureSeverity {
-  if (options.fault === "tenant") return { sentry: "warning", posthog: "warning" };
+  // `upstream` marks a transient provider fault the next attempt retries.
+  if (options.fault) return { sentry: "warning", posthog: "warning" };
   return {
     sentry: "error",
     posthog: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",

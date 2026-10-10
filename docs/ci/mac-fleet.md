@@ -1,4 +1,12 @@
-# Self-hosted macOS fleet: capacity, safety, operations
+# Self-hosted macOS fleet: historical capacity study
+
+> **Historical record, not an operator runbook.** The persistent compile pilot
+> described here was retired before it routed pull requests. Do not run the
+> `scripts/persistent-compile` commands in this document. For current routing,
+> onboarding, and repair procedures use [`ci-runners.md`](../ci-runners.md),
+> [`fleet-enrollment.md`](../fleet-enrollment.md), and the HQ fleet front door.
+> The measurements and retired design remain here so later capacity work can
+> compare against the evidence without reviving the old control plane.
 
 How many CMUX-owned Mac minis the macOS CI queue needs, which lane they take
 first, what a compromised job on one could reach, and how one is enrolled,

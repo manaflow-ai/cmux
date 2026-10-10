@@ -266,7 +266,7 @@ extension TerminalController {
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
-            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.attach_progress", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "remotes.list", "remotes.add", "remotes.remove",
             "layout.save", "layout.list", "layout.get", "layout.open", "layout.delete",
             "canvas.align", "canvas.break", "canvas.info", "canvas.join", "canvas.new_pane",

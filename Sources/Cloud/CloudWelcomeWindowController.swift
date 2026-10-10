@@ -1,27 +1,43 @@
 import AppKit
-import CmuxCloud
+import CmuxSettings
 import SwiftUI
 
-/// Shows "Introducing cmux Cloud" once: on first launch, and for existing users
-/// on the first launch after the update that ships it (they have no seen key
-/// yet either). Debug builds can reopen it from Help.
+/// Shows the 0.65.1 Cloud welcome once, whether Cloud is on or off, unless
+/// MDM blocks Cloud. Debug builds can reopen it from Help.
 @MainActor
 final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
-    static let seenDefaultsKey = "cmux.cloud.welcome.seen"
+    /// The welcome is a release announcement, rather than a permanent prompt.
+    /// Versioning the marker lets a later announcement be shown once without
+    /// bringing back an older welcome that a user already dismissed.
+    nonisolated static let campaignVersion = "0.65.1"
+    nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
-    /// because remote flags arrived since; an unseen welcome waits for next launch.
+    /// because MDM policy changed since; an unseen welcome waits for next launch.
     private var didConsiderLaunchPresentation = false
 
-    /// Cloud has to be offered on this Mac and still be off; `seen` makes it once.
+    /// Cloud's on/off setting does not affect the announcement. Only managed
+    /// DisableCloud policy excludes users from this one-time release campaign.
     nonisolated static func shouldPresentAutomatically(
-        seen: Bool,
-        cloudAvailable: Bool,
-        cloudEnabled: Bool
+        defaults: UserDefaults,
+        appVersion: String,
+        policy: ManagedDevicePolicy,
+        isDebugBuild: Bool = false,
+        isRunningUnderXCTest: Bool = false,
+        isUITestMode: Bool = false
     ) -> Bool {
-        !seen && cloudAvailable && !cloudEnabled
+        guard !isDebugBuild, !isRunningUnderXCTest, !isUITestMode else { return false }
+        return appVersion == campaignVersion
+            && defaults.string(forKey: seenVersionDefaultsKey) != campaignVersion
+            && !policy.isEnforced(.disableCloud)
+    }
+
+    /// Records that this release's announcement has been considered. The
+    /// caller writes this before presenting so a crash or quit cannot replay it.
+    nonisolated static func markCampaignSeen(in defaults: UserDefaults) {
+        defaults.set(campaignVersion, forKey: seenVersionDefaultsKey)
     }
 
     /// Presents at launch when it applies, and marks it seen on the way so a
@@ -29,27 +45,31 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
         guard !didConsiderLaunchPresentation else { return }
         didConsiderLaunchPresentation = true
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         guard Self.shouldPresentAutomatically(
-            seen: defaults.bool(forKey: Self.seenDefaultsKey),
-            cloudAvailable: CloudMachinesFeature.isAvailable,
-            cloudEnabled: CloudMachinesFeature.isEnabled
+            defaults: defaults,
+            appVersion: appVersion,
+            policy: ManagedDevicePolicy()
         ) else { return }
-        defaults.set(true, forKey: Self.seenDefaultsKey)
+        Self.markCampaignSeen(in: defaults)
         present(over: parent)
     }
 
-    func present(over parent: NSWindow?) {
+    /// Help and launch share the same feature-list layout.
+    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
         window?.close()
-        let window = makeWindow()
+        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow() -> NSWindow {
+    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -61,13 +81,13 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         hosting.safeAreaRegions = []
         let size = hosting.fittingSize
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: NSSize(width: CloudWelcomeView.windowWidth, height: size.height)),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
-        window.title = String(localized: "cloud.welcome.title", defaultValue: "Introducing cmux cloud")
+        window.title = String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -139,6 +159,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
+    let sliderShowsFeatureList: Bool
+    let sliderListUsesDots: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -150,7 +172,9 @@ private struct CloudWelcomeAccountView: View {
                 isPro: accountFlow?.isProActive == true
             ),
             onNotNow: onNotNow,
-            onNext: onNext
+            onNext: onNext,
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.
