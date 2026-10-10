@@ -1,6 +1,7 @@
 //! A live-parser-free `HostShared` for host tests, optionally with a
 //! caller's terminal, parser channel and clipboard broker.
 
+use super::super::session_cleanup;
 use super::*;
 
 pub(super) fn test_host_shared() -> Arc<HostShared> {
@@ -70,6 +71,8 @@ pub(super) fn test_host_shared_with(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
+        group_escalation_failed: AtomicBool::new(false),
+        session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
         fail_next_resize_publication: AtomicBool::new(false),
     });
