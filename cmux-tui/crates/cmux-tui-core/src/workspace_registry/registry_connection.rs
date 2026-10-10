@@ -23,12 +23,34 @@ use parking_lot::{
 };
 use rusqlite::Connection;
 
-pub(crate) type RegistryConnectionGuard<'a> = ReentrantMutexGuard<'a, Connection>;
+use crate::lock_rank::{HeldRank, LockRank};
+
+const CONNECTION_LOCK_NAME: &str = "registry.connection";
+
+/// A held connection lock with lock rank `RegistryConnection`
+/// (crate::lock_rank). Every acquisition records the rank, so the rank stays
+/// held while any hold of this thread lives; only the first acquisition on a
+/// thread is checked (a re-entry cannot deadlock).
+pub(crate) struct RegistryConnectionGuard<'a> {
+    guard: ReentrantMutexGuard<'a, Connection>,
+    _rank: HeldRank,
+}
+
+impl std::ops::Deref for RegistryConnectionGuard<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.guard
+    }
+}
 
 /// An owned hold of the connection lock that borrows nothing from the
 /// registry, so the holder can still call `&mut WorkspaceRegistry` methods
 /// (they re-enter the lock on the same thread).
-pub(crate) type RegistryConnectionPin = ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>;
+pub(crate) struct RegistryConnectionPin {
+    _guard: ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>,
+    _rank: HeldRank,
+}
 
 /// Test hooks inside a journal writer commit (they pause the writer at a
 /// fixed point while it holds the connection lock).
@@ -64,14 +86,22 @@ pub(crate) fn note_state_lock(acquired: bool) {
     });
 }
 
-/// Marks the current thread as the journal writer until dropped.
+/// Marks the current thread as the journal writer until dropped. It also
+/// holds lock rank `JournalWriter`, so in debug and test builds a registry
+/// lock on this thread panics in the lock-rank checker on every path.
 pub(crate) struct JournalWriterCommitScope {
     previous: bool,
+    _rank: HeldRank,
 }
 
 impl JournalWriterCommitScope {
     pub(crate) fn enter() -> Self {
-        Self { previous: IN_JOURNAL_WRITER_COMMIT.with(|flag| flag.replace(true)) }
+        Self {
+            previous: IN_JOURNAL_WRITER_COMMIT.with(|flag| flag.replace(true)),
+            // Recorded, not checked: scopes nest (the batch commit enters
+            // again inside the loop iteration).
+            _rank: HeldRank::record(LockRank::JournalWriter, "journal.writer"),
+        }
     }
 }
 
@@ -103,17 +133,30 @@ impl RegistryConnection {
     /// The connection for a request thread. The caller holds the workspace
     /// registry lock (or owns the registry outright), never the state lock
     /// unless it pinned this lock before taking state.
+    #[track_caller]
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
-        self.connection.lock()
+        self.check_rank();
+        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
     }
 
     /// Hold the connection lock for a request flow before it takes the
     /// state lock (lock order: registry -> connection -> state), so the flow
     /// never holds state while it waits behind a writer commit.
+    #[track_caller]
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
-        self.connection.lock_arc()
+        self.check_rank();
+        RegistryConnectionPin { _guard: self.connection.lock_arc(), _rank: record_rank() }
+    }
+
+    /// Check the lock rank before a blocking acquisition that is not a
+    /// re-entry.
+    #[track_caller]
+    fn check_rank(&self) {
+        if !self.connection.is_owned_by_current_thread() {
+            HeldRank::check(LockRank::RegistryConnection, CONNECTION_LOCK_NAME);
+        }
     }
 
     pub(crate) fn write_path_stats(&self) -> &crate::diagnostics::WritePathStats {
@@ -148,12 +191,20 @@ impl RegistryConnection {
 
     /// The connection for the journal writer, waiting at most until
     /// `deadline`. `None` when the deadline passed first.
+    #[track_caller]
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
-        self.connection.try_lock_until(deadline)
+        self.check_rank();
+        let guard = self.connection.try_lock_until(deadline)?;
+        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 
     #[cfg(test)]
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
-        self.connection.try_lock()
+        let guard = self.connection.try_lock()?;
+        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
+}
+
+fn record_rank() -> HeldRank {
+    HeldRank::record(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
 }

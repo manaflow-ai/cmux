@@ -59,7 +59,9 @@ pub(crate) mod terminal_respawn_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
-pub(crate) use effect_store::ResourceWorkspaceClose;
+pub(crate) use effect_store::{
+    EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
+};
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,

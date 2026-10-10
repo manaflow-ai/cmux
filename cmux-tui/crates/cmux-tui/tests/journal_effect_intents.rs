@@ -129,7 +129,7 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
             serde_json::json!({
                 "cmd": "create-terminal",
                 "workspace": workspace,
-                "argv": ["/bin/sh", "-c", "while :; do echo journal-effect-intents-output; done"],
+                "argv": ["/bin/sh", "-c", "while :; do echo journal-effect-intents-output; sleep 0.01; done"],
                 "cols": 80,
                 "rows": 24,
             }),

@@ -154,14 +154,16 @@ impl Mux {
         deadline: Instant,
         sqlite_wait_cap: Duration,
         admit_commit: F,
-    ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>>
+    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>>
     where
         F: FnOnce() -> anyhow::Result<()>,
     {
         // Lock order: workspace registry -> registry connection -> state.
         // The writer takes only the connection lock, so a request thread
         // that holds the registry or state never waits behind this commit's
-        // fsync unless it needs the connection itself.
+        // fsync unless it needs the connection itself. A request thread that
+        // sent an effect intent holds the registry while it waits for this
+        // batch, so the writer must never take the registry lock.
         let writer_commit =
             crate::workspace_registry::registry_connection::JournalWriterCommitScope::enter();
         let stats = self.journal_ingress.stats();
@@ -194,6 +196,13 @@ impl Mux {
         stats.commit_finished(lock_wait, commit_from.elapsed());
         stats.set_phase(crate::diagnostics::WriterPhase::Idle);
         let commits = commits?;
+        let (committed, failed) =
+            commits.iter().fold((0, 0), |(ok, failed), commit| match commit {
+                crate::journal_ingress::JournalBatchReceipt::Effect(Ok(_)) => (ok + 1, failed),
+                crate::journal_ingress::JournalBatchReceipt::Effect(Err(_)) => (ok, failed + 1),
+                _ => (ok, failed),
+            });
+        self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
         self.publish_journal_event();
         Ok(commits)
     }
