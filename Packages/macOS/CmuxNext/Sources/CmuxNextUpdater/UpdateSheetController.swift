@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 import SwiftUI
@@ -85,7 +86,7 @@ public final class UpdateSheetController {
         let source = source
         watch = Task { [weak self] in
             var shown = false
-            for await content in Observations({ source.content }) {
+            for await content in ObservationStream({ source.content }) {
                 guard let self, !Task.isCancelled else { return }
                 if content == nil {
                     if shown { self.dismiss() }

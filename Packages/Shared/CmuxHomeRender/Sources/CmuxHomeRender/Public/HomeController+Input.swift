@@ -42,7 +42,7 @@ extension HomeController {
         pendingOrigins = [:]
         if scene.hostedField != nil {
             onRestoreDraft(pending.text)
-            if case .sendMessage(_, let parts) = pending.intent.op {
+            if case .sendMessage(_, let parts, _) = pending.intent.op {
                 let refs = parts.compactMap { part -> AttachmentRef? in
                     if case .attachment(let ref) = part { ref } else { nil }
                 }

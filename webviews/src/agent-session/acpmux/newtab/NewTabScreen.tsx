@@ -4,6 +4,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
+import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
@@ -32,6 +33,10 @@ export type NewTabScreenActions = {
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
+  /// Open in terminal from an All chats row's right-click menu.
+  onOpenChatInTerminal?(key: string): void;
+  /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
+  loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
@@ -356,6 +361,14 @@ export function NewTabScreen(props: Props) {
       )}
       {sections.chats !== "none" && (
         <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
+      )}
+      {sections.chats !== "none" && props.loadChatsPage && props.onOpenChat && (
+        <AllChatsList
+          load={props.loadChatsPage}
+          onOpen={props.onOpenChat}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
+          {...(now !== undefined ? { now } : {})}
+        />
       )}
       {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>

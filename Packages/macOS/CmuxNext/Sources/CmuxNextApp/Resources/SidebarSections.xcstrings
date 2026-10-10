@@ -1573,6 +1573,17 @@
         }
       }
     },
+    "sidebarSections.noBottomArea": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the sidebar has no bottom area; sections go above the workspaces"
+          }
+        }
+      }
+    },
     "sidebarSections.noneHidden": {
       "extractionState": "manual",
       "localizations": {
