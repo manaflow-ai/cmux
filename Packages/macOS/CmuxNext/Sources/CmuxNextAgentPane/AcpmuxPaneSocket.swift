@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.

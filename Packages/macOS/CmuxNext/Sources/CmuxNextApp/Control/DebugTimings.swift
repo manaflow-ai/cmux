@@ -7,7 +7,7 @@ import CmuxNextTerminal
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
