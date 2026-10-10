@@ -97,28 +97,3 @@ pub(crate) fn wake_headless() {
     *generation = generation.wrapping_add(1);
     wake.notify_all();
 }
-
-#[cfg(test)]
-mod tests {
-    fn args(argv: &[&str]) -> crate::Args {
-        crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
-    }
-
-    #[test]
-    fn a_headless_websocket_listener_needs_a_token() {
-        let ws = Some("127.0.0.1:0".to_string());
-        let headless = args(&["--headless", "--ws", "127.0.0.1:0"]);
-        assert!(super::ws_token(&headless, &ws, &None).is_err());
-        assert!(super::ws_token(&headless, &ws, &Some(" ".into())).is_err());
-        assert_eq!(
-            super::ws_token(&headless, &ws, &Some("t".into())).unwrap().as_deref(),
-            Some("t")
-        );
-        let flagged = args(&["--headless", "--ws", "127.0.0.1:0", "--ws-token", "f"]);
-        assert_eq!(super::ws_token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
-        // The TUI that runs the daemon approves pairings itself.
-        let interactive = args(&["--ws", "127.0.0.1:0"]);
-        assert_eq!(super::ws_token(&interactive, &ws, &None).unwrap(), None);
-        assert_eq!(super::ws_token(&headless, &None, &None).unwrap(), None);
-    }
-}

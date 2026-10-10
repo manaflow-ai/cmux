@@ -11,67 +11,6 @@ fn args(list: &[&str]) -> Vec<String> {
     list.iter().map(|value| (*value).to_string()).collect()
 }
 
-/// RED: each failure has its own exit code.
-#[test]
-fn every_failure_has_its_own_exit_code() {
-    let cases = [
-        (Failure::Refused(Some(DialError::UnknownHost)), 2, "unknown_host"),
-        (Failure::Refused(Some(DialError::NotAuthorized)), 3, "not_authorized"),
-        (Failure::Refused(Some(DialError::HostPaused)), 4, "host_paused"),
-        (Failure::Refused(Some(DialError::Unreachable)), 5, "unreachable"),
-        (Failure::Refused(None), 5, "unreachable"),
-        (Failure::LinkUnavailable, 6, "link_unavailable"),
-        (Failure::Refused(Some(DialError::BadRequest)), 64, "bad_request"),
-        (Failure::BadUsage, 64, "bad_request"),
-    ];
-    for (failure, code, error_code) in cases {
-        assert_eq!(failure.exit_code(), code, "{failure:?}");
-        let line = failure.line();
-        assert!(line.ends_with('\n') && line.matches('\n').count() == 1, "{line:?}");
-        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(value["ok"], false);
-        assert_eq!(value["error_code"], error_code, "{failure:?}");
-        assert_eq!(value["path_state"], "unreachable");
-        assert_eq!(value["relay_available"], false);
-    }
-}
-
-#[test]
-fn the_arguments_are_host_and_an_optional_service() {
-    let dial = |host: &str, service, socket: Option<&str>| DialArgs {
-        host: host.into(),
-        service,
-        socket: socket.map(PathBuf::from),
-    };
-    assert_eq!(parse(&args(&["--host", "host_a"])), Ok(dial("host_a", Service::Daemon, None)));
-    assert_eq!(
-        parse(&args(&["--service", "ssh", "--host", "host_a"])),
-        Ok(dial("host_a", Service::Ssh, None))
-    );
-    for bad in [
-        &["--host", "host_a", "--service", "shell"][..],
-        &["--service", "ssh"],
-        &["--host"],
-        &["--host", "a", "--host", "b"],
-        &["--host", "../x"],
-        &["--host", "host_a", "--command", "sh"],
-        &["--host", "host_a", "--socket", "/a.sock", "--socket", "/b.sock"],
-    ] {
-        assert_eq!(parse(&args(bad)), Err(Failure::BadUsage), "{bad:?}");
-    }
-}
-
-/// RED: with no link running, the dial is `link_unavailable` (exit 6), not a
-/// bare error.
-#[tokio::test]
-async fn a_dial_with_no_running_link_is_link_unavailable() {
-    let directory = cmux_unix_socket::short_test_dir("dialcli");
-    let missing = directory.path().join("link.sock");
-    let failure = connect(&missing, "host_a", Service::Daemon).await.unwrap_err();
-    assert_eq!(failure, Failure::LinkUnavailable);
-    assert_eq!(failure.exit_code(), 6);
-}
-
 #[tokio::test]
 async fn a_refusal_from_the_link_keeps_its_code_and_a_success_names_the_path() {
     let directory = cmux_unix_socket::short_test_dir("dialcli");

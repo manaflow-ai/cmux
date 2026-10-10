@@ -187,7 +187,7 @@ pub(super) fn desktop_theme_command_output_with_lifecycle_signals(
     }
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub(super) fn freedesktop_portal_color_scheme_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
     if text.contains("uint32 1") || text.contains("<1>") {
         return Some(GhosttyThemeMode::Dark);
@@ -198,7 +198,7 @@ pub(super) fn freedesktop_portal_color_scheme_theme_mode(text: &str) -> Option<G
     None
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub(super) fn gnome_color_scheme_output_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
     let text = text.trim().trim_matches('\'').trim_matches('"');
     match text {
@@ -234,7 +234,7 @@ pub(super) fn kde_globals_paths() -> Vec<PathBuf> {
     paths
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub(super) fn kde_globals_text_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
     for line in text.lines() {
         let line = line.trim();
@@ -268,7 +268,7 @@ pub(super) fn gtk_settings_paths() -> Vec<PathBuf> {
     paths
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub(super) fn gtk_settings_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
     let mut theme_name = None;
     for line in text.lines() {
@@ -292,7 +292,7 @@ pub(super) fn gtk_settings_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
     theme_name
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub(super) fn gtk_theme_name_theme_mode(value: &str) -> Option<GhosttyThemeMode> {
     let value = value.to_ascii_lowercase();
     if value.ends_with("dark") || value.split([':', '-', '_']).any(|part| part == "dark") {
@@ -302,15 +302,6 @@ pub(super) fn gtk_theme_name_theme_mode(value: &str) -> Option<GhosttyThemeMode>
         return Some(GhosttyThemeMode::Light);
     }
     None
-}
-
-#[cfg(test)]
-pub(super) fn ghostty_background_is_light(background: Rgb) -> bool {
-    let luminance = (0.299 * f64::from(background.r)
-        + 0.587 * f64::from(background.g)
-        + 0.114 * f64::from(background.b))
-        / 255.0;
-    luminance > 0.5
 }
 
 #[cfg(target_os = "macos")]
