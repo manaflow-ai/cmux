@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import SwiftUI
+import CmuxNextIcons
 
 /// The frame of an app's sidebar section in each `apps.section.look`
 /// prototype: `native` (a plain header with the section glyph, built-in
@@ -33,7 +34,7 @@ public struct AppSectionFrame<Content: View>: View {
         switch look {
         case .native:
             VStack(alignment: .leading, spacing: Metrics.space1) {
-                header { if let symbol { Image(systemName: symbol).font(.system(size: Metrics.smallIconSize - Metrics.space2)) } }
+                header { if let symbol { Icon(symbol: symbol, size: 12) } }
                 content
             }
         case .minimal:
