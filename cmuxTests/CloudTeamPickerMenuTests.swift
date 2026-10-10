@@ -241,6 +241,36 @@ struct CloudTeamPickerMenuTests {
         #expect(hovers == [true])
     }
 
+    /// A tracking-area event from the previous window attachment cannot clear
+    /// the replacement area's stationary-pointer hover.
+    @Test func staleTrackingEventsAcrossWindowReattachmentAreIgnored() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+        window.pointerInWindow = NSPoint(x: 40, y: 10)
+
+        var hovers: [Bool] = []
+        anchor.onHoverChange = { hovers.append($0) }
+        anchor.updateTrackingAreas()
+        anchor.handleMouseEntered(from: nil)
+        let oldTrackingArea = try #require(anchor.trackingAreas.first)
+        anchor.removeFromSuperview()
+        anchor.handleMouseEntered(from: oldTrackingArea)
+
+        window.contentView?.addSubview(anchor)
+        anchor.handleMouseExited(from: oldTrackingArea)
+
+        #expect(hovers == [true, false, true])
+    }
+
     /// Detaching clears hover before the view can be reattached, rather than
     /// waiting for a later lifecycle callback.
     @Test func windowDetachClearsHoverImmediately() throws {
