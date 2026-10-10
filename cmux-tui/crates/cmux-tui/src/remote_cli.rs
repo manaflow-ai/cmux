@@ -2196,7 +2196,13 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
         install_agent_hooks(agent_hook_providers(&providers));
     }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
-    tokio_runtime()?.block_on(proxy_stdio(&link))
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(proxy_stdio(&link));
+    // Tokio reads stdin on a blocking thread that cannot be cancelled: when
+    // the link side ended first, do not wait for the next byte on stdin
+    // before exiting (cx-bj1o review).
+    runtime.shutdown_background();
+    result
 }
 
 /// `--agent-hooks claude,codex` names providers; empty items are dropped.
