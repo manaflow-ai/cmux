@@ -5716,6 +5716,13 @@ printf '%s\n' "$@" > "$RUNNER_TEMP/args"
         assert "-only-testing:cmuxCLITests" in (root / "args").read_text().splitlines()
 
 
+def test_cli_product_setup_stages_all_bundled_opencode_resources() -> None:
+    step = workflow_step_block_in(MACOS_WORKFLOW, "cli-product-tests", "Resolve the CLI under test")
+    assert "for resource in opencode-plugin.js opencode-tui-plugin.js; do" in step
+    assert 'if [ ! -e "$(dirname "$cli")/$resource" ]; then' in step
+    assert 'cp "Resources/$resource" "$(dirname "$cli")/$resource"' in step
+
+
 def test_compile_admission_retry_executes_safely() -> None:
     """Execute the admission shell with deterministic compiler and worker fixtures."""
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
