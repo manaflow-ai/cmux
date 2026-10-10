@@ -14,6 +14,8 @@ Surfaces:
   tabs   tab open, close, move right and left, a drag reorder
   panes  split right, split down, close, equalize, zoom
   focus  focus moves between panes (left, right)
+  toasts a toast appears (pin a tab), a second stacks under it (close a tab),
+         and the newest ends (undo) while the other slides back down
 
 Usage: motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR
        [--surface NAME ...] [--only SCENARIO ...]
@@ -63,15 +65,16 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-def record(surface, name, trigger):
+def record(surface, name, trigger, seconds=None):
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, surface, name)
     os.makedirs(directory, exist_ok=True)
-    started = rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    seconds = seconds or opts.seconds
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
     time.sleep(0.15)  # test harness: a few still frames before the change
     reply = trigger()
-    time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{surface}/{name}: {frames} frames; record={json.dumps(started)[:100]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.4)  # test harness: settle before the next scenario
@@ -147,7 +150,88 @@ def focus():
     record("focus", "right", lambda: action("focusRight"))
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus}
+def key(name, *modifiers):
+    """A key press through the window's key path, as a person types it."""
+    return rpc("debug.key", {"key": name, "modifiers": list(modifiers)})
+
+
+def shown_toasts():
+    print("toasts shown:", json.dumps((rpc("debug.filepages") or {}).get("toasts")), flush=True)
+
+
+def toasts():
+    # Toasts answer a person's gesture (automation runs show none), so each
+    # step is a key press. Cmd-W on a terminal tab shows the close undo
+    # toast, recorded until it ends by itself; a second close while one is
+    # up replaces it; Cmd-Z undoes that close and its toast leaves. (A stack
+    # needs a second kind of user toast: the palette's Pin Tab traps on
+    # open, cx-bpcj, and a capture slot's window never becomes key, which
+    # the zoom readout needs.)
+    for _ in range(4):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("toasts")
+    record("toasts", "appear", lambda: key("w", "cmd"), seconds=7.5)
+    shown_toasts()
+    key("w", "cmd")
+    time.sleep(1.0)  # test harness: the close toast is up
+    record("toasts", "replace", lambda: key("w", "cmd"))
+    record("toasts", "undo", lambda: key("z", "cmd"))
+    shown_toasts()
+
+
+def hold(x, y, seconds=0.6):
+    """A press held in place (the chip's press-and-hold opens its editor)."""
+    rpc("debug.mouse", {"action": "down", "x": x, "y": y})
+    time.sleep(seconds)  # test harness: the hold
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": y})
+
+
+def snapshot(name):
+    path = os.path.join(opts.out, "popups", name + ".png")
+    print(name, json.dumps(rpc("debug.window_snapshot", {"path": path}))[:200], flush=True)
+
+
+def popups():
+    # The tab group editor opens from a press-and-hold on its chip and
+    # closes when its group is ungrouped; the sidebar group editor
+    # opens from a click on its header and closes on a second click there.
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 1}})
+    print("group:", json.dumps(rpc("action.run", {"action": "tabGroup.create", "args": {"name": "Motion"}}))[:200], flush=True)
+    time.sleep(0.8)  # test harness: the chip settles
+    save_layout("popups")
+    chrome = (rpc("debug.pane_chrome") or {}).get("windows") or []
+    pane = (chrome[0].get("panes") or [{}])[0] if chrome else {}
+    strip, pill = pane.get("strip"), pane.get("pill")
+    print("strip", strip, "pill", pill, flush=True)
+    snapshot("chip")
+    if strip and pill:
+        x, y = (strip[0] + pill[0]) / 2, pill[1] + pill[3] / 2
+        record("popups", "tab-open", lambda: hold(x, y))
+        snapshot("tab-opened")
+        # A click elsewhere closes it for a person by making the window key,
+        # which a capture slot's window never becomes; Ungroup (its own row's
+        # command) closes it as the group goes.
+        record("popups", "tab-close", lambda: action("tabGroup.ungroup"))
+        snapshot("tab-closed")
+    print("ws group:", json.dumps(rpc("action.run", {"action": "workspace.moveToNewGroup", "args": {"name": "Motion"}}))[:200], flush=True)
+    time.sleep(1.0)  # test harness: the group row settles
+    rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    header = next((r for r in rows if str(r.get("key", "")).startswith("group")), None)
+    print("header", json.dumps(header)[:300], flush=True)
+    if header:
+        f = header["window_frame"]
+        hx, hy = f["x"] + 40, f["y"] + f["height"] / 2
+        record("popups", "sidebar-open", lambda: rpc("debug.mouse", {"action": "click", "x": hx, "y": hy}))
+        snapshot("sidebar-opened")
+        record("popups", "sidebar-close", lambda: rpc("debug.mouse", {"action": "click", "x": hx, "y": hy}))
+        snapshot("sidebar-closed")
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups}
 
 
 def main():

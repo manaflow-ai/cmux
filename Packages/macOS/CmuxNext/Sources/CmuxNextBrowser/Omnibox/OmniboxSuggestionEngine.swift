@@ -8,6 +8,9 @@ public nonisolated struct OmniboxRequest: Sendable {
     public var gate: OmniboxGenerationGate
     /// The tab that asks (never offered as its own Switch to Tab row).
     public var tabKey: String?
+    /// The asking tab is a Chromium tab: its rows may name Chromium's own
+    /// pages (`chrome://` completions, OmniboxInternalPages).
+    public var allowsChromiumSchemes = false
 
     public init(text: String, generation: UInt64, gate: OmniboxGenerationGate, tabKey: String? = nil) {
         self.text = text
@@ -106,6 +109,8 @@ public final class OmniboxSuggestionEngine {
     public func deliveries(for request: OmniboxRequest) -> AsyncStream<OmniboxDelivery> {
         let (stream, continuation) = AsyncStream.makeStream(of: OmniboxDelivery.self, bufferingPolicy: .bufferingNewest(8))
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolver = self.resolver
+        resolver.urlResolver.allowsChromiumSchemes = request.allowsChromiumSchemes
         let query = OmniboxLocalQuery(
             generation: request.generation, gate: request.gate, text: text, resolver: resolver, maxRows: maxResults,
             sources: sources, inlineAutocomplete: inlineAutocomplete,

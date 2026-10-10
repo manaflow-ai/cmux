@@ -142,6 +142,11 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var name = ""
     private var fieldWidth: NSLayoutConstraint?
     private var dismissing = false
+    /// The header the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     /// Shown (on screen, or laid out in a test) and not yet dismissed.
@@ -298,8 +303,12 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow, ordersFront: Bool = true) {
+        let reopening = dismissing && isVisible
         dismissing = false
         isPresented = true
+        ignoresMouseEvents = false
+        self.anchor = anchor
+        generation += 1
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -315,12 +324,12 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
         guard ordersFront else { return }
-        alphaValue = 0
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -337,9 +346,20 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismissing = true
         isPresented = false
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing, self.generation == closing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            self.resetPopupScale()
+        }
     }
 
     override func resignKey() {

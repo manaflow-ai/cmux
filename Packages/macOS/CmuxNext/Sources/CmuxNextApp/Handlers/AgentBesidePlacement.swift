@@ -20,13 +20,21 @@ enum AgentBesidePlacement {
     /// answers after it, with the tab in its final pane.
     @MainActor static func placed(_ invocation: ActionInvocation, in controller: PaneController,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
+        placed(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then)
+    }
+
+    /// Same for `pane` whether a window shows it or not: a chat in a
+    /// workspace no window shows still gets its new column (daemon commands);
+    /// only the selection in an existing column needs the shown pane.
+    @MainActor static func placed(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
+                                  services: AppServices,
+                                  then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
         guard invocation.newColumnBeside else {
             return { [weak controller] surface in
                 then?(surface)
                 controller?.selectWhenReportedKeepingFocus(surface: surface)
             }
         }
-        let services = controller.services, anchor = controller.pane
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
             // The tab's surface, then the store listing it; a bounded wait, so a tab
