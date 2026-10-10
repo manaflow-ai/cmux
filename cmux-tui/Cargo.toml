@@ -301,6 +301,11 @@ lto = "thin"
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
+# which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
+# cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
+# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+lto = "off"
 
 [profile.dev.package."*"]
 opt-level = 3
