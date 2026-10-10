@@ -5,18 +5,21 @@
 # terminals, durable state on the local disk, so fsync costs what it costs).
 # Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/tui-scale-ab.sh --ref SHA
-#     --arg=against=SHA [--arg=counts=250,1000,2000] [--arg=rounds=2]
+#     --arg=against=SHA [--arg=after=SHA] [--arg=counts=250,1000,2000] [--arg=rounds=2]
+# against= is the "before" binary, after= (default: the ref) the "after" one.
 # Both commits need a published cmux-tui tree (pin-cmux-tui.sh docs: push
 # cmux-tui-pin-<short> and let cmux-tui-artifacts.yml publish it). The counts
 # are capped by the free PTYs (kern.tty.ptmx_max minus PTYs in use minus 64).
 # Output: one TUI-AB line per run and count; JSON under .build/tui-scale/ab.
 set -euo pipefail
 against=""
+after=HEAD
 counts="250,1000,2000"
 rounds=2
 for arg in "$@"; do
   case "$arg" in
     against=*) against="${arg#against=}" ;;
+    after=*) after="${arg#after=}" ;;
     counts=*) counts="${arg#counts=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
     *) echo "tui-scale-ab.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -28,7 +31,9 @@ cd "$root"
 work="$root/.build/tui-scale"
 rm -rf "$work"
 mkdir -p "$work/ab"
-git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$against"
+for rev in "$against" "$after"; do
+  git cat-file -e "$rev^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$rev"
+done
 base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 fetch() { # label revision
   local key sum
@@ -40,7 +45,7 @@ fetch() { # label revision
   echo "TUI-AB-BIN $1 rev=$(git rev-parse --short=12 "$2") key=$key"
 }
 fetch before "$against"
-fetch after HEAD
+fetch after "$after"
 ptmx_max="$(sysctl -n kern.tty.ptmx_max)"
 in_use="$(find /dev -maxdepth 1 -name 'ttys[0-9]*' 2>/dev/null | wc -l | tr -d ' ')"
 cap=$(( ptmx_max - in_use - 64 ))
