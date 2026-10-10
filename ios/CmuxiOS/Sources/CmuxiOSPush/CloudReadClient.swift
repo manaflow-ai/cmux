@@ -47,13 +47,32 @@ public struct CloudReadClient: FeedItemReading {
     }
 
     public func approveRequest(item: String) async throws -> FeedApproveRequest? {
+        guard let found = try await read("feed.get", params: ["item": item])["item"] as? [String: Any] else {
+            throw CloudOpsError.transport
+        }
+        return FeedApproveRequest(item: found)
+    }
+
+    /// This install's presence key as the owner holds it
+    /// (`user.text_confirm.get`): missing, in its 24 h cooldown, or ready.
+    public func presenceKeyState(install: String, now: Date = Date()) async throws -> FeedApproveKeyState {
+        let value = try await read("user.text_confirm.get", params: [:])
+        guard let key = (value["presence_keys"] as? [String: Any])?[install] as? [String: Any],
+              key["revoked_at"] == nil || key["revoked_at"] is NSNull else { return .missing }
+        guard let usableFrom = (key["usable_from"] as? NSNumber)?.doubleValue else { return .ready }
+        let until = Date(timeIntervalSince1970: usableFrom / 1000)
+        return until > now ? .coolingDown(until: until) : .ready
+    }
+
+    /// One `/v1/read` op: its `value` object.
+    private func read(_ op: String, params: [String: Any]) async throws -> [String: Any] {
         let token: String
         do { token = try await tokens.installToken(for: nil) } catch { throw CloudOpsError.installTokenUnavailable }
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/read"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["op": "feed.get", "params": ["item": item]])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["op": op, "params": params])
         request.timeoutInterval = 15
         let body: Data
         let response: URLResponse
@@ -62,10 +81,10 @@ public struct CloudReadClient: FeedItemReading {
             throw CloudOpsError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              let value = object["value"] as? [String: Any], let found = value["item"] as? [String: Any] else {
+              let value = object["value"] as? [String: Any] else {
             throw CloudOpsError.transport
         }
-        return FeedApproveRequest(item: found)
+        return value
     }
 }
 
@@ -81,7 +100,7 @@ public enum FeedApproveKeyState: Hashable, Sendable {
 /// The phone's side of a signed approve answer (cx-aocz): its identity, its
 /// presence key (Secure Enclave, user presence), and its registration.
 public protocol FeedApproveSigning: Sendable {
-    func keyState() async -> FeedApproveKeyState
+    func keyState() async throws -> FeedApproveKeyState
     /// Creates and registers the presence key (App Attest), then reports
     /// its state (the cooldown starts now).
     func enroll() async throws -> FeedApproveKeyState
