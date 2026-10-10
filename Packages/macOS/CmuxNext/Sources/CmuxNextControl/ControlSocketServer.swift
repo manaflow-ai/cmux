@@ -2,7 +2,7 @@ public import Foundation
 import CmuxNextSettings
 import Darwin
 import CmuxNextWakeups
-import Synchronization
+import CmuxNextCompat
 
 /// The app control socket: a Unix stream socket speaking the old app's
 /// line protocol (one v2 JSON request per line, one JSON response line per
