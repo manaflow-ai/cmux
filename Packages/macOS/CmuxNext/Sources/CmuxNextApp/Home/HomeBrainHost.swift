@@ -78,8 +78,6 @@ nonisolated struct HomeBrainHost: Sendable {
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             // Constant links to the app that last opened Home (ChiefAppLinks):
             // the host outlives the app that started it.
-            "CMUX_SOCKET_PATH": ChiefAppLinks.controlLink(ChiefHome(root: muxHome, isolated: false)).path,
-            "CMUX_APP_DAEMON_SOCKET": ChiefAppLinks.daemonLink(ChiefHome(root: muxHome, isolated: false)).path,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
@@ -89,6 +87,7 @@ nonisolated struct HomeBrainHost: Sendable {
             // ...and its title (HomeChiefName.createRequest, localized).
             "MUX_CHIEF_TITLE": HomeStrings.chiefName,
         ]
+        variables.merge(ChiefAppLinks.hostEnvironment(ChiefHome(root: muxHome, isolated: false))) { $1 }
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
@@ -125,6 +124,10 @@ nonisolated struct HomeBrainHost: Sendable {
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        // A Chief-home acpmux without this Chief home (an older build, or one an
+        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off; its next start
+        // has the right env (AcpmuxChiefHandoff).
+        if let acpmux { _ = await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale() }
         // A live host reads the token file at each connect: keep its binding.
         if runningHostHasToken { return .reusedRunningHost }
         let token = try await mintToken()

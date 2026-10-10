@@ -934,6 +934,7 @@ mod peer_forward;
 mod redact;
 mod remote_guard;
 mod requests;
+mod routes;
 pub(crate) mod trust_gate;
 mod wait;
 use requests::handle_notification;
