@@ -481,7 +481,7 @@ final class CloudTuiManualMirrorSession {
         guard surface?.isRendererPortalVisible == true else { return }
         guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
-            sendSharingFocusActivity()
+            sendSharingActivity(kind: .focus)
             return
         }
         (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending, geometryClaimLossPending) = (true, false, true, false)
@@ -495,9 +495,10 @@ final class CloudTuiManualMirrorSession {
     func noteExplicitInput() {
         guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
-            // Activity only matters when it moves ownership to this Mac.
+            // The keys' own `send` already refreshes this Mac's hold while it
+            // owns the grid; otherwise ask for it (waits for the owner's hold).
             if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
-            sendSharingFocusActivity()
+            sendSharingActivity(kind: .input)
             return
         }
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }

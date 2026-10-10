@@ -286,6 +286,8 @@ class TerminalController {
     var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
     /// Shared-sizing hosts of local terminals (docs/shared-terminal-sizing.md).
     var localSizingHostsBySurfaceID: [UUID: LocalTerminalSizingHost] = [:]
+    /// Time source for local sizing attach and activity (the typing hold).
+    var localSizingClock = TerminalSizingClock.continuous()
     var localSizingControllersBySurfaceID: [UUID: LocalTerminalSharingController] = [:]
     /// Phones someone disconnected from a Cloud terminal, by surface then client id.
     var cloudDetachedPhonesBySurfaceID: [UUID: [String: TerminalSharingDetachment]] = [:]

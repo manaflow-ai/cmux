@@ -57,8 +57,8 @@ use crate::resource_selector::{
     ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
 use crate::sizing_policy::{
-    TerminalDeviceKind, TerminalGridSize, TerminalSizingEngine, TerminalSizingParticipant,
-    TerminalSizingPolicy, TerminalSizingReason, TerminalSizingState,
+    TerminalDeviceKind, TerminalGridSize, TerminalSizingActivityKind, TerminalSizingEngine,
+    TerminalSizingParticipant, TerminalSizingPolicy, TerminalSizingReason, TerminalSizingState,
 };
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
@@ -1905,8 +1905,28 @@ struct SizeStatePublication {
     state: Arc<TerminalSizingState>,
 }
 
+/// Monotonic milliseconds for shared-sizing attach and activity times (the
+/// typing hold). Tests replace it to control the hold.
+#[derive(Clone)]
+struct SizingClock(Arc<dyn Fn() -> u64 + Send + Sync>);
+
+impl Default for SizingClock {
+    fn default() -> Self {
+        let origin = Instant::now();
+        Self(Arc::new(move || u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX)))
+    }
+}
+
+impl SizingClock {
+    fn now_ms(&self) -> u64 {
+        (self.0)()
+    }
+}
+
 #[derive(Default)]
 struct ClientSizingState {
+    /// Time source passed to the sizing engines.
+    clock: SizingClock,
     surfaces: ClientSurfaceSizes,
     report_order: HashMap<(SurfaceId, u64), u64>,
     latest_explicit_size: Option<(u64, (u16, u16))>,
@@ -7728,6 +7748,16 @@ impl Mux {
         })
     }
 
+    /// Replace the shared-sizing clock (milliseconds) to control the typing
+    /// hold in tests.
+    #[cfg(test)]
+    pub(crate) fn set_sizing_clock_for_test(
+        &self,
+        now_ms: impl Fn() -> u64 + Send + Sync + 'static,
+    ) {
+        self.client_sizing.lock().unwrap().clock = SizingClock(Arc::new(now_ms));
+    }
+
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
         self.client_sizing_lifecycle.lock().unwrap()
     }
@@ -9091,14 +9121,16 @@ impl Mux {
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
             let id = view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
+            let at = sizing.clock.now_ms();
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             entry
                 .members
                 .insert(id.clone(), SizingMember { client, placement: surface, view: None });
+            // An explicit focus claim skips the typing hold.
             let changed = if entry.engine.contains(&id) {
-                entry.engine.note_activity(&id)
+                entry.engine.note_activity(&id, TerminalSizingActivityKind::Focus, at)
             } else {
-                entry.engine.attach(participant)
+                entry.engine.attach(participant, at)
             };
             sizing.note_size_state(runtime, changed);
             changed
@@ -9109,11 +9141,13 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let _ = self.note_terminal_activity(surface, client, None);
+        let _ =
+            self.note_terminal_activity(surface, client, None, TerminalSizingActivityKind::Input);
     }
 
     /// Activity of the caller's own view (`view:None`) or of one of its relay
     /// sub-views, for example a phone whose input a Mac mirror forwards.
+    /// Input waits for the owner's typing hold; focus takes the grid at once.
     /// `None` means the terminal or participant does not exist; otherwise
     /// whether the published size state changed.
     pub(crate) fn note_terminal_activity(
@@ -9121,6 +9155,7 @@ impl Mux {
         surface: SurfaceId,
         client: u64,
         view: Option<&str>,
+        kind: TerminalSizingActivityKind,
     ) -> Option<bool> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
         let id = match view {
@@ -9128,11 +9163,12 @@ impl Mux {
             None => view_participant_id(runtime, surface, client),
         };
         self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let at = sizing.clock.now_ms();
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
             }
-            let changed = entry.engine.note_activity(&id);
+            let changed = entry.engine.note_activity(&id, kind, at);
             sizing.note_size_state(runtime, changed);
             Some(changed)
         })
@@ -9222,6 +9258,7 @@ impl Mux {
         let id = sub_view_participant_id(client, view);
         let via = view_participant_id(runtime, surface, client);
         let owns = self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            let at = sizing.clock.now_ms();
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             entry.members.insert(
                 id.clone(),
@@ -9248,7 +9285,7 @@ impl Mux {
                 };
                 changed
             } else {
-                entry.engine.attach(participant)
+                entry.engine.attach(participant, at)
             };
             sizing.note_size_state(runtime, changed);
             entry_owns(sizing, runtime, &id)
@@ -9601,6 +9638,7 @@ impl Mux {
         }
         let participant =
             present.then(|| self.view_participant(sizing, runtime, placement, client));
+        let at = sizing.clock.now_ms();
         let entry = self.terminal_sizing_entry(sizing, runtime, placement);
         let changed = match participant {
             None => {
@@ -9611,7 +9649,7 @@ impl Mux {
                 entry.members.insert(id.clone(), SizingMember { client, placement, view: None });
                 let viewport = participant.viewport.map(TerminalGridSize::clamped);
                 match entry.engine.participant(&id).map(|current| current.viewport) {
-                    None => entry.engine.attach(participant),
+                    None => entry.engine.attach(participant, at),
                     Some(current) if current == viewport => false,
                     Some(_) => match viewport {
                         Some(viewport) => entry.engine.report(&id, viewport),
@@ -9741,6 +9779,7 @@ impl Mux {
             return Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
                 sizing.terminal_runtime_by_placement.insert(surface, runtime);
                 let participant = mux.view_participant(sizing, runtime, surface, client);
+                let at = sizing.clock.now_ms();
                 let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
                 let mut attached = false;
                 if !entry.engine.contains(&id) {
@@ -9748,7 +9787,7 @@ impl Mux {
                         id.clone(),
                         SizingMember { client, placement: surface, view: None },
                     );
-                    attached = entry.engine.attach(participant);
+                    attached = entry.engine.attach(participant, at);
                 }
                 let changed = entry.engine.set_counts_override(&id, Some(false));
                 sizing.note_size_state(runtime, attached || changed);
