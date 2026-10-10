@@ -3245,17 +3245,16 @@ enum TerminalWindowPortalRegistry {
 #endif
 
     static func beginInteractiveGeometryResize(in window: NSWindow?) {
+        let wasActive = unscopedInteractiveGeometryResizeCount > 0
+            || (window.map { interactiveGeometryResizeCountsByWindowId[ObjectIdentifier($0), default: 0] > 0 } ?? false)
         beginInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+        if !wasActive { postResizeNotification(.cmuxInteractiveGeometryResizeDidBegin, window: window) }
     }
 
     static func endInteractiveGeometryResize(in window: NSWindow?) {
-        endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+        if endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init)) { postResizeNotification(.cmuxInteractiveGeometryResizeDidEnd, window: window) }
     }
-    /// The window of the pointer event AppKit is dispatching, for scoping a
-    /// divider drag. `NSApp.currentEvent` keeps the last event AppKit
-    /// dequeued, which can be an unrelated `appKitDefined` event from another
-    /// window, so only mouse events count; callers fall back to the window
-    /// that hosts their terminals.
+    /// Scopes divider drags to the window receiving the pointer event.
     static func pointerEventWindow() -> NSWindow? {
         guard let event = NSApp.currentEvent else { return nil }
         switch event.type {
@@ -3267,24 +3266,26 @@ enum TerminalWindowPortalRegistry {
             return nil
         }
     }
+
+    private static func postResizeNotification(_ name: Notification.Name, window: NSWindow?) { NotificationCenter.default.post(name: name, object: window) }
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)
         guard interactiveGeometryResizeOwnerWindowIds[ownerId] == nil,
               !unscopedInteractiveGeometryResizeOwnerIds.contains(ownerId) else { return }
         if let windowId = window.map(ObjectIdentifier.init) {
             interactiveGeometryResizeOwnerWindowIds[ownerId] = windowId
-            beginInteractiveGeometryResize(windowId: windowId)
+            beginInteractiveGeometryResize(in: window)
         } else {
             unscopedInteractiveGeometryResizeOwnerIds.insert(ownerId)
-            beginInteractiveGeometryResize(windowId: nil)
+            beginInteractiveGeometryResize(in: nil)
         }
     }
     static func endInteractiveGeometryResize(owner: AnyObject) {
         let ownerId = ObjectIdentifier(owner)
         if let windowId = interactiveGeometryResizeOwnerWindowIds.removeValue(forKey: ownerId) {
-            endInteractiveGeometryResize(windowId: windowId)
+            if endInteractiveGeometryResize(windowId: windowId) { postResizeNotification(.cmuxInteractiveGeometryResizeDidEnd, window: portalsByWindowId[windowId]?.window) }
         } else if unscopedInteractiveGeometryResizeOwnerIds.remove(ownerId) != nil {
-            endInteractiveGeometryResize(windowId: nil)
+            endInteractiveGeometryResize(in: nil)
         }
     }
     private static func beginInteractiveGeometryResize(windowId: ObjectIdentifier?) {
@@ -3299,9 +3300,10 @@ enum TerminalWindowPortalRegistry {
         }
 #endif
     }
-    private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
+    @discardableResult
+    private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) -> Bool {
         guard let windowId else {
-            guard unscopedInteractiveGeometryResizeCount > 0 else { return }
+            guard unscopedInteractiveGeometryResizeCount > 0 else { return false }
             unscopedInteractiveGeometryResizeCount -= 1
             if unscopedInteractiveGeometryResizeCount == 0 {
                 for (portalWindowId, portal) in portalsByWindowId
@@ -3309,29 +3311,23 @@ enum TerminalWindowPortalRegistry {
                     portal.scheduleExternalGeometrySynchronize(forceImmediate: false)
                 }
             }
-            return
+            return unscopedInteractiveGeometryResizeCount == 0
         }
-        guard let count = interactiveGeometryResizeCountsByWindowId[windowId], count > 0 else { return }
+        guard let count = interactiveGeometryResizeCountsByWindowId[windowId], count > 0 else { return false }
         if count == 1 {
             interactiveGeometryResizeCountsByWindowId.removeValue(forKey: windowId)
-            // Apply the final exact renderer and PTY dimensions only in the
-            // window whose pixel-only coalescing gate just cleared.
+            // Flush final renderer and PTY dimensions in this window.
             if unscopedInteractiveGeometryResizeCount == 0 {
                 portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
-            // Single choke point every drag-end path funnels through (tracker
-            // onEnded, legacy gesture onEnded, cursor failsafe): observers
-            // that deferred work during the drag settle NOW instead of on a
-            // trailing timer.
-            NotificationCenter.default.post(
-                name: .cmuxInteractiveGeometryResizeDidEnd,
-                object: nil
-            )
 #if DEBUG
             cmuxDebugLog("portal.geometryResize.end")
 #endif
+            return unscopedInteractiveGeometryResizeCount == 0
+                && interactiveGeometryResizeCountsByWindowId[windowId, default: 0] == 0
         } else {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
+            return false
         }
     }
 #if DEBUG
@@ -3445,6 +3441,10 @@ enum TerminalWindowPortalRegistry {
     }
 }
 extension Notification.Name {
+    /// Posted when an interactive pane/workspace resize session begins.
+    static let cmuxInteractiveGeometryResizeDidBegin =
+        Notification.Name("cmux.interactiveGeometryResizeDidBegin")
+
     /// Posted when the last interactive geometry resize session in a window
     /// ends (sidebar/split divider drags). Fired from the registry's single
     /// end path so every drag-end route (tracker, legacy gesture, failsafe)
