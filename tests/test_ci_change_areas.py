@@ -5726,6 +5726,7 @@ def test_compile_admission_retry_executes_safely() -> None:
         ("busy-worker", 65, ["canonical-build"]),
         ("pgrep-error", 65, ["canonical-build"]),
         ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
+        ("module-dependency", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -5740,7 +5741,11 @@ touch "$RUNNER_TEMP/attempt"
 if [ "$SCENARIO" = stale-log ]; then
   echo 'real compiler error' >> "$5"
 else
-  echo 'unable to open dependencies file' >> "$5"
+  if [ "$SCENARIO" = module-dependency ]; then
+    echo 'error: unable to resolve module dependency: CmuxControlSocketAtomicsC' >> "$5"
+  else
+    echo 'unable to open dependencies file' >> "$5"
+  fi
 fi
 exit 65
 ''',
@@ -5778,7 +5783,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
-    assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory"' in admission
+    assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory|[Uu]nable to resolve module dependency"' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
     assert 'compile admission exited $status without a compiler diagnostic' in admission
     assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
