@@ -828,10 +828,7 @@ mod tests {
             route_policy_for_host("10.42.0.7", &["10.42.0.7".into()], true),
             RoutePolicy::LoopbackOnly
         );
-        assert_eq!(
-            route_host_for_policy("10.42.0.7", RoutePolicy::LoopbackOnly),
-            "127.0.0.1"
-        );
+        assert_eq!(route_host_for_policy("10.42.0.7", RoutePolicy::LoopbackOnly), "127.0.0.1");
         assert_eq!(route_policy_for_host("10.42.0.8", &[], true), RoutePolicy::Any);
         assert_eq!(route_policy_for_host("127.0.0.1", &[], true), RoutePolicy::LoopbackOnly);
         assert_eq!(route_host_for_policy("127.0.0.1", RoutePolicy::LoopbackOnly), "127.0.0.1");
