@@ -502,6 +502,9 @@ describe("acpmux composer pickers", () => {
     await key(trigger, "ArrowDown");
     const rows = [...doc.querySelectorAll<HTMLElement>('[role="option"]')];
     expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[1]?.id);
+    expect(rows[0]?.getAttribute("aria-selected")).toBe("false");
+    expect(rows[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(rows.every((row) => !row.hasAttribute("aria-checked"))).toBe(true);
     await key(trigger, "End");
     expect(trigger.getAttribute("aria-activedescendant")).toBe(rows.at(-1)!.id);
     await key(trigger, "Home");
