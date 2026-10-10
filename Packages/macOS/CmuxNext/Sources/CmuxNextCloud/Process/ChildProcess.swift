@@ -90,6 +90,16 @@ package final class ChildProcess: Sendable {
         }
     }
 
+    /// SIGTERM to this process only, not its process group: a `remote
+    /// connect` link client still needs its ssh child to send the session's
+    /// close frame, and then ends ssh itself (cx-bj1o). `terminate()` signals
+    /// the whole group, so ssh died first and the remote daemon held the
+    /// session for its resume lease.
+    package func terminateProcessOnly() {
+        guard let pid = state.withLock({ $0.exitStatus == nil ? $0.process?.processIdentifier : nil }), pid > 0 else { return }
+        kill(pid, SIGTERM)
+    }
+
     /// SIGTERM; the helpers exit and remove their sockets.
     package func terminate() {
         let process = state.withLock { $0.exitStatus == nil ? $0.process : nil }
