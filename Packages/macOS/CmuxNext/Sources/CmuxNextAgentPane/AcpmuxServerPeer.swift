@@ -86,17 +86,9 @@ nonisolated enum AcpmuxServerPeer {
         return box.value
     }
 
-    /// Whether `socketPath`'s server peer passes the check now (a probe: it connects, reads the
-    /// peer, and writes nothing).
-    @concurrent static func verify(socketPath: String, executable: URL) async -> Bool {
-        do {
-            let descriptor = try connect(socketPath)
-            defer { Darwin.close(descriptor) }
-            return try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: false) == .own
-        } catch {
-            return false
-        }
-    }
+    // No probe-then-connect helper (cx-aocz review P1): a check on one connection says nothing
+    // about the next one. Callers check the connection they write on (``connectChecked``,
+    // ``call(socketPath:method:params:executable:allowForeign:deadline:)``, ``AcpmuxCheckedLine``).
 
     /// Whether every same-uid process that listens on TCP `port` is the acpmux this app runs
     /// (cx-fcaq): the pane's WebSocket has no peer credential, so before it connects the app
@@ -302,6 +294,22 @@ nonisolated enum AcpmuxServerPeer {
             }
             throw refusal
         }
+    }
+
+    /// A connected unix socket to `socketPath` whose server peer passed the check (own path
+    /// only): the caller writes on THIS descriptor, never on another connection checked
+    /// earlier (a squatter could take the path between a probe and a connect).
+    static func connectChecked(socketPath: String, executable: URL) throws -> Int32 {
+        let descriptor = try connect(socketPath)
+        do {
+            guard try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: false) == .own else {
+                throw Refusal.otherExecutable(socketPath)
+            }
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+        return descriptor
     }
 
     /// The peer's pid (`LOCAL_PEERPID`).

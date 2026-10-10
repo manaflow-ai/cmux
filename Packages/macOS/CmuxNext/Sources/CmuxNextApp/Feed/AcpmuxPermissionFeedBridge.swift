@@ -71,7 +71,7 @@ final class AcpmuxPermissionFeedBridge {
     /// Install kind alone is not proof of a phone: a process with the user's
     /// session can register an "ios" install. A deny needs no proof.
     private let presenceKeys: PresenceKeys
-    private var connection: AgentActivityLineConnection?
+    private var connection: AcpmuxCheckedLine?
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
@@ -106,28 +106,18 @@ final class AcpmuxPermissionFeedBridge {
 
     // MARK: acpmux
 
-    /// Connects once the socket's server peer is the acpmux this app runs (cx-fcaq): a squatter on
-    /// the path never gets this connection, and so never a proof.
+    /// Connects on a socket whose server peer is checked on that very connection, before its
+    /// first frame (``AcpmuxCheckedLine``): a listener that took the path never gets a proof.
     private func connect() {
         reconnect = nil
         guard FileManager.default.fileExists(atPath: socket) else { return scheduleReconnect() }
-        // task-owner: AcpmuxPermissionFeedBridge.reconnect: one peer check before one connect.
-        reconnect = Task { [weak self, environment] in
-            let ours = await environment.serverIsOurs()
-            guard let self, !Task.isCancelled else { return }
-            reconnect = nil
-            guard ours else {
-                logger.error("feed bridge: the acpmux socket's server is not the acpmux this app runs; not connecting")
-                return scheduleReconnect()
-            }
-            let line = AgentActivityLineConnection(path: socket)
-            connection = line
-            line.start(send: Self.frame(id: 1, method: "initialize", params: [
-                "protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
-                "clientCapabilities": [String: Any](),
-            ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
-               onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
-        }
+        let line = AcpmuxCheckedLine(environment: environment)
+        connection = line
+        line.start(send: Self.frame(id: 1, method: "initialize", params: [
+            "protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
+            "clientCapabilities": [String: Any](),
+        ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
+           onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
     }
 
     /// One JSON-RPC request line.
@@ -140,7 +130,7 @@ final class AcpmuxPermissionFeedBridge {
 
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
     /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
-    private func initialized(_ result: [String: Any]?, on line: AgentActivityLineConnection) {
+    private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = environment.unixPersonProof(nonce: nonce, connection: id) {
@@ -151,7 +141,7 @@ final class AcpmuxPermissionFeedBridge {
         line.send(Self.frame(id: 3, method: "_acpmux/watch", params: ["enabled": true]))
     }
 
-    private func lost(_ line: AgentActivityLineConnection) {
+    private func lost(_ line: AcpmuxCheckedLine) {
         guard connection === line else { return }
         connection = nil
         for (_, waiter) in replies { waiter.resume(returning: nil) }
@@ -248,11 +238,11 @@ final class AcpmuxPermissionFeedBridge {
     /// The feed.post body for one prompt: what the person must see to decide.
     nonisolated static func postBody(session: String, permission: String, request: [String: Any]) -> [String: Any] {
         let call = request["toolCall"] as? [String: Any] ?? [:]
-        let title = FeedSecretScrubber.scrub(call["title"] as? String ?? "")
-        let kind = call["kind"] as? String ?? ""
+        let title = visible(FeedSecretScrubber.scrub(call["title"] as? String ?? ""))
+        let kind = visible(call["kind"] as? String ?? "")
         let input = call["rawInput"] as? [String: Any] ?? [:]
-        let command = (input["command"] as? String).map(FeedSecretScrubber.scrub)
-        let summary = command == nil ? inputSummary(input) : nil
+        let command = shownCommand(input["command"]).map { visible(FeedSecretScrubber.scrub($0)) }
+        let summary = inputSummary(input)
         // Anything cut or dropped: the phone shows it shortened and never allows it (cx-aocz).
         let truncated = (command?.count ?? 0) > 8000 || title.count > 500 || kind.count > 200
             || (summary?.truncated ?? false)
@@ -279,20 +269,60 @@ final class AcpmuxPermissionFeedBridge {
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }
 
-    /// A short, scrubbed summary of a tool input without a command: field names
-    /// with short string values (paths, patterns); nothing that looks like env.
-    /// `truncated`: a field beyond the first 8, a long name, or a long value was cut.
+    /// The command a tool input runs: a string, or an argv array joined as a shell would read it
+    /// (`["bash", "-lc", "rm -rf ~"]` shows as `bash -lc 'rm -rf ~'`). An array with other values
+    /// shows as compact JSON.
+    nonisolated static func shownCommand(_ value: Any?) -> String? {
+        if let text = value as? String { return text }
+        guard let parts = value as? [Any] else { return value.map(compactJSON) }
+        guard let words = parts as? [String] else { return compactJSON(parts) }
+        return words.map(shellQuoted).joined(separator: " ")
+    }
+
+    nonisolated static func shellQuoted(_ word: String) -> String {
+        let plain = !word.isEmpty && word.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0) && $0.isASCII || "-_./=:,+@%".unicodeScalars.contains($0)
+        }
+        return plain ? word : "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    nonisolated static func compactJSON(_ value: Any) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Bidi controls and zero-width characters shown as `<U+XXXX>`, so a command cannot read
+    /// one way and run another.
+    nonisolated static func visible(_ text: String) -> String {
+        var out = ""
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x061C, 0x180E, 0x200B...0x200F, 0x202A...0x202E, 0x2060...0x2064, 0x2066...0x2069, 0xFEFF:
+                out += String(format: "<U+%04X>", scalar.value)
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    /// A short, scrubbed summary of a tool's input besides its command: field names with their
+    /// values (paths, patterns; other values as compact JSON), `cwd` first whenever present.
+    /// `env` is never shown, and its presence marks the summary truncated. `truncated`: a field
+    /// beyond the first 8, a long name, a long value, or `env` (the phone then never allows).
     nonisolated static func inputSummary(_ input: [String: Any]) -> (fields: [String: String], truncated: Bool)? {
         var out: [String: String] = [:]
-        let shown = input.filter { $0.key.lowercased() != "env" && $0.value is String }.sorted(by: { $0.key < $1.key })
-        var truncated = shown.count > 8
+        let env = input.first { $0.key.lowercased() == "env" }
+        var truncated = env.map { !(($0.value as? [String: Any])?.isEmpty ?? false) } ?? false
+        let shown = input.filter { $0.key.lowercased() != "env" && $0.key != "command" }
+            .sorted { ($0.key == "cwd" ? 0 : 1, $0.key) < ($1.key == "cwd" ? 0 : 1, $1.key) }
+        if shown.count > 8 { truncated = true }
         for (key, value) in shown.prefix(8) {
-            guard let text = value as? String else { continue }
-            let scrubbed = FeedSecretScrubber.scrub(text)
-            if key.count > 40 || scrubbed.count > 200 { truncated = true }
-            out[cut(key, 40)] = cut(scrubbed, 200)
+            let text = visible(FeedSecretScrubber.scrub(value as? String ?? compactJSON(value)))
+            if key.count > 40 || text.count > 200 { truncated = true }
+            out[cut(visible(key), 40)] = cut(text, 200)
         }
-        return out.isEmpty ? nil : (out, truncated)
+        return out.isEmpty && !truncated ? nil : (out, truncated)
     }
 
     private func post(session: String, permission: String, request: [String: Any]) async {

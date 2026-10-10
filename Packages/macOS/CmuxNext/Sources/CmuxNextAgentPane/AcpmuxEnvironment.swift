@@ -86,12 +86,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         AcpmuxPersonKey.proof(socketPath: socketPath, transport: .unix, nonce: nonce, connection: connection)
     }
 
-    /// Whether the server on ``socketPath`` is the acpmux this app runs (``AcpmuxServerPeer``),
-    /// checked before a connection proves the person there.
-    public func serverIsOurs() async -> Bool {
-        await AcpmuxServerPeer.verify(socketPath: socketPath, executable: executable)
-    }
-
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).
