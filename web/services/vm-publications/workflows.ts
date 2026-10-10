@@ -152,7 +152,6 @@ export class PublicationInvariantError extends Data.TaggedError(
 
 export const VmPublicationWorkflowLive = Layer.mergeAll(
   CloudVmPublicationRepositoryLive,
-  VmPublicationProviderError,
   VmPublicationProviderLive,
 );
 
@@ -1045,11 +1044,13 @@ function markUnavailableOnProviderFailure<A, E, R>(
 ): Effect.Effect<A, E, R> {
   return operation.pipe(Effect.tapError((error) => {
     if (!(error instanceof VmPublicationProviderError)) return Effect.void;
-    return input.repository.markPublicationUnavailable({
+    // Suspended so a repository that throws while building its effect is
+    // caught below like any other marking failure.
+    return Effect.suspend(() => input.repository.markPublicationUnavailable({
       id: input.target.publication.id,
       expectedRoutingRevision: input.target.publication.routingRevision,
       now: input.now,
-    }).pipe(
+    })).pipe(
       Effect.asVoid,
       Effect.catchAllCause((cause) => Effect.sync(() => {
         console.error("[vm-publications] could not mark a failed publication unavailable", input.target.publication.id, cause);
