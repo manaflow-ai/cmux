@@ -178,7 +178,7 @@ final class HistoryService {
                                   title: record.title ?? record.url ?? record.cwd ?? Strings.untitledTerminal,
                                   machine: split?.machine ?? "", workspace: ClosedTabTracker.split(record.workspaceID)?.id,
                                   cwd: record.cwd, url: record.url)
-            return HistoryEntry(id: "closed:\(record.tabID)", kind: .closed, time: record.closedAt ?? Date(), title: item.title,
+            return HistoryEntry(id: "closed:\(record.tabID)", kind: .closed, time: record.closedAt ?? .distantPast, title: item.title,
                                 detail: record.url ?? record.cwd,
                                 machineName: split?.machine == MachineRegistry.localID ? nil : split?.machine, payload: .closed(item))
         }

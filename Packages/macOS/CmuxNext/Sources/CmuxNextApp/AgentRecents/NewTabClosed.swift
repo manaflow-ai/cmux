@@ -9,13 +9,27 @@ import Foundation
 /// path (`HistoryRestorer.reopen`), as History > Recently Closed does.
 @MainActor
 enum NewTabClosed {
-    /// Keeps every page of `tabs` showing the newest closed items.
+    /// Keeps every page of `tabs` showing the newest closed items. Favicons
+    /// are looked up outside the observed read and encoded once per URL, so
+    /// a favicon landing elsewhere re-runs nothing.
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
         Task { [weak tabs, weak services] in
-            for await items in ObservationStream({ [weak services] in services.map(items) ?? [] }) {
-                guard let tabs else { return }
-                tabs.pageChats.closed = items
-                for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = items }
+            var icons: [String: String] = [:]
+            var last: [AgentPaneClosedItem]?
+            for await listed in ObservationStream({ [weak services] in services.map(items) ?? [] }) where listed != last {
+                guard let tabs, let services else { return }
+                last = listed
+                let shown = listed.map { item in
+                    guard item.kind == .browser, let address = item.detail else { return item }
+                    if icons[address] == nil, let url = URL(string: address) {
+                        icons[address] = AppServices.dataURL(services.siteFavicon(url, profile: .default))
+                    }
+                    var item = item
+                    item.icon = icons[address]
+                    return item
+                }
+                tabs.pageChats.closed = shown
+                for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = shown }
             }
         }
     }
@@ -28,21 +42,26 @@ enum NewTabClosed {
         HistoryRestorer(services: services).reopen(item)
     }
 
-    /// The newest closed items, as the page draws them.
+    /// The newest closed items, as the page draws them, without favicons.
+    /// Reads the closed-tab tracker's revision, the one part of History's
+    /// closed list that is not observable state itself. Leaves out tabs
+    /// closed in incognito windows, and the app's own record of a workspace
+    /// whose daemon keeps closed history (the daemon's entry stands).
     static func items(_ services: AppServices) -> [AgentPaneClosedItem] {
-        services.history.closedEntries().sorted { $0.time > $1.time }.prefix(AgentPaneClosedItem.maximumPushed).compactMap { entry in
-            guard case .closed(let item) = entry.payload else { return nil }
+        _ = services.closedTabs?.changes.revision
+        return services.history.closedEntries().sorted { $0.time > $1.time }.lazy.compactMap { entry -> AgentPaneClosedItem? in
+            guard case .closed(let item) = entry.payload, !(services.closedTabs?.isIncognito(item.id) ?? false) else { return nil }
+            if entry.id.hasPrefix("closed:workspace:"),
+               services.machines.daemons.first(where: { $0.machineID == item.machine })?.store.servesStateResources == true { return nil }
             let kind: AgentPaneClosedItem.Kind = switch item.kind {
             case .terminalTab: .terminal
             case .browserTab: .browser
             case .screen: .screen
             case .workspace: .workspace
             }
-            let url = item.url.flatMap(URL.init(string:))
             let detail = item.url ?? item.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? entry.detail
             return AgentPaneClosedItem(id: entry.id, kind: kind, title: entry.title, detail: detail, closedAt: entry.time,
-                                       icon: url.flatMap { AppServices.dataURL(services.siteFavicon($0, profile: .default)) },
-                                       isAvailable: entry.isAvailable)
-        }
+                                       icon: nil, isAvailable: entry.isAvailable)
+        }.prefix(AgentPaneClosedItem.maximumPushed).map(\.self)
     }
 }
