@@ -32,19 +32,20 @@ impl Mux {
             expected_revision,
             mutation,
             true,
-            false,
+            crate::state::home_store::EmptyWorkspaceMark::None,
         )
     }
 
-    /// Stage an empty workspace for a resource effect. `ephemeral` marks it
-    /// in the same transaction, so no reader sees it without the flag.
+    /// Stage an empty workspace for a resource effect. `mark` (ephemeral,
+    /// or the kind row of an app workspace) is written in the same
+    /// transaction, so no reader sees the workspace without it.
     pub(super) fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
         requested_key: Option<String>,
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
-        ephemeral: bool,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -54,7 +55,7 @@ impl Mux {
             None,
             mutation,
             false,
-            ephemeral,
+            mark,
         )
     }
 
@@ -68,7 +69,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
-        ephemeral: bool,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -84,15 +85,19 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let notifications = self.tree_decorations();
+        let mut notifications = self.tree_decorations();
+        // The raw tree reads an app workspace's kind from presentation; the
+        // creation's delta must show it (`app-screens-v1`).
+        let reloads_presentation =
+            matches!(mark, crate::state::home_store::EmptyWorkspaceMark::App(_));
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
-        if ephemeral {
-            fingerprint["ephemeral"] = Value::Bool(true);
+        if let Some((field, value)) = mark.fingerprint_field() {
+            fingerprint[field] = value;
         }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
@@ -155,9 +160,10 @@ impl Mux {
                 )?
             } else {
                 let marked = workspace_public_id.as_str().to_string();
-                let mark = move |tx: &rusqlite::Transaction<'_>| {
-                    crate::state::store::mark_workspace_ephemeral(tx, &marked)
-                };
+                let marked_key = key.clone();
+                let writes = mark.writes();
+                let write_mark =
+                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
                 registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
@@ -168,8 +174,8 @@ impl Mux {
                     &desired,
                     Some(&workspace_public_id),
                     &result,
-                    ephemeral.then_some(
-                        &mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
+                    writes.then_some(
+                        &write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
                     ),
                 )?
             };
@@ -197,6 +203,10 @@ impl Mux {
                 .then(|| registry.snapshot())
                 .transpose()?
                 .map(|snapshot| snapshot.resource_revision);
+            if reloads_presentation {
+                self.reload_presentation(&registry)?;
+                notifications.presentation = self.presentation_snapshot();
+            }
             state.push_workspace(Workspace {
                 id: ws_id,
                 public_id: workspace_public_id,

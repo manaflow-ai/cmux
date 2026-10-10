@@ -1569,6 +1569,10 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "workspace.ensure_app": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
     "workspace.ensure_home": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -1715,6 +1719,7 @@
     "tunnel.rotate-key",
     "usage.cap.set",
     "user.ensure",
+    "user.presence_key.list",
     "user.presence_key.revoke",
     "user.teams.list",
     "user.text_confirm.get",

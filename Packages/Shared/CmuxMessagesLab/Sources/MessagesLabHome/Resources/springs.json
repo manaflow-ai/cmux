@@ -442,6 +442,40 @@
  },
  "bubble.opacity": {
   "event": "send",
+  "unit": "opacity",
+  "from": 0.6002,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0226,
+    "duration": 0.1702,
+    "bounce": 0.0,
+    "curve": [
+     0.1783,
+     -0.0102,
+     1.0,
+     0.9296
+    ],
+    "delta": 0.3998
+   }
+  ],
+  "residual": {
+   "rms": 0.014,
+   "rms_before": 0.026
+  },
+  "fit": {
+   "method": "the flying bubble's fill alpha, (blue - 34) / 213 (the fill over the 34 grey underlay), every frame 0-0.25 s after the send response at tau + 0.0143 s (the bubble.width convention): before 75 ms the median of the body's non-text pixels (the whole bubble is inside the field); from 75 ms the brightest 4 pt row band's median, the part above the field top (the field glass tints the part still inside the field 20% toward the background: send-typed-take1 at 108 ms, 208 above, 172-175 inside; the whole-body median mixed the two and held the fit 10-15 levels low at 92-158 ms); glass-flash frames left out; one timing curve. rms_before is the previous fit (0.5994, 21.1 ms, 175.7 ms) on the same data",
+   "takes": [
+    "send-typed-take1",
+    "send-2line-take2",
+    "send-1line-unfocused-take2",
+    "send-1line-2bubble-take1"
+   ],
+   "os": "macOS 27 (lossless rig takes); macOS 26 keeps bubble.opacity.macOS26 (the original recording)"
+  }
+ },
+ "bubble.opacity.macOS26": {
+  "event": "send",
   "eventTime": 4.6247,
   "unit": "opacity",
   "from": 0.59,

@@ -139,12 +139,6 @@ pub(super) fn capture(
         plan.skip(&path, SkipCode::Ignored, None);
     }
     store_content(git, request, &mut plan, operation)?;
-    #[cfg(test)]
-    super::seams::AFTER_HASHING.with(|hook| {
-        if let Some(hook) = hook.borrow().as_ref() {
-            hook();
-        }
-    });
     let base = Base {
         head: before.head.clone(),
         detached: before.branch.is_none(),

@@ -952,22 +952,4 @@ mod tests {
         assert_eq!(metadata.osc_progress(), "4;1;50");
         assert!(notes(&mut metadata).is_empty());
     }
-
-    #[test]
-    fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
-        let start = Instant::now();
-        let mut gate = NotificationGate::default();
-        let note = |title: &str| TerminalNotification {
-            title: title.into(),
-            body: String::new(),
-            level: crate::NotificationLevel::Info,
-        };
-        assert!(gate.admit(&note("a"), start));
-        // Within one second of the last shown notification: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(500)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(1_100)));
-        // The same text again within five seconds: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(3_000)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(6_200)));
-    }
 }

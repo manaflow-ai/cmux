@@ -102,7 +102,10 @@ final class DividerMouseCatcherView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    private var cursor: NSCursor { resizesColumns ? .columnResize : .rowResize }
+    private var cursor: NSCursor {
+        if #available(macOS 15, *) { return resizesColumns ? .columnResize : .rowResize }
+        return resizesColumns ? .resizeLeftRight : .resizeUpDown
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
