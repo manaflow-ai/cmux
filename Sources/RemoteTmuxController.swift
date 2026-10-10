@@ -368,6 +368,12 @@ final class RemoteTmuxController {
     /// ``RemoteTmuxHost/connectionHash``); the per-session channels scoping it live in
     /// ``channelsByHostSession``.
     var multiplexedViewsByHost: [String: RemoteTmuxViewConnection] = [:]
+    /// Hosts whose shared view is waiting for pending routed sessions to be killed before
+    /// teardown. New routed requests and reconcile admissions are rejected while this is set.
+    var pendingMultiplexHostStops: Set<String> = []
+    /// Closures that must run after a delayed shared-view stop (for example, closing dead
+    /// workspaces after the view has dropped all of its mirrors).
+    var pendingMultiplexHostStopCompletions: [String: [() -> Void]] = [:]
     /// Multiplexer user intents by host: pending kills, deliberate local detaches,
     /// and the one new session that should be selected when it surfaces. The pure
     /// reconciler follows/prunes these by stable session id so name reuse stays safe.
@@ -617,6 +623,9 @@ final class RemoteTmuxController {
     ) -> Bool {
         let hostHash = host.connectionHash
         let managerID = ObjectIdentifier(manager)
+        guard !pendingMultiplexHostStops.contains(hostHash) else {
+            return false
+        }
         guard AppDelegate.shared?.mainWindowContexts.values
             .contains(where: { $0.tabManager === manager }) == true else {
             return false

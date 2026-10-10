@@ -219,6 +219,28 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
         #expect(settingsClashes.isEmpty, "settings catalog: \(settingsClashes)")
     }
 
+    /// Stopping a shared host while a routed session is still waiting for reconcile
+    /// must consume the request and finish the view teardown instead of stranding the
+    /// pending session marker.
+    @Test func stoppingAHostCleansUpPendingRoutedSessionState() async {
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: host, ownerId: "pending-stop-test")
+        controller.multiplexedViewsByHost[host.connectionHash] = view
+        let sessionName = "cmux-new-pending"
+        let key = RemoteTmuxController.connectionKey(host: host, sessionName: sessionName)
+        var admitted: Bool?
+        controller.pendingMultiplexNewSessionCompletions[key] = { admitted = $0 }
+
+        #expect(controller.stopMultiplexedHost(host: host))
+        for _ in 0..<10 where controller.multiplexedViewsByHost[host.connectionHash] != nil {
+            await Task.yield()
+        }
+
+        #expect(admitted == false)
+        #expect(controller.multiplexedViewsByHost[host.connectionHash] == nil)
+        #expect(controller.pendingMultiplexNewSessionCompletions[key] == nil)
+    }
+
     /// At factory defaults each keystroke reaches its own action: ⌃⌘N is New Pane
     /// (Auto Layout) and not New Local Workspace, and ⌃⌥⌘N is the reverse.
     @Test func eachDefaultKeystrokeMatchesOnlyItsOwnAction() async throws {

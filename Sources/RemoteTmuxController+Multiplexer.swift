@@ -473,8 +473,9 @@ extension RemoteTmuxController {
         workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace],
         shared: RemoteTmuxControlConnection
     ) {
-        purgeDeadMirrors(for: host)
         let hostHash = host.connectionHash
+        guard !pendingMultiplexHostStops.contains(hostHash) else { return }
+        purgeDeadMirrors(for: host)
         updateMultiplexEpochIfNeeded(hostHash: hostHash, current: shared.sessionId)
         // No real sessions remain (e.g. the last was killed out-of-band): tear the
         // view down and close the mirrors' workspaces, matching GA's last-session-end.
@@ -637,36 +638,82 @@ extension RemoteTmuxController {
     /// closing their workspaces. Drops the shared transport/master when no mirror
     /// still needs it. Returns `true` if a view was present.
     @discardableResult
-    func stopMultiplexedHost(host: RemoteTmuxHost) -> Bool {
-        guard multiplexedViewsByHost[host.connectionHash] != nil else { return false }
+    func stopMultiplexedHost(host: RemoteTmuxHost, onFinished: (() -> Void)? = nil) -> Bool {
+        let hostHash = host.connectionHash
+        guard let view = multiplexedViewsByHost[hostHash] else { return false }
+        if let onFinished {
+            pendingMultiplexHostStopCompletions[hostHash, default: []].append(onFinished)
+        }
+        if pendingMultiplexHostStops.contains(hostHash) { return true }
+
+        let pendingPrefix = "\(hostHash)\u{1}"
+        let pending = pendingMultiplexNewSessionCompletions.compactMap { key, completion -> (String, (Bool) -> Void)? in
+            guard key.hasPrefix(pendingPrefix) else { return nil }
+            return (String(key.dropFirst(pendingPrefix.count)), completion)
+        }
+        guard !pending.isEmpty else {
+            finishStoppingMultiplexedHost(host: host, view: view)
+            return true
+        }
+
+        pendingMultiplexHostStops.insert(hostHash)
+        // Release request ownership before waiting for the barrier. This prevents a
+        // completion arriving during teardown from admitting a mirror or retaining a task.
+        for (sessionName, completion) in pending {
+            let key = Self.connectionKey(host: host, sessionName: sessionName)
+            pendingMultiplexNewSessionCompletions.removeValue(forKey: key)
+            completion(false)
+        }
+        let pendingSessionNames = pending.map(\.0)
+        Task { @MainActor [weak self, weak view] in
+            guard let view else {
+                self?.pendingMultiplexHostStops.remove(hostHash)
+                self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
+                return
+            }
+            await view.killWorkspaceSessions(named: pendingSessionNames)
+            guard let self, self.multiplexedViewsByHost[hostHash] === view else {
+                self?.pendingMultiplexHostStops.remove(hostHash)
+                self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
+                return
+            }
+            self.finishStoppingMultiplexedHost(host: host, view: view)
+        }
+        return true
+    }
+
+    private func finishStoppingMultiplexedHost(
+        host: RemoteTmuxHost,
+        view: RemoteTmuxViewConnection
+    ) {
+        let hostHash = host.connectionHash
+        guard multiplexedViewsByHost[hostHash] === view else {
+            pendingMultiplexHostStops.remove(hostHash)
+            pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
+            return
+        }
         // Collect keys first — `teardownMultiplexedMirror` mutates `sessionMirrors`.
         let keys = sessionMirrors
-            .filter { $0.value.host.connectionHash == host.connectionHash && isMultiplexed($0.value) }
+            .filter { $0.value.host.connectionHash == hostHash && isMultiplexed($0.value) }
             .map(\.key)
         for key in keys { teardownMultiplexedMirror(key: key) }
-        let pendingPrefix = "\(host.connectionHash)\u{1}"
-        let pendingSessionNames = pendingMultiplexNewSessionCompletions.keys.compactMap { key -> String? in
-            guard key.hasPrefix(pendingPrefix) else { return nil }
-            return String(key.dropFirst(pendingPrefix.count))
-        }
-        for sessionName in pendingSessionNames {
-            multiplexedViewsByHost[host.connectionHash]?.killWorkspaceSession(named: sessionName)
-        }
-        multiplexedViewsByHost[host.connectionHash]?.stop()
-        multiplexedViewsByHost[host.connectionHash] = nil
-        multiplexIntentsByHost[host.connectionHash] = nil
-        viewEpochSessionIdByHost[host.connectionHash] = nil
-        pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = nil
-        requestedMultiplexSessionByHost[host.connectionHash] = nil
+        view.stop()
+        multiplexedViewsByHost[hostHash] = nil
+        multiplexIntentsByHost[hostHash] = nil
+        viewEpochSessionIdByHost[hostHash] = nil
+        pendingMultiplexWorkspaceNamesByHost[hostHash] = nil
+        requestedMultiplexSessionByHost[hostHash] = nil
         pendingMultiplexNewSessionCompletions = pendingMultiplexNewSessionCompletions.filter {
-            !$0.key.hasPrefix("\(host.connectionHash)\u{1}")
+            !$0.key.hasPrefix("\(hostHash)\u{1}")
         }
         releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {
-            transportRegistry.remove(connectionHash: host.connectionHash)
+            transportRegistry.remove(connectionHash: hostHash)
             closeSharedSSHMasterIfAny(host: host)
         }
-        return true
+        pendingMultiplexHostStops.remove(hostHash)
+        let completions = pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
+        completions.forEach { $0() }
     }
 
     /// Closes the host's shared ssh ControlMaster, for the hosts that have one.
@@ -695,14 +742,19 @@ extension RemoteTmuxController {
     /// Unlike the dedicated-window era there is no window to discard — mirrors live
     /// in the user's own window.
     func teardownMultiplexedHost(host: RemoteTmuxHost) {
-        // Capture workspace ids before stop drops the mirrors, then stop FIRST so the
-        // closes below can't re-enter a kill path (no mirror found → no-op).
+        // Capture workspace ids before stop drops the mirrors. If routed sessions are
+        // pending, the close waits until their kill barrier has completed so it cannot
+        // re-enter a live mirror's kill path.
         let deadWorkspaces = sessionMirrors.values
             .filter { $0.host.connectionHash == host.connectionHash && isMultiplexed($0) }
             .compactMap(\.mirroredWorkspace)
-        stopMultiplexedHost(host: host)
-        for workspace in deadWorkspaces {
-            closeDeadMirrorWorkspace(workspace, recordHistory: false)
+        let closeDeadWorkspaces = { [weak self] in
+            for workspace in deadWorkspaces {
+                self?.closeDeadMirrorWorkspace(workspace, recordHistory: false)
+            }
+        }
+        if !stopMultiplexedHost(host: host, onFinished: closeDeadWorkspaces) {
+            closeDeadWorkspaces()
         }
     }
 
