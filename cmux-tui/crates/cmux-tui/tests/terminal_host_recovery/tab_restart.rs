@@ -30,7 +30,8 @@ fn a_manual_restart_brings_back_a_terminal_the_supervisor_gave_up_on() {
         let surface = tab_named(&harness, "bound")["surface"].as_u64().expect("surface");
         wait_for_screen(&harness.socket, surface, MARKER);
     }
-    let surface = tab_named(&harness, "bound")["surface"].as_u64().expect("surface");
+    let live = tab_named(&harness, "bound");
+    let surface = live["surface"].as_u64().expect("surface");
     let old_pid = echo_value(&harness, surface, "first", "$$");
     kill_current_shell_and_host(&harness, &terminal_id);
     wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
@@ -47,7 +48,7 @@ fn a_manual_restart_brings_back_a_terminal_the_supervisor_gave_up_on() {
 
     let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
     assert_eq!(restarted["ok"], true, "{restarted}");
-    assert_eq!(restarted["data"]["terminal"], dead["terminal_resource_id"], "{restarted}");
+    assert_eq!(restarted["data"]["terminal"], live["terminal_resource_id"], "{restarted}");
     let manual = wait_for_respawn(&harness, &terminal_id, &incarnation);
 
     let tab = tab_named(&harness, "bound");

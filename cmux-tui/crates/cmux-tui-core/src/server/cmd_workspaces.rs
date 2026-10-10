@@ -2,6 +2,9 @@
 //! metadata, provider-managed workspaces, and workspace groups. Each
 //! function is one `Command` arm of `handle_command_with_cancellation`.
 
+use super::workspace_group_json;
+use super::workspace_groups_json;
+
 use super::MutationRequest;
 use super::list_workspaces_reply;
 use super::optional_surface_size;
@@ -375,30 +378,4 @@ fn with_provider_workspace_authority<T>(
     let result = operation(&authority);
     zeroize_string(&mut authority);
     result
-}
-
-pub(super) fn workspace_group_json(
-    group: &crate::workspace_registry::WorkspaceGroupRecord,
-    index: usize,
-) -> Value {
-    json!({
-        "id": group.id,
-        "name": group.name,
-        "color": group.color,
-        "collapsed": group.collapsed,
-        "index": index,
-    })
-}
-
-pub(super) fn workspace_groups_json(
-    presentation: &crate::workspace_registry::PresentationSnapshot,
-) -> Value {
-    json!(
-        presentation
-            .groups
-            .iter()
-            .enumerate()
-            .map(|(index, group)| workspace_group_json(group, index))
-            .collect::<Vec<_>>()
-    )
 }
