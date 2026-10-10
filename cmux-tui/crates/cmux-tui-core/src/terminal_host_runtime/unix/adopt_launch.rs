@@ -214,13 +214,7 @@ fn spawn_adopted_runtime(
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
     crate::debug_spans::mark("host.pty_adopted");
-    host_start::start_host_runtime(
-        launch,
-        bootstrapped,
-        master,
-        HostChild::Adopted(child),
-        &spec.seed,
-    )
+    start_host_runtime(launch, bootstrapped, master, HostChild::Adopted(child), &spec.seed)
 }
 
 /// What a replacement host adopts and how it presents the terminal.

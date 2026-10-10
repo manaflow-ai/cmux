@@ -203,6 +203,51 @@ mod windows_stubs {
         }
     }
 
+    /// The host's child. Windows children arrive with `sys/windows.rs`.
+    pub(crate) enum HostChild {}
+
+    impl HostChild {
+        pub(crate) fn process_id(&self) -> Option<u32> {
+            match *self {}
+        }
+
+        pub(crate) fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            match *self {}
+        }
+
+        pub(crate) fn adopted_session(&self) -> Option<SessionId> {
+            match *self {}
+        }
+
+        pub(crate) fn wait_exit_observed(&self) -> bool {
+            match *self {}
+        }
+
+        pub(crate) fn wait_and_disarm(&mut self) -> crate::terminal_host_protocol::TerminalExit {
+            match *self {}
+        }
+    }
+
+    /// The PTY handle the reader waits on. None exists until
+    /// `sys/windows.rs`.
+    #[derive(Clone, Copy)]
+    pub(crate) enum PtyPollHandle {}
+
+    pub(crate) fn pty_poll_handle(
+        _master: &dyn cmux_pty::MasterPty,
+    ) -> anyhow::Result<PtyPollHandle> {
+        Err(unsupported().into())
+    }
+
+    pub(crate) fn wait_for_pty_readable_or_forced_drain(
+        pty: PtyPollHandle,
+        _drain_waiter: &mut HostStream,
+        _force_drain: &std::sync::atomic::AtomicBool,
+        _forced_at: &mut Option<std::time::Instant>,
+    ) -> io::Result<bool> {
+        match pty {}
+    }
+
     /// An adopted session id. Windows v1 adopts no session.
     pub(crate) enum SessionId {}
 
