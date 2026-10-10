@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextServer
 import CmuxNextWakeups
 import os
@@ -33,8 +34,9 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         guard item == nil else { return }
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: String(localized: "server.menuBar.accessibility", defaultValue: "cmux server", table: "Server", bundle: .module))
-            button.image?.isTemplate = true
+            let image = NSImage.icon(.machineRemote, size: 16)
+            image.accessibilityDescription = String(localized: "server.menuBar.accessibility", defaultValue: "cmux server", table: "Server", bundle: .module)
+            button.image = image
             button.target = self
             button.action = #selector(togglePanel(_:))
         }

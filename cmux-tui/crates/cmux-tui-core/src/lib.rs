@@ -42,6 +42,7 @@ mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
+pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;

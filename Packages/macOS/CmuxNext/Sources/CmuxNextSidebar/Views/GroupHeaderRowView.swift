@@ -24,12 +24,12 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
-    /// The more button (…, a clear three-dot glyph): the group editor. Shows on hover and while the editor is open.
-    let moreButton = SidebarIconButton(symbol: "ellipsis", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
+    /// The more button (the pack's three-dot action.more): the group editor. Shows on hover and while the editor is open.
+    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
-    let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .bold,
+    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
     private var hasIcon = false
@@ -108,9 +108,8 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     private static func chevronImage(collapsed: Bool) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold)
-        return NSImage(systemSymbolName: collapsed ? "chevron.down" : "chevron.up", accessibilityDescription: nil)?
-            .withSymbolConfiguration(config)
+        NSImage.icon(collapsed ? .disclosureExpanded : .navPreviousMatch,
+                     size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
     }
 
     override var titleFrame: NSRect { name.frame }

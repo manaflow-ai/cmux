@@ -23,7 +23,7 @@
 //! Warnings name the dropped key only; a caller value is never logged.
 
 /// Keys the daemon always owns. A caller value for one of them is dropped.
-pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
+pub const DAEMON_OWNED_ENV_KEYS: [&str; 13] = [
     "CMUX_TUI_SOCKET",
     "CMUX_BROWSER_HOST_SOCKET",
     "CMUX_MUX_SOCKET",
@@ -36,6 +36,8 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
     "AGENT_BROWSER_PLUGINS",
     "AGENT_BROWSER_SESSION",
     "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE",
+    // The terminal's launch credential (plans/cmux-next/identity.md section 2).
+    "CMUX_LAUNCH_CREDENTIAL",
 ];
 
 /// Ghostty shell-integration keys. The daemon owns them only when it

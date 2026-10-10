@@ -99,8 +99,15 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
-                // This connection presented this launch's person key (`hub/person.rs`).
+                // This connection is the person (`hub/person.rs`): never yet,
+                // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // The challenge a local connection proves the person key against.
+                "personChallenge": if conn.challengeable() {
+                    json!({"nonce": conn.nonce, "connection": conn.id})
+                } else {
+                    Value::Null
+                },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
@@ -112,6 +119,18 @@ async fn dispatch_request(
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
+        // Decided in order in `Conn::bind_person`; this only reports it.
+        method::MUX_PERSON_PROVE => {
+            if conn.is_person() {
+                Ok(json!({"person": true}))
+            } else {
+                Err(RpcError::new(
+                    -32000,
+                    "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
+                )
+                .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
         method::MUX_PERSON_ENROLL => {
             // The unix socket only: a WebSocket peer has no audit token.
             if conn.origin != Origin::Local {

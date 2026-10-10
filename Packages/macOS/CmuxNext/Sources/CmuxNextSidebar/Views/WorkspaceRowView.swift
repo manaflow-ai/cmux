@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -21,10 +22,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
-    let disclosureButton = SidebarIconButton(symbol: "chevron.right", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .semibold,
+    let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                              label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     private let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -158,13 +159,12 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
-        let config = NSImage.SymbolConfiguration(pointSize: SidebarStyle.indicatorSize - Metrics.space1, weight: .regular)
         mutedMark.image = ws.muted && !isShowingPlaceholder
-            ? NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)?.withSymbolConfiguration(config) : nil
+            ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
         disclosure = row.tabDisclosure
         count = row.tabCount
-        disclosureButton.symbol = row.tabDisclosure == .expanded ? "chevron.down" : "chevron.right"
+        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.stringValue = row.tabCount.map(String.init) ?? ""
