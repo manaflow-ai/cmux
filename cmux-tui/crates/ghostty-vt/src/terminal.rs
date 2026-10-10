@@ -2070,7 +2070,7 @@ impl Terminal {
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
             c1_normalizer: C1Normalizer::default(),
-            empty_kitty_probe_filter: EmptyKittyProbeFilter::default(),
+            empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
