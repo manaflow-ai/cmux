@@ -38,23 +38,30 @@ extension CmuxTuiSurfaceProvider {
                   let created = CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: object) else {
                 throw ProviderError.browserNotCreated
             }
-            // The daemon mutation is committed even if this provider was replaced
-            // while the request was in flight. Adopt the receipt into the provider
-            // currently registered for the machine so the browser remains owned and
-            // discoverable after reconnect. If access ended entirely, surface an
-            // explicit state failure instead of cancelling after creating a blank
-            // local pane (or silently compensating the remote tab away).
-            guard let activeProvider = self.catalog.provider(for: self.machine) as? CmuxTuiSurfaceProvider,
-                  activeProvider.isRegisteredInCatalog() else {
-                throw ProviderError.stateUnavailable(self.machineID)
-            }
-            return activeProvider.recordCreatedBrowser(
-                created,
-                workspaceID: created.workspaceID,
-                url: url,
-                name: name
-            )
+            return try self.recordCommittedBrowser(created, url: url, name: name)
         }
+    }
+
+    /// Keeps a committed receipt across replacement in the same ownership scope.
+    func recordCommittedBrowser(
+        _ created: CmuxTuiSnapshotParser.CreatedBrowserPath,
+        url: URL,
+        name: String?
+    ) throws -> SurfaceResource {
+        // Account or machine teardown is not a reconnect. The previous provider
+        // may already be suspended; only a live replacement for this machine and
+        // team may adopt its committed receipt.
+        guard let activeProvider = catalog.provider(for: machine) as? CmuxTuiSurfaceProvider,
+              activeProvider.isRegisteredInCatalog(), !activeProvider.hasLostAccess,
+              activeProvider.ownerTeamID == ownerTeamID else {
+            throw ProviderError.stateUnavailable(machineID)
+        }
+        return activeProvider.recordCreatedBrowser(
+            created,
+            workspaceID: created.workspaceID,
+            url: url,
+            name: name
+        )
     }
 
     func recordCreatedBrowser(

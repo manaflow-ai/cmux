@@ -73,14 +73,18 @@ extension Workspace {
         let task = Task { @MainActor [weak self, weak panel, weak provider] in
             defer {
                 catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(mutation, on: route.machine, catalog: catalog)
-                guard let self else { return }
-                self.cloudBrowserCreationTasks.removeValue(forKey: panelID)
-                self.pendingCloudBrowserPanelIDs.remove(panelID)
-                self.cloudLayoutDidChange()
+                if let self {
+                    self.cloudBrowserCreationTasks.removeValue(forKey: panelID)
+                    self.pendingCloudBrowserPanelIDs.remove(panelID)
+                    self.cloudLayoutDidChange()
+                }
             }
-            guard let self, let panel, let provider else { return }
+            guard let self, let panel else { return }
             do {
                 guard !Task.isCancelled, self.panels[panel.id] === panel else { throw CancellationError() }
+                guard let provider else {
+                    throw CmuxTuiSurfaceProvider.ProviderError.stateUnavailable(route.machine.rawValue)
+                }
                 let created = try await provider.createBrowser(
                     url: route.url,
                     name: name,
@@ -113,8 +117,6 @@ extension Workspace {
                     remoteWorkspaceID: remoteView.workspace.id,
                     remoteTabID: remoteView.tabID
                 ))
-            } catch is CancellationError {
-                return
             } catch {
                 guard !Task.isCancelled, self.panels[panel.id] === panel else { return }
                 panel.cloudAccess.showUnavailable(String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry."))

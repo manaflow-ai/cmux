@@ -89,6 +89,64 @@ import Testing
         #expect(CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: result) == nil)
     }
 
+    @Test func malformedBrowserCreationReceiptHasAResponseFailure() {
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.browserNotCreated) == .response)
+    }
+
+    @Test @MainActor
+    func committedBrowserReceiptMovesToTheReplacementProvider() throws {
+        let catalog = SurfaceCatalog()
+        let summary = VMSummary(id: "browser-replacement-\(UUID())", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
+        let links = CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil })
+        let original = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "team", links: links, catalog: catalog)
+        let replacement = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "team", links: links, catalog: catalog)
+        catalog.register(original)
+        original.suspendForFeatureFlag()
+        catalog.register(replacement)
+        defer {
+            original.suspendForFeatureFlag()
+            replacement.suspendForFeatureFlag()
+            catalog.unregister(machine: original.machine)
+        }
+        let receipt = CmuxTuiSnapshotParser.CreatedBrowserPath(
+            browserID: "browser_created", workspaceID: "ws_main", screenID: "screen_1",
+            paneID: "pane_1", tabID: "tab_created", cursor: CloudVMCursor(generation: "g1", revision: 8)
+        )
+
+        let resource = try original.recordCommittedBrowser(receipt, url: URL(string: "http://localhost:4312/health")!, name: nil)
+
+        #expect(original.pendingRemoteCreations.isEmpty)
+        #expect(replacement.pendingRemoteCreations[resource.id]?.receipt == receipt.cursor)
+        #expect(catalog.resources[resource.id]?.remoteViews?.first?.tabID == "tab_created")
+        #expect(catalog.resources[resource.id]?.remoteViews?.first?.workspace.id == "ws_main")
+    }
+
+    @Test @MainActor
+    func committedBrowserReceiptCannotCrossOwnershipTeardown() throws {
+        let catalog = SurfaceCatalog()
+        let summary = VMSummary(id: "browser-retirement-\(UUID())", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
+        let links = CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil })
+        let original = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "old-team", links: links, catalog: catalog)
+        let replacement = CmuxTuiSurfaceProvider(summary: summary, ownerTeamID: "new-team", links: links, catalog: catalog)
+        catalog.register(original)
+        original.suspendForFeatureFlag()
+        catalog.register(replacement)
+        defer {
+            replacement.suspendForFeatureFlag()
+            catalog.unregister(machine: original.machine)
+        }
+        let receipt = CmuxTuiSnapshotParser.CreatedBrowserPath(
+            browserID: "browser_created", workspaceID: "ws_main", screenID: "screen_1",
+            paneID: "pane_1", tabID: "tab_created", cursor: CloudVMCursor(generation: "g1", revision: 8)
+        )
+
+        #expect(throws: (any Error).self) {
+            try original.recordCommittedBrowser(receipt, url: URL(string: "http://localhost:4312/health")!, name: nil)
+        }
+        #expect(replacement.pendingRemoteCreations.isEmpty)
+        #expect(catalog.resources.isEmpty)
+    }
+
     @Test func browserCreationRequestTargetsTheBoundMachineWorkspaceAndPane() {
         let request = CloudTuiRequests.createBrowserArguments(
             socketPath: "/tmp/cmux-tui.sock",
