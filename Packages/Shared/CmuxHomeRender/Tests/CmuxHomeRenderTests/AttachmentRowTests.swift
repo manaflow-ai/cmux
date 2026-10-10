@@ -93,7 +93,7 @@ import Testing
         let outgoing = HomeOutgoingAttachment(ref: AttachmentFixtures.photo, origin: tray, preview: nil)
         let intent = try #require(c.sendHosted(text: "Look", attachments: [outgoing], from: field))
         #expect(emitted == [intent])
-        guard case .sendMessage(_, let parts) = intent.op else { Issue.record("not a send"); return }
+        guard case .sendMessage(_, let parts, _) = intent.op else { Issue.record("not a send"); return }
         #expect(parts == [.attachment(AttachmentFixtures.photo), .text("Look")], "attachments first, then the text")
         #expect(c.sendHosted(text: " ", attachments: [], from: field) == nil, "nothing to send")
         c.update(items: Fixtures.items(messages, pending: [PendingIntent(intent: intent)]), summary: Fixtures.summary(),

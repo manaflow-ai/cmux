@@ -532,18 +532,22 @@ scope and ran full. `crosschecks` counts scoped projections compared with the
 full projection (debug builds, or `CMUX_TUI_PROJECTION_CROSSCHECK=1` in the
 daemon environment) and `crosscheck_mismatches` the comparisons that differed.
 
-`write_path` says which thread commits effect receipts. `effect_intents`
-counts effect receipt commits the journal writer applied inside its batch
-transaction (one SAVEPOINT each, one shared fsync per batch),
-`effect_intent_failures` the intents it rolled back to their savepoint and
-answered with an error, and `effect_intent_batches` the batches that carried
-at least one. `request_effect_commits` counts effect receipt commits that ran
-their own transaction on a request thread: topology close patches, and every
-effect commit while the journal writer is disabled, stopped, or not yet
-running. `writer_registry_locks` counts, process-wide, registry lock
-acquisitions on a journal writer thread. It is always `0`: a request thread
-holds the registry lock while it waits for its writer receipt, so the writer
-never takes that lock.
+`write_path` says which thread commits registry writes. `effect_intents`
+counts registry commits the journal writer applied inside its batch
+transaction (one SAVEPOINT each, one shared fsync per batch): effect
+receipts, terminal records (reserved, ready, adopting, exited) and
+workspace registry revisions. `effect_intent_failures` counts the intents it
+rolled back to their savepoint and answered with an error, and
+`effect_intent_batches` the batches that carried at least one.
+`request_effect_commits` counts those registry commits that ran their own
+transaction on a request thread instead: commits whose caller still holds
+the registry connection (topology close patches, workspace commits with
+borrowed extra rows), and every one while the journal writer is disabled,
+stopped, or not yet running. `writer_registry_locks` counts, process-wide,
+registry lock, registry connection or mux state lock acquisitions on a
+journal writer thread. It is always `0`: a request thread holds the registry
+lock (and may hold state) while it waits for its writer receipt, so the
+writer never takes either.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
@@ -2323,7 +2327,7 @@ Params:
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
-Result: empty object.
+Result: `{"width": float32}`, the width of the column of `pane` after the commit. A lone column (one column with rows) always fills the screen, so it returns 1.0 whatever `width` was asked for, and its width stays 1.0. In every other layout it returns `width`. A client that shows a resize handle uses this value, not the requested one.
 
 Errors:
 
@@ -2349,7 +2353,7 @@ Example:
 
 ```json
 {"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
-{"id":12,"ok":true,"data":{}}
+{"id":12,"ok":true,"data":{"width":0.5}}
 ```
 
 ### set-column-dock

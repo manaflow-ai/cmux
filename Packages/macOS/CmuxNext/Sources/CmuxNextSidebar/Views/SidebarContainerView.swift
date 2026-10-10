@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextCompat
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
@@ -180,7 +181,7 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border) in Observations({
+            for await (_, _, defaultWidth, border) in ObservationStream({
                 // The default width token is tracked so a settings change
                 // resizes live.
                 (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)

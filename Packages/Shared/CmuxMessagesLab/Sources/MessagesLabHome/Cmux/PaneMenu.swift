@@ -153,7 +153,7 @@ final class EmojiBubbleButton: NSView {
     init(frame: CGRect, run: @escaping () -> Void) {
         self.run = run
         super.init(frame: frame.insetBy(dx: 0, dy: 0).union(CGRect(x: frame.minX, y: frame.minY, width: frame.width + 20, height: frame.height + 22)))
-        let glass = NSGlassEffectView(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+        let glass = LabGlass.surface(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
         glass.cornerRadius = frame.width / 2
         let img = NSImageView(image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: Strings.menuAttachSticker)?
             .withSymbolConfiguration(.init(pointSize: 18, weight: .regular)) ?? NSImage())
