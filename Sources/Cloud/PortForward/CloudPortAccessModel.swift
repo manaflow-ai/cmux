@@ -28,6 +28,10 @@ final class CloudPortAccessModel {
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
     private let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
+    /// Browser-proxy routes can retain a guest-local origin (for example
+    /// `https://localhost:8443`). Raw loopback forwards rewrite the origin to
+    /// an HTTP listener, but the proxy preserves TLS and the original host.
+    private let preservesRemoteHost: Bool
     private var observation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
@@ -39,7 +43,8 @@ final class CloudPortAccessModel {
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
         stopForward: @escaping @MainActor () async -> Void,
         route: CloudPortAccessRoute = .privateNetwork,
-        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil
+        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil,
+        preservesRemoteHost: Bool = false
     ) {
         self.target = target
         self.coordinator = coordinator
@@ -48,6 +53,7 @@ final class CloudPortAccessModel {
         self.stopForward = stopForward
         self.route = startBrowserProxy == nil ? route : .browserProxy
         self.startBrowserProxy = startBrowserProxy
+        self.preservesRemoteHost = preservesRemoteHost
     }
 
     var failureMessage: String? {
@@ -184,7 +190,9 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct, .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .direct: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .proxied where preservesRemoteHost: return remoteURL
+        case .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
         case .forwarded(let port): return CloudPortRoutePolicy().localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
         }

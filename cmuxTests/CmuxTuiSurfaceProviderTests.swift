@@ -1197,6 +1197,13 @@ import Testing
             ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
             ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
+        let browserProxy = CloudTuiCommandLine.browserProxyArguments(
+            route: "ws://10.0.0.4:1337/v1/link", addresses: ["10.0.0.4"],
+            stateDir: "/s", wireGuardHubSocket: "/h.sock", carrier: false
+        )
+        #expect(browserProxy.contains("--allow-loopback"))
+        #expect(browserProxy.contains("localhost"))
+        #expect(browserProxy.contains("::1"))
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==

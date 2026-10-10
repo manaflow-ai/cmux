@@ -145,6 +145,28 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("Cloud HTTPS localhost uses the authenticated proxy and keeps its origin")
+    func cloudHTTPSLoopbackBrowserKeepsOrigin() async throws {
+        let endpoint = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 46_903, username: "fixture", password: "secret"
+        )
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "localhost", port: 8443),
+            coordinator: nil,
+            wake: {},
+            startForward: { _ in Issue.record("HTTPS localhost must not use the HTTP-only forward"); return 46_904 },
+            stopForward: {},
+            route: .browserProxy,
+            startBrowserProxy: { endpoint },
+            preservesRemoteHost: true
+        )
+        let remote = try #require(URL(string: "https://localhost:8443/health"))
+        model.connect()
+        #expect(await wait { model.phase == .proxied(endpoint) })
+        #expect(model.url(for: remote) == remote)
+        await model.retire()
+    }
+
     @Test("HTTP stays on the authenticated hub across every system VPN state",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func httpIsIndependentOfVPN(state: CloudTunnelState) async {

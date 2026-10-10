@@ -115,7 +115,8 @@ extension CmuxTuiSurfaceProvider {
         let isCloudLoopback = machine.cloudMachineID != nil
             && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
         let address = isCloudLoopback ? "127.0.0.1" : info.privateAddress
-        let route: CloudPortAccessRoute = isCloudLoopback ? .loopback : .browserProxy
+        let isHTTPSLoopback = isCloudLoopback && url.scheme?.lowercased() == "https"
+        let route: CloudPortAccessRoute = isHTTPSLoopback ? .browserProxy : (isCloudLoopback ? .loopback : .browserProxy)
         guard let address,
               let privateURL = CloudPortRoutePolicy().privateURL(
                 url.absoluteString,
@@ -136,7 +137,14 @@ extension CmuxTuiSurfaceProvider {
             catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
-        let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http", route: route)
+        let model = accessModel(
+            port: port,
+            address: address,
+            targetHost: isHTTPSLoopback ? url.host : nil,
+            scheme: privateURL.scheme ?? "http",
+            route: route,
+            preservesRemoteHost: isHTTPSLoopback
+        )
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
@@ -198,8 +206,15 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func accessModel(port: Int, address: String, scheme: String = "http", route: CloudPortAccessRoute = .browserProxy) -> CloudPortAccessModel {
-        let target = CloudPortForwardTarget(host: address, port: port)
+    func accessModel(
+        port: Int,
+        address: String,
+        targetHost: String? = nil,
+        scheme: String = "http",
+        route: CloudPortAccessRoute = .browserProxy,
+        preservesRemoteHost: Bool = false
+    ) -> CloudPortAccessModel {
+        let target = CloudPortForwardTarget(host: targetHost ?? address, port: port)
         let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = if route == .browserProxy {
             { [weak self] in
                 guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
@@ -271,7 +286,8 @@ extension CmuxTuiSurfaceProvider {
                     await portForwards?.close(machineID: machineID, port: port)
                 },
                 route: route,
-                startBrowserProxy: startBrowserProxy
+                startBrowserProxy: startBrowserProxy,
+                preservesRemoteHost: preservesRemoteHost
             )
         }
     }
