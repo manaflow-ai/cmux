@@ -42,6 +42,7 @@ struct CanvasHostedPanelContentView: View {
             hasUnreadNotification: false,
             terminalAgentContext: "",
             onFocus: onRequestPanelFocus,
+            onFocusTextBox: onRequestPanelFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},

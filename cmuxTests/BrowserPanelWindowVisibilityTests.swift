@@ -198,6 +198,7 @@ private struct BrowserPanelWindowVisibilityHarness: View {
             terminalAgentContext: "",
             paneOwnershipOverride: true,
             onFocus: {},
+            onFocusTextBox: {},
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},

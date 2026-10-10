@@ -30,6 +30,7 @@ struct TerminalPanelView: View {
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
     let onFocus: () -> Void
+    let onFocusTextBox: () -> Void
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
@@ -162,7 +163,7 @@ struct TerminalPanelView: View {
                     ),
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
-                        onFocus()
+                        onFocusTextBox()
                     },
                     onToggleFocus: {
                         _ = panel.focusTextBoxInputOrTerminal()

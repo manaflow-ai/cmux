@@ -48,6 +48,7 @@ private struct WorkspacePanelContentHostView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let isWorkspaceInputActive: Bool
     let allowsPointerInput: Bool
     let portalPriority: Int
     let isSplit: Bool
@@ -92,6 +93,11 @@ private struct WorkspacePanelContentHostView: View {
                 return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
+            onFocusTextBox: WorkspaceContentView.makeComposerFocusHandler(
+                workspace: workspace,
+                panel: panel,
+                isWorkspaceInputActive: isWorkspaceInputActive
+            ),
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
@@ -202,6 +208,21 @@ struct WorkspaceContentView: View {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
+    /// Builds the production callback used when a terminal composer becomes
+    /// first responder. It selects the live panel's pane without scheduling a
+    /// second terminal focus request that could steal the composer responder.
+    static func makeComposerFocusHandler(
+        workspace: Workspace,
+        panel: any Panel,
+        isWorkspaceInputActive: Bool
+    ) -> () -> Void {
+        {
+            guard isWorkspaceInputActive else { return }
+            guard workspace.panels[panel.id] != nil else { return }
+            workspace.focusPanelFromTerminalInput(panel.id, trigger: .standard)
+        }
+    }
+
     var body: some View {
 #if DEBUG
         let _ = {
@@ -295,6 +316,7 @@ struct WorkspaceContentView: View {
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
+                        isWorkspaceInputActive: isWorkspaceInputActive,
                         allowsPointerInput: isWorkspaceInputActive
                             && isWorkspaceVisible
                             && isSelectedInPane,
