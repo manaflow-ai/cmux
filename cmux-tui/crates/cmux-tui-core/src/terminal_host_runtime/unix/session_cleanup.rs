@@ -19,7 +19,7 @@ use super::super::shared::host_state::HOST_KILL_WAIT;
 use super::super::sys::GroupSignal;
 use std::time::{Duration, Instant};
 
-pub(super) const SESSION_CLEANUP_FAILED_REASON: &str = "terminal session cleanup incomplete";
+pub(crate) const SESSION_CLEANUP_FAILED_REASON: &str = "terminal session cleanup incomplete";
 
 #[derive(Debug)]
 pub(crate) struct SessionCleanup {
@@ -47,7 +47,7 @@ struct CapturedSession {
 }
 
 impl SessionCleanup {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { captured: Mutex::new(CaptureState::NotCaptured) }
     }
 
