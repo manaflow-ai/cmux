@@ -14,6 +14,15 @@ import { useNt } from "./strings";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
+/// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
+/// its state where the age would be.
+export type ActiveChat = {
+  id: string;
+  title: string;
+  harness?: string;
+  state: "input" | "running" | "error" | "unread" | "idle";
+  label: string;
+};
 
 export type AllChatsPage = {
   chats: AllChatsRow[];
@@ -105,11 +114,15 @@ function useChatPages(load: LoadChatsPage) {
 export function AllChatsList({
   load,
   onOpen,
+  active = [],
+  onOpenActive,
   onOpenInTerminal,
   now = Date.now(),
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
+  active?: ActiveChat[];
+  onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
   now?: number;
 }) {
@@ -172,18 +185,43 @@ export function AllChatsList({
       ]
     : [];
   return (
-    <section className="nt-all" aria-label={nt("allChats")}>
+    <section className="nt-all" aria-label={nt("chats")}>
       <header className="nt-chats-head">
-        <span className="nt-chats-tab is-selected">{nt("allChats")}</span>
-        <input
-          className="nt-all-search"
-          type="search"
-          value={state.query}
-          placeholder={t("sidebar.searchPlaceholder")}
-          aria-label={t("sidebar.search")}
-          onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
-        />
+        <span className="nt-chats-tab is-selected">{nt("chats")}</span>
+        <label className="nt-all-search">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={state.query}
+            placeholder={t("sidebar.searchPlaceholder")}
+            aria-label={t("sidebar.search")}
+            onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
+          />
+        </label>
       </header>
+      {!state.query && active.length > 0 && (
+        <ul className="nt-all-active" aria-label={t("sidebar.active")}>
+          {active.map((chat) => (
+            <li key={chat.id}>
+              <button
+                type="button"
+                className="nt-all-row"
+                data-state={chat.state}
+                onClick={() => onOpenActive?.(chat.id)}
+              >
+                <span className="nt-all-glyph">
+                  <AgentMark harness={chat.harness} />
+                </span>
+                <span className="nt-all-title">{chat.title}</span>
+                <span className="nt-all-state">{chat.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {state.loaded && rows.length === 0 ? (
         state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
