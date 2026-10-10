@@ -23,7 +23,7 @@ mux agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 mux memory recall REGEX [N] | zoom LO-HI | note "fact" | wake [BUDGET] | path
 mux hook session-start|user-prompt-submit|stop|pre-compact   (Claude Code hooks; JSON on stdin)
 mux compact                                                  build missing memory summaries now
-Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_HARNESS (claude-sr), MUX_POLICY (approve-all),
+Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_HARNESS (claude), MUX_POLICY (approve-all),
      ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN, CMUX_MCP_COMMAND, MUX_WAKE_BUDGET (96),
      MUX_COMPACT_HARNESS (claude), MUX_COMPACT_MODEL (haiku)`;
 
@@ -106,9 +106,10 @@ async function runHost(): Promise<void> {
     daemonSocket,
     acpmuxSocket,
     paths,
-    harness: process.env.MUX_HARNESS ?? "claude-sr",
+    harness: process.env.MUX_HARNESS ?? "claude",
     policy: process.env.MUX_POLICY ?? "approve-all",
-    displayName: fullName(),
+    // One name source: the app hands its user name (the name in its own create request).
+    displayName: process.env.MUX_USER_NAME?.trim() || fullName(),
     self,
     sessionEnv,
     mcpServers: cmuxMcpServers(),

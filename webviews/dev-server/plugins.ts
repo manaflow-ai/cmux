@@ -8,6 +8,7 @@
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
 //   /history/ /apps/ /cloud/ /keybindings/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
+//   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
 // `/diff/?pick` and `/markdown?pick` show the empty states (src/viewer-empty): recents, the
@@ -73,6 +74,7 @@ import {
   saveMarkdown,
   splitStyles,
 } from "./markdownHost";
+import { galleryHost, galleryModules } from "./galleryHost";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -81,7 +83,17 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
-  return [devServerShell(), agentPaneHost(), pagesHost(), viewerEmptyHost(), diffHost(), markdownHost(), editorHost()];
+  return [
+    devServerShell(),
+    agentPaneHost(),
+    pagesHost(),
+    viewerEmptyHost(),
+    diffHost(),
+    markdownHost(),
+    editorHost(),
+    galleryHost(),
+    { ...galleryModules(), apply: "serve" },
+  ];
 }
 
 let recentsStore: ReturnType<typeof devRecents> | undefined;
@@ -130,6 +142,7 @@ const indexPage = `<!doctype html>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
+<li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
 <li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
 </ul>
 </body></html>`;

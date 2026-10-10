@@ -38,6 +38,8 @@ export type SchemaRow = {
   help: LocalizedText | null;
   kind: SettingKind;
   choices?: Choice[];
+  /** A string_list of `choices` in an order the user picks. */
+  ordered?: boolean;
   range?: NumberRange;
   default: unknown;
   default_label: LocalizedText | null;
@@ -56,7 +58,33 @@ export type SchemaRow = {
 
 export type SchemaSection = { id: string; title: LocalizedText; symbol: string };
 
-type Schema = { rows: SchemaRow[]; sections: SchemaSection[]; schema_hash: string; version: number };
+/** A group card of the page layout: its title and the keys of its rows, in display order. */
+export type PageGroup = { key: string; title: LocalizedText; rows: string[] };
+
+/** A category of the page layout (Swift `SettingsPageLayout`, exported as `page`). */
+export type PageCategory = {
+  id: string;
+  title: LocalizedText;
+  symbol: string;
+  groups: PageGroup[];
+  /** Non-schema cards (`SettingsPageLayout.Card`) drawn before the groups, and after them. */
+  lead: string[];
+  trail: string[];
+  /** The sections whose registry buttons (cmux.settings.section.actions) show at the end. */
+  actions: string[];
+  /** The section ids (old links, `app settings <section>`) that open this category. */
+  aliases: string[];
+};
+
+export type PageLayout = { default_category: string; categories: PageCategory[] };
+
+type Schema = {
+  rows: SchemaRow[];
+  sections: SchemaSection[];
+  page: PageLayout;
+  schema_hash: string;
+  version: number;
+};
 
 const document = exported as unknown as Schema;
 

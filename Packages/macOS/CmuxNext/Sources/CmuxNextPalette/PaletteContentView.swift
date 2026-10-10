@@ -308,7 +308,7 @@ final class PaletteContentView: NSView {
             return
         }
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
         Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
         CATransaction.commit()

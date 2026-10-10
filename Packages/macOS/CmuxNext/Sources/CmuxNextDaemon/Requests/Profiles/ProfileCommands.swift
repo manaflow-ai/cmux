@@ -20,6 +20,7 @@ public struct ListProfilesRequest: DaemonRequest {
 public struct CreateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "create-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var name: String
     /// Caller-chosen id makes a retry idempotent; nil lets the daemon mint one.
     public var profile: ProfileID?

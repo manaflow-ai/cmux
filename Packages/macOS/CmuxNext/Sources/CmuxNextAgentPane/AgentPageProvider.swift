@@ -8,13 +8,13 @@ public extension PageDescriptor {
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
-    /// loopback previews in frames, and runs only its own script files, no inline script. The page's
+    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script. The page's
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
-                     frame: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      inlineScript: false))
 }
 
@@ -27,16 +27,17 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
-            "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
-            "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "onboarding.importAndSync", "app.action",
-            "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState", "chat.archive", "chat.sideChat",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.showContextUsage",
+            "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
+            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "onboarding.importAndSync", "app.action", "chats.open",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState", "chat.archive", "chat.sideChat",
             "shell.run", "shell.read", "shell.stop",
-            "git.diff", "git.status", "file.search", "git.checkpoint.diff",
+            "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
+        for method in AgentPaneReplyRequest.methods { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
@@ -69,6 +70,8 @@ public final class AgentPageProvider: PageProvider {
     /// The current state a new subscriber gets first (theme, shortcuts, preview, customization),
     /// as the old host pushed it again on every handshake.
     public var replay: (@MainActor () -> [AgentPageEvent])?
+    /// Runs a composer menu edit (`pane.edit`) in the page view; ``AgentPanePageHost`` sets it.
+    public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -98,6 +101,7 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        if method == "pane.edit" { return try edit(params, op: op, context: context) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

@@ -19,7 +19,7 @@ import Testing
         unanswered.mayHaveBeenDelivered = true
         p.apply(items: Fixture2.history(3) + [refused, unanswered], summary: Fixture2.summary(lastSeq: 3), typing: [], hasOlder: false)
         func label(_ key: String) -> String? {
-            guard let row = c.demo.model.rows.first(where: { $0.spec.key == "failed:\(key)" }),
+            guard let row = c.demo!.model.rows.first(where: { $0.spec.key == "failed:\(key)" }),
                   case let .label(text, outgoing, color) = row.spec.kind, outgoing, color == .failure else { return nil }
             return text
         }
@@ -34,7 +34,7 @@ import Testing
         p.apply(items: Fixture2.history(2) + [item], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
         item.mayHaveBeenDelivered = true
         p.apply(items: Fixture2.history(2) + [item], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
-        let row = c.demo.model.rows.first { $0.spec.key == "failed:send" }
+        let row = c.demo!.model.rows.first { $0.spec.key == "failed:send" }
         guard case let .label(text, _, _)? = row?.spec.kind else { Issue.record("no failed label"); return }
         #expect(text == "May Not Have Been Delivered")
     }

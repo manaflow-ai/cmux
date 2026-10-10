@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -17,19 +18,30 @@ final class HomeHostView: NSView {
     /// The Chief's settings, a right sidebar the header's name pill toggles
     /// (Chief conversation only); the transcript narrows while it shows.
     private let sidebar: HomeChiefSidebar
-    private var sidebarOpen = false
+    /// The one owner of the sidebar's motion: `layout()` and every frame of
+    /// the slide place the transcript and the sidebar from it.
+    private var slide = HomeSidebarSlide()
+    /// Frames for the slide; made on the first toggle, idle when settled.
+    private var slideClient: FrameClient?
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
     private var firstPage: Task<Void, Never>?
+    /// Which brain answers this conversation (this Mac's or a paired server's).
+    private let control: HomeChiefControl
+    private var stopObserver: (any NSObjectProtocol)?
+    /// The settings panel shows a paired server's brain (a cloud Chief).
+    private var showsCloud = false
+    private var isWorking = false
 
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
+        control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         super.init(frame: .zero)
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
@@ -41,6 +53,9 @@ final class HomeHostView: NSView {
             self?.transcript.avatarText = avatar
         }
         sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
+        sidebar.onShowMemory = { [weak services] in
+            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
+        }
         sidebar.onRename = { [weak service] name in
             guard let connection = service?.connection else { return }
             // task-owner: one op; ends with its reply
@@ -54,28 +69,47 @@ final class HomeHostView: NSView {
             // task-owner: one hop to the main actor for the toggle
             Task { @MainActor in self?.toggleSidebar() }
         }
+        // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
+        let registry = services.registry
+        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        // A Chief subagent's link: its workspace and chat tab, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
+            // task-owner: one hop to the main actor for the stop
+            Task { @MainActor in self?.stopIfFront() }
+        }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title) in Observations({ () -> (Bool, Int, String) in
+            for await (isChief, _, title, cloud, typing) in Observations({ () -> (Bool, Int, String, Bool, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
-                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "")
+                // A cloud Chief's brain runs on its paired server, never on
+                // this Mac's mux home (2026-10-08: the sidebar wrote codex
+                // here while cmux-lawrence ran claude-sr).
+                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
+                        row?.isTyping ?? false)
             }) {
                 guard let self else { return }
                 self.isChief = isChief
+                // The Chief types while its turn runs: the compose bar offers Stop.
+                isWorking = isChief && typing
+                transcript.isWorking = isWorking
+                if cloud != showsCloud {
+                    showsCloud = cloud
+                    sidebar.use(control.engineSource())
+                }
                 sidebar.setName(title)
-                if !isChief, sidebarOpen { toggleSidebar() }
-                if sidebarOpen { sidebar.refresh() }
+                if !isChief, slide.isOpen { toggleSidebar() }
+                if slide.isOpen { sidebar.refresh() }
             }
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
-        let registry = services.registry
         transcript.onFirstRunAction = { action in
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
@@ -96,6 +130,9 @@ final class HomeHostView: NSView {
             self?.transcript.holdsFirstRun = false
         }
         wantsLayer = true
+        // The sidebar slides in from beyond the right edge: never draw it
+        // over the pane next to Home.
+        clipsToBounds = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
@@ -132,7 +169,9 @@ final class HomeHostView: NSView {
     isolated deinit {
         availability?.cancel()
         engineWatch?.cancel()
+        slideClient?.deactivate()
         if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
+        if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
         firstPage?.cancel()
         transcript.stop()
     }
@@ -149,36 +188,61 @@ final class HomeHostView: NSView {
 
     override func layout() {
         super.layout()
-        let side = sidebarOpen ? HomeChiefSidebar.width : 0
-        transcript.frame = NSRect(x: 0, y: 0, width: bounds.width - side, height: bounds.height)
-        sidebar.frame = NSRect(x: bounds.width - side, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
+        // A layout pass mid-slide (a resize, a notice) keeps the presented
+        // place: it never snaps the slide to its end.
+        placeSidebar()
         let size = message.intrinsicContentSize
         message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
     }
 
-    /// The name pill's click: the sidebar slides in from the right (the
-    /// transcript narrows with it) or out again. Only over the Chief.
+    /// The header avatar's click: the sidebar slides in from the right
+    /// while the transcript narrows in the same frames, or out again (the
+    /// Messages details panel). A click mid-slide reverses from where the
+    /// panel is. Only over the Chief.
     func toggleSidebar() {
-        guard isChief || sidebarOpen else { return }
-        sidebarOpen.toggle()
-        if sidebarOpen {
-            sidebar.refresh()
-            sidebar.frame = NSRect(x: bounds.width, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
-            sidebar.isHidden = false
+        guard isChief || slide.isOpen else { return }
+        let open = !slide.isOpen
+        if open { sidebar.refresh() }
+        slide.setOpen(open, animated: window != nil && Motion.animatesMovement)
+        placeSidebar()
+        guard slide.isMoving else {
+            slideClient?.deactivate()
+            return
         }
-        let side = sidebarOpen ? HomeChiefSidebar.width : 0
-        let open = sidebarOpen
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.22
-            context.allowsImplicitAnimation = true
-            transcript.animator().frame = NSRect(x: 0, y: 0, width: bounds.width - side, height: bounds.height)
-            sidebar.animator().frame = NSRect(x: bounds.width - side, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
-        }, completionHandler: { [weak self] in
-            // task-owner: one hop to the main actor when the slide ends
-            Task { @MainActor in
-                if !open, self?.sidebarOpen == false { self?.sidebar.isHidden = true }
-            }
-        })
+        let client = slideClient ?? FrameClient(owner: "HomeHostView.sidebarSlide", view: self) { [weak self] tick in
+            self?.stepSlide(tick.elapsed) ?? false
+        }
+        slideClient = client
+        client.activate()
+    }
+
+    private func stepSlide(_ dt: Double) -> Bool {
+        let moving = slide.advance(dt, policy: Motion.policy)
+        placeSidebar()
+        return moving
+    }
+
+    /// Places the transcript and the sidebar for the presented slide (no
+    /// AppKit animator: each frame sets both frames in one transaction, so
+    /// the transcript re-lays out at each width as in a live resize).
+    private func placeSidebar() {
+        let scale = window?.backingScaleFactor ?? 2
+        let frames = slide.frames(in: bounds, sidebarWidth: HomeChiefSidebar.width, scale: scale)
+        if transcript.frame != frames.transcript { transcript.frame = frames.transcript }
+        if sidebar.frame != frames.sidebar { sidebar.frame = frames.sidebar }
+        let hidden = !slide.isVisible
+        if sidebar.isHidden != hidden { sidebar.isHidden = hidden }
+    }
+
+    /// The shared stop action reached this view: only the Home in the key
+    /// window stops its Chief, and only while it works.
+    private func stopIfFront() {
+        guard isChief, isWorking, window?.isKeyWindow == true, !isHiddenOrHasHiddenAncestor else { return }
+        let control = control
+        // task-owner: one chief.stop; ends with its answer
+        Task {
+            if await control.stop() != nil { NSSound.beep() }
+        }
     }
 
     /// The view that takes the keyboard when the tab's pane is focused.

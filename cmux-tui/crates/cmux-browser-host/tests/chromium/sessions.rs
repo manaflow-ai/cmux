@@ -113,12 +113,14 @@ fn held_input_is_released_when_the_last_session_leaves() {
             .to_owned()
     };
     let a = open("a");
-    let target = a
-        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/held")}))
-        .unwrap()["targetId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    // tabs.open returns at commit, before the page's listeners exist: the
+    // input below must reach the loaded page, so the test waits for load.
+    let target = a.call("tabs.open", &json!({})).unwrap()["targetId"].as_str().unwrap().to_owned();
+    a.call(
+        "tab.navigate",
+        &json!({"targetId": target, "url": format!("http://127.0.0.1:{port}/held"), "waitUntil": "load"}),
+    )
+    .unwrap();
     a.call("tab.keep", &json!({"targetId": target})).unwrap();
     for (key, code) in [("Shift", "ShiftLeft"), ("A", "KeyA")] {
         a.call("input.key", &json!({"targetId": target, "type": "down", "key": key, "code": code}))

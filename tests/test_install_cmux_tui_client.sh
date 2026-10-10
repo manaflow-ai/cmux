@@ -52,6 +52,14 @@ assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
 install_client
 cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
 assert_layout "$APP"
+# Release bundles carry no agent screen detector until its notices are mapped
+# (scripts/cmux-next/bundle-cmux-tui.sh places it in dev builds only): an
+# install drops a stale copy, even one beside a local client.
+printf stale > "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
+printf detector > "$TEST_DIR/cmux-agent-screen-detection"
+install_client
+[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+rm -f "$TEST_DIR/cmux-agent-screen-detection"
 # A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
 # replaces both files with the symlinks.
 rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"
@@ -120,6 +128,16 @@ SH
 cat > "$FAKEBIN/gh" <<SH
 #!/bin/bash
 printf 'gh %s\n' "\$*" >> "$EVENTS"
+# FAKE_GH_RATE_LIMITED_FILE holds how many more calls answer like an exhausted
+# GitHub API installation quota (nightly run 37526635018) before gh recovers.
+if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
+  left="\$(cat "\$FAKE_GH_RATE_LIMITED_FILE")"
+  if [ "\$left" -gt 0 ]; then
+    echo \$((left - 1)) > "\$FAKE_GH_RATE_LIMITED_FILE"
+    echo "Error: HTTP 403: API rate limit exceeded for installation." >&2
+    exit 1
+  fi
+fi
 exit "\${FAKE_GH_EXIT:-0}"
 SH
 cat > "$FAKEBIN/lipo" <<'SH'
@@ -176,6 +194,30 @@ if grep -q 'apple-darwin' "$EVENTS"; then
   exit 1
 fi
 echo "PASS: a manifest without a valid attestation installs nothing"
+
+# An exhausted API quota is not a verdict on the attestation. The installer
+# waits and asks again instead of failing a 40-minute signed nightly leg.
+RATE_LIMITED_APP="$TEST_DIR/RateLimited.app"
+echo 2 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$RATE_LIMITED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/rate-limited.log" 2>&1 || {
+    echo "FAIL: a rate-limited attestation lookup failed the install instead of retrying" >&2
+    cat "$TEST_DIR/rate-limited.log" >&2
+    exit 1
+  }
+cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
+echo "PASS: a rate-limited attestation lookup is retried, then verified"
+
+# A real verification failure is final on the first answer.
+FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {
+    echo "FAIL: installed after a rejected attestation" >&2
+    exit 1
+  }
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 1 ]
+echo "PASS: a rejected attestation is not retried"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then

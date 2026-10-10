@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e";
+inline constexpr std::string_view kProtocolIrSha256 = "b39f0c8f7124f43c7c7b90a8b5caf4df127b57bfe6298f64ad66037bacbeac6f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -108,6 +108,7 @@ enum class PaneDirection;
 enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
+struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
@@ -140,7 +141,9 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetSizeCountsResult;
@@ -223,6 +226,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct ChiefInspectRequest;
+struct ChiefInspectResult;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
@@ -245,6 +250,9 @@ struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
 struct CloudInboxSubscribeRequest;
 struct CloudInboxUnsubscribeRequest;
+struct CloudMuxAckRequest;
+struct CloudMuxSubscribeRequest;
+struct CloudMuxUnsubscribeRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -476,6 +484,8 @@ struct CloudConversationChangedEvent;
 struct CloudConversationResyncedEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
+struct CloudMuxResyncedEvent;
+struct CloudMuxWakeEvent;
 struct CloudSessionNeededEvent;
 struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
@@ -1022,6 +1032,24 @@ struct CellPixelSurface {
     friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
 };
 
+struct ChiefInspectRequest {
+    std::string path{};
+    std::optional<std::map<std::string, std::string, std::less<>>> query{};
+    friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct ChiefInspectResult {
+    Field<JsonValue> body{};
+    Field<std::string> error{};
+    std::uint64_t status{};
+    friend bool operator==(const ChiefInspectResult&, const ChiefInspectResult&) = default;
+};
+
 enum class TerminalKey {
     unidentified,
     backquote,
@@ -1343,11 +1371,6 @@ struct CloseWorkspaceRequest {
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
 
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
-};
-
 struct CloudConversationChangedEvent {
     std::optional<std::string> account{};
     std::optional<JsonValue> change{};
@@ -1427,6 +1450,34 @@ struct CloudInboxUnsubscribeRequest {
     friend bool operator==(const CloudInboxUnsubscribeRequest&, const CloudInboxUnsubscribeRequest&) = default;
 };
 
+struct CloudMuxAckRequest {
+    std::string conversation{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudMuxAckRequest&, const CloudMuxAckRequest&) = default;
+};
+
+struct CloudMuxResyncedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> pending{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudMuxResyncedEvent&, const CloudMuxResyncedEvent&) = default;
+};
+
+struct CloudMuxSubscribeRequest {
+    friend bool operator==(const CloudMuxSubscribeRequest&, const CloudMuxSubscribeRequest&) = default;
+};
+
+struct CloudMuxUnsubscribeRequest {
+    friend bool operator==(const CloudMuxUnsubscribeRequest&, const CloudMuxUnsubscribeRequest&) = default;
+};
+
+struct CloudMuxWakeEvent {
+    std::optional<std::string> account{};
+    std::uint64_t seq{};
+    std::optional<JsonValue> wakes{};
+    friend bool operator==(const CloudMuxWakeEvent&, const CloudMuxWakeEvent&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -1493,6 +1544,7 @@ struct ColorsChangedEvent {
 struct ColumnPin {
     std::string edge{};
     std::string mode{};
+    Field<std::string> role{};
     friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
 };
 
@@ -2284,6 +2336,8 @@ enum class SizeDeviceKind {
     ipad,
     tui,
     browser,
+    linux_,
+    windows,
     unknown,
 };
 
@@ -2806,6 +2860,7 @@ struct MintTerminalRendererResult {
     std::string incarnation{};
     std::uint16_t protocol_version{};
     std::uint32_t rights{};
+    std::optional<bool> supports_viewer_size_priority{};
     std::string terminal_id{};
     std::string token{};
     std::uint64_t ttl_ms{};
@@ -3045,6 +3100,7 @@ struct NewConversationTabResult {
 
 struct NewFrontendBrowserTabRequest {
     std::optional<bool> activate{};
+    Field<Id> after{};
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};
@@ -3064,8 +3120,10 @@ struct NewPaneRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -3082,8 +3140,10 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     Field<float> width{};
@@ -3264,6 +3324,16 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PaneSurfaceResult {
+    Field<std::string> pane_id{};
+    Field<bool> replayed{};
+    Id surface{};
+    Field<std::string> tab_id{};
+    Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
+    friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
 struct PasteImageRequest {
@@ -3911,15 +3981,48 @@ struct ServerStatsRegistryLock {
 };
 
 struct ServerStatsRequest {
+    Field<std::vector<std::string>> include{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResourceProjection {
+    ServerStatsHistogram commit_apply_us{};
+    ServerStatsHistogram commit_journal_us{};
+    ServerStatsHistogram commit_prune_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t commits{};
+    std::uint64_t crosscheck_mismatches{};
+    std::uint64_t crosschecks{};
+    ServerStatsHistogram diff_us{};
+    std::uint64_t full_projections{};
+    ServerStatsHistogram index_us{};
+    ServerStatsHistogram journaled_changes{};
+    ServerStatsHistogram projected_changes{};
+    std::uint64_t projections{};
+    ServerStatsHistogram read_us{};
+    std::uint64_t scope_fallbacks{};
+    std::uint64_t scoped_projections{};
+    ServerStatsHistogram written_changes{};
+    friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
+};
+
+struct ServerStatsWritePath {
+    std::uint64_t effect_intent_batches{};
+    std::uint64_t effect_intent_failures{};
+    std::uint64_t effect_intents{};
+    std::uint64_t request_effect_commits{};
+    std::uint64_t writer_registry_locks{};
+    friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
 };
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
+    std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
@@ -3960,6 +4063,8 @@ struct SetColumnDockRequest {
     Field<std::string> edge{};
     Field<std::string> mode{};
     Id pane{};
+    Field<bool> permanent{};
+    Field<std::string> role{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
 };
@@ -4209,8 +4314,10 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Field<PaneKind> kind{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -5400,6 +5507,12 @@ struct Codec<PaneRef> {
 };
 
 template <>
+struct Codec<PaneSurfaceResult> {
+    static Result<Json> encode(const PaneSurfaceResult& value);
+    static Result<PaneSurfaceResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -5592,9 +5705,21 @@ struct Codec<ServerStatsRegistryLock> {
 };
 
 template <>
+struct Codec<ServerStatsResourceProjection> {
+    static Result<Json> encode(const ServerStatsResourceProjection& value);
+    static Result<ServerStatsResourceProjection> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWritePath> {
+    static Result<Json> encode(const ServerStatsWritePath& value);
+    static Result<ServerStatsWritePath> decode(const Json& value);
 };
 
 template <>
@@ -6090,6 +6215,18 @@ struct Codec<BrowserWheelGuardedRequest> {
 };
 
 template <>
+struct Codec<ChiefInspectRequest> {
+    static Result<Json> encode(const ChiefInspectRequest& value);
+    static Result<ChiefInspectRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefInspectResult> {
+    static Result<Json> encode(const ChiefInspectResult& value);
+    static Result<ChiefInspectResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClearHistoryRequest> {
     static Result<Json> encode(const ClearHistoryRequest& value);
     static Result<ClearHistoryRequest> decode(const Json& value);
@@ -6219,6 +6356,24 @@ template <>
 struct Codec<CloudInboxUnsubscribeRequest> {
     static Result<Json> encode(const CloudInboxUnsubscribeRequest& value);
     static Result<CloudInboxUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxAckRequest> {
+    static Result<Json> encode(const CloudMuxAckRequest& value);
+    static Result<CloudMuxAckRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxSubscribeRequest> {
+    static Result<Json> encode(const CloudMuxSubscribeRequest& value);
+    static Result<CloudMuxSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxUnsubscribeRequest> {
+    static Result<Json> encode(const CloudMuxUnsubscribeRequest& value);
+    static Result<CloudMuxUnsubscribeRequest> decode(const Json& value);
 };
 
 template <>
@@ -7605,6 +7760,18 @@ template <>
 struct Codec<CloudInboxResetEvent> {
     static Result<Json> encode(const CloudInboxResetEvent& value);
     static Result<CloudInboxResetEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxResyncedEvent> {
+    static Result<Json> encode(const CloudMuxResyncedEvent& value);
+    static Result<CloudMuxResyncedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxWakeEvent> {
+    static Result<Json> encode(const CloudMuxWakeEvent& value);
+    static Result<CloudMuxWakeEvent> decode(const Json& value);
 };
 
 template <>

@@ -256,6 +256,8 @@ instead; exclusive with --wireguard-config
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
+  --remote-mux-socket PATH attaches to the daemon already serving that socket
+on the host and never starts one there
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
 the pinned binary; terminal panes survive, while remote RPC state resets
 
@@ -323,7 +325,7 @@ for up to two relay fallbacks
     remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
     command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
-    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
+    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
     option_needs_value: "{option} needs a value",
     invalid_option_value: "{option} has an invalid value; expected {expected}",
     option_must_be_positive: "{option} must be positive",
@@ -428,6 +430,8 @@ ID とセッション:
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --remote-mux-socket パス  ホストでそのソケットを提供中のデーモンに接続し、
+そこでデーモンを起動しません
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
 ターミナルペインは維持され、リモート RPC 状態はリセットされます。
 
@@ -493,7 +497,7 @@ ID とセッション:
     remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
     command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
-    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
+    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
     option_needs_value: "{option} には値が必要です",
     invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
     option_must_be_positive: "{option} には正の値を指定してください",

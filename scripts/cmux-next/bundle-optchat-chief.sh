@@ -18,6 +18,7 @@ repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/optchat-chief"
 rm -f "$dest" "$dest.version"
+rm -rf "$dest_dir/chief-codex"
 
 src="${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}"
 if [[ "${CONFIGURATION:-Debug}" == Release* && -z "$src" ]]; then
@@ -47,3 +48,22 @@ cp "$src" "$dest"
 chmod 755 "$dest"
 cp -f "$src.ref" "$dest.version" 2>/dev/null || true
 echo "bundled optchat-chief from $src"
+
+# The Chief's codex (the cmux codex fork) beside it, in its own directory so
+# it never shadows the user's `codex` on a PATH that holds Resources/bin.
+# DEV builds only for now: a Release (nightly) build needs the helper signing
+# to reach bin/chief-codex/ first, and shipping the private fork in a public
+# release is Lawrence's decision. A missing copy is a warning: the Chief then
+# runs the PATH codex.
+if [[ "${CONFIGURATION:-Debug}" != Release* ]]; then
+  if codex_dir="$("$repo_root/scripts/cmux-next/fetch-chief-codex.sh" 2>&1)" && [[ -d "$codex_dir" ]]; then
+    mkdir -p "$dest_dir/chief-codex"
+    for b in codex codex-code-mode-host codex-responses-api-proxy; do
+      cp "$codex_dir/$b" "$dest_dir/chief-codex/$b"
+      chmod 755 "$dest_dir/chief-codex/$b"
+    done
+    echo "bundled the Chief's codex from $codex_dir"
+  else
+    echo "warning: the Chief's codex is not bundled ($codex_dir); codex Chief sessions run the PATH codex" >&2
+  fi
+fi

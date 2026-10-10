@@ -11,19 +11,24 @@
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
 //!   ids at once. Each subagent also gets a cmux workspace whose tab is its
-//!   chat (workspaces.rs), so the user can watch and join it.
+//!   chat (workspaces.rs), so the user can watch and join it, when this host
+//!   has somewhere to make one. The answer says, per subagent, which
+//!   workspace it got and where, or that it got none and why: the Chief
+//!   repeats it to the user, so it must never claim more than happened.
+//! - `spawn` takes an optional working directory (`~` is this host's home).
+//!   A directory that does not exist here is reported and the default
+//!   subagent directory is used.
 //! - Its tools are zoom and date (its own MCP server says `--role
 //!   subagent`), not spawn. Its tool calls stay in its own session.
-//! - The brain (brain/spawns.rs) watches the sessions: when all of one
-//!   spawn's subagents finished a turn, their reports reach the chat as ONE
-//!   `user` message, `[id] report` each.
+//! - The brain (brain/spawns.rs) watches the sessions: when a
+//!   subagent finishes a turn, its report reaches the chat as its own
+//!   `user` message, `[id] report`.
 //!
-//! Deviation: `tell` reaches a running subagent after its current turn
-//! (acpmux queues the prompt; claude-sr offers no steering), not between its
-//! tool calls.
+//! - `tell` to a running subagent is steered into its session (read
+//!   between its tool calls; brain/spawns.rs), else it is its next prompt.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -43,6 +48,9 @@ pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
 /// Most tasks one spawn starts.
 pub const MAX_TASKS: usize = 8;
+/// Most subagents at work at once; a spawn over it queues the rest, which
+/// start as others finish.
+pub const MAX_LIVE: usize = 16;
 /// Longest `spawn` waits for the view to settle (section 6).
 pub const SETTLE_LIMIT: Duration = Duration::from_secs(240);
 /// Prompt ids of the host's own prompts to a subagent start with this; any
@@ -54,6 +62,33 @@ pub const PROMPT_PREFIX: &str = "optchat-";
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
+    /// The ids over `MAX_LIVE`: they wait for a free slot.
+    pub queued: Vec<String>,
+    /// The engine of the turn that called spawn (engine.json); None before
+    /// any turn.
+    pub engine: Option<SpawnEngine>,
+}
+
+/// The engine a spawn's subagents run on: the calling turn's harness and
+/// model (2026-10-08: the turns ran on codex, the subagents on claude-sr).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpawnEngine {
+    pub harness: String,
+    pub model: Option<String>,
+    /// The calling turn's effort: subagents think as hard as it by default.
+    pub effort: Option<String>,
+    /// Its family when it is not the default harness's: the subagents then
+    /// take that family's preset, `<subagent preset>-<family>`.
+    pub other_family: Option<crate::acpmux::Family>,
+}
+
+/// The subagent preset of `family` beside the default one `preset`.
+pub fn family_preset(preset: &str, family: crate::acpmux::Family) -> Option<String> {
+    match family {
+        crate::acpmux::Family::Claude => Some(format!("{preset}-claude")),
+        crate::acpmux::Family::Codex => Some(format!("{preset}-codex")),
+        crate::acpmux::Family::Other => None,
+    }
 }
 
 /// How subagent sessions start.
@@ -62,6 +97,8 @@ pub struct SubagentSettings {
     pub harness: String,
     pub policy: String,
     pub model: Option<String>,
+    /// How hard the subagents think (`spawn`'s effort, else the turn's).
+    pub effort: Option<String>,
     /// The subagent preset (required: never a fallback to the turn preset).
     pub preset: Option<String>,
     /// Every subagent's working directory (`optchat/subagent`).
@@ -85,6 +122,14 @@ pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A queued subagent's launch.
+struct Waiting {
+    spawn: String,
+    task: String,
+    floor: Option<String>,
+    launch: SubagentSettings,
+}
+
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
 pub struct Spawner {
     chat: Arc<OptChat>,
@@ -93,6 +138,15 @@ pub struct Spawner {
     tx: Mutex<Sender<Input>>,
     trace: Trace,
     workspaces: Option<Arc<dyn Workspaces>>,
+    /// Why there are no workspaces, said in each answer when `workspaces`
+    /// is None.
+    no_workspace_reason: String,
+    /// OPTCHAT_SUBAGENT_HARNESS pins the subagent harness: a spawn never
+    /// follows the turn's engine.
+    pinned: bool,
+    /// Queued subagents' launches, by id, kept until a slot frees (in memory:
+    /// a restarted host reports them as not started).
+    waiting: Mutex<BTreeMap<String, Waiting>>,
     log: crate::brain::Log,
 }
 
@@ -111,6 +165,9 @@ impl Spawner {
             tx: Mutex::new(tx),
             trace: Trace::off(),
             workspaces: None,
+            no_workspace_reason: "this Chief host has nowhere to make cmux workspaces".to_owned(),
+            pinned: false,
+            waiting: Mutex::new(BTreeMap::new()),
             log,
         }
     }
@@ -125,6 +182,55 @@ impl Spawner {
         self
     }
 
+    /// The subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS): spawns
+    /// never follow the turn's engine.
+    pub fn with_pinned_harness(mut self, pinned: bool) -> Spawner {
+        self.pinned = pinned;
+        self
+    }
+
+    /// The settings of one spawn's subagents: the calling turn's harness
+    /// and model with its family's preset, unless the harness is pinned.
+    /// A family without a subagent preset stays on the default, and says so.
+    fn engine_settings(&self, engine: Option<&SpawnEngine>) -> SubagentSettings {
+        let mut s = self.settings.clone();
+        let Some(e) = engine.filter(|_| !self.pinned) else {
+            return s;
+        };
+        if e.harness == s.harness {
+            s.model = s.model.or_else(|| e.model.clone());
+            return s;
+        }
+        let preset = match e.other_family {
+            None => s.preset.clone(),
+            Some(family) => match s.preset.as_deref().and_then(|p| family_preset(p, family)) {
+                Some(preset) => Some(preset),
+                None => {
+                    (self.log)(&format!(
+                        "the turn runs on {}, which has no subagent preset; subagents run on {}",
+                        e.harness, s.harness
+                    ));
+                    return s;
+                }
+            },
+        };
+        if e.other_family.is_some() {
+            // The family preset carries its own instructions (a Claude
+            // preset's system prompt, AGENTS.md for codex).
+            s.claude_md = None;
+        }
+        s.harness = e.harness.clone();
+        s.model = e.model.clone();
+        s.preset = preset;
+        s
+    }
+
+    /// Why there are no workspaces (said in each spawn answer without them).
+    pub fn with_no_workspace_reason(mut self, reason: impl Into<String>) -> Spawner {
+        self.no_workspace_reason = reason.into();
+        self
+    }
+
     fn send(&self, input: Input) -> Result<(), String> {
         self.tx
             .lock()
@@ -133,7 +239,10 @@ impl Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())
     }
 
-    /// Starts subagent `id`'s session and first prompt, then its workspace.
+    /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
+    /// workspace; answers what the user can see of it: its workspace and
+    /// where it lives, or that it has none and why.
+    #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
         spawn: &str,
@@ -141,15 +250,27 @@ impl Spawner {
         task: &str,
         view: &str,
         floor: Option<&str>,
-    ) -> Result<(), String> {
+        s: &SubagentSettings,
+    ) -> Result<String, String> {
         let began = Instant::now();
-        let s = &self.settings;
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
         let admitted =
             crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // No mark of ours in a subagent's first message: Claude Code marks
+        // its two system blocks and the last two messages of every later
+        // request in the session (each tool step), and the API takes at
+        // most 4 marks, so ours would fail the subagent's second request
+        // (Claude Code 2.1.287, measured 2026-10-08). Claude Code's own
+        // marks cache the long session step by step.
+        // The workspace key is chosen first, so the session starts knowing
+        // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
+        let key = self
+            .workspaces
+            .as_ref()
+            .map(|_| crate::workspaces::new_key());
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -157,7 +278,7 @@ impl Spawner {
             // The spawn floor (`Brain::spawn_policy`) wins over the setting.
             policy: floor.unwrap_or(&s.policy).to_owned(),
             model: s.model.clone(),
-            effort: None,
+            effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
                 let mut t = tags(&s.parent, spawn, id);
@@ -169,7 +290,24 @@ impl Spawner {
                 }
                 t
             },
+            env: key
+                .iter()
+                .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
+                .collect(),
+            fast: false,
         };
+        // The folder the host made for its subagents is trusted up front, so
+        // the user's first message in a subagent's pane is never held behind
+        // "trust this folder" (Lawrence 2026-10-09). A folder of the user's
+        // (a spawn's cwd) is never trusted here: its pane asks as usual.
+        if s.cwd == self.settings.cwd
+            && let Err(e) = self.agents.trust_folder(&s.cwd)
+        {
+            (self.log)(&format!(
+                "trusting the subagent folder {}: {e}",
+                s.cwd.display()
+            ));
+        }
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
@@ -177,6 +315,14 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // codex under approve-all: no sandbox for its cmux calls (E6).
+        if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &spec.policy)
+            && let Err(e) = self.agents.set_mode(&session, mode)
+        {
+            (self.log)(&format!(
+                "subagent {id}: {e}; its cmux calls may be sandboxed"
+            ));
+        }
         // Registered before its prompt: its turn end can only follow.
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
@@ -198,30 +344,89 @@ impl Spawner {
         );
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
-        if let Some(workspaces) = &self.workspaces {
-            let name = crate::workspaces::name(id, task);
-            match workspaces.open(&session, &name, &s.cwd) {
-                Ok(key) => {
-                    self.trace.emit(
-                        "subagent.workspace",
-                        json!({"id": id, "spawn": spawn, "workspace": key, "name": name}),
-                    );
-                    let _ = self.send(Input::SubagentWorkspace {
-                        id: id.to_owned(),
-                        key,
-                        name,
-                    });
-                }
-                Err(e) => {
-                    (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
-                    self.trace.emit(
-                        "subagent.workspace",
-                        json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
-                    );
-                }
+        let Some(workspaces) = &self.workspaces else {
+            self.trace.emit(
+                "subagent.workspace",
+                json!({"id": id, "spawn": spawn, "error": self.trace.text(&self.no_workspace_reason)}),
+            );
+            return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
+        };
+        let name = crate::workspaces::name(id, task);
+        let key = key.unwrap_or_else(crate::workspaces::new_key);
+        match workspaces.open(&key, &session, &name, &s.cwd) {
+            Ok(key) => {
+                let place = workspaces.place();
+                self.trace.emit(
+                    "subagent.workspace",
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
+                );
+                // The deeplink the app opens (Home renders it as a link; a click shows this
+                // subagent's workspace and tab), when the tag names the Chief home.
+                let link = crate::workspaces::subagent_link(&s.parent, id, &session)
+                    .map(|l| format!("; its link {l}"))
+                    .unwrap_or_default();
+                let note = format!("workspace \"{name}\" in {place}{link}");
+                let _ = self.send(Input::SubagentWorkspace {
+                    id: id.to_owned(),
+                    key,
+                    name,
+                });
+                Ok(note)
+            }
+            Err(e) => {
+                (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
+                self.trace.emit(
+                    "subagent.workspace",
+                    json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
+                );
+                Ok(format!("no cmux workspace (opening it failed: {e})"))
             }
         }
-        Ok(())
+    }
+
+    /// The directory subagents run in: `asked` when it exists on this host
+    /// and the subagent instructions reach it, else the default with the
+    /// reason.
+    fn run_dir(&self, asked: Option<&str>, s: &SubagentSettings) -> (PathBuf, Option<String>) {
+        let default = s.cwd.clone();
+        let Some(asked) = asked else {
+            return (default, None);
+        };
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        match resolve_cwd(asked, &home) {
+            Err(e) if e.contains("give the exact folder") => (
+                default.clone(),
+                Some(format!(
+                    "{e}, so they run in {} instead; next time pass the exact folder (for example ~/fun/repo), never ~ itself",
+                    default.display()
+                )),
+            ),
+            Err(e) => (
+                default.clone(),
+                Some(format!("{e}, so they run in {}", default.display())),
+            ),
+            // Without a preset system prompt the subagent instructions live
+            // only in the default directory's CLAUDE.md.
+            Ok(dir)
+                if s.claude_md.is_some()
+                    && !s
+                        .preset
+                        .as_deref()
+                        .is_some_and(|p| self.agents.system_prompt(p)) =>
+            {
+                (
+                    default.clone(),
+                    Some(format!(
+                        "this harness takes its instructions only from {}, so they run there, not in {}",
+                        default.display(),
+                        dir.display()
+                    )),
+                )
+            }
+            Ok(dir) => (dir, None),
+        }
     }
 
     /// `Some("ask")` under the spawn floor (`Brain::spawn_policy`); `ask`
@@ -248,7 +453,7 @@ impl Spawner {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed => {}
+                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -260,8 +465,159 @@ impl Spawner {
     }
 }
 
+impl Spawner {
+    /// The queue starter: the brain sends a queued subagent's id when a slot
+    /// frees, and it starts here with the view of that moment and its task.
+    pub fn queue_starter(self: &Arc<Self>) -> Sender<String> {
+        let (tx, rx) = channel::<String>();
+        let me = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("subagent-queue".into())
+            .spawn(move || {
+                while let Ok(id) = rx.recv() {
+                    let Some(me) = me.upgrade() else { return };
+                    me.start_waiting(&id);
+                }
+            })
+            .ok();
+        tx
+    }
+
+    fn start_waiting(&self, id: &str) {
+        let waiting = self
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        let fail = |error: &str| {
+            let _ = self.send(Input::SubagentFailed {
+                id: id.to_owned(),
+                error: error.to_owned(),
+            });
+        };
+        let Some(w) = waiting else {
+            return fail("the Chief host restarted while it waited for a free slot");
+        };
+        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
+            return fail("the memory was still summarizing when its slot freed");
+        }
+        let view = self.chat.render_view().text;
+        match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
+            Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
+            Err(e) => fail(&e),
+        }
+    }
+
+    /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
+    pub fn agent_chat_page(&self, id: &str, at: u64, page: u64) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::SubSession {
+            id: id.to_owned(),
+            reply,
+        })?;
+        let session = answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+            .ok_or_else(|| format!("no subagent {id} with a session"))?;
+        let events = self.agents.events(&session, 0)?;
+        let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
+        Ok(crate::agent_chat::page(id, &text, at, page))
+    }
+}
+
+/// `asked` as a directory on this host: `~` and `~/...` are `home`; it must
+/// be absolute and exist. LAUNCH-NO-TCC-PROMPTS: never the home folder, `/`
+/// or a folder macOS guards (`PRIVATE_FOLDERS`): an agent reads its folder
+/// at once, and a read there makes macOS ask the user for access in the
+/// app's name. A subfolder the Chief names (`~/Downloads/proj`) is kept.
+pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
+    let asked = asked.trim();
+    let dir = if asked == "~" {
+        home.to_owned()
+    } else if let Some(rest) = asked.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(asked)
+    };
+    if !dir.is_absolute() {
+        return Err(format!("{asked} is not an absolute directory"));
+    }
+    if let Some(what) = private_folder(&dir, home) {
+        return Err(format!(
+            "{} is {what}, where an agent would read your private folders and macOS would ask you for access; give the exact folder the work is in",
+            dir.display()
+        ));
+    }
+    if !dir.is_dir() {
+        return Err(format!("{} does not exist on this host", dir.display()));
+    }
+    Ok(dir)
+}
+
+/// The folders macOS guards, relative to the home folder (as acpmux's
+/// `protected_folders`).
+const PRIVATE_FOLDERS: &[&str] = &[
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Pictures",
+    "Music",
+    "Movies",
+    "Library",
+    "Library/Mobile Documents",
+    "Library/CloudStorage",
+];
+
+/// What `dir` is when no agent may start in it: the home folder, the root
+/// folder or one of `PRIVATE_FOLDERS` itself. Compared as spelled, without
+/// trailing slashes or `.`, and case-insensitively (APFS).
+fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
+    let clean = |p: &Path| -> String {
+        let mut out = PathBuf::new();
+        for part in p.components() {
+            match part {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                other => out.push(other),
+            }
+        }
+        out.to_string_lossy().to_lowercase()
+    };
+    let dir = clean(dir);
+    if dir == "/" {
+        return Some("the root folder");
+    }
+    let home = clean(home);
+    if dir == home {
+        return Some("the home folder");
+    }
+    PRIVATE_FOLDERS
+        .iter()
+        .any(|f| dir == format!("{home}/{}", f.to_lowercase()))
+        .then_some("a private folder")
+}
+
 impl Orchestrator for Spawner {
-    fn spawn(&self, tasks: Vec<String>) -> Result<String, String> {
+    fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
+        self.spawn_with_effort(tasks, cwd, None)
+    }
+
+    fn spawn_with_effort(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+    ) -> Result<String, String> {
+        if let Some(e) = effort.as_deref()
+            && !crate::tools::EFFORTS.contains(&e)
+        {
+            return Err(format!(
+                "no effort {e}; one of {}",
+                crate::tools::EFFORTS.join(", ")
+            ));
+        }
         if tasks.len() > MAX_TASKS {
             return Err(format!(
                 "spawn takes at most {MAX_TASKS} tasks; split the work"
@@ -283,6 +639,7 @@ impl Orchestrator for Spawner {
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let run = self.engine_settings(plan.engine.as_ref());
         self.trace.emit(
             "spawn",
             json!({
@@ -291,12 +648,12 @@ impl Orchestrator for Spawner {
                 "tasks": tasks.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "settle_ms": began.elapsed().as_millis() as u64,
                 "view": {"bytes": view.len(), "hash": crate::trace::hash(&view)},
-                "harness": self.settings.harness,
+                "harness": run.harness,
             }),
         );
-        if let (Some(text), Some(preset)) = (&self.settings.claude_md, &self.settings.preset) {
+        if let (Some(text), Some(preset)) = (&run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
-            if let Err(e) = crate::session_dir::set_claude_md(&self.settings.cwd, file) {
+            if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
             }
         }
@@ -304,24 +661,68 @@ impl Orchestrator for Spawner {
         // ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
+        let (dir, dir_note) = self.run_dir(cwd.as_deref(), &run);
+        // The run's settings in the directory they start in.
+        // How hard they think: as asked, else as hard as the calling turn.
+        let launch = SubagentSettings {
+            cwd: dir.clone(),
+            effort: effort.or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone())),
+            ..run.clone()
+        };
         let mut started = Vec::new();
+        let mut lines = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
-            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref()) {
-                Ok(()) => started.push(id.clone()),
+            if plan.queued.contains(id) {
+                self.waiting
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(
+                        id.clone(),
+                        Waiting {
+                            spawn: plan.spawn.clone(),
+                            task: task.clone(),
+                            floor: floor.clone(),
+                            launch: launch.clone(),
+                        },
+                    );
+                lines.push(format!(
+                    "- {id}: queued ({MAX_LIVE} subagents are at work, the most at once; it starts when one finishes)"
+                ));
+                continue;
+            }
+            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref(), &launch) {
+                Ok(note) => {
+                    started.push(id.clone());
+                    lines.push(format!("- {id}: {note}"));
+                }
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
                     let _ = self.send(Input::SubagentFailed {
                         id: id.clone(),
                         error: e.clone(),
                     });
-                    started.push(format!("{id} (did not start: {e})"));
+                    lines.push(format!("- {id}: did not start ({e})"));
                 }
             }
         }
+        let head = if started.is_empty() && plan.queued.is_empty() {
+            "No subagent started.".to_owned()
+        } else if started.is_empty() {
+            format!("Queued {}.", plan.queued.join(", "))
+        } else {
+            format!("Started {} in {}.", started.join(", "), dir.display())
+        };
+        let dir_note = dir_note
+            .map(|n| format!("\nDirectory: {n}."))
+            .unwrap_or_default();
         Ok(format!(
-            "Started {}, each in its own cmux workspace. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
-            started.join(", ")
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When you name a subagent to the user, write its link from these lines (for example [a1](...)), so a click opens its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            lines.join("\n")
         ))
+    }
+
+    fn agent_chat(&self, id: &str, at: u64) -> Result<String, String> {
+        self.agent_chat_page(id, at, crate::agent_chat::PAGE)
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {

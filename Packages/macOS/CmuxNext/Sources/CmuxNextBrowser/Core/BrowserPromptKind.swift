@@ -35,5 +35,6 @@ public nonisolated enum BrowserPromptResponse: Hashable, Sendable {
     case cancel
     case text(String)
     /// Credentials prompt submitted.
-    case credentials(user: String, password: String)
+    /// `remember`: the user checked "Remember password".
+    case credentials(user: String, password: String, remember: Bool = false)
 }

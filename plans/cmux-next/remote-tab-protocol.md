@@ -9,7 +9,7 @@ Status: protocol proposal, 2026-10-04, remote tab lead. Parent: remote-tab.md (R
 ## 2. Session setup
 
 1. The viewer opens an rd session as today (`hello`, carrier choice, `max_datagram`), with the new field `service: "rb/1"` (rd change C1).
-2. The viewer sends `rb.open {tab, profile, viewer, screen, caps}`. The remote browser host checks the tab record (workspace store: `runtime_host` is this host, the viewer's principal may view the tab) and the relay rule (default deny for `remote.*`, D20), then answers `rb.opened {session, main_stream}` or `rb.refused {reason}`.
+2. The viewer sends `rb.open {tab, profile, viewer, screen, caps}`. The remote browser host checks the tab record (workspace store: `runtime_host` is this host, the viewer's principal may view the tab) and the relay rule (default deny for `remote.*`, D20), then answers `rb.opened {session, main_stream}` or `rb.refused {reason}`. The `screen` in `rb.open` is the viewer's screen seq 0: after `rb.opened` the host sends `rb.screen_applied {seq: 0}`, and the viewer's first `rb.screen` carries seq 1.
 3. Media flows on rd stream `main_stream` (stream 0 by convention). Popup surfaces get their own streams (`rb.surface.show {stream}`).
 4. `rb.visibility {visible}` pauses and resumes. Hidden pane = paused stream (RD3); the page becomes a background page when no viewer is visible.
 5. `rb.close` ends this viewer's session. Closing the tab is a store op (`tab.close`), never an rb message.
@@ -44,10 +44,11 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.state` | H | `state` | session state (section 5.1) |
 | `rb.visibility` | V | `visible` | pane shown or hidden |
 | `rb.screen` | V | `seq`, `screen` | viewer screen and pane size changed; the host applies the smallest visible viewer (section 5.1) |
-| `rb.screen_applied` | H | `seq`, `pixel_width`, `pixel_height`, `scale` | the size frames now have; until it arrives the viewer stretches the last frame |
+| `rb.screen_applied` | H | `seq`, `pixel_width`, `pixel_height`, `scale` | the size frames now have; until it arrives the viewer stretches the last frame. `seq` is the receiving viewer's own last seq (0 = the screen in its `rb.open`): when one viewer's change moves the applied size, each viewer gets it under its own seq, never another viewer's |
 | `rb.vsync` | V | `timebase_us`, `interval_us` | viewer display timing in the rd session clock; drives begin frames (RT12, RP3) |
 | `rb.page` | H | `url`, `title`, `loading`, `can_go_back`, `can_go_forward` | runtime facts; the viewer forwards URL and title to the store only for the record's current URL revision (OWNERSHIP) |
 | `rb.history` | V | `op` (`back`, `forward`, `reload`, `reload_no_cache`, `stop`) | history and loading are owned by the page runtime |
+| `rb.navigate` | V | `url` | the omnibar (local chrome, RT11) loads a typed or opened address in the page |
 | `rb.key_unhandled` | H | `input_seq` | the page did not handle the key with that input sequence number; the viewer runs its menu or KeyRouter action for it |
 | `rb.cursor` | H | `cursor` | `{kind}` for standard shapes, `{kind: "custom", hash}` for an image |
 | `rb.cursor_image` | H | `hash`, `width`, `height`, `hotspot_x`, `hotspot_y`, `scale`, `png_base64` | sent once per hash per session; the viewer caches it |
@@ -59,6 +60,7 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.menu.cancel` | H | `token` | the page or host closed the menu |
 | `rb.dialog.show` | H | `token`, `dialog` (`alert`, `confirm`, `prompt`, `beforeunload` with `origin`, `message`, `default_text`, `is_reload`) | JS dialog as a native sheet |
 | `rb.dialog.result` | V | `token`, `accept`, `text` | |
+| `rb.dialog.cancel` | H | `token` | the page closed the dialog itself (it navigated away or closed; Chromium reset its dialog state): the viewer closes the sheet and sends no answer |
 | `rb.file_chooser.show` | H | `token`, `mode` (`open`, `open_multiple`, `folder`, `save`), `accept`, `default_name` | |
 | `rb.file_chooser.result` | V | `token`, `files` (null = cancel; else `{upload, name, size, mime}` per file) | bytes follow as bulk frames under each `upload` id |
 | `rb.upload.end` | V | `upload`, `sha256` | upload complete; the host verifies and gives the file to the page |
@@ -112,12 +114,14 @@ Effects come in this order: `start_page`, `apply_screen`, capture change, `notif
 
 - Tokens are u64, start at 1, increase by 1, never repeat in a session. At most one menu is open (Chrome's rule).
 - `show {kind, item_ids, item_count, multiple}`: if a menu is open, it is cancelled first (`chrome_cancel {token}` and `viewer_cancel {token}`); the new token opens (`viewer_show {token}`).
-- `result {token, choice}`: token open → validate the choice, then `chrome_continue {token, choice}` and close. Token below the next token but not open → ok, no effect (`duplicate`). Token never issued → reject `unknown_token`. Invalid choice → reject `invalid_choice`, the menu stays open.
+- `result {token, choice}`: token open → validate the choice, then `chrome_continue {token, choice}` and close. Token below the next token but not open → ok, no effect (`duplicate`). Token never issued → reject `unknown_token`. Invalid choice → reject `invalid_choice`, the menu stays open in the reducer. The host then cancels that menu as a defense (as a `page_cancel {token}`: Chromium gets cancel, the viewer gets `rb.menu.cancel {token}`), so a viewer that sends a choice it was never shown cannot leave Chromium's menu waiting.
 - Choices: `cancel` (always valid); `command {id}` (context menu; id must be one of the menu's `item_ids`); `indices {indices}` (select; each < `item_count`, unique, exactly one unless `multiple`).
 - `page_cancel {token}`: token open → close, `viewer_cancel {token}`. Otherwise no effect (`stale`).
 - `viewer_gone`: an open menu is cancelled (`chrome_continue {token, cancel}`).
 
-The same lifecycle serves dialogs, file choosers and permission prompts (one open per kind); r4 adds those vectors.
+The same lifecycle serves dialogs, file choosers and permission prompts (one open per kind); r4 adds those vectors. Dialogs today: tokens start at 1 per session; a new dialog cancels one still open on the viewers; when Chromium resets its dialog state (navigation, close) the host drops the callback and sends `rb.dialog.cancel {token}`, and a later `rb.dialog.result` for that token does nothing.
+
+The viewer checks its own answers too (client vectors, `client.json`): a menu choice the shown menu did not offer is refused as `invalid_choice` and is never sent, and the menu stays open. The viewer makes a new client for each rb session (each `rb.open`), because tokens and screen seqs restart per session.
 
 ### 5.3 Scroll-offset writer handoff (r9) — `scroll-writer.json`
 

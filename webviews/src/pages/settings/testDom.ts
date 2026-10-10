@@ -4,7 +4,9 @@ import "./testCatalog";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 
-export const stylesheet = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+export const stylesheet = ["./styles.css", "./layout.css"]
+  .map((file) => readFileSync(new URL(file, import.meta.url), "utf8"))
+  .join("\n");
 
 const names = [
   "window",

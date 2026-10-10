@@ -19,6 +19,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod private_data;
+mod proxy;
+pub use proxy::{NameResolver, system_resolver};
 mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
@@ -34,6 +37,17 @@ pub struct Grants {
     /// would enter that profile's history (a9 shell-tab condition e, until
     /// cmux.18+ candidate 9).
     pub signed_in_profile: bool,
+    /// The host runs on a Cloud machine (crate::egress_scope): every
+    /// limited range is refused to this session, whatever its origin; the
+    /// host's egress listener enforces it on every connection.
+    pub isolated: Option<Arc<crate::egress_scope::IsolatedEgress>>,
+}
+
+impl Grants {
+    /// Loopback and private ranges are refused to this session.
+    pub fn refuses_private_ranges(&self) -> bool {
+        self.remote || self.isolated.is_some()
+    }
 }
 
 /// Entries the host keeps in its log of blocked requests.
@@ -68,6 +82,12 @@ pub struct Gate {
     tab_secrets: Arc<TabSecrets>,
     /// `automation.input` events for this lease session, if published.
     inputs: Option<crate::automation_input::InputEmitter>,
+    /// This machine's name resolver (the range rule for proxied sessions).
+    resolver: NameResolver,
+    /// The session's new tabs use a proxy (its last session.configure).
+    proxied: std::sync::atomic::AtomicBool,
+    /// The host's log of private-data operations (private_data.rs).
+    private_data: Arc<crate::private_data_log::PrivateDataLog>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -92,7 +112,17 @@ impl Gate {
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
+            resolver: system_resolver(),
+            proxied: std::sync::atomic::AtomicBool::new(false),
+            private_data: Arc::default(),
         }
+    }
+
+    /// The name resolver the range rule uses for a proxied session's URLs
+    /// (tests give their own).
+    pub fn with_resolver(mut self, resolver: NameResolver) -> Gate {
+        self.resolver = resolver;
+        self
     }
 
     /// Publishes `automation.input` for the inputs this session dispatches,
@@ -180,17 +210,25 @@ impl Gate {
         };
         let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
-            let (policy, filtered, log, remote) =
-                (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
+            let (policy, filtered, log, remote, isolated) = (
+                self.policy.clone(),
+                self.filtered.clone(),
+                self.log.clone(),
+                self.grants.remote,
+                self.grants.isolated.clone(),
+            );
             // The session's policy is the same for every tab it drives.
             let filter: crate::driver::RequestFilter = Arc::new(move |request| {
                 let url = request.url;
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
-                    policy
-                        .subresource_refusal(&parsed)
-                        .or_else(|| policy.egress_refusal(&parsed, remote))
+                    policy.subresource_refusal(&parsed).or_else(|| match &isolated {
+                        // The isolated rule, literal hosts only (the owner
+                        // allow list applies; names go to the listener).
+                        Some(isolated) => isolated.rule().literal_refusal(&parsed),
+                        None => policy.egress_refusal(&parsed, remote),
+                    })
                 }?;
                 let mut filtered = filtered.lock().unwrap_or_else(PoisonError::into_inner);
                 if filtered.len() >= 64 {
@@ -275,6 +313,12 @@ impl Gate {
                     "session.configure: content rules come from the host's domain policy",
                 ));
             }
+            "session.configure" => {
+                if let Some(reason) = self.proxy_refusal(params) {
+                    return Err(proxy::refused(reason));
+                }
+                ("", None)
+            }
             _ => ("", None),
         };
         if let Some(url) = url
@@ -292,10 +336,21 @@ impl Gate {
     /// The domain policy and the range rule for a URL the agent opens or
     /// fetches (navigations and fetch never disagree).
     fn url_refusal(&self, url: &str) -> Option<String> {
-        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        policy.navigation_refusal(url).or_else(|| {
-            let parsed = url::Url::parse(url).ok()?;
-            policy.egress_refusal(&parsed, self.grants.remote)
+        let isolated = self.grants.isolated.as_ref();
+        let refusal = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            policy.navigation_refusal(url).or_else(|| {
+                // On a Cloud machine the isolated rule replaces the range
+                // rule (its owner allow list is the machine's, not a session's).
+                isolated.is_none().then_some(())?;
+                let parsed = url::Url::parse(url).ok()?;
+                policy.egress_refusal(&parsed, self.grants.remote)
+            })
+        };
+        // Resolved outside the policy lock (a lookup can take a while).
+        refusal.or_else(|| match isolated {
+            Some(isolated) => isolated.rule().url_refusal(&url::Url::parse(url).ok()?),
+            None => self.proxied_name_refusal(url),
         })
     }
 
@@ -438,6 +493,14 @@ impl VmHost for Gate {
                 }
             }),
         };
+        if method == "session.configure"
+            && let Ok(Reply::Value(answer)) = &result
+        {
+            self.note_configured(answer);
+        }
+        if let Ok(Reply::Value(answer)) = &result {
+            self.note_private_data(method, &params, answer);
+        }
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target

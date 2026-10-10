@@ -1,13 +1,46 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -343,7 +343,9 @@
-     var barRect: NSRect {
-         guard let win = window else { return .zero }
-         let k = rect(for: .knob)
--        let right = convert(NSPoint(x: win.contentLayoutRect.maxX - 2, y: 0), from: nil).x
-+        // cmux: 2 pt from the scroller's own right edge: in a Home pane the window's
-+        // right edge is not the transcript's (the same place when the pane is the window).
-+        let right = bounds.maxX - 2
-         let s = win.backingScaleFactor
-         let top = (k.minY * s).rounded() / s, h = max(1, (k.height * s).rounded() / s)
-         return NSRect(x: right - 7, y: top, width: 7, height: h)
+@@ -58,11 +58,17 @@
+         documentView = document
+         verticalScroller = SequenceScroller()
+         let nc = NotificationCenter.default
+-        nc.addObserver(self, selector: #selector(clipMoved(_:)), name: NSView.boundsDidChangeNotification, object: clip)
+-        nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) }
+-        nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) }
++        // cmux: a block observer on queue: .main (inline for the clip's post on main), not a selector:
++        // a selector into this main-actor view trapped on a post off main (crash program). Tokens kept and removed.
++        observers = [
++            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
++            nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
++            nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) },
++        ]
+     }
+     required init?(coder: NSCoder) { fatalError() }
++    private var observers: [NSObjectProtocol] = []  // cmux
++    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
+ 
+     /// The shared window view's transcript list (a layer-only scroll view).
+     var collection: UIScrollView? { demo?.collection }
+@@ -121,7 +127,7 @@
+ 
+     // MARK: Clip view -> model
+ 
+-    @objc private func clipMoved(_ n: Notification) {
++    private func clipMoved(_ n: Notification) {  // cmux: no selector
+         pinContent()
+         guard applyingModel == 0, let demo, let cv = collection else { return }
+         let y = clip.bounds.origin.y - shift
+@@ -513,10 +519,9 @@
+         }
+     }
+     /// The thumb's right edge (scroller coordinates): the window's right edge minus 2 pt.
+-    private var barRight: CGFloat {
+-        guard let win = window else { return bounds.maxX - 2 }
+-        return convert(NSPoint(x: win.contentLayoutRect.maxX - 2, y: 0), from: nil).x
+-    }
++    /// cmux: the scroller's own right edge: in a Home pane the window's right edge is not
++    /// the transcript's (the same place when the pane is the window).
++    private var barRight: CGFloat { bounds.maxX - 2 }
+     /// The drawn bar (scroller coordinates): 7 pt (11 pt expanded) wide, right edge at the
+     /// window's right edge minus 2 pt, top and bottom on whole device pixels at every
+     /// position (no row of the edge lost or doubled while it moves).

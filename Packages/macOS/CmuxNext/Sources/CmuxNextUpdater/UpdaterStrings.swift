@@ -59,13 +59,33 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
-    static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
 
     /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
     /// the relaunch keeps terminals and agents (browser pages reload).
     static var restartKeepsSessions: String {
         text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
     }
+
+    // The update card (UPDATE-CARD)
+    static func cardReady(_ version: String) -> String { format("updater.card.ready", "cmux %@ is ready", version) }
+    static var cardReadyNoVersion: String { text("updater.card.readyNoVersion", "An update is ready") }
+    static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
+    static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
+    static func downloadedHeadline(_ version: String) -> String {
+        format("updater.card.downloaded", "Update %@ downloaded. Click to restart and install.", version)
+    }
+    static var downloadedHeadlineNoVersion: String {
+        text("updater.card.downloadedNoVersion", "Update downloaded. Click to restart and install.")
+    }
+    static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
+    static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
+    static func moreChanges(_ count: Int) -> String {
+        count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
+    }
+
+    // The tips card (BOTTOM-LEFT-CARDS K1)
+    static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
+    static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {
@@ -81,6 +101,20 @@ nonisolated enum UpdaterStrings {
         format("updater.detail.requiresMacOS", "cmux %@ requires macOS %@ or later. This Mac runs macOS %@, so it stays on the current version.", version, required, system)
     }
     static var readyDetail: String { text("updater.detail.ready", "Relaunch to finish. Terminals keep running.") }
+    // The update notice card (Lawrence 2026-10-09)
+    static func youHave(_ version: String) -> String { format("updater.notice.youHave", "You have %@.", version) }
+    static func upToDateDetail(_ version: String) -> String {
+        format("updater.notice.upToDateDetail", "Version %@, checked just now", version)
+    }
+    static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
+    static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
+    // Short notice titles; the version goes in the detail line.
+    static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
+    static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
+    static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
+    static func needsMacOSDetail(_ version: String, _ required: String) -> String {
+        format("updater.notice.needsMacOS", "Needs macOS %1$@ for %2$@", required, version)
+    }
 
     // Buttons
     static var install: String { text("updater.button.install", "Install and Relaunch") }
@@ -90,6 +124,8 @@ nonisolated enum UpdaterStrings {
     static var done: String { text("updater.button.done", "Done") }
     static var relaunch: String { text("updater.button.relaunch", "Relaunch") }
     static var releaseNotes: String { text("updater.button.releaseNotes", "Release Notes") }
+    static var update: String { text("updater.button.update", "Update") }
+    static var details: String { text("updater.button.details", "Details") }
 
     // Channels
     static func channel(_ track: UpdateTrack) -> String {

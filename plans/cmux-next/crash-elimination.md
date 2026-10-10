@@ -5,6 +5,68 @@ Owner: the crash lead. Started after cmux NIGHTLY aborted three times on
 or daemon state can end the app, and every crash that still happens is
 collected, symbolicated and filed without a person copying files.
 
+## 0. Model: why a Swift app dies
+
+A process ends only in five ways:
+
+| Way | Mechanism | 2026-10 cmux examples |
+| --- | --- | --- |
+| a. A runtime-checked invariant fails | Swift traps: `x!`, IUO, `as!`, `try!`, `unowned` to a freed object, an index out of range, overflow, `precondition`/`fatalError`, `MainActor.assumeIsolated` off main, exclusivity, continuation misuse | KeyViewProxy `unowned` |
+| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key, a nil from a factory annotated nonnull (it lies under concurrency: `NSFont.monospacedSystemFont` returned nil about 1 in 1000 calls when threads made and dropped the last instance, macOS 27.0.1) passed to an API that throws on nil; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
+| c. Memory unsafety | C/C++/Zig/Rust FFI, unsafe pointers, a C callback into a freed object | none filed this month |
+| d. An embedded engine asserts | CEF CHECK/DCHECK, a Rust panic across FFI with abort | CEF WebAuthn DCHECK (section 1) |
+| e. Something outside kills it | jetsam/OOM, hang watchdog, launch constraints, our own scripts | Launch Constraint kills, terminal hosts ended by a reaper LaunchAgent |
+
+Rule for b (cx-qpqs): AppKit and Core Text objects that background renderers
+use (fonts first) come from process-wide caches that hold them for the life of
+the process (`HomeFonts`), and a value from a nonnull-annotated factory that
+flows into an API that throws on nil is checked as an optional first. Lint:
+ratchet class `render_font` (fonts made in place in MessagesLabHome,
+MessagesLabSidebar, CmuxHomeRender, outside a `static let`).
+
+The common root of a and b: an invariant that the type system does not hold
+is checked at run time, at a boundary with an untyped or dynamic system
+(Objective-C selectors and KVC, NSString UTF-16 offsets, C callbacks), or on
+state shared across threads and time (a range computed for one string and
+used on another, an owner freed before its callback). "Zero crashes" is not
+reachable (e, d and hardware stay), so the program has two halves:
+
+1. Make each class impossible to write: the type carries the invariant (a
+   text range that is valid only for the string it came from, a callback
+   delivered on main at its source, a weak owner), and a lint bans the
+   trapping construct. Ratchet first, then BAN.
+2. Report the crashes that remain honestly (Lawrence, 2026-10-08: no
+   auto-restart, so crashes stay visible and get fixed at their class). A
+   crash handler writes a report; the next launch shows a crash dialog with
+   Reopen (restore windows, workspaces and panes from daemon state;
+   terminals already live in their hosts) and Report. The weight of the
+   program is on half 1 and on Phase 3 (fuzz, sanitizers).
+
+### Program status
+
+| Phase | Item | State |
+| --- | --- | --- |
+| 1 | Ratchet v2: scope = CmuxNext + every package in its `.package(path:)` closure except vendor/ (the TextLayout crash was in CmuxHomeRender, outside v1's scope); BAN mode with `scripts/cmux-next/crash-allowlist.json` (path, class, count, reason, reviewer; inline crash-allow does not waive a banned class); `// main-proof:` exempts assumeIsolated; new classes `objc_selector` (BAN) and `dynamic_dispatch` (ratchet); `fatal_error` BAN | landed 58a219f944e1 (red 7e7a9c4555ac); safe-push compares the widened scope (hq scratch safe-push-ratchet.py) |
+| 1 | Swift classes to 0, then BAN per class | DONE 2026-10-09: as!, assumeIsolated, fatalError, force_unwrap, iuo, objc_observer, objc_selector, precondition, unowned all BANNED in the app package closure (helpers H1-H4; reviewed exceptions only in crash-allowlist.json) |
+| 1 | Array-index and integer-conversion traps (Lawrence 2026-10-09): ratchet classes `index_subscript` and `int_conversion` in the background, render and decoder modules; checked accessors (CrashGuard: checked subscript, clamped slices, fault once per site) and `exactly:`/`clamping:`; fuzz on those paths; per-module BAN (`swift.<class>@<Module>`) | in progress: 1486/459 -> 428/134; BANNED in CmuxHomeRender, MessagesLabSidebar, CmuxTerminalSizing; fuzz found real traps in Irx tickets, Iroh rendezvous epochs, Control durations, Daemon progress, LongText, Transcript, Engine (H6 decoders, H7 render) |
+| 1 | Selector-based NotificationCenter observers (`objc_observer`): a `@MainActor @objc` target traps the process when AppKit/WebKit posts off main (CmuxNextAppTests signal 5, #18771) | DONE 2026-10-09 (H8): 20 -> 0, BANNED (e98bbd36a042). Block observers with queue: .main (inline for a post on main) and kept tokens; KeyboardLayoutObserver is one CFNotificationCenter distributed registration (.deliverImmediately) with a hop to main; a background-post test per module (landings 22a7e0acde7a, d31cbf3dcbd2, ae405f4a53ff, e98bbd36a042) |
+| 1 | Async closure literal as a parameter default (`async_closure_default_arg`, cx-bsue): Swift 6.3.3 emits the default in each calling module under one weak symbol with different async context sizes (144 vs 128 bytes); the linker can pair the small context with the big body: heap overrun abort. Named static function or an overload instead; per-module BAN at 0 | 29 sites at the start (CMUXMobileCore, CmuxAuthRuntime, CmuxInstallAuthCore, Irx, Iroh, CmuxNextApp, BrowserHost, Daemon, Palette); the Irx worker converts |
+| 1 | NSRange/UTF-16 ban outside one TextRange module | after the TextLayout fix (cx-qpqs) lands |
+| 1 | Rust (section 6) | planned, CORE window |
+| 2 | Crash handler + crash dialog (no auto-restart, Lawrence 2026-10-08): macOS's own dialog offers Reopen at crash time; the next-launch restart notice is our crash dialog (cause in one line, Report = a prefilled GitHub issue the user reads and sends, Show Crash Log); uncaught NSException recorder (run.exception: name, reason, frames) into the report; NSApplicationCrashOnExceptions for every channel; restore from daemon state at launch as before | landed 92cd7e0693cc |
+| 2 | Crash e2e: debug.crash.exception and debug.crash.app, relaunch, the notice names the cause, every terminal still live (extends scripts/cmux-next/relaunch-e2e.py) | next |
+| 3 | Fuzz, property tests, sanitizers (section 7): TSan builds and runs CmuxNext since c74b35e90f9e (QuitFactsReader region fix, -no_compact_unwind for sanitizer links); CMUX_SWIFT_SANITIZE allowed on ci-steps (hq 1684); the tip guard runs TSan/ASan daily | in progress: TextLayoutFuzzTests (found a second NSRangeException path, fixed 65db2f835c69), MobileProtocolFuzzTests (found an unbounded render-grid replay and a width overflow, fixed in the same push), `CMUX_SWIFT_SANITIZE` for package-test-lane (nightly schedule: CI lead) |
+| 4 | CEF out of process: NO-GO now (section 8) | decided, revisit on the trigger |
+
+P1b rules (chief, 2026-10-08): no behavior change except "no trap". An
+`assumeIsolated` site first tries delivery on main at its source (the
+registration's queue or run loop); a hop (`DispatchQueue.main.async`) only
+where the call returns nothing and order does not matter; otherwise keep it
+with a `// main-proof:` that names the guarantee. A guard that returns must
+not drop a user action silently: show the existing error toast where the
+user acted, or log a fault for non-user paths. Each commit names its choice
+per site.
+
 ## 1. The 2026-10-04 crash
 
 Stack (main thread, symbolicated with the unstripped cmux.15 framework,
@@ -90,6 +152,8 @@ radius):
 | 14 | Chromium renderer, GPU, utility crashes | pages | contained: child process; tab shows "This page crashed" |
 | 15 | Debug-only asserts (`assert`, `assertionFailure`: 5; Rust `debug_assert!`) | none in Release | DEV builds only |
 
+Ratchet v2 (2026-10-08) widened the scope to the app package closure, so the counts above (CmuxNext only, 2026-10-04) are lower than the v2 baseline; see the program status in section 0.
+
 Already in place: `try!` is banned (0), force unwrap and `as!` are banned in
 CmuxNextDaemon, CmuxNextControl and CmuxNextMobile (external input), and
 every socket says how it avoids SIGPIPE (check-crash-safety.sh).
@@ -136,6 +200,8 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 | Upload: the report, the `.ips` (paths under the home folder replaced by `~`), the previous `cef.log` tail (FATAL lines only) to a crash endpoint (R2 write-only key, per-install id) | proposed |
 | CI symbolication: a workflow matches `usedImages` UUIDs to the cmux dSYM (Sentry debug files, uploaded by nightly.yml) and the CEF `-debug` archive (unstripped binary, function names only while symbol_level=0), then dedupes by the top 5 symbolicated frames and files or updates one GitHub issue per signature | proposed |
 | Release check: a nightly fails when the Sentry dSYM upload is skipped or when the arm64 cmux UUID is not in its upload list | proposed |
+| Sentry (cx-urd.58): `CmuxNextCrashReporting` sends app crashes, Mach exceptions and uncaught Objective-C exceptions (every channel) to the shared `manaflow/cmuxterm-macos` project under the main app's consent rule (`sendAnonymousTelemetry`, forced `DisableTelemetry`). Labels: environments `nightly-next`, `rc-next`, `release-next`, `dev`; release `cmux-next@<version>+<build>`; tag `app=cmux-next`; fingerprint prefix `cmux-next`. DEV builds stay off unless `CMUX_NEXT_DEV_SENTRY=1`. Helper processes (cmux-tui daemon and hosts, acpmux, Chromium helpers) reach Sentry through the app forwarding their macOS crash reports; no SDK in the daemons | done |
+| Main-sync rule: on macOS, `Packages/Shared/CmuxSentryTelemetry/Package.swift` links `Sentry-Dynamic` (iOS keeps static `Sentry`). A static Sentry adds the Objective-C personality routine, one more than compact unwind encodes in the cmux-next app image (check-app-personalities.sh). The main -> feat-cmux-next sync owner keeps the dynamic product on macOS when main changes that file | rule |
 | CEF symbols: the `-debug` release asset holds the unstripped framework (function names only, symbol_level=0, no file:line). cmux.19 builds with `symbol_level=1`, runs dsymutil and archives the dSYM per release in R2, so the pipeline gives file:line | cmux.19 |
 
 ## 5. Proposed lanes (larger fixes)
@@ -148,3 +214,66 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 4. SWIFT-UNWRAP: drive force unwraps, IUO, unowned and assumeIsolated to 0
    module by module, then ban per module.
 5. CRASH-PIPE: consent, upload, CI symbolication, dedupe, issues (section 4).
+
+## 6. Rust daemon panics (phase 1, CORE window)
+
+Counts (production code, ratchet v2 at 406a70f2f39e): cmux-tui-core 2010
+(unwrap 1675, most of them `lock().unwrap()`), cmux-tui 696, acpmux 200,
+chatmux-relay 153, cmux-remote 148, 18 crates under 35 each. `panic` is
+`unwind` (no `panic = "abort"` in the workspace profiles); no panic hook and
+no `catch_unwind` in the daemon (only at FFI edges: cmux-rd-ffi,
+cmux-layout-reducer-ffi).
+
+1. One poison-tolerant lock helper (`lock_unpoisoned()`, `PoisonError::into_inner`)
+   replaces `lock().unwrap()`. Paired in the same window series with step 3
+   (chief condition): a panic that poisoned a lock also restarts its worker.
+   Locks that guard a multi-field invariant are listed in the helper's doc
+   and are reset or rebuilt on poison, never read as is.
+2. Workspace lints: clippy `unwrap_used`, `expect_used`, `panic`,
+   `indexing_slicing` at `warn` with `allow-unwrap-in-tests` and
+   `allow-expect-in-tests`; `deny` per crate as each reaches 0, small crates
+   first (cmux-unix-socket, cmux-tasks, cmux-pane-protocol,
+   cmux-remote-protocol, cmux-link, ghostty-vt, cmux-pty, cmux-wg), then
+   cmux-remote, acpmux, chatmux-relay, cmux-tui, cmux-tui-core last.
+3. A panic hook that writes a report (thread, message, location, backtrace)
+   next to the daemon log, and `catch_unwind` at every worker thread and task
+   boundary that restarts that worker with backoff. Terminal hosts already
+   survive the owner.
+
+## 7. Phase 3: fuzz, property tests, sanitizers
+
+The weight of the program with phase 1 (Lawrence, 2026-10-08).
+
+| Target | Method | Where |
+| --- | --- | --- |
+| Text layout (CmuxHomeRender TextLayout, after cx-qpqs) | property test: random strings with surrogate pairs, combining marks, emoji ZWJ, CRLF; random edits between measure and draw; every range the layout makes is valid for the string it draws | Swift Testing, seeded generator, in the package suite |
+| Markdown and chat rendering (CmuxMessagesLab, CmuxHomeRender parts) | property test: random Markdown token streams, nesting depth, unterminated fences, huge lines; render never traps and stays inside a time budget | Swift Testing |
+| Protocol decoding (CmuxNextDaemon frames, CmuxIrxTransport and CmuxIrohTransport packets, CMUXMobileCore) | mutation fuzzing from a corpus of recorded frames; decode returns a value or a typed error, never traps | Swift Testing corpus + libFuzzer (`-sanitize=fuzzer`) target on the fleet |
+| cmux-tui protocol, terminal-host messages, journal records | cargo-fuzz targets per decoder | Testbox, nightly, 10 min per target |
+| Swift package tests under ASan and TSan | `swift test --sanitize=address`, `--sanitize=thread` of CmuxNext and the linked packages | fleet nightly ci-step (aws-m4pro-5..9), results to the crash lead |
+| cmux-tui-core under ASan | `-Zsanitizer=address` nightly toolchain | Testbox nightly |
+
+## 8. Phase 4: CEF out of process, go/no-go
+
+Decision (crash lead, 2026-10-08): NO-GO now; keep option D (in-process,
+hardened) from plans/cmux-next/cef-out-of-process.md.
+
+- Evidence: one distinct browser-process abort reached users (the WebAuthn
+  DCHECK, 3 reports on 2026-10-04), fixed by cmux.17 (`dcheck_always_on=false`).
+  The other app crashes this month were Swift traps and Objective-C
+  exceptions in our code, which phase 1 addresses.
+- Cost of option B (CALayerHost of a helper's layers): Chromium's
+  remote_cocoa split in the fork (several weeks), private API
+  (CALayerHost, NSAccessibilityRemoteUIElement), and IME, VoiceOver, focus,
+  menus, DevTools and the passkey sheet regress until each is bridged.
+  Estimate 6-9 engineer-weeks before parity.
+- Cost of option A (windowless Chrome style through the fork's remote
+  presentation, the debug loopback remote tab): it exists for remote Macs
+  with an H.264 hop; a same-Mac lossless IOSurface path is not built, and
+  the remote tab plan does not offer a same-Mac host. Estimate 3-5 weeks on
+  top of the remote tab once its RP patches ship, plus input and
+  accessibility parity.
+- Revisit when either holds: the crash pipeline (with CEF symbols from
+  cmux.19) shows two or more distinct browser-process CHECK signatures in a
+  release, or the remote tab ships a same-Mac IOSurface transport.
+

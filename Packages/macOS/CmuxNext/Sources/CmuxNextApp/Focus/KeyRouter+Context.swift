@@ -7,35 +7,8 @@ import CmuxNextPages
 // section 4): built from that window's focus, never from the process-wide
 // registry context another window published.
 extension KeyRouter {
-    /// Facts about the focused surface that the focus state does not hold.
-    nonisolated struct Facts: Equatable, Sendable {
-        /// The key window's first responder has marked text (an input method
-        /// is composing).
-        var hasMarkedText = false
-        /// The focused terminal is in copy mode.
-        var terminalCopyMode = false
-        /// The focused screen has a primary input and none of its text
-        /// fields has the keyboard (`PrimaryInputTarget`).
-        var primaryInputReady = false
-        /// The focused page cannot take typing yet: its document has not
-        /// focused its primary input, or keys typed before still wait.
-        var pageInputPending = false
-        /// The focused React page's id (`cmux.markdown`): context key
-        /// `pageId`; the markdown page also sets `markdownFocused`.
-        var pageID: String?
-        /// A list-like control in the focused page has the keyboard (R85;
-        /// the sidebar list and its field imply it without this).
-        var listFocus = false
-        /// An editable element in the focused page has the keyboard (a text
-        /// field, Monaco, a content-editable): bare keys are typing there.
-        var pageEditableFocused = false
-        /// The focused address bar shows its suggestion list: it is a list
-        /// for Ctrl-N/P/J/K (R110) until the list closes.
-        var omnibarListOpen = false
-        /// The focused internal page's id when its tab id does not name it
-        /// (a store page tab, `page-tabs-v1`).
-        var internalPage: String?
-    }
+    /// Facts about the focused surface that the focus state does not hold (`KeyFacts`).
+    typealias Facts = KeyFacts
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
     /// `markdownFocused` bit.
@@ -67,7 +40,11 @@ extension KeyRouter {
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
-        if let kind = surfaceKind(resolved, internalPage: facts.internalPage) { context[KeyContext.surfaceKind] = .string(kind) }
+        // A top page (Home) fills the content area without a pane: it names the surface.
+        if let kind = facts.topPage ?? surfaceKind(resolved, internalPage: facts.internalPage) {
+            context[KeyContext.surfaceKind] = .string(kind)
+        }
+        if let page = facts.topPage { context[KeyContext.topPage] = .string(page) }
         context[KeyContext.focus] = .string(focusName(resolved))
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
@@ -125,7 +102,9 @@ extension KeyRouter {
               listFocus: focusedReadiness(in: controller)?.isListFocused == true,
               pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
               omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
-              internalPage: focusedInternalPage(in: controller))
+              internalPage: focusedInternalPage(in: controller),
+              showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
+              topPage: controller.shownTopPage == .home ? "home" : nil)
     }
 
     /// The page id of the focused internal page tab.

@@ -17,8 +17,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
@@ -59,6 +60,9 @@ struct RecoveryHarness {
     /// Daemon binary other than this build's (an earlier build, to test an
     /// upgrade); `None` runs this build.
     binary: Option<PathBuf>,
+    /// `false` sets `CMUX_TUI_TEST_DISABLE_RESPAWN=1`: a terminal whose shell
+    /// is lost with its host stays ended (cx-6so.49 L2 off).
+    respawn: bool,
 }
 
 impl RecoveryHarness {
@@ -81,6 +85,7 @@ impl RecoveryHarness {
             extra_args: Vec::new(),
             shell_integration: true,
             binary: None,
+            respawn: true,
             dir,
         };
         harness.restart();
@@ -90,6 +95,14 @@ impl RecoveryHarness {
     fn start_with_args(name: &str, args: &[&str]) -> Self {
         let mut harness = Self::start_unstarted(name);
         harness.extra_args = args.iter().map(|arg| (*arg).to_string()).collect();
+        harness.restart();
+        harness
+    }
+
+    /// A harness whose daemon never respawns a lost terminal (L2 off).
+    fn start_without_respawn(name: &str) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.respawn = false;
         harness.restart();
         harness
     }
@@ -152,6 +165,7 @@ impl RecoveryHarness {
             extra_args: Vec::new(),
             shell_integration: true,
             binary: None,
+            respawn: true,
             dir,
         }
     }
@@ -175,7 +189,9 @@ impl RecoveryHarness {
             .arg(&self.state)
             .args(&self.extra_args)
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::null())
+            // Host copies stay in the test directory, not the user's home.
+            .env("CMUX_TUI_HOST_EXE_DIR", self.dir.join("host-exe"));
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
@@ -199,6 +215,9 @@ impl RecoveryHarness {
             // that these exact revision counts do not expect): run a plain
             // POSIX sh that reads no startup file.
             command.env("SHELL", "/bin/sh").env_remove("ENV").env_remove("BASH_ENV");
+        }
+        if !self.respawn {
+            command.env("CMUX_TUI_TEST_DISABLE_RESPAWN", "1");
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
@@ -3315,6 +3334,118 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
 }
 
 #[test]
+fn viewer_size_priority_renderer_wins_until_it_releases_or_disconnects() {
+    let harness = RecoveryHarness::start("viewer-size-priority");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let connect = |id: u64, flags: u32| {
+        let grant = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":id,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            }),
+        );
+        assert_eq!(grant["supports_viewer_size_priority"], true, "{grant}");
+        let connection = connect_host_detailed_with_flags(
+            grant["endpoint"].as_str().unwrap(),
+            grant["terminal_id"].as_str().unwrap(),
+            grant["token"].as_str().unwrap(),
+            ClientRole::Renderer,
+            CapabilityRights::RENDERER,
+            flags,
+        )
+        .unwrap();
+        connection.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        connection
+    };
+    let mut legacy = connect(2, FLAG_VIEWER_SIZE_ACKS);
+    assert_eq!(legacy.hello_flags, FLAG_VIEWER_SIZE_ACKS);
+    let mut preferred = connect(3, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+    assert_eq!(preferred.hello_flags, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+
+    // The larger preferred size wins instead of the 80x24 legacy reservation.
+    send_viewer_size(&mut preferred, 61, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 61, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // A legacy report no longer reduces the grid; its ack carries the winner.
+    send_viewer_size(&mut legacy, 51, 80, 24);
+    expect_resize_ack(&mut legacy, 51, 120, 40, false);
+
+    // Releasing hands the grid back to the legacy minimum.
+    write_frame(&mut preferred.stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new()))
+        .unwrap();
+    expect_resized_pair(&mut preferred, 80, 24);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    // Priority belongs to the connection, so a new report wins again.
+    send_viewer_size(&mut preferred, 62, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 62, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // Disconnecting the preferred renderer restores the legacy size.
+    drop(preferred);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    close_terminal_surface(&harness.socket, surface, 4);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+fn send_viewer_size(connection: &mut DirectHostConnection, request_id: u64, cols: u16, rows: u16) {
+    let mut frame = Frame::new(MessageKind::ViewerSize, Vec::new());
+    frame.request_id = request_id;
+    frame.payload.extend_from_slice(&cols.to_le_bytes());
+    frame.payload.extend_from_slice(&rows.to_le_bytes());
+    write_frame(&mut connection.stream, &frame).unwrap();
+}
+
+/// Reads the sequenced Resized + Colors pair of one canonical grid change.
+fn expect_resized_pair(connection: &mut DirectHostConnection, cols: u16, rows: u16) {
+    let resized = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(resized.request_id, 0);
+    assert_eq!(resized.sequence, connection.next_sequence);
+    assert_eq!(&resized.payload[..2], &cols.to_le_bytes());
+    assert_eq!(&resized.payload[2..4], &rows.to_le_bytes());
+    let colors = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.sequence, connection.next_sequence.wrapping_add(1));
+    connection.next_sequence = connection.next_sequence.wrapping_add(2);
+}
+
+fn expect_resize_ack(
+    connection: &mut DirectHostConnection,
+    request_id: u64,
+    cols: u16,
+    rows: u16,
+    changed: bool,
+) {
+    let ack = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::ResizeAck);
+    assert_eq!(ack.request_id, request_id);
+    assert_eq!(ack.sequence, 0);
+    let flags = if changed { RESIZE_ACK_CANONICAL_CHANGED } else { 0 };
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&cols.to_le_bytes());
+    payload.extend_from_slice(&rows.to_le_bytes());
+    payload.extend_from_slice(&flags.to_le_bytes());
+    assert_eq!(ack.payload, payload);
+}
+
+#[test]
 fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-crash", 2_000);
     let stream = transport::connect(&harness.socket).unwrap();
@@ -3738,82 +3869,6 @@ fn unplaced_terminal_host_is_reaped_unless_kept() {
     wait_for_host_records(&harness.host_root(), 1);
 }
 
-/// A burst of `new-tab` requests pipelined on one connection starts their
-/// hosts in parallel. Every host launch here takes at least 400 ms, so a
-/// serial start of eight tabs takes at least 3.2 s. A request queued after
-/// the creates is answered before them, the creates reply in request order,
-/// and the tabs land in the pane in request order.
-#[test]
-fn pipelined_new_tabs_start_hosts_in_parallel_in_request_order() {
-    const TABS: u64 = 8;
-    let harness = RecoveryHarness::start_with_host_ready_delay("parallel-new-tabs", 400);
-    let anchor = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 1,
-            "cmd": "run",
-            "argv": ["/bin/cat"],
-            "new_workspace": true,
-            "name": "anchor",
-        }),
-    );
-    let pane = anchor["pane"].as_u64().expect("run omitted its pane");
-
-    let stream = transport::connect(&harness.socket).unwrap();
-    let mut writer = stream.try_clone_box().unwrap();
-    let mut reader = BufReader::new(stream);
-    let started = Instant::now();
-    for index in 0..TABS {
-        writeln!(
-            writer,
-            "{}",
-            serde_json::json!({"id": 100 + index, "cmd": "new-tab", "pane": pane})
-        )
-        .unwrap();
-    }
-    writeln!(writer, "{}", serde_json::json!({"id": 999, "cmd": "identify"})).unwrap();
-    let mut replies = Vec::new();
-    while replies.len() < (TABS + 1) as usize {
-        let mut line = String::new();
-        assert!(reader.read_line(&mut line).unwrap() > 0, "daemon closed the connection");
-        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
-        if message.get("id").is_some() {
-            assert_eq!(message["ok"], true, "request failed: {message}");
-            replies.push(message);
-        }
-    }
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_millis(400 * TABS),
-        "{TABS} pipelined new-tabs took {elapsed:?}; their hosts started one at a time"
-    );
-    let order: Vec<u64> = replies.iter().map(|reply| reply["id"].as_u64().unwrap()).collect();
-    let identify = order.iter().position(|id| *id == 999).unwrap();
-    assert!(identify < TABS as usize, "identify waited behind the creates: {order:?}");
-    let creates: Vec<u64> = order.iter().copied().filter(|id| *id != 999).collect();
-    assert_eq!(creates, (0..TABS).map(|index| 100 + index).collect::<Vec<_>>());
-    let surfaces: Vec<u64> = replies
-        .iter()
-        .filter(|reply| reply["id"] != 999)
-        .map(|reply| reply["data"]["surface"].as_u64().unwrap())
-        .collect();
-
-    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
-    let tabs: Vec<u64> = tree["workspaces"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
-        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
-        .filter(|candidate| candidate["id"].as_u64() == Some(pane))
-        .flat_map(|candidate| candidate["tabs"].as_array().into_iter().flatten())
-        .filter_map(|tab| tab["surface"].as_u64())
-        .filter(|surface| surfaces.contains(surface))
-        .collect();
-    assert_eq!(tabs, surfaces, "tabs did not land in request order");
-    wait_for_host_records(&harness.host_root(), 1 + TABS as usize);
-}
-
 /// Every placement command starts its terminal with a caller-chosen id
 /// already in the child's environment (`terminal-placement-env-v1`).
 #[test]
@@ -4110,165 +4165,6 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         .find(|workspace| workspace["id"].as_u64() == Some(workspace_id));
     // Its only tab went, so the workspace closed too (LAST-TAB-CLOSES-WORKSPACE).
     assert!(workspace.is_none(), "Ctrl-D left an empty workspace behind: {tree}");
-}
-
-#[test]
-fn daemon_restart_safe_prunes_dead_host_and_keeps_its_tab_dead() {
-    let mut harness = RecoveryHarness::start("dead-host-restart");
-    let created = request(
-        &harness.socket,
-        serde_json::json!({
-            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
-            "cols":80,"rows":24,
-        }),
-    );
-    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
-    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
-    let workspace_id = created["workspace"].as_u64().unwrap();
-    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
-    let workspace_key = tree["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .unwrap()["key"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-
-    // Stop the mux first so it cannot observe the host Exit and update the
-    // registry. The restart must reconcile a dead proof against a still-
-    // Running/Adopting row without spawning a replacement shell.
-    harness.signal_daemon(libc::SIGSTOP);
-    // SAFETY: the record PID is the harness-owned terminal host.
-    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
-    harness.sigkill();
-    harness.restart();
-
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["terminal_incarnation"], incarnation);
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
-            break;
-        }
-        assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    wait_for_no_host_records(&harness.host_root());
-    let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
-    let workspace = recovered["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
-        .expect("original workspace was not recovered");
-    // Invariant 3: the host's death keeps its tab, dead, and nothing respawns
-    // a shell into it.
-    let tab = first_tab(workspace).expect("the tab of a dead host was removed after restart");
-    assert_eq!(tab["dead"], true, "a dead host's terminal was respawned: {tab}");
-    let dead_surface = tab["surface"].as_u64().unwrap();
-    let write = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id":5,"cmd":"send","surface":dead_surface,"text":"must-not-respawn\\n",
-        }),
-    );
-    assert_eq!(write["ok"], false, "{write}");
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id":6,"cmd":"close-terminal","terminal_id":terminal_id,
-            "terminal_incarnation":incarnation,
-        }),
-    );
-}
-
-#[test]
-fn daemon_restart_prunes_every_dead_host_behind_one_pane_and_keeps_its_tabs() {
-    let mut harness = RecoveryHarness::start("dead-hosts-restart");
-    let first = request(
-        &harness.socket,
-        serde_json::json!({
-            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
-            "cols":80,"rows":24,
-        }),
-    );
-    let pane = first["pane"].as_u64().unwrap();
-    let workspace_id = first["workspace"].as_u64().unwrap();
-    let first_terminal = first["terminal_id"].as_str().unwrap().to_string();
-    let second = request(
-        &harness.socket,
-        serde_json::json!({
-            "id":2,"cmd":"run","argv":["/bin/cat"],"pane":pane,
-            "cols":80,"rows":24,
-        }),
-    );
-    let second_terminal = second["terminal_id"].as_str().unwrap().to_string();
-    assert_eq!(second["pane"].as_u64(), Some(pane), "second terminal left the first pane");
-    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
-    let workspace_key = tree["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .unwrap()["key"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let records = wait_for_host_records(&harness.host_root(), 2);
-
-    // Stop the mux first so it observes neither Exit. Startup then has to
-    // reconcile two dead hosts behind the same pane. Recovery of the first
-    // one must not depend on the second one already having a live surface.
-    harness.signal_daemon(libc::SIGSTOP);
-    for (_, record) in &records {
-        // SAFETY: the record PIDs are the harness-owned terminal hosts.
-        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
-    }
-    harness.sigkill();
-    harness.restart();
-
-    for terminal_id in [&first_terminal, &second_terminal] {
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            let resolved = request(
-                &harness.socket,
-                serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-            );
-            if resolved["lifecycle"] == "exited" {
-                assert_eq!(resolved["surface"], serde_json::Value::Null);
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "dead startup host {terminal_id} was not projected as Exited"
-            );
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-    wait_for_no_host_records(&harness.host_root());
-    let recovered = request(&harness.socket, serde_json::json!({"id":5,"cmd":"list-workspaces"}));
-    let workspace = recovered["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
-        .expect("original workspace was not recovered");
-    // Invariant 3: both tabs stay in their pane, dead.
-    let tabs = workspace["screens"][0]["panes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|pane| pane["tabs"].as_array().unwrap().clone())
-        .collect::<Vec<_>>();
-    assert_eq!(tabs.len(), 2, "dead hosts lost their tabs: {workspace}");
-    assert!(tabs.iter().all(|tab| tab["dead"] == true), "{workspace}");
 }
 
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
@@ -5256,18 +5152,16 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
             .iter()
             .any(|(_, record)| record.host_pid == parked.host_pid)
     );
-    // The warm shell itself survived both restarts.
-    let resolved = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": parked.terminal_id}),
-    );
-    assert_eq!(resolved["data"]["lifecycle"], "running", "{resolved}");
+    // The warm shell itself survived both restarts. Adoption completes
+    // asynchronously after the restart (the terminal reads "adopting" until
+    // its host handshake lands), so wait for it, bounded.
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &parked.terminal_id, "running");
     assert_eq!(
-        resolved["data"]["terminal_incarnation"].as_str(),
+        resolved["terminal_incarnation"].as_str(),
         Some(parked.incarnation.as_str()),
         "{resolved}"
     );
-    let surface = resolved["data"]["surface"].as_u64().unwrap();
+    let surface = resolved["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
 }
 
@@ -5359,3 +5253,12 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
+
+#[path = "terminal_host_recovery/reconnect_checkpoints.rs"]
+mod reconnect_checkpoints;
+
+#[path = "terminal_host_recovery/kitty_budget_resync.rs"]
+mod kitty_budget_resync;
+
+#[path = "terminal_host_recovery/parallel_new_tabs.rs"]
+mod parallel_new_tabs;

@@ -332,3 +332,60 @@ async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_sessio
     assert_eq!(ok["stopReason"], "end_turn", "{ok}");
     assert_eq!(ok["peer"], "b", "{ok}");
 }
+
+/// The folder-trust gate: A's app pane (LocalApp) prompting a session on B
+/// is marked `via: app`, and B holds it until B's folder is trusted. A's own
+/// user (its unix socket) is not gated.
+#[tokio::test]
+async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() {
+    let root = std::env::temp_dir().join(format!("api-tg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let work = root.join("work");
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    b.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: root.join("home").join(".claude.json"),
+        codex_config: root.join("home").join("config.toml"),
+        record: root.join("home").join("trust.json"),
+        agent_home: None,
+    }));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t1"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let prompt =
+        |text: &str| json!({"sessionId": "b/t1", "prompt": [{"type": "text", "text": text}]});
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::LocalApp,
+    ));
+    let mut app = C { tx: in_tx, rx: out_rx, next: 0 };
+    let err = app.call(method::SESSION_PROMPT, prompt("app-before-trust")).await.unwrap_err();
+    assert!(err.starts_with("trust.pending"), "{err}");
+    let info = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    assert!(!info.to_string().contains("app-before-trust"), "{info}");
+    // A's own user is the peer's to judge: not gated.
+    let mut ca = client(a.clone()).await;
+    assert!(ca.call(method::SESSION_PROMPT, prompt("a-user")).await.is_ok());
+    // Trusted on B (B's own user answers): A's pane prompt goes.
+    cb.call("acp.trust.set", json!({"cwd": work, "level": "trusted"})).await.unwrap();
+    let r = app.call(method::SESSION_PROMPT, prompt("app-after-trust")).await;
+    assert!(r.is_ok(), "{r:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}

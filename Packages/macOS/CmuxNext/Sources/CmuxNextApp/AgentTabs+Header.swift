@@ -2,24 +2,19 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 
-/// The chat header's tools and "..." menu (acpmux header/ChatHeaderTools.tsx): app actions on
-/// the chat's own tab, the tab state the menu's labels read, and New side chat's split.
+/// The chat header and right-click menu (``AgentChatTabActions``), the tab state the header
+/// menu's labels read, and New side chat's split.
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
-        model.header = AgentPaneHeaderHooks(
-            run: { [weak self] id, cwd in
-                guard let self else { return }
-                let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-                let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
-                _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments, origin: .user))
-            },
-            tabState: { [weak self] in
-                guard let self else { return [:] }
-                let key = resolve(provisional)
-                return ["pinned": lookup(key)?.store.tab(id: key)?.pinned ?? false]
-            },
-            openSide: { [weak self] session in self?.openSide(session, beside: provisional) }
-        )
+        let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
+                                          registry: { [weak self] in self?.actionRegistry })
+        model.header = AgentPaneHeaderHooks(run: actions.run, tabState: { [weak self] in
+            guard let self else { return [:] }
+            let key = resolve(provisional)
+            return ["pinned": lookup(key)?.store.tab(id: key)?.pinned ?? false]
+        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) })
+        model.chatMenuItems = actions.menuItems
+        model.onSearchWeb = actions.searchWeb
     }
 
     /// A tab on `session` in the chat's pane, then moved to a new split on its right

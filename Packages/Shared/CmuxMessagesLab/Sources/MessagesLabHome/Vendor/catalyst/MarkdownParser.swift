@@ -1,0 +1,1225 @@
+import Foundation
+
+// Markdown for message bubbles (shared/MARKDOWN.md). CommonMark block and inline
+// structure plus the GFM extensions (tables, task lists, strikethrough, extended
+// autolinks), written for chat:
+// - A newline inside a paragraph is a line break (chat text keeps its lines).
+// - Raw HTML is never interpreted: tags are literal text. Images are never
+//   loaded: `![alt](src)` is the text "[Image: alt]", a link when its URL is
+//   allowed; only a host's MarkdownImageProvider shows one.
+// - Message text is untrusted: a link is a link only when MarkdownLinkPolicy
+//   allows its URL (http, https, mailto and the host's extra schemes).
+// - Table rows keep cells beyond the header's count (GFM drops them); a pipe in
+//   a code span does not split a cell.
+// The parser is pure (Foundation only, no UIKit), thread safe and runs off main.
+// Top-level blocks carry their source line range, so a stream re-parses only
+// from the start of its last top-level block (MarkdownStore).
+
+/// Inline styles of a run of display text.
+struct MDStyle: OptionSet, Hashable {
+    let rawValue: UInt16
+    static let emphasis = MDStyle(rawValue: 1)
+    static let strong = MDStyle(rawValue: 2)
+    static let strike = MDStyle(rawValue: 4)
+    static let code = MDStyle(rawValue: 8)
+    static let link = MDStyle(rawValue: 16)
+    static let image = MDStyle(rawValue: 32)
+}
+
+/// One styled run: a UTF-16 range of `MDText.string`.
+struct MDSpan: Hashable {
+    var location: Int
+    var length: Int
+    var style: MDStyle
+    var link: String?
+    /// An image's source exactly as written (`![alt](src)`), for the host's
+    /// MarkdownImageProvider only. The engine never loads it.
+    var image: String? = nil
+}
+
+// MARK: - Link policy
+
+/// Which URLs markdown may turn into clickable links (shared/MARKDOWN.md, Security).
+/// Message text is untrusted (agent output): only http, https, mailto and the schemes in
+/// `extraSchemes` become links. Everything else stays plain text: javascript:, vbscript:,
+/// file:, data:, blob:, ftp:, app schemes, relative URLs, URLs without a scheme, and URLs
+/// with control characters or an obfuscated scheme ("java&#x09;script:", "%6Aavascript:").
+/// The parser applies it to every link it makes; the hosts check it again at click time.
+enum MarkdownLinkPolicy {
+    static let builtInSchemes: Set<String> = ["http", "https", "mailto"]
+    private static let lock = NSLock()
+    private static var extra: Set<String> = []
+    /// Extra schemes the host app allows (lowercase, without ":"; empty by default). Set it at
+    /// launch, before the first message is parsed: parsed documents and layouts are cached.
+    static var extraSchemes: Set<String> {
+        get { lock.lock(); defer { lock.unlock() }; return extra }
+        set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
+    }
+    // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
+    // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
+    // Set at launch with `extraSchemes`; nil allows nothing more.
+    private static var rule: (@Sendable (URL) -> Bool)?
+    static var extraRule: (@Sendable (URL) -> Bool)? {
+        get { lock.lock(); defer { lock.unlock() }; return rule }
+        set { lock.lock(); rule = newValue; lock.unlock() }
+    }
+
+    /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
+    /// whitespace and control characters are removed first; the scheme is compared without case.
+    static func sanitize(_ raw: String) -> String? {
+        func edge(_ u: Unicode.Scalar) -> Bool {
+            switch u.properties.generalCategory {
+            case .control, .format, .spaceSeparator, .lineSeparator, .paragraphSeparator: return true
+            default: return u.properties.isWhitespace
+            }
+        }
+        var u = Array(raw.unicodeScalars)
+        while let f = u.first, edge(f) { u.removeFirst() }
+        while let l = u.last, edge(l) { u.removeLast() }
+        // Embedded control, format (zero-width, bidi), NUL or whitespace: never a link.
+        guard !u.isEmpty, u.count <= 8192, !u.contains(where: edge) else { return nil }
+        // RFC 3986 scheme: ASCII letter, then letters, digits, "+", "-", "." up to the first ":".
+        // "&" (an entity), "%" (percent-encoding), "/" (relative) or anything else before the
+        // colon means no scheme: not a link.
+        guard let colon = u.firstIndex(of: ":"), colon > 0 else { return nil }
+        let head = u.prefix(upTo: colon) // cmux: no range subscript
+        func ascii(_ c: Unicode.Scalar) -> Bool { c.isASCII && (("a"..."z").contains(c) || ("A"..."Z").contains(c)) }
+        guard let first = head.first, ascii(first),
+              head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
+        let scheme = String(String.UnicodeScalarView(head)).lowercased()
+        let whole = builtInSchemes.contains(scheme) || extraSchemes.contains(scheme)
+        guard whole || extraRule != nil else { return nil }
+        let s = String(String.UnicodeScalarView(u))
+        guard let url = URL(string: s), url.scheme?.lowercased() == scheme else { return nil }
+        if !whole { return extraRule?(url) == true ? s : nil } // cmux: one exact form
+        let rest = u.count - colon - 1
+        switch scheme {
+        case "http", "https": guard let h = url.host, !h.isEmpty else { return nil }
+        default: guard rest > 0 else { return nil }
+        }
+        return s
+    }
+
+    /// The click-time check (defence in depth): the hosts open only URLs this allows.
+    static func allows(_ url: URL) -> Bool { sanitize(url.absoluteString) != nil }
+    static func allows(_ s: String) -> Bool { sanitize(s) != nil }
+
+    /// "[Image: alt]" (or "[Image]"): the text of every image (a link when its URL is allowed).
+    static func imagePlaceholder(_ alt: String) -> String {
+        alt.isEmpty ? MessagesLabLocalization.string("markdown.image.placeholderEmpty", "[Image]")
+            : String(format: MessagesLabLocalization.string("markdown.image.placeholder", "[Image: %@]"), alt)
+    }
+}
+
+/// Inline content, flattened: the display string and its styled runs.
+/// Line breaks are "\n" in the string.
+struct MDText: Hashable {
+    var string: String = ""
+    var spans: [MDSpan] = []
+    var isEmpty: Bool { string.isEmpty }
+}
+
+enum MDAlign: Hashable { case none, left, center, right }
+
+struct MDTable: Hashable {
+    var aligns: [MDAlign]
+    var header: [MDText]
+    var rows: [[MDText]]
+    var columns: Int { aligns.count }
+}
+
+struct MDItem: Hashable {
+    /// The marker as written: "-", "*", "+", "3.", "4)".
+    var marker: String
+    /// nil: not a task; false: "[ ]"; true: "[x]".
+    var task: Bool?
+    var blocks: [MDBlock]
+}
+
+struct MDList: Hashable {
+    var ordered: Bool
+    var start: Int
+    /// Loose: a blank line between items or inside an item.
+    var loose: Bool
+    var items: [MDItem]
+}
+
+struct MDBlock: Hashable {
+    indirect enum Kind: Hashable {
+        case paragraph(MDText)
+        case heading(level: Int, MDText)
+        /// `closed` is false for a fence that runs to the end of the text (a stream).
+        case code(lang: String, text: String, fenced: Bool, closed: Bool)
+        case quote([MDBlock])
+        case list(MDList)
+        case table(MDTable)
+        case rule
+    }
+    var kind: Kind
+    /// Rendering differs from the plain text path (MDDocument.isRich).
+    var rich = true
+    /// A blank line separates this block from the one before it (same container).
+    var blankBefore: Bool = false
+    /// Source lines [lower, upper) (top-level blocks only; 0..<0 inside containers).
+    var lines: Range<Int> = 0..<0
+}
+
+struct MDDocument: Hashable {
+    var blocks: [MDBlock]
+    /// Whether rendering differs from plain text: any block other than a plain
+    /// paragraph, or any styled run other than an autolink. Plain documents keep the
+    /// plain text path (same pixels as before markdown existed).
+    var isRich: Bool
+}
+
+enum Markdown {
+    /// Off for one run with `--no-markdown` (A/B and the diff harness's plain baseline).
+    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-markdown")
+
+    /// Cheap pre-check (no allocation): could this text contain markdown syntax?
+    /// False means the plain path for sure.
+    static func mightContain(_ text: String) -> Bool {
+        var lineStart = true
+        var indent = 0
+        for b in text.utf8 {
+            if b == 10 || b == 13 { lineStart = true; indent = 0; continue }
+            if lineStart, b == 32 || b == 9 {
+                indent += b == 9 ? 4 : 1
+                if indent >= 4 { return true }                              // indented code
+                continue
+            }
+            switch b {
+            case 42, 95, 96, 126, 124, 91, 92, 38, 60: return true          // * _ ` ~ | [ \ & <
+            case 35, 62, 43, 45, 61, 48...57: if lineStart { return true }   // # > + - = digit at a line start
+            default: break
+            }
+            lineStart = false
+        }
+        return false
+    }
+
+    /// Parse a whole text.
+    static func parse(_ text: String) -> MDDocument {
+        let lines = MDLines.split(text).map { MDLine($0) }
+        var refs = MDRefs()
+        var blocks = MDBlockParser.parse(lines, refs: &refs, known: nil, topLevel: true)
+        // Reference links may point forward: a second pass with every definition.
+        if !refs.isEmpty {
+            var again = MDRefs()
+            blocks = MDBlockParser.parse(lines, refs: &again, known: refs, topLevel: true)
+        }
+        return MDDocument(blocks: blocks, isRich: blocks.contains { $0.rich })
+    }
+}
+
+extension MDBlock {
+    /// A paragraph is plain when its only runs are bare links (the plain path detects
+    /// those too) and its display text equals its source apart from whitespace.
+    static func paragraphIsRich(_ t: MDText, source: String) -> Bool {
+        if t.spans.contains(where: { $0.style != .link }) { return true }
+        func squeeze(_ s: String) -> String { String(s.unicodeScalars.filter { $0 != " " && $0 != "\t" && $0 != "\n" }.map(Character.init)) }
+        return squeeze(t.string) != squeeze(source)
+    }
+}
+
+// MARK: - Lines
+
+enum MDLines {
+    /// Lines split at LF, CRLF and CR. A final newline does not add an empty line.
+    static func split(_ text: String) -> [Substring] {
+        var out: [Substring] = []
+        var start = text.startIndex
+        var i = text.startIndex
+        let u = text.unicodeScalars
+        var si = u.startIndex
+        while si < u.endIndex {
+            guard let c = u[checked: si] else { break } // cmux: checked (si < u.endIndex is the loop condition)
+            if c == "\n" || c == "\r" {
+                i = si
+                out.append(text.slice(start, i)) // cmux: clamped slice
+                var next = u.index(after: si)
+                if c == "\r", next < u.endIndex, u[checked: next] == "\n" { next = u.index(after: next) } // cmux: checked
+                start = next
+                si = next
+                continue
+            }
+            si = u.index(after: si)
+        }
+        if start < text.endIndex { out.append(text.slice(from: start)) } // cmux: clamped slice
+        return out
+    }
+}
+
+/// A source line as Unicode scalars, with column arithmetic (tabs stop every 4 columns).
+struct MDLine {
+    var s: [Unicode.Scalar]
+    init(_ sub: Substring) { s = Array(sub.unicodeScalars) }
+    init(scalars: [Unicode.Scalar]) { s = scalars }
+
+    var isBlank: Bool { s.allSatisfy { $0 == " " || $0 == "\t" } }
+
+    /// Columns of leading whitespace.
+    var indent: Int {
+        var col = 0
+        for c in s {
+            if c == " " { col += 1 } else if c == "\t" { col += 4 - col % 4 } else { break }
+        }
+        return col
+    }
+
+    /// The line with `cols` columns of leading whitespace removed (a partly used tab
+    /// leaves spaces). Removes at most the leading whitespace.
+    func dropping(cols: Int) -> MDLine {
+        var col = 0, i = 0
+        while i < s.count, col < cols {
+            if s[checked: i] == " " { col += 1; i += 1 } // cmux: checked
+            else if s[checked: i] == "\t" { // cmux: checked
+                let w = 4 - col % 4
+                if col + w > cols {
+                    let rest = col + w - cols
+                    return MDLine(scalars: Array(repeating: " ", count: rest) + s.slice(from: i + 1)) // cmux: clamped slice
+                }
+                col += w; i += 1
+            } else { break }
+        }
+        return MDLine(scalars: Array(s.slice(from: i))) // cmux: clamped slice
+    }
+
+    /// Leading whitespace removed.
+    var trimmedLeading: MDLine { var i = 0; while i < s.count, s[checked: i] == " " || s[checked: i] == "\t" { i += 1 }; return MDLine(scalars: Array(s.slice(from: i))) } // cmux: checked
+    var string: String { var v = String.UnicodeScalarView(); v.append(contentsOf: s); return String(v) }
+    func string(_ r: Range<Int>) -> String { var v = String.UnicodeScalarView(); v.append(contentsOf: s.slice(r.lowerBound, r.upperBound)); return String(v) } // cmux: clamped slice
+}
+
+// MARK: - Link reference definitions
+
+struct MDRefs {
+    var map: [String: (String, String?)] = [:]
+    var isEmpty: Bool { map.isEmpty }
+    static func normalize(_ label: String) -> String {
+        label.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }).joined(separator: " ").lowercased()
+    }
+}
+
+// MARK: - Blocks
+
+enum MDBlockParser {
+    static let maxDepth = 32
+
+    /// Parse lines of one container into blocks.
+    static func parse(_ lines: [MDLine], refs: inout MDRefs, known: MDRefs?, topLevel: Bool = false, depth: Int = 0) -> [MDBlock] {
+        var out: [MDBlock] = []
+        var i = 0
+        var blank = false
+        // Pathological nesting: past maxDepth, containers stay literal paragraphs.
+        let nest = depth < maxDepth
+        func add(_ k: MDBlock.Kind, _ from: Int) {
+            out.append(MDBlock(kind: k, blankBefore: blank && !out.isEmpty, lines: topLevel ? from..<i : 0..<0))
+            blank = false
+        }
+        while i < lines.count, let line = lines[checked: i] { // cmux: checked
+            if line.isBlank { blank = true; i += 1; continue }
+            let start = i
+            let ind = line.indent
+            // Indented code.
+            if ind >= 4 {
+                var body: [MDLine] = []
+                while i < lines.count, let l = lines[checked: i], l.isBlank || l.indent >= 4 { // cmux: checked
+                    body.append(l.dropping(cols: 4)); i += 1
+                }
+                while body.last?.isBlank == true { body.removeLast(); i -= 1 }
+                add(.code(lang: "", text: body.map(\.string).joined(separator: "\n"), fenced: false, closed: true), start)
+                continue
+            }
+            let t = line.dropping(cols: ind)
+            // Fenced code.
+            if let f = fence(t) {
+                var body: [MDLine] = []
+                var closed = false
+                i += 1
+                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                    if l.indent < 4, let c = fence(l.dropping(cols: l.indent)), c.char == f.char, c.count >= f.count, c.info.isEmpty {
+                        closed = true; i += 1; break
+                    }
+                    body.append(l.dropping(cols: ind)); i += 1
+                }
+                add(.code(lang: f.info.split(separator: " ").first.map(String.init) ?? "", text: body.map(\.string).joined(separator: "\n"),
+                          fenced: true, closed: closed), start)
+                continue
+            }
+            if let (level, text) = atxHeading(t) {
+                i += 1
+                add(.heading(level: level, MDInlineParser.parse(text, refs: known)), start)
+                continue
+            }
+            if isRule(t) { i += 1; add(.rule, start); continue }
+            if nest, t.s.first == ">" {
+                var inner: [MDLine] = []
+                var lastParagraph = false
+                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                    let li = l.indent
+                    if li < 4, l.dropping(cols: li).s.first == ">" {
+                        var q = l.dropping(cols: li)
+                        q = MDLine(scalars: Array(q.s.dropFirst()))
+                        if q.s.first == " " { q = MDLine(scalars: Array(q.s.dropFirst())) }
+                        else if q.s.first == "\t" { q = q.dropping(cols: 1) }
+                        inner.append(q)
+                        // Through nested quote markers: lazy lines continue the deepest paragraph.
+                        var deep = q.dropping(cols: q.indent)
+                        while deep.s.first == ">" { deep = MDLine(scalars: Array(deep.s.dropFirst())); deep = deep.dropping(cols: deep.indent) }
+                        lastParagraph = !deep.isBlank && !startsBlock(deep) && q.indent < 4
+                        i += 1
+                    } else if lastParagraph, !l.isBlank, !startsBlock(l.dropping(cols: li)) {
+                        inner.append(l); i += 1          // lazy continuation
+                    } else { break }
+                }
+                add(.quote(parse(inner, refs: &refs, known: known, depth: depth + 1)), start)
+                continue
+            }
+            if nest, let m = listMarker(t, interruptsParagraph: false) {
+                let blankBeforeList = blank
+                var blankAfter = false
+                var items: [MDItem] = []
+                var loose = false
+                var startNumber = m.number
+                let ordered = m.ordered
+                let delim = m.delim
+                while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                    let li = l.indent
+                    guard li < 4, let mk = listMarker(l.dropping(cols: li), interruptsParagraph: false),
+                          mk.ordered == ordered, mk.delim == delim else { break }
+                    if items.isEmpty { startNumber = mk.number }
+                    let contentIndent = li + mk.width
+                    var body: [MDLine] = [mk.first]
+                    i += 1
+                    var lastParagraph = !mk.first.isBlank
+                    var sawBlank = mk.first.isBlank
+                    var innerBlank = false
+                    while i < lines.count, let l2 = lines[checked: i] { // cmux: checked
+                        if l2.isBlank {
+                            // An item may start with at most one blank line.
+                            if body.count == 1, body[0].isBlank { break }
+                            body.append(MDLine(scalars: [])); i += 1; sawBlank = true; lastParagraph = false; continue
+                        }
+                        if l2.indent >= contentIndent {
+                            if sawBlank, body.contains(where: { !$0.isBlank }) { innerBlank = true }
+                            sawBlank = false
+                            let d = l2.dropping(cols: contentIndent)
+                            body.append(d); i += 1
+                            lastParagraph = !startsBlock(d.dropping(cols: d.indent)) || d.indent >= 4
+                            continue
+                        }
+                        // A list marker below the content column is the next item (or a new list), never lazy text.
+                        if listMarker(l2.dropping(cols: l2.indent), interruptsParagraph: false) != nil { break }
+                        if !sawBlank, lastParagraph, !startsBlock(l2.dropping(cols: l2.indent)) {
+                            body.append(l2.trimmedLeading); i += 1; continue   // lazy continuation
+                        }
+                        break
+                    }
+                    // Trailing blank lines belong between items, not to this item.
+                    var trailing = 0
+                    while body.count > 1, body.last?.isBlank == true { body.removeLast(); trailing += 1 }
+                    if innerBlank { loose = true }
+                    var blocks = parse(body, refs: &refs, known: known, depth: depth + 1)
+                    var task: Bool?
+                    if case let .paragraph(p)? = blocks.first?.kind, let (checked, rest) = taskPrefix(p) {
+                        task = checked
+                        blocks[0].kind = .paragraph(rest)
+                    }
+                    items.append(MDItem(marker: mk.marker, task: task, blocks: blocks))
+                    if trailing > 0 {
+                        // A blank line then another item of this list: loose.
+                        if i < lines.count, let next = lines[checked: i], next.indent < 4, // cmux: checked
+                           let n = listMarker(next.dropping(cols: next.indent), interruptsParagraph: false),
+                           n.ordered == ordered, n.delim == delim { loose = true } else { blankAfter = true; break }
+                    }
+                }
+                blank = blankBeforeList
+                add(.list(MDList(ordered: ordered, start: startNumber, loose: loose, items: items)), start)
+                blank = blankAfter
+                continue
+            }
+            // Table: a header row, then a delimiter row with the same cell count.
+            if i + 1 < lines.count, let tb = table(lines, at: i, known) {
+                i = tb.end
+                add(.table(tb.table), start)
+                continue
+            }
+            // Paragraph (maybe link reference definitions, maybe a setext heading,
+            // maybe ending in a table header).
+            var para: [MDLine] = [t]
+            i += 1
+            var setext = 0
+            var tableAt: Int?
+            while i < lines.count, let l = lines[checked: i] { // cmux: checked
+                if l.isBlank { break }
+                let li = l.indent
+                let d = l.dropping(cols: li)
+                if li < 4, let level = setextLevel(d) { setext = level; i += 1; break }
+                if li < 4, startsBlock(d, interrupting: true) { break }
+                if table(lines, at: i, known) != nil { tableAt = i; break }
+                para.append(d); i += 1
+            }
+            // Leading link reference definitions.
+            var text = para.map { $0.string }.joined(separator: "\n")
+            text = definitions(text, into: &refs)
+            if setext > 0 {
+                if !text.isEmpty { add(.heading(level: setext, MDInlineParser.parse(text, refs: known)), start) }
+                else { add(.paragraph(MDInlineParser.parse(para.last?.string ?? "", refs: known)), start) }
+            } else if !text.isEmpty {
+                let p = MDInlineParser.parse(text, refs: known)
+                add(.paragraph(p), start)
+                if let last = out.indices.last { out.update(at: last) { $0.rich = MDBlock.paragraphIsRich(p, source: text) } } // cmux: no index math
+            }
+            if let at = tableAt, let tb = table(lines, at: at, known) {
+                let s2 = i
+                i = tb.end
+                add(.table(tb.table), s2)
+            }
+        }
+        return out
+    }
+
+    // MARK: Leaf recognizers
+
+    struct Fence { var char: Unicode.Scalar; var count: Int; var info: String }
+    static func fence(_ t: MDLine) -> Fence? {
+        guard let c = t.s.first, c == "`" || c == "~" else { return nil }
+        var n = 0
+        while n < t.s.count, t.s[checked: n] == c { n += 1 } // cmux: checked
+        guard n >= 3 else { return nil }
+        let info = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
+        if c == "`", info.contains("`") { return nil }
+        return Fence(char: c, count: n, info: info)
+    }
+
+    static func atxHeading(_ t: MDLine) -> (Int, String)? {
+        var n = 0
+        while n < t.s.count, t.s[checked: n] == "#" { n += 1 } // cmux: checked
+        guard (1...6).contains(n), n == t.s.count || t.s[checked: n] == " " || t.s[checked: n] == "\t" else { return nil } // cmux: checked
+        var body = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
+        // Closing sequence: spaces then #s at the end.
+        if let r = body.range(of: "#+$", options: .regularExpression) {
+            let before = body.prefix(upTo: r.lowerBound) // cmux: no range subscript
+            if before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\t") {
+                body = String(before).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return (n, body)
+    }
+
+    static func isRule(_ t: MDLine) -> Bool {
+        guard let c = t.s.first, c == "-" || c == "*" || c == "_" else { return false }
+        var n = 0
+        for x in t.s {
+            if x == c { n += 1 } else if x != " " && x != "\t" { return false }
+        }
+        return n >= 3
+    }
+
+    static func setextLevel(_ t: MDLine) -> Int? {
+        guard let c = t.s.first, c == "=" || c == "-" else { return nil }
+        var i = 0
+        while i < t.s.count, t.s[checked: i] == c { i += 1 } // cmux: checked
+        while i < t.s.count, t.s[checked: i] == " " || t.s[checked: i] == "\t" { i += 1 } // cmux: checked
+        guard i == t.s.count else { return nil }
+        return c == "=" ? 1 : 2
+    }
+
+    struct Marker { var ordered: Bool; var delim: Unicode.Scalar; var number: Int; var marker: String; var width: Int; var first: MDLine }
+    /// A list item marker at the start of `t` (indentation removed).
+    static func listMarker(_ t: MDLine, interruptsParagraph: Bool) -> Marker? {
+        guard let c = t.s.first else { return nil }
+        var markerLen = 0
+        var ordered = false, number = 1, delim = c
+        if c == "-" || c == "+" || c == "*" {
+            markerLen = 1
+        } else if c.properties.numericType != nil, ("0"..."9").contains(c) {
+            var j = 0
+            while j < t.s.count, j < 10, let d = t.s[checked: j], ("0"..."9").contains(d) { j += 1 } // cmux: checked
+            guard j <= 9, j < t.s.count, t.s[checked: j] == "." || t.s[checked: j] == ")" else { return nil } // cmux: checked
+            number = Int(t.string(0..<j)) ?? 1
+            delim = t.s[checked: j] ?? c // cmux: checked (j < t.s.count above)
+            ordered = true
+            markerLen = j + 1
+        } else { return nil }
+        let rest = MDLine(scalars: Array(t.s.slice(from: markerLen))) // cmux: clamped slice
+        if !rest.s.isEmpty, rest.s[checked: 0] != " ", rest.s[checked: 0] != "\t" { return nil } // cmux: checked
+        if interruptsParagraph {
+            if rest.isBlank { return nil }
+            if ordered, number != 1 { return nil }
+        }
+        // Content indent: marker + 1..4 spaces; 5 or more means 1 (the rest is indented code).
+        // Columns are counted from the marker's end; tabs stop relative to the line start.
+        var sp = rest.isBlank ? 1 : rest.indent
+        if sp > 4 { sp = 1 }
+        if sp < 1 { sp = 1 }
+        let first = rest.isBlank ? MDLine(scalars: []) : rest.dropping(cols: sp)
+        return Marker(ordered: ordered, delim: delim, number: number, marker: t.string(0..<markerLen), width: markerLen + sp, first: first)
+    }
+
+    /// Whether a line (indentation removed) starts a block that ends a paragraph.
+    static func startsBlock(_ t: MDLine, interrupting: Bool = true) -> Bool {
+        if fence(t) != nil || atxHeading(t) != nil || isRule(t) || t.s.first == ">" { return true }
+        return listMarker(t, interruptsParagraph: interrupting) != nil
+    }
+
+    static func taskPrefix(_ p: MDText) -> (Bool, MDText)? {
+        let u = Array(p.string.utf16)
+        guard u.count >= 3, u[checked: 0] == 91, u[checked: 2] == 93, u.count == 3 || u[checked: 3] == 32 || u[checked: 3] == 9 || u[checked: 3] == 10 else { return nil } // cmux: checked
+        let checked: Bool
+        switch u[checked: 1] { case 32: checked = false; case 120, 88: checked = true; default: return nil } // cmux: checked (u.count >= 3 above)
+        let cut = min(u.count, 4)
+        var rest = MDText()
+        rest.string = String(utf16CodeUnits: Array(u.slice(from: cut)), count: u.count - cut) // cmux: clamped slice
+        rest.spans = p.spans.compactMap { s in
+            let lo = max(s.location, cut), hi = s.location + s.length
+            guard hi > lo else { return nil }
+            return MDSpan(location: lo - cut, length: hi - lo, style: s.style, link: s.link, image: s.image)
+        }
+        return (checked, rest)
+    }
+
+    // MARK: Tables
+
+    static func splitRow(_ line: MDLine) -> [String] {
+        var t = line.dropping(cols: line.indent).s
+        while let l = t.last, l == " " || l == "\t" { t.removeLast() }
+        var cells: [String] = []
+        var cur = String.UnicodeScalarView()
+        var i = 0
+        if t.first == "|" { i = 1 }
+        var ticks = 0           // open code span's backtick count
+        while i < t.count, let c = t[checked: i] { // cmux: checked
+            if c == "\\", i + 1 < t.count, t[checked: i + 1] == "|" { cur.append("|"); i += 2; continue } // cmux: checked
+            if c == "\\", i + 1 < t.count, let next = t[checked: i + 1] { cur.append(c); cur.append(next); i += 2; continue } // cmux: checked
+            if c == "`" {
+                var n = 0
+                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // cmux: checked
+                if ticks == 0 { if hasClosingTicks(t, from: i + n, count: n) { ticks = n } }
+                else if n == ticks { ticks = 0 }
+                for _ in 0..<n { cur.append("`") }
+                i += n; continue
+            }
+            if c == "|", ticks == 0 {
+                cells.append(String(cur).trimmingCharacters(in: .whitespaces)); cur = .init(); i += 1
+                continue
+            }
+            cur.append(c); i += 1
+        }
+        let last = String(cur).trimmingCharacters(in: .whitespaces)
+        if !last.isEmpty || t.last != "|" || (t.count >= 2 && t[checked: t.count - 2] == "\\") { cells.append(last) } // cmux: checked
+        return cells
+    }
+    private static func hasClosingTicks(_ t: [Unicode.Scalar], from: Int, count: Int) -> Bool {
+        var i = from
+        while i < t.count {
+            if t[checked: i] == "`" { // cmux: checked
+                var n = 0
+                while i + n < t.count, t[checked: i + n] == "`" { n += 1 } // cmux: checked
+                if n == count { return true }
+                i += n
+            } else { i += 1 }
+        }
+        return false
+    }
+
+    static func delimiterRow(_ line: MDLine) -> [MDAlign]? {
+        guard line.indent < 4 else { return nil }
+        let t = line.dropping(cols: line.indent)
+        guard t.s.contains("-"), t.s.allSatisfy({ $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " || $0 == "\t" }) else { return nil }
+        let cells = splitRow(line)
+        guard !cells.isEmpty else { return nil }
+        var aligns: [MDAlign] = []
+        for c in cells {
+            let s = c.trimmingCharacters(in: .whitespaces)
+            guard !s.isEmpty, s.allSatisfy({ $0 == "-" || $0 == ":" }), s.contains("-") else { return nil }
+            let core = s.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            guard !core.isEmpty, core.allSatisfy({ $0 == "-" }) else { return nil }
+            let l = s.hasPrefix(":"), r = s.hasSuffix(":")
+            aligns.append(l && r ? .center : r ? .right : l ? .left : .none)
+        }
+        // A single column needs a pipe (else "---" is a setext underline or a rule).
+        if cells.count == 1, !t.s.contains("|") { return nil }
+        return aligns
+    }
+
+    static func table(_ lines: [MDLine], at i: Int, _ known: MDRefs?) -> (table: MDTable, end: Int)? {
+        guard i + 1 < lines.count else { return nil }
+        guard i >= 0, let h = lines[checked: i], let below = lines[checked: i + 1] else { return nil } // cmux: checked
+        guard h.indent < 4, h.s.contains("|"), let aligns = delimiterRow(below) else { return nil }
+        let header = splitRow(h)
+        guard header.count == aligns.count else { return nil }
+        var rows: [[MDText]] = []
+        var cols = aligns.count
+        var j = i + 2
+        while j < lines.count, let l = lines[checked: j] { // cmux: checked
+            if l.isBlank || (l.indent < 4 && startsBlock(l.dropping(cols: l.indent))) { break }
+            let cells = splitRow(l).map { MDInlineParser.parse($0, breaks: false, refs: known) }
+            cols = max(cols, cells.count)
+            rows.append(cells)
+            j += 1
+        }
+        // Rows keep every cell: missing cells are empty, extra cells add columns (no data lost).
+        var al = aligns
+        while al.count < cols { al.append(.none) }
+        var head = header.map { MDInlineParser.parse($0, breaks: false, refs: known) }
+        while head.count < cols { head.append(MDText()) }
+        rows = rows.map { r in r + Array(repeating: MDText(), count: cols - r.count) }
+        return (MDTable(aligns: al, header: head, rows: rows), j)
+    }
+
+    // MARK: Link reference definitions
+
+    /// Removes leading `[label]: dest "title"` definitions from a paragraph's text.
+    static func definitions(_ text: String, into refs: inout MDRefs) -> String {
+        guard text.hasPrefix("[") else { return text }
+        var rest = Substring(text)
+        while rest.hasPrefix("[") {
+            guard let close = rest.firstIndex(of: "]"), rest.index(after: close) < rest.endIndex,
+                  rest[checked: rest.index(after: close)] == ":" else { break } // cmux: checked
+            let label = String(rest.slice(rest.index(after: rest.startIndex), close)) // cmux: clamped slice
+            guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !label.contains("[") else { break }
+            var j = rest.index(close, offsetBy: 2)
+            while j < rest.endIndex, rest[checked: j] == " " || rest[checked: j] == "\t" || rest[checked: j] == "\n" { j = rest.index(after: j) } // cmux: checked
+            var dest = ""
+            if j < rest.endIndex, rest[checked: j] == "<" { // cmux: checked
+                guard let e = rest.slice(from: j).firstIndex(of: ">") else { break } // cmux: clamped slices
+                dest = String(rest.slice(rest.index(after: j), e)); j = rest.index(after: e)
+            } else {
+                let e = rest.slice(from: j).firstIndex { $0 == " " || $0 == "\n" || $0 == "\t" } ?? rest.endIndex // cmux: clamped slices
+                dest = String(rest.slice(j, e)); j = e
+            }
+            guard !dest.isEmpty else { break }
+            // Optional title on the same line; then the line must end.
+            var title: String?
+            var k = j
+            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // cmux: checked
+            if k < rest.endIndex, let q = rest[checked: k] == "\"" ? Character("\"") : rest[checked: k] == "'" ? Character("'") : rest[checked: k] == "(" ? Character(")") : nil { // cmux: checked
+                if let e = rest.slice(from: rest.index(after: k)).firstIndex(of: q) { // cmux: clamped slices
+                    title = String(rest.slice(rest.index(after: k), e)); k = rest.index(after: e)
+                }
+            }
+            while k < rest.endIndex, rest[checked: k] == " " || rest[checked: k] == "\t" { k = rest.index(after: k) } // cmux: checked
+            guard k == rest.endIndex || rest[checked: k] == "\n" else { break } // cmux: checked
+            let key = MDRefs.normalize(label)
+            if !refs.map.keys.contains(key) { refs.map.updateValue((MDInlineParser.unescape(dest), title), forKey: key) } // cmux: dictionary
+            rest = k == rest.endIndex ? "" : rest.slice(from: rest.index(after: k)) // cmux: clamped slice
+        }
+        return String(rest)
+    }
+
+}
+
+// MARK: - Inlines
+
+/// CommonMark inline parsing: code spans, escapes, entities, autolinks (angle and
+/// GFM extended, recognised before emphasis so `_` in a URL is never emphasis),
+/// links and images with the bracket stack, then emphasis and strikethrough with
+/// the delimiter-run algorithm (flanking rules, rule of 3, openers bottom).
+enum MDInlineParser {
+    private enum Node {
+        case text(String)
+        case styled(String, MDStyle, String?)     // code, autolink
+        case image(String, link: String?, source: String)   // image placeholder (never loaded)
+        case delim(Unicode.Scalar, count: Int)
+        case open(MDStyle)
+        case close(MDStyle)
+        case linkOpen(String)
+        case linkClose
+        case br
+    }
+    private struct Delim {
+        var node: Int
+        var char: Unicode.Scalar
+        var count: Int
+        var origCount: Int
+        var canOpen: Bool
+        var canClose: Bool
+        var active = true
+    }
+    private struct Bracket { var node: Int; var image: Bool; var active: Bool; var delimBottom: Int; var pos: Int }
+
+    static func parse(_ s: String, breaks: Bool = true, refs: MDRefs? = nil) -> MDText {
+        let src = Array(s.unicodeScalars)
+        var nodes: [Node] = []
+        var delims: [Delim] = []
+        var brackets: [Bracket] = []
+        var text = String.UnicodeScalarView()
+        var i = 0
+        func flush() { if !text.isEmpty { nodes.append(.text(String(text))); text = .init() } }
+        func prev(_ i: Int) -> Unicode.Scalar? { i > 0 ? src[checked: i - 1] : nil } // cmux: checked
+
+        while i < src.count, let c = src[checked: i] { // cmux: checked
+            switch c {
+            case "\\":
+                if i + 1 < src.count, let next = src[checked: i + 1], isASCIIPunct(next) { text.append(next); i += 2; continue } // cmux: checked
+                if i + 1 < src.count, src[checked: i + 1] == "\n" { flush(); nodes.append(.br); i += 2; continue } // cmux: checked
+                text.append(c); i += 1
+            case "`":
+                var n = 0
+                while i + n < src.count, src[checked: i + n] == "`" { n += 1 } // cmux: checked
+                if let end = closingTicks(src, from: i + n, count: n) {
+                    flush()
+                    var body = String.UnicodeScalarView()
+                    for x in src.slice(i + n, end) { body.append(x == "\n" ? " " : x) } // cmux: clamped slice
+                    var code = String(body)
+                    if code.count >= 2, code.hasPrefix(" "), code.hasSuffix(" "), code.contains(where: { $0 != " " }) {
+                        code = String(code.dropFirst().dropLast())
+                    }
+                    nodes.append(.styled(code, .code, nil))
+                    i = end + n
+                } else {
+                    for _ in 0..<n { text.append("`") }
+                    i += n
+                }
+            case "&":
+                if let (rep, len) = entity(src, i) { text.append(contentsOf: rep.unicodeScalars); i += len } else { text.append(c); i += 1 }
+            case "<":
+                // An autolink whose URL the policy refuses stays literal text, brackets included.
+                if let (url, len, label) = angleAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
+                    flush(); nodes.append(.styled(label, .link, safe)); i += len
+                } else { text.append(c); i += 1 }
+            case "\n":
+                flush()
+                if breaks { nodes.append(.br) } else { text.append(" ") }
+                i += 1
+                while i < src.count, src[checked: i] == " " || src[checked: i] == "\t" { i += 1 } // cmux: checked
+            case "*", "_", "~":
+                var n = 0
+                while i + n < src.count, src[checked: i + n] == c { n += 1 } // cmux: checked
+                if c == "~", n > 2 { for _ in 0..<n { text.append(c) }; i += n; continue }
+                let before = prev(i), after: Unicode.Scalar? = i + n < src.count ? src[checked: i + n] : nil // cmux: checked
+                let bWS = before.map(isWS) ?? true, aWS = after.map(isWS) ?? true
+                let bP = before.map(isPunct) ?? false, aP = after.map(isPunct) ?? false
+                let left = !aWS && (!aP || bWS || bP)
+                let right = !bWS && (!bP || aWS || aP)
+                var canOpen = left, canClose = right
+                if c == "_" { canOpen = left && (!right || bP); canClose = right && (!left || aP) }
+                flush()
+                nodes.append(.delim(c, count: n))
+                if canOpen || canClose {
+                    delims.append(Delim(node: nodes.count - 1, char: c, count: n, origCount: n, canOpen: canOpen, canClose: canClose))
+                }
+                i += n
+            case "!" where i + 1 < src.count && src[checked: i + 1] == "[": // cmux: checked
+                flush()
+                nodes.append(.text("!["))
+                brackets.append(Bracket(node: nodes.count - 1, image: true, active: true, delimBottom: delims.count, pos: i + 2))
+                i += 2
+            case "[":
+                flush()
+                nodes.append(.text("["))
+                brackets.append(Bracket(node: nodes.count - 1, image: false, active: true, delimBottom: delims.count, pos: i + 1))
+                i += 1
+            case "]":
+                guard let b = brackets.popLast() else { text.append(c); i += 1; continue }
+                guard b.active else { text.append(c); i += 1; continue }
+                flush()
+                var dest: String?, end = i + 1
+                if let (d, _, e) = inlineLinkTail(src, i + 1) { dest = d; end = e }
+                else if let refs {
+                    // [text][label], [text][], [text]
+                    let inner = String(String.UnicodeScalarView(src.slice(b.pos, i))) // cmux: clamped slices
+                    if i + 1 < src.count, src[checked: i + 1] == "[", let close = src.slice(from: i + 2).firstIndex(of: "]") { // cmux: checked
+                        let label = String(String.UnicodeScalarView(src.slice(i + 2, close)))
+                        let key = MDRefs.normalize(label.isEmpty ? inner : label)
+                        if let r = refs.map[key] { dest = r.0; end = close + 1 }
+                    } else if let r = refs.map[MDRefs.normalize(inner)] { dest = r.0 }
+                }
+                guard let dest else { text.append(c); i += 1; continue }
+                // Emphasis inside the link text, then wrap it.
+                processEmphasis(&nodes, &delims, bottom: b.delimBottom)
+                let safe = MarkdownLinkPolicy.sanitize(dest)
+                if b.image {
+                    // Never loaded: the text "[Image: alt]", so a reader knows it is an image and
+                    // that it was not loaded; a link when the URL is allowed. The source goes to the
+                    // host's image provider only.
+                    let alt = plain(nodes.slice(from: b.node + 1)) // cmux: clamped slice
+                    nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // cmux: no range that can trap
+                    nodes.append(.image(MarkdownLinkPolicy.imagePlaceholder(alt), link: safe, source: dest))
+                    brackets.removeAll { $0.node > b.node }
+                } else {
+                    // A refused URL: the link text stays, as plain text (no link, no target).
+                    // cmux: checked writes.
+                    if let safe { if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(safe) }; nodes.append(.linkClose) } else if let at = nodes.checkedIndex(b.node) { nodes[at] = .text("") }
+                    // No links inside links (a refused link is still a link for this rule).
+                    brackets.removeAll { $0.node > b.node }
+                    brackets = brackets.map { var x = $0; if !x.image { x.active = false }; return x } // cmux: no index writes
+                }
+                i = end
+            default:
+                // GFM extended autolinks at a word start: www., http://, https://, mailto-less emails.
+                if (c == "w" || c == "h" || c == "W" || c == "H"), prev(i).map({ isWS($0) || $0 == "(" || $0 == "*" || $0 == "_" || $0 == "~" || $0 == "\"" || $0 == "'" }) ?? true,
+                   let (url, len) = extendedAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
+                    flush()
+                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, safe)) // cmux: clamped slice
+                    i += len
+                    continue
+                }
+                if c == "@", let (start, len) = emailAutolink(src, i, textTail: text),
+                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src.slice(i + 1, i + len)))) { // cmux: clamped slice
+                    // Pull the local part back out of the pending text.
+                    let local = Array(text)
+                    let keep = local.count - start
+                    var t2 = String.UnicodeScalarView(); t2.append(contentsOf: local.slice(0, keep)) // cmux: clamped slices
+                    let addr = String(String.UnicodeScalarView(local.slice(from: keep))) + String(String.UnicodeScalarView(src.slice(i, i + len)))
+                    text = t2
+                    flush()
+                    nodes.append(.styled(addr, .link, "mailto:" + addr))
+                    i += len
+                    continue
+                }
+                text.append(c); i += 1
+            }
+        }
+        flush()
+        processEmphasis(&nodes, &delims, bottom: 0)
+        var out = flatten(nodes)
+        // Trailing spaces of a line are not drawn (hard breaks are "\n").
+        return trimLineEnds(&out)
+    }
+
+    // MARK: Emphasis
+
+    private static func processEmphasis(_ nodes: inout [Node], _ delims: inout [Delim], bottom: Int) {
+        // Openers bottom per (char, closer can open, closer count % 3).
+        var bottoms: [String: Int] = [:]
+        var ci = bottom
+        while ci < delims.count, let closer = delims[checked: ci] { // cmux: checked
+            guard closer.canClose, closer.count > 0 else { ci += 1; continue }
+            let key = "\(closer.char)\(closer.canOpen)\(closer.origCount % 3)"
+            let floor = max(bottom, bottoms[key] ?? bottom)
+            var oi = ci - 1
+            var found = -1
+            while oi >= floor, let o = delims[checked: oi] { // cmux: checked
+                if o.char == closer.char, o.canOpen, o.count > 0 {
+                    if closer.char == "~" {
+                        if o.count == closer.count { found = oi; break }
+                    } else {
+                        let odd = (o.canClose || closer.canOpen) && (o.origCount + closer.origCount) % 3 == 0
+                            && !(o.origCount % 3 == 0 && closer.origCount % 3 == 0)
+                        if !odd { found = oi; break }
+                    }
+                }
+                oi -= 1
+            }
+            if found < 0 {
+                bottoms[key] = ci
+                ci += 1
+                continue
+            }
+            let use: Int
+            let style: MDStyle
+            if closer.char == "~" { use = closer.count; style = .strike }
+            else { use = (delims[checked: found]?.count ?? 0) >= 2 && closer.count >= 2 ? 2 : 1; style = use == 2 ? .strong : .emphasis } // cmux
+            // cmux: checked in-place updates (crash program); found < ci < delims.count here.
+            delims.update(at: found) { $0.count -= use }
+            delims.update(at: ci) { $0.count -= use }
+            // Marks: inner first. After the opener's node, before the closer's node.
+            if let n = delims[checked: found]?.node { insertMark(&nodes, &delims, after: n, .open(style)) } // cmux
+            if let n = delims[checked: ci]?.node { insertMark(&nodes, &delims, before: n, .close(style)) } // cmux
+            // Delimiters between them are literal.
+            for k in (found + 1)..<ci { delims.update(at: k) { $0.canOpen = false; $0.canClose = false } } // cmux
+            if delims[checked: found]?.count == 0 { delims.update(at: found) { $0.canOpen = false } } // cmux
+            if delims[checked: ci]?.count == 0 { ci += 1 } // cmux
+        }
+        // What matching left of each run prints as literal characters.
+        for d in delims.dropFirst(max(0, bottom)) { nodes.update(at: d.node) { $0 = .delim(d.char, count: d.count) } } // cmux: checked
+        delims.removeLast(max(0, delims.count - max(0, bottom))) // cmux: no range that can trap
+    }
+
+    /// Inserting a node shifts every later delimiter's node index.
+    /// cmux: an insertion point outside the nodes inserts nothing (fault once), no index writes.
+    private static func insertMark(_ nodes: inout [Node], _ delims: inout [Delim], after n: Int, _ m: Node) {
+        guard n + 1 >= 0, n + 1 <= nodes.count else { CrashGuard.fault("mark after \(n) outside \(nodes.count) nodes"); return }
+        nodes.insert(m, at: n + 1)
+        delims = delims.map { var d = $0; if d.node > n { d.node += 1 }; return d }
+    }
+    private static func insertMark(_ nodes: inout [Node], _ delims: inout [Delim], before n: Int, _ m: Node) {
+        guard n >= 0, n <= nodes.count else { CrashGuard.fault("mark before \(n) outside \(nodes.count) nodes"); return }
+        nodes.insert(m, at: n)
+        delims = delims.map { var d = $0; if d.node >= n { d.node += 1 }; return d }
+    }
+
+    // MARK: Flatten
+
+    private static func flatten(_ nodes: [Node]) -> MDText {
+        var out = String.UnicodeScalarView()
+        var spans: [MDSpan] = []
+        var style: MDStyle = []
+        var counts: [MDStyle: Int] = [:]
+        var links: [String] = []
+        var len16 = 0
+        var runStart = 0
+        var runStyle: MDStyle = []
+        var runLink: String?
+        var runImage: String?
+        func cut() {
+            if len16 > runStart, !runStyle.isEmpty || runLink != nil {
+                spans.append(MDSpan(location: runStart, length: len16 - runStart, style: runStyle, link: runLink, image: runImage))
+            }
+            runStart = len16
+        }
+        func set(_ s: MDStyle, _ l: String?, image: String? = nil) {
+            if s != runStyle || l != runLink || image != runImage { cut(); runStyle = s; runLink = l; runImage = image }
+        }
+        func emit(_ s: String) { for u in s.unicodeScalars { out.append(u); len16 += u.utf16.count } }
+        for n in nodes {
+            let linkNow = links.last
+            switch n {
+            case let .text(s): set(style, linkNow); emit(s)
+            case let .styled(s, st, l): set(style.union(st), l ?? linkNow); emit(s)
+            case let .image(s, l, src):
+                let l2 = l ?? linkNow
+                set(style.union(l2 != nil ? [.image, .link] : .image), l2, image: src); emit(s)
+            case let .delim(ch, count):
+                if count > 0 { set(style, linkNow); emit(String(repeating: String(ch), count: count)) }
+            case let .open(s): counts[s, default: 0] += 1; style.insert(s)
+            case let .close(s): counts[s, default: 0] -= 1; if counts[s, default: 0] <= 0 { style.remove(s) }
+            case let .linkOpen(d): links.append(d); style.insert(.link)
+            case .linkClose: links.removeLast(); if links.isEmpty { style.remove(.link) }
+            case .br: set(style, linkNow); emit("\n")
+            }
+        }
+        cut()
+        return MDText(string: String(out), spans: merge(spans))
+    }
+
+    private static func merge(_ s: [MDSpan]) -> [MDSpan] {
+        var out: [MDSpan] = []
+        for x in s {
+            if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
+                l.length += x.length; if let last = out.indices.last { out.update(at: last) { $0 = l } } // cmux: no index math
+            } else { out.append(x) }
+        }
+        return out
+    }
+
+    private static func trimLineEnds(_ t: inout MDText) -> MDText {
+        guard t.string.contains(" \n") || t.string.hasSuffix(" ") || t.string.hasPrefix(" ") else { return t }
+        // Remove spaces before each "\n" and at both ends; remap spans.
+        let u = Array(t.string.utf16)
+        var keep = [Bool](repeating: true, count: u.count)
+        var j = u.count - 1
+        while j >= 0, u[checked: j] == 32 { keep.update(at: j) { $0 = false }; j -= 1 } // cmux: checked
+        var k = 0
+        while k < u.count, u[checked: k] == 32 { keep.update(at: k) { $0 = false }; k += 1 } // cmux: checked
+        for x in u.indices where u[checked: x] == 10 { // cmux: checked
+            var y = x - 1
+            while y >= 0, u[checked: y] == 32 { keep.update(at: y) { $0 = false }; y -= 1 } // cmux: checked
+        }
+        // cmux: built by appending (no index writes); spans outside the text are dropped (no trap).
+        var map: [Int] = []
+        map.reserveCapacity(u.count + 1)
+        var out: [UInt16] = []
+        for (x, kept) in zip(u, keep) { map.append(out.count); if kept { out.append(x) } }
+        map.append(out.count)
+        let spans = t.spans.compactMap { s -> MDSpan? in
+            guard let a = map[checked: s.location], let b = map[checked: s.location + s.length] else { return nil }
+            return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link, image: s.image) : nil
+        }
+        return MDText(string: String(utf16CodeUnits: out, count: out.count), spans: spans)
+    }
+
+    private static func plain(_ ns: ArraySlice<Node>) -> String {
+        var s = ""
+        for n in ns {
+            switch n {
+            case let .text(t): s += t
+            case let .styled(t, _, _): s += t
+            case let .image(t, _, _): s += t
+            case let .delim(c, n): s += String(repeating: String(c), count: n)
+            case .br: s += " "
+            default: break
+            }
+        }
+        return s
+    }
+
+    // MARK: Pieces
+
+    static func isASCIIPunct(_ c: Unicode.Scalar) -> Bool {
+        let v = c.value
+        return (33...47).contains(v) || (58...64).contains(v) || (91...96).contains(v) || (123...126).contains(v)
+    }
+    static func isWS(_ c: Unicode.Scalar) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" || c.properties.isWhitespace }
+    /// cmux: a letter or an ASCII digit; nil (outside the text) is neither.
+    static func isAlnum(_ c: Unicode.Scalar?) -> Bool { c.map { $0.properties.isAlphabetic || ("0"..."9").contains($0) } ?? false }
+    static func isPunct(_ c: Unicode.Scalar) -> Bool {
+        if isASCIIPunct(c) { return true }
+        switch c.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation, .initialPunctuation,
+             .finalPunctuation, .otherPunctuation, .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol: return true
+        default: return false
+        }
+    }
+
+    private static func closingTicks(_ s: [Unicode.Scalar], from: Int, count: Int) -> Int? {
+        var i = from
+        while i < s.count {
+            if s[checked: i] == "`" { // cmux: checked
+                var n = 0
+                while i + n < s.count, s[checked: i + n] == "`" { n += 1 } // cmux: checked
+                if n == count { return i }
+                i += n
+            } else { i += 1 }
+        }
+        return nil
+    }
+
+    static let entities: [String: String] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}", "copy": "©", "reg": "®",
+        "trade": "™", "hellip": "…", "mdash": "—", "ndash": "–", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”",
+        "bull": "•", "middot": "·", "times": "×", "divide": "÷", "deg": "°", "plusmn": "±", "larr": "←", "rarr": "→",
+        "uarr": "↑", "darr": "↓", "harr": "↔", "check": "✓", "euro": "€", "pound": "£", "yen": "¥", "cent": "¢", "sect": "§",
+        "para": "¶", "laquo": "«", "raquo": "»", "le": "≤", "ge": "≥", "ne": "≠", "infin": "∞",
+    ]
+    private static func entity(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int)? {
+        guard let semi = s.slice(from: i + 1).prefix(34).firstIndex(of: ";") else { return nil } // cmux: clamped slices
+        let body = String(String.UnicodeScalarView(s.slice(i + 1, semi)))
+        if body.hasPrefix("#") {
+            let hex = body.hasPrefix("#x") || body.hasPrefix("#X")
+            let digits = body.dropFirst(hex ? 2 : 1)
+            guard !digits.isEmpty, digits.count <= (hex ? 6 : 7), let v = UInt32(digits, radix: hex ? 16 : 10) else { return nil }
+            let replacement: Unicode.Scalar = "\u{FFFD}" // cmux: a literal, no force unwrap
+            let scalar = (v == 0 || v > 0x10FFFF) ? replacement : (Unicode.Scalar(v) ?? replacement)
+            return (String(scalar), semi - i + 1)
+        }
+        guard let r = entities[body] else { return nil }
+        return (r, semi - i + 1)
+    }
+
+    private static func angleAutolink(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int, String)? {
+        guard let end = s.slice(from: i + 1).prefix(2048).firstIndex(of: ">") else { return nil } // cmux: clamped slices
+        let body = String(String.UnicodeScalarView(s.slice(i + 1, end)))
+        guard !body.isEmpty, !body.contains(where: { $0 == " " || $0 == "<" || $0 == "\n" }) else { return nil }
+        if let colon = body.firstIndex(of: ":") {
+            let scheme = body.prefix(upTo: colon) // cmux: no range subscript
+            guard (2...32).contains(scheme.count), scheme.first?.isLetter == true, // cmux: no force unwrap
+                  scheme.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-" }) else { return nil }
+            return (body, end - i + 1, body)
+        }
+        if body.contains("@"), body.range(of: #"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"#, options: .regularExpression) != nil {
+            return ("mailto:" + body, end - i + 1, body)
+        }
+        return nil
+    }
+
+    /// GFM extended autolink at `i`: "www." or "http(s)://", a valid domain, then
+    /// anything up to whitespace or "<", minus trailing punctuation, an unbalanced
+    /// ")" and a trailing entity-like "&x;".
+    static func extendedAutolink(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int)? {
+        func has(_ p: String) -> Bool {
+            let u = Array(p.unicodeScalars)
+            guard i + u.count <= s.count else { return false }
+            for (a, b) in zip(s.slice(from: i), u) where Character(a).lowercased() != Character(b).lowercased() { return false } // cmux: no index math
+            return true
+        }
+        var start = i
+        var prefix = ""
+        if has("https://") { start += 8 } else if has("http://") { start += 7 } else if has("www.") { prefix = "http://" } else { return nil }
+        // Domain: alphanumerics, "-", "_", "." ; at least one "."; no "_" in the last two labels.
+        var j = start
+        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // cmux: checked
+        let domain = String(String.UnicodeScalarView(s.slice(start, j))) // cmux: clamped slice
+        let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+        let port = j < s.count && s[checked: j] == ":" // cmux: checked
+        guard !domain.isEmpty, !domain.hasPrefix("."), !labels.suffix(2).contains(where: { $0.contains("_") }) else { return nil }
+        if labels.count < 2 || labels.last?.isEmpty != false { // cmux: no force unwrap
+            // "www." needs a real domain; "http://" also takes localhost and a host with a port.
+            guard prefix.isEmpty, domain == "localhost" || port else { return nil }
+        }
+        while j < s.count, !(s[checked: j].map(isWS) ?? true), s[checked: j] != "<" { j += 1 } // cmux: checked
+        var end = j
+        // Trailing punctuation and unbalanced parentheses.
+        while end > start {
+            guard let c = s[checked: end - 1] else { break } // cmux: checked
+            if "?!.,:*_~'\"".unicodeScalars.contains(c) { end -= 1; continue }
+            if c == ")" {
+                var open = 0, close = 0
+                for k in i..<end { if s[checked: k] == "(" { open += 1 } else if s[checked: k] == ")" { close += 1 } } // cmux: checked
+                if close > open { end -= 1; continue }
+            }
+            if c == ";" {
+                var k = end - 2
+                while k > start, isAlnum(s[checked: k]) { k -= 1 }
+                if k >= start, s[checked: k] == "&" { end = k; continue } // cmux: checked
+            }
+            break
+        }
+        guard end > start else { return nil }
+        let raw = String(String.UnicodeScalarView(s.slice(i, end))) // cmux: clamped slice
+        return (prefix + raw, end - i)
+    }
+
+    /// An email at "@" position `i`: the local part is the tail of the pending text.
+    private static func emailAutolink(_ s: [Unicode.Scalar], _ i: Int, textTail: String.UnicodeScalarView) -> (Int, Int)? {
+        let tail = Array(textTail)
+        var k = tail.count
+        while k > 0, isAlnum(tail[checked: k - 1]) || (tail[checked: k - 1].map({ ".-_+".unicodeScalars.contains($0) }) ?? false) { k -= 1 }
+        let localLen = tail.count - k
+        guard localLen > 0, k == 0 || (tail[checked: k - 1].map(isWS) ?? false) || tail[checked: k - 1] == "(" else { return nil } // cmux: checked
+        var j = i + 1
+        while j < s.count, isAlnum(s[checked: j]) || s[checked: j] == "-" || s[checked: j] == "_" || s[checked: j] == "." { j += 1 } // cmux: checked
+        while j > i + 1, s[checked: j - 1] == "." || s[checked: j - 1] == "-" || s[checked: j - 1] == "_" { j -= 1 } // cmux: checked
+        let domain = String(String.UnicodeScalarView(s.slice(i + 1, j))) // cmux: clamped slice
+        guard domain.contains("."), !domain.hasPrefix("."), let last = domain.split(separator: ".").last,
+              !last.contains("_"), last.count >= 2 else { return nil }
+        return (localLen, j - i)
+    }
+
+    /// `(dest "title")` after "]". Returns (dest, title, index after ")").
+    private static func inlineLinkTail(_ s: [Unicode.Scalar], _ i: Int) -> (String, String?, Int)? {
+        guard i < s.count, s[checked: i] == "(" else { return nil } // cmux: checked
+        var j = i + 1
+        func ws() { while j < s.count, s[checked: j] == " " || s[checked: j] == "\t" || s[checked: j] == "\n" { j += 1 } } // cmux: checked
+        ws()
+        var dest = String.UnicodeScalarView()
+        if j < s.count, s[checked: j] == "<" { // cmux: checked
+            j += 1
+            while j < s.count, s[checked: j] != ">", s[checked: j] != "\n" { // cmux: checked
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // cmux: checked
+                if let c = s[checked: j] { dest.append(c) }; j += 1 // cmux: checked
+            }
+            guard j < s.count, s[checked: j] == ">" else { return nil } // cmux: checked
+            j += 1
+        } else {
+            var depth = 0
+            while j < s.count, !(s[checked: j].map(isWS) ?? true), (s[checked: j]?.value ?? 0) >= 32 {
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { dest.append(next); j += 2; continue } // cmux: checked
+                if s[checked: j] == "(" { depth += 1 } // cmux: checked
+                if s[checked: j] == ")" { if depth == 0 { break }; depth -= 1 } // cmux: checked
+                if let c = s[checked: j] { dest.append(c) }; j += 1 // cmux: checked
+            }
+            guard depth == 0 else { return nil }
+        }
+        ws()
+        var title: String?
+        if j < s.count, let q: Unicode.Scalar = s[checked: j] == "\"" ? "\"" : s[checked: j] == "'" ? "'" : s[checked: j] == "(" ? ")" : nil { // cmux: checked
+            var t = String.UnicodeScalarView()
+            j += 1
+            while j < s.count, s[checked: j] != q { // cmux: checked
+                if s[checked: j] == "\\", j + 1 < s.count, let next = s[checked: j + 1], isASCIIPunct(next) { t.append(next); j += 2; continue } // cmux: checked
+                if let c = s[checked: j] { t.append(c) }; j += 1 // cmux: checked
+            }
+            guard j < s.count else { return nil }
+            j += 1
+            title = String(t)
+            ws()
+        }
+        guard j < s.count, s[checked: j] == ")" else { return nil } // cmux: checked
+        return (String(dest), title, j + 1)
+    }
+
+    static func unescape(_ s: String) -> String {
+        guard s.contains("\\") else { return s }
+        var out = String.UnicodeScalarView()
+        let u = Array(s.unicodeScalars)
+        var i = 0
+        while i < u.count {
+            if u[checked: i] == "\\", i + 1 < u.count, let next = u[checked: i + 1], isASCIIPunct(next) { out.append(next); i += 2 } else { if let c = u[checked: i] { out.append(c) }; i += 1 } // cmux: checked
+        }
+        return String(out)
+    }
+}

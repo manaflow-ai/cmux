@@ -5,6 +5,21 @@
 //! Cloudflare Durable Object relay share these types without sharing runtime
 //! dependencies.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 mod frame;
 mod relay;
 mod rpc;
@@ -29,8 +44,9 @@ pub use rpc::{
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,
     RouteId, RoutePolicy, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
     SearchMatch, Service, ServiceControl, StructuredDiffHunkV1, StructuredDiffLineKind,
-    StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1, WorkspaceId, WorkspaceRequest,
-    WorkspaceResponse,
+    StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+    WorkspaceId, WorkspaceRequest, WorkspaceResponse,
 };
 
 /// Maximum serialized server-to-client message accepted by remote session

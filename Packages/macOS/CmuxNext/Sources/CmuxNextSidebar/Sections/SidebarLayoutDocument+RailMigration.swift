@@ -24,25 +24,35 @@ extension SidebarLayoutDocument {
     /// and the account keep their item ids.
     public nonisolated var sectionsMigrationOps: [SidebarLayoutOp] {
         let top = Self.topSectionID, bottom = Self.bottomSectionID
-        // The minimal footer: the avatar, then the gear, icons only, on one
-        // leading line (SIDEBAR-FOOTER-MINIMAL). Items are re-added to drop
-        // a span and a label.
-        let minimalFooter: [SidebarLayoutOp] = [
+        // The profile control footer: the avatar alone, icon only, on one
+        // leading line (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2; Settings
+        // is in its menu). Items are re-added to drop a span and a label.
+        let profileFooter: [SidebarLayoutOp] = [
             .sectionUpdate(bottom, SectionPatch(layout: .inline, align: .leading, columns: .clear)),
             .itemRemove(LayoutItemID("itm_settings")),
             .itemRemove(LayoutItemID("itm_account")),
             .itemAdd(LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false), section: bottom, index: 0),
-            .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false), section: bottom, index: 1),
         ]
-        if sections == Self.inlineBottomDefaults.sections || section(bottom) == Self.gridBottomSection { return minimalFooter }
+        if sections == Self.inlineBottomDefaults.sections || section(bottom) == Self.gridBottomSection { return profileFooter }
+        // SIDEBAR-FOOTER-MINIMAL's untouched footer (avatar, then gear) loses the gear.
+        if section(bottom) == Self.minimalBottomSection { return [.itemRemove(LayoutItemID("itm_settings"))] }
         guard sections == Self.railDefaults.sections else { return [] }
         return [
             .itemRemove(LayoutItemID("itm_history")),
             .itemRemove(LayoutItemID("itm_notifications")),
             .itemRemove(LayoutItemID("itm_customize")),
             .sectionUpdate(top, SectionPatch(maxRows: .clear)),
-        ] + minimalFooter
+        ] + profileFooter
     }
+
+    /// SIDEBAR-FOOTER-MINIMAL's footer (the avatar, then the gear, icons
+    /// only, leading), the default until amendment 2, only to recognize it.
+    public nonisolated static let minimalBottomSection = LayoutSection(
+        id: bottomSectionID, region: .bottom, look: .builtIn,
+        arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+            LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
+        ])
 
     /// R53's bottom row (Settings with its label over 7 of 8 columns, the
     /// account over the last), the default until SIDEBAR-FOOTER-MINIMAL,
@@ -117,7 +127,8 @@ extension SidebarLayoutDocument {
     /// top (Lawrence 2026-10-05: rows); a user can still choose it.
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
-    /// Every migration in order (sections, then app refs, then Recents), as
+    /// Every migration in order (sections, then app refs, then Recents, then
+    /// retired items), as
     /// one op list that applies to this layout. No migration turns a
     /// plain-row top section into tiles; the tiles default was never stored
     /// (the store did not serve `sidebar-layout-v1` yet), so none moves back either.
@@ -128,8 +139,8 @@ extension SidebarLayoutDocument {
     public nonisolated func layoutMigrationOps(offeringRecents: Bool) -> [SidebarLayoutOp] {
         let sections = sectionsMigrationOps
         let appRefs = sectionsMigration.appRefMigrationOps
-        guard offeringRecents else { return sections + appRefs }
-        return sections + appRefs + applying(sections + appRefs).recentsMigrationOps
+        let earlier = offeringRecents ? sections + appRefs + applying(sections + appRefs).recentsMigrationOps : sections + appRefs
+        return earlier + applying(earlier).retiredItemOps
     }
 
     /// This layout with `layoutMigrationOps` applied.

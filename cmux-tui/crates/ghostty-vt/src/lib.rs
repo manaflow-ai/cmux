@@ -4,6 +4,21 @@
 //! by the Ghostty app (libghostty-vt built from the `ghostty-next/` submodule), so anything
 //! rendered from this crate matches what a real Ghostty surface would show.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 mod key;
 mod kitty;
 mod kitty_replay;
@@ -40,7 +55,8 @@ pub use snapshot::{
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
     HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
-    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, PtyWriteFn, Rgb,
+    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, ProgramStatusEvent,
+    ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
     SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
     parse_color, parse_palette_entry,

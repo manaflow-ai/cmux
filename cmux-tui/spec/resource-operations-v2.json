@@ -28,7 +28,11 @@
     "screen_group",
     "closed",
     "window_record",
-    "git_checkpoint"
+    "sidebar_layout",
+    "project",
+    "palette_usage",
+    "git_checkpoint",
+    "conversation"
   ],
   "types": {
     "RequestOrigin": {
@@ -1779,7 +1783,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -3657,7 +3661,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries, and sidebar_layout, the one SidebarLayoutSnapshot (sidebar-layout-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -5707,6 +5711,25 @@
             }
           },
           "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
         }
       },
       "extra": false
@@ -6180,6 +6203,56 @@
             }
           },
           "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        },
+        "group": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedWorkspaceGroupRecord"
+          },
+          "description": "Present when the item is a deleted personal workspace group (Ungroup, Delete Group). Its workspaces stayed open, so it has no member; `closed.reopen` forms the group again with its id, place and open members."
+        }
+      },
+      "extra": false
+    },
+    "ClosedWorkspaceGroupRecord": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The deleted group's id; reopen restores this id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the deleted group's icon (the shared icon string), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6244,6 +6317,34 @@
               "name": "ClosedScreenRecord"
             }
           }
+        }
+      },
+      "extra": false
+    },
+    "ClosedDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "Groups that left the history."
+        },
+        "updated": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "Groups that lost some members and stay."
         }
       },
       "extra": false
@@ -7651,6 +7752,1702 @@
         }
       },
       "extra": false
+    },
+    "SidebarItemRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "built_in, app, workspace, tab, room, saved_group, url; unknown kinds are kept."
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarSectionPatch": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Null clears; 1 to 80 Unicode scalars (else invalid_title)."
+        },
+        "look": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "built_in or list; a newer value is kept."
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "description": "Null shows the section in every room."
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 50 (else invalid_max_rows)."
+        },
+        "shows_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "layout": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline, grid or tiles; a newer value is kept."
+        },
+        "align": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill; a newer value is kept."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 0 to 32 points (else invalid_arrangement)."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 12 (else invalid_arrangement)."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.add"
+            ]
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "A section object as the app's SidebarLayoutDocument encodes it: id (sec_...), title?, shows_title?, region (top, middle, bottom; another value is refused because the app decodes it strictly), look (built_in, list), arrangement? {layout (list, inline, grid, tiles), align (leading, center, trailing, fill), gap? 0-32, columns? 1-12}, room?, max_rows? 1-50, content (items, workspaces, app; another value is refused like region), contribution? (<app id>#<section id>, content app), items? [item]. A JSON object rather than a closed type so values and keys from a newer app are stored verbatim (sidebar-sections.md L5); the reducer validates it."
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Among the region's sections; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "patch": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionPatch"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "top",
+              "middle",
+              "bottom"
+            ]
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the section itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.add"
+            ]
+          }
+        },
+        "item": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "An item object: id (itm_..., unique across sections and items), ref {kind, value} (kinds built_in, app, workspace, tab, room, saved_group, url; unknown kinds and built-in ids are kept), shows_label? (default true), span? 1-12 (grid columns). A JSON object rather than a closed type so a newer app's keys are stored verbatim (L5); the reducer validates it."
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Clamped; the same ref twice in one section is a no-op. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the item itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemoveRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove_ref"
+            ]
+          }
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarItemRef"
+          },
+          "description": "Every item with this kind and value, in every section."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpReset": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "layout.reset"
+            ]
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOp": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemoveRef"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpReset"
+        }
+      ],
+      "discriminator": "kind"
+    },
+    "PaletteUsageRow": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          },
+          "description": "The palette row's usage key (action:<id>, setting:<id>, workspace:<id>, tab:<id>, ...)."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "The decayed use count as of last_used_ms; each use adds 1 and it halves every half_life_ms."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The daemon's clock (Unix milliseconds) at the latest use."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsagePick": {
+      "kind": "object",
+      "fields": {
+        "prefix": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "A normalized query start (lowercased, white space collapsed, 1 to 8 characters) the row was picked for."
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          },
+          "description": "The picked row's usage key."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "The decayed pick count as of last_used_ms; it halves every pick_half_life_ms."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The daemon's clock at the latest pick of this row for this prefix."
+        },
+        "last": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "This row is the latest pick for this prefix."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 before the first use."
+        },
+        "half_life_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Half-life of a row's use count."
+        },
+        "pick_half_life_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Half-life of a learned pick."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteUsageRow"
+            }
+          },
+          "description": "Used rows, most used first (at most 500)."
+        },
+        "picks": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteUsagePick"
+            }
+          },
+          "description": "Learned picks by prefix, strongest first within a prefix."
+        },
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Sources already imported (palette_usage.import)."
+        },
+        "hidden": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Usage keys of the rows the user hid from the palette (palette_usage.hide)."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageRecordResult": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision after this use. The result carries no usage data (the replay record keeps it); read the history with palette_usage.get."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageImportResult": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision after this import."
+        },
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the source was imported before and nothing changed."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 for the defaults."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Section objects in order (regions top, middle, bottom; plans/cmux-next/sidebar-sections.md 4), as SidebarLayoutOpSectionAdd.section describes; stored values and keys come back verbatim."
+        }
+      },
+      "extra": false
+    },
+    "ProjectSourceSeen": {
+      "kind": "object",
+      "fields": {
+        "first_seen_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the source first reported the project (Unix ms)."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the project was last used there (Unix ms)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectOverlay": {
+      "kind": "object",
+      "fields": {
+        "rename": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The user's name for the project."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Pinned by the user (listed first)."
+        },
+        "hidden": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Hidden by the user; stays hidden on every resync."
+        },
+        "order": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "The user's order among pinned projects."
+        }
+      },
+      "extra": false
+    },
+    "ProjectSnapshot": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Canonical absolute path (realpath, no trailing slash): the project's id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The display name: the user's rename, else the folder's last component."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The latest last_used_ms of its sources (Unix ms); 0 for none."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "ProjectSourceSeen"
+            }
+          },
+          "description": "Per source id (claude-code, codex, vscode, zed, user, ...): when it reported the project."
+        },
+        "overlay": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ProjectOverlay"
+          },
+          "description": "The user's edits; a resync never changes them."
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "present",
+              "missing"
+            ]
+          },
+          "description": "missing: gone from every source and from disk (shown dimmed, removable, never deleted automatically)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectList": {
+      "kind": "object",
+      "fields": {
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSnapshot"
+            }
+          },
+          "description": "Pinned first (by order), then the most recently used."
+        }
+      },
+      "extra": false
+    },
+    "ProjectObservation": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "An absolute folder path; the store canonicalizes it."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the folder was last used in the source (Unix ms)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectChange": {
+      "kind": "object",
+      "fields": {
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The paths whose project changed (each also a session.events state_upsert or state_delete of resource project)."
+        }
+      },
+      "extra": false
+    },
+    "ConversationPartRef": {
+      "kind": "object",
+      "fields": {
+        "message_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "part_index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationOrigin": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "remote"
+            ]
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationParticipant": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "user_local, user_<id>, agent_<name> or remote_<install>."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "human",
+              "agent"
+            ]
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "agent_class": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "mux",
+              "agent"
+            ]
+          },
+          "description": "mux marks the Chief."
+        },
+        "acp_session": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "person": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The person a remote_<install> device belongs to."
+        }
+      },
+      "extra": false
+    },
+    "ConversationMessage": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          },
+          "description": "1-based and dense per conversation."
+        },
+        "client_msg_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "parts": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The parts as commands.md conversation-list defines Part: text, work, attachment or question."
+        },
+        "reply_to": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationPartRef"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "edited_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "retracted_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "reactions": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          }
+        },
+        "origin": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationOrigin"
+          },
+          "description": "Set for a message a paired device sent."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local"
+            ]
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "participants": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationParticipant"
+            }
+          }
+        },
+        "last_seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Increases by exactly one per committed op."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "last_message": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "read_cursors": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationPage": {
+      "kind": "object",
+      "fields": {
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "messages": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            }
+          },
+          "description": "Ascending seq."
+        },
+        "typing": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The participants typing now, sorted (memory only: never stored; a participant whose last bound connection ended is removed)."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSearchHit": {
+      "kind": "object",
+      "fields": {
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "message_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "snippet": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationSendResult": {
+      "kind": "object",
+      "fields": {
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationPublishResult": {
+      "kind": "object",
+      "fields": {
+        "published": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "false for a replay: nothing was published again."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSnapshotItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "snapshot"
+            ]
+          }
+        },
+        "reset_reason": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "initial",
+              "cursor_expired"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "messages": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            }
+          },
+          "description": "The last tail messages, ascending seq."
+        },
+        "typing": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The participants typing now, sorted (memory only: never stored; a participant whose last bound connection ended is removed)."
+        }
+      },
+      "extra": false
+    },
+    "ConversationMessageItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "message",
+              "message_updated"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationReadCursorItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "read_cursor"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationChangedItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "conversation"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationTypingItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "typing"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "on": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationDraftItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "draft"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "turn": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "segment": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "talk",
+              "thought"
+            ]
+          }
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "fresh": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "done": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "truncated": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "harness": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 64
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationEventItem": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "ConversationSnapshotItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationMessageItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationReadCursorItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationChangedItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationTypingItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationDraftItem"
+        }
+      ],
+      "discriminator": "type",
+      "unknown_variant": {
+        "sdk_name": "Unknown",
+        "when": "unrecognized_discriminator",
+        "preserve_discriminator": true,
+        "preserve_raw_object": true
+      },
+      "constraints": [
+        "Unknown is used only for an unrecognized type and retains that type plus the complete raw object.",
+        "Committed items (message, message_updated, read_cursor, conversation) carry the conversation rev they produced; typing and draft items are ephemeral, carry no rev and are never replayed."
+      ]
+    },
+    "ChiefStopResult": {
+      "kind": "object",
+      "fields": {
+        "stopped": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "false when no turn was running."
+        },
+        "subagents": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The subagents that stopped."
+        },
+        "note": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "What the Chief logged about the stop."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -8035,7 +9832,8 @@
                 "screen_group",
                 "closed",
                 "window_record",
-                "git_checkpoint"
+                "git_checkpoint",
+                "conversation"
               ]
             }
           },
@@ -9475,6 +11273,176 @@
         "validation.invalid"
       ]
     },
+    "chief.engine.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model}, choice, last_turn, recent}."
+      ]
+    },
+    "chief.engine.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "An acpmux harness; empty or default clears the choice."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Empty or default clears the choice."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "minimal, low, medium, high, xhigh or max; empty or default clears it."
+          },
+          "speed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "default or fast (the codex priority tier; a Claude harness refuses fast); empty or default clears it."
+          },
+          "compactor_speed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, invalid_speed, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model, speed, compactor_speed}, choice, last_turn, recent}.",
+        "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
+      ]
+    },
+    "chief.stop": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "One subagent to stop (its id, e.g. a3); absent stops the turn and every subagent at work."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefStopResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
+      ]
+    },
     "client.cell_pixels.set": {
       "class": "connection_control",
       "idempotency": "forbidden",
@@ -9779,6 +11747,92 @@
         "validation.invalid"
       ]
     },
+    "closed.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "closed",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "closed": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The group to delete. Name exactly one of closed or all."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the group's members to delete; the rest stay. Needs closed."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Delete every group (Clear Recently Closed)."
+          },
+          "since_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "With all: delete only groups closed at or after this Unix time in milliseconds."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Deletion is permanent: a deleted group cannot be reopened and its terminal archives are removed; the resource and session journals keep what they already recorded until their own retention."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ClosedDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "closed.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -10018,6 +12072,575 @@
         "width is finite, at least 0.1, and at most 1.",
         "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
+      ]
+    },
+    "conversation.draft": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "turn": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The idempotency key of the reply message the turn will post."
+          },
+          "segment": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "0-based segment of the turn; a new segment starts after each tool call."
+          },
+          "seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "1-based, one more per draft event of the turn, across segments."
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "talk",
+                "thought"
+              ]
+            }
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 65536
+            }
+          },
+          "fresh": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: text is the whole segment so far (or its last 64 KiB with truncated) and replaces it; false: text is a delta appended to the segment."
+          },
+          "done": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The turn ended: clients drop the draft."
+          },
+          "truncated": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationPublishResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Only an agent participant (a connection bound with conversation-bind) publishes drafts, for itself: details.reason not_agent otherwise.",
+        "Ephemeral: never stored, no rev change, never replayed to a resumed stream. The posted message with client_msg_id equal to turn, a done draft, or typing off ends the draft.",
+        "The replay key is (participant, turn, seq), not the idempotency key: a seq at or below the last published seq of the caller's turn is a replay (published false, nothing sent), so an out-of-order delta is dropped and the client recovers at the next fresh item.",
+        "At most 10 draft events per second per (conversation, turn): rate_limited. A delta above 16 KiB or a fresh text above 64 KiB: text_too_large.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
+      ]
+    },
+    "conversation.events": {
+      "class": "stream_open",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "stream_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "stream"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "Cursor"
+            }
+          },
+          "tail": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "default": 50,
+            "description": "Messages in the snapshot item."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "StreamOpened"
+      },
+      "stream": {
+        "item": {
+          "kind": "ref",
+          "name": "ConversationEventItem"
+        },
+        "end": {
+          "kind": "ref",
+          "name": "StreamEnd"
+        },
+        "cursor": true,
+        "initial_snapshot": true
+      },
+      "errors": [
+        "cursor.invalid",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "transport.closed",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "For this operation Cursor.generation is the conversation id and Cursor.revision is the conversation rev.",
+        "Without a cursor the first item is a snapshot (reset_reason initial) of the summary and the last tail messages, then every later change in commit order. A cursor at the current rev resumes with no snapshot; an older cursor starts with a snapshot (reset_reason cursor_expired).",
+        "A cursor of another conversation or ahead of the conversation is refused with cursor.invalid.",
+        "When the stream falls behind (its queue overflows or a rev is missed) it ends with reason gap and the last delivered cursor; reopen with that cursor.",
+        "Typing and draft items are delivered live only."
+      ]
+    },
+    "conversation.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "tail": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "default": 50,
+            "description": "How many of the newest messages to return."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ConversationPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found."
+      ]
+    },
+    "conversation.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "before_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            }
+          },
+          "limit": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationMessage"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Returns up to limit messages with seq below before_seq, the newest of them, ascending seq."
+      ]
+    },
+    "conversation.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationSummary"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Lists the conversations the caller takes part in, newest updated_at first."
+      ]
+    },
+    "conversation.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "default": 20
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationSearchHit"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Searches only the conversations the caller's principal takes part in, with the read model of commands.md conversation-search."
+      ]
+    },
+    "conversation.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 65536
+            }
+          },
+          "parts": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              },
+              "min_items": 1,
+              "max_items": 16
+            }
+          },
+          "reply_to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationPartRef"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationSendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Exactly one of text and parts. text sends one text part.",
+        "The idempotency key is the message's client_msg_id: 1 to 128 printable ASCII characters. A retry with the same key and request returns the stored message with replayed true; the same key with another request is idempotency.conflict.",
+        "The message is published to every conversation.events stream and subscriber of the conversation.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
+      ]
+    },
+    "conversation.typing": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationPublishResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Publishes a typing item for the caller's own principal, which must take part in the conversation. Never stored; the conversation rev does not change. The idempotency key is not stored: a retry publishes the indicator again (it is a state, so that is harmless) and replayed is false.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
       ]
     },
     "frontend_projection.get": {
@@ -11397,6 +14020,274 @@
         "validation.invalid"
       ]
     },
+    "palette_usage.forget": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reset Ranking: forgets every use and learned pick of the row; a row with no history commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "PaletteUsageSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.hide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The row's usage key."
+          },
+          "hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "True hides the row from the palette (it shows only for a query that is its whole title); false shows it again. Default true."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Hiding a hidden row or showing a shown one commits no change.",
+          "At most 2048 rows are hidden at once; a hide beyond that commits no change."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Where the history comes from (the defaults domain of a former build); each source imports once."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteUsageRow"
+              },
+              "max_items": 500
+            },
+            "description": "Former rows; each score is decayed to now and added to the row's score."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A source imported before commits no change (imported false); every source is remembered.",
+          "Scores above 1e6 are clamped.",
+          "Rows with an empty or over-long key, or a score that is not a positive number, are skipped."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The run row's usage key."
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "The query the row was run for; empty or absent records no learned pick."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The daemon stamps the use with its own clock.",
+          "A blank key is validation.invalid key_required; a key over 512 characters is key_too_long.",
+          "The session.events state_upsert of resource palette_usage carries only {revision}, the result only {revision}, and the replay fingerprint a SHA-256 of the key and query: usage never reaches an event or the journal."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "pane.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -12370,6 +15261,378 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "project.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "An existing folder; the store canonicalizes it. Adds source user and unhides the project."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "validation.invalid with refused_path for /, the home folder, temp dirs and agent homes; invalid_path for a missing folder."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "Case-insensitive match on the name or the path."
+          },
+          "include_hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also list hidden projects."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "At most this many (default and maximum 500)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ProjectList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.observe": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (ASCII letters, digits, - _ .; never user)."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "ProjectObservation"
+              }
+            },
+            "description": "The paths the source reports, at most 10000; a source with complete sends everything it knows in one batch."
+          },
+          "complete": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The entries are everything the source knows: a path it no longer lists loses this source."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Refused paths (/, the home folder, temp dirs, agent homes) are skipped, never an error.",
+          "A known path updates only this source's times; the user's overlay is never changed; a hidden project stays hidden."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The project's canonical path."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A project a source still reports is hidden (so a resync does not bring it back); any other one is deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.sync": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "existing": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Project paths the app found on disk (present again if missing)."
+          },
+          "gone": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Project paths the app found gone; missing unless a source other than the user still reports them."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Applies the disk facts the app checked with its privacy rules (the store reads no disk): a gone project that no source but the user reports is missing, an existing one present. Sent on app activation; never on a timer. At most 10000 paths."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The project's canonical path."
+          },
+          "rename": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The user's name (1 to 256 bytes); null clears it."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Pin or unpin."
+          },
+          "hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Hide or show."
+          },
+          "order": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32"
+              }
+            },
+            "description": "The order among pinned projects; null clears it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "An unknown path is validation.invalid with unknown_project."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -15000,6 +18263,87 @@
         "validation.invalid"
       ]
     },
+    "sidebar_layout.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarLayoutSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "op": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarLayoutOp"
+            },
+            "description": "One layout op of the app's reducer, tagged by kind."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A rejected op is validation.invalid whose message is the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, invalid_contribution, items_not_allowed, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same layout revision.",
+          "The op is at most 64 KiB and the stored layout at most 1 MiB."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarLayoutSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar_view.attach": {
       "class": "stream_open",
       "idempotency": "forbidden",
@@ -16093,6 +19437,17 @@
             },
             "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -16104,7 +19459,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
         ]
       },
       "result": {
@@ -18316,6 +21671,68 @@
         "validation.invalid"
       ]
     },
+    "workspace.agent_folder.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes. null clears it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (a verified cmux app connection, gate A2) may send it; the app sends it after a real user gesture. Any other origin is refused with origin.forbidden before the request is parsed. The result and every later workspace snapshot carry extra.agent_folder until it is cleared (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "workspace.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -19421,6 +22838,25 @@
             },
             "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -19432,7 +22868,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, or top_index is present.",
+          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },

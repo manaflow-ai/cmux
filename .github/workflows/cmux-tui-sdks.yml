@@ -11,7 +11,6 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
-      - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-release-delivery.yml"
@@ -44,7 +43,6 @@ on:
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
-      - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-release-delivery.yml"
@@ -680,5 +678,5 @@ jobs:
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
         run: |
-          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live -- --nocapture
-          cargo test -p cmux-daemon-client --locked --test mirror_live -- --nocapture
+          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live -- --nocapture

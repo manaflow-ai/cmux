@@ -70,6 +70,9 @@ final class DaemonService {
     private(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
+    /// Times the wait for a reopened workspace to reach the mirror
+    /// (`DaemonClosedHistory.workspaceAfterReopen`); tests advance it.
+    @ObservationIgnored var reopenClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
@@ -81,6 +84,9 @@ final class DaemonService {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored private(set) var endpointProvider: DaemonConnection.EndpointProvider?
+    /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
+    /// agent chat that runs on that machine); nil for this app's own daemon.
+    @ObservationIgnored private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -183,10 +189,14 @@ final class DaemonService {
     /// the same link, and the next event then connects to the new build.
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
-    func start(remote endpoint: @escaping @Sendable () async throws -> String,
-               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
+    /// `bridge`: each connection runs this child instead of connecting to the
+    /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
+    func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
         let store = store
+        if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
         armStartupDeadline()
         observeRetryEvents()
@@ -206,7 +216,7 @@ final class DaemonService {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
                                                                                     sessionEvents: true)) {
-                        DaemonEndpoint(socketPath: try await endpoint())
+                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
@@ -286,18 +296,6 @@ final class DaemonService {
         }
     }
 
-    func supports(_ capability: String) -> Bool {
-        store.supports(capability)
-    }
-
-    /// The socket for dedicated terminal attachments (re-read on reconnect).
-    func endpoint() async throws -> DaemonEndpoint {
-        if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
-        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
-        guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
-        return endpoint
-    }
-
     /// True once `start` began connecting.
     var isStarting: Bool { runTask != nil }
 
@@ -310,7 +308,8 @@ final class DaemonService {
     /// Outcome of a command whose reply may miss its deadline.
     enum CommandOutcome {
         case succeeded
-        case failed
+        /// The daemon refused or failed it; `code` is its `error_code` when it gave one.
+        case failed(code: String?)
         /// The deadline passed: the daemon may still apply the command.
         case unknown
     }
@@ -322,7 +321,7 @@ final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return .failed
+            return .failed(code: nil)
         }
         do {
             try await body(connection)
@@ -335,7 +334,8 @@ final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return .failed
+            if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
+            return .failed(code: nil)
         }
     }
 

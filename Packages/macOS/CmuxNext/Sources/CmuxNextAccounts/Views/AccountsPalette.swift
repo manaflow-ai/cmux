@@ -16,6 +16,7 @@ public struct AccountsPalette: Sendable, Equatable {
     var danger: Color
     var success: Color
     var attention: Color
+    let isDark: Bool
 
     public init(tokens: ThemeTokens) {
         func color(_ rgb: ThemeRGB) -> Color { Color(nsColor: rgb.nsColor) }
@@ -29,6 +30,7 @@ public struct AccountsPalette: Sendable, Equatable {
         danger = color(tokens.danger)
         success = color(tokens.success)
         attention = color(tokens.attention)
+        isDark = tokens.isDark
     }
 
     /// The app scope's colors (the Ghostty config theme).
@@ -70,6 +72,7 @@ extension AIProvider {
 struct AccountsButtonStyle: ButtonStyle {
     let palette: AccountsPalette
     var destructive = false
+    var prominent = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -77,8 +80,9 @@ struct AccountsButtonStyle: ButtonStyle {
             .foregroundStyle(destructive ? palette.danger : palette.text)
             .padding(.horizontal, Metrics.space4)
             .padding(.vertical, Metrics.space1 + 1)
-            .background(configuration.isPressed ? palette.selection : palette.hover,
+            .background(configuration.isPressed ? palette.selection : (prominent ? palette.selection : palette.hover),
                         in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
+            .opacity(configuration.isPressed && prominent ? 0.7 : 1)
             .contentShape(Rectangle())
     }
 }

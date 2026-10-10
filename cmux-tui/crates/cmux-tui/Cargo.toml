@@ -28,6 +28,9 @@ cmux-tui-core.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
+# `cmux server …`, the machine server verbs (plans/cmux-next/server.md).
+cmux-server.workspace = true
+cmux-server-core.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true
@@ -53,6 +56,8 @@ uuid.workspace = true
 wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# `cmux host …`, the machine supervisor and process roles (server.md 5.1).
+cmux-host.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
 acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).

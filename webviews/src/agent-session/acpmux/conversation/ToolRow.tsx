@@ -1,9 +1,14 @@
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
+import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
+import { pathName } from "../chips/paths";
+import { toolImages } from "../toolImages";
+import { toolLabel } from "../toolPaths";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -35,16 +40,18 @@ export function toolIcon(kind?: string): ReactNode {
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
-  const label = tool.title || tool.inputSummary || item.text;
+  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }));
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
+  const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
@@ -61,6 +68,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
           aria-expanded={open}
+          aria-controls={open ? detailsId : undefined}
           onClick={() => setOpen((value) => !value)}
         >
           {content}
@@ -73,12 +81,44 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
-      {open && shell && <ShellBlock command={tool.command} output={body} exitCode={tool.exitCode} />}
-      {open &&
-        !shell &&
-        (files.length
-          ? files.map((file) => <EditDiff key={file.path} file={file} />)
-          : body && <pre className="cv-tool-output selectable">{body}</pre>)}
+      {images.length > 0 && <ToolImages sources={images} />}
+      {open && shell && <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} />}
+      {open && !shell && files.length > 0 && (
+        <div id={detailsId}>
+          {files.map((file) => (
+            <EditDiff key={file.path} file={file} />
+          ))}
+        </div>
+      )}
+      {open && !shell && files.length === 0 && body && (
+        <pre id={detailsId} className="cv-tool-output selectable">
+          {body}
+        </pre>
+      )}
     </>
+  );
+}
+
+/// The images a call returned or wrote, shown under its row whether or not it is open: a returned
+/// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
+/// and a click opens the viewer.
+function ToolImages({ sources }: { sources: string[] }) {
+  return (
+    <div className="cv-tool-images">
+      {sources.map((source) =>
+        source.startsWith("data:") ? (
+          <OpenableImage key={source} src={source} alt="" />
+        ) : mediaKind(source) ? (
+          <ReplyMedia key={source} path={source} alt="" />
+        ) : (
+          <ReplyImage
+            key={source}
+            src={source}
+            alt=""
+            fallback={<span className="cv-chip-plain">{pathName(source)}</span>}
+          />
+        ),
+      )}
+    </div>
   );
 }

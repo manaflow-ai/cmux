@@ -41,6 +41,11 @@ final class WindowState {
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
     var page: TopPageRoute?
+    /// A New Cloud Workspace this window shows until its terminal opens
+    /// (`CloudMachineCreation.id`, cx-lu8f): its progress fills the content
+    /// area and its sidebar row is selected. A top page still shows over
+    /// it; selecting another workspace clears it. In memory only.
+    var cloudCreation: UUID?
     /// Workspaces this window showed, most recent first (Switch to Last Used
     /// Workspace, Sort by Last Used). In memory only, at most 64.
     private(set) var workspaceRecency: [String] = []
@@ -98,6 +103,7 @@ extension WindowState {
         sidebarHidden = record.sidebarHidden
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
+        if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })
@@ -116,9 +122,13 @@ extension WindowState {
 
 extension WindowState {
     /// Shows `id` (nil: the empty state): the window leaves its top page.
-    func showWorkspace(_ id: String?) {
+    /// Unless `keepsCreation` (a repair, or the creation's own workspace,
+    /// kept until it is mirrored), another workspace also ends the window's
+    /// Cloud creation view; the creation goes on in its sidebar row.
+    func showWorkspace(_ id: String?, keepsCreation: Bool = true) {
         workspaceID = id
         if id != nil { page = nil }
+        if !keepsCreation, id != nil { cloudCreation = nil }
     }
 
     /// The workspace shown before the current one, if any.

@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import Testing
+import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
@@ -648,11 +649,6 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         return (store, source)
     }
 
-    /// Waits on observation changes, never on a clock.
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<5_000 where !condition() { await Task.yield() }
-    }
-
     /// Lets queued main-actor and source tasks run (for "nothing happens" checks).
     func drainTasks() async {
         for _ in 0..<500 { await Task.yield() }
@@ -880,16 +876,19 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(store.log.isEmpty)
     }
 
-    @Test func offlineSendIsRefusedAndLogsNothing() async throws {
+    /// Offline, the send waits like a text send (OfflineSendQueueTests):
+    /// logged, and nothing uploads before the reconnect.
+    @Test func offlineSendWaitsAndUploadsNothingWhileGone() async throws {
         let (store, source) = try await started()
         let (a, _) = try await twoAttachments(store)
         await source.setOnline(false)
         await waitUntil { !store.isOnline }
-        await #expect(throws: HomeRejection.ownerUnreachable) {
+        await #expect(throws: HomeSendState.pendingResend) {
             try await store.send(conversation: conversation, text: "x", attachments: [a])
         }
-        #expect(store.log.isEmpty)
+        #expect(store.log.entries.count == 1)
         #expect(await source.uploadCalls.isEmpty)
+        store.stop()
     }
 
     @Test func fetchIsIdempotentAndPrefersTheLocalCopy() async throws {

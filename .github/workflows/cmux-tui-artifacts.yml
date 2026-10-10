@@ -16,10 +16,20 @@ name: cmux-tui artifacts
 #                                                  install as cmux-cloud beside it
 #   cmux-tui/<commit-sha>/cmux-tui-browser-host-<rust-target>  browser host (macOS);
 #                                                  install as cmux-browser-host beside cmux-tui
+#   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
+#                                                  detector (macOS); install as
+#                                                  cmux-agent-screen-detection beside cmux-tui;
+#                                                  optional (a failed build publishes none)
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
 #   cmux-tui/tree/<tree-key>/source.json           the commit and run that built it
+#   cmux-tui/tree/<tree-key>/cmux-tui-x86_64-pc-windows-gnu.exe(.sha256)  the
+#                                                  Windows daemon (unsigned) for GPUI;
+#                                                  completion-windows.json names its commit
+#   cmux-tui-windows/<commit-sha>/cmux-tui-x86_64-pc-windows-gnu.exe  immutable, its
+#                                                  own prefix: never in cmux-tui/latest
+#   cmux-tui-windows/<commit-sha>/manifest.json
 #   cmux-tui/latest/cmux-tui-<rust-target>         rolling, every main push
 #   cmux-tui/latest/manifest.json
 #   cmux-relay/<commit-sha>/cmux-relay-<rust-target> immutable, commit-addressed
@@ -66,6 +76,46 @@ on:
       - "ghostty"
       - "ghostty-next"
       - "scripts/cmux-next/build-layout-reducer-ffi.sh"
+      - "scripts/ci/cmux-tui-darwin-builder"
+      - "scripts/ci/macos-cross.sh"
+      - "scripts/ci/macos_stubs.py"
+      - "scripts/ci/macho_weaken.py"
+      - "scripts/ci/macos-stubs/**"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "backend/packages/home-core/conformance/conversation-cases.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "backend/packages/home-core/conformance/conversation-search-cases.json"
+      - "mux/packages/brain/conformance/chief-cases.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/remote-tab/client.json"
+      - "schemas/remote-tab/cookie-sync.json"
+      - "schemas/remote-tab/input-mapping.json"
+      - "schemas/remote-tab/menu-token.json"
+      - "schemas/remote-tab/messages.json"
+      - "schemas/remote-tab/scroll-writer.json"
+      - "schemas/remote-tab/session.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-cua/SKILL.md"
   workflow_dispatch:
     inputs:
       macos_runner:
@@ -78,19 +128,22 @@ on:
         type: string
 
 concurrency:
-  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*),
-  # per PR, and per commit for a manual dispatch. cancel-in-progress stays
-  # false: a group then holds one running run and one pending run, and a newer
-  # push replaces only the pending one. A started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload, and a queued run for an older
-  # branch head is superseded: only the newest head's tree matters, and the
-  # macOS runners are scarce (2026-10-06: 30 runs queued behind ~3 macos-15
-  # slots when every commit had its own group). A superseded commit needs no
-  # tree (pin-cmux-tui.sh says so); publish one on purpose with a dispatch or a
-  # cmux-tui-pin-* push. Main stays serialized because each main run also
-  # updates latest/.
+  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*), per
+  # PR, and per commit for a manual dispatch. For push and dispatch runs
+  # cancel-in-progress stays false: a started run is never cancelled, so no
+  # publish of immutable objects stops mid-upload, and a newer push replaces
+  # only the pending run. A pull_request_target run is cancelled by the next
+  # push to its PR, so a superseded PR head never holds a macOS builder
+  # (tests/test_ci_self_hosted_guard.sh,
+  # check_pr_macos_workflows_cancel_superseded_runs). One group per
+  # feat-cmux-next push (#18175) left 67 runs queued at 05:30Z on 2026-10-07,
+  # each about 2 h behind the macOS builders, so the tip's tree and the
+  # nightly-next build that needs it waited behind every older push. PRs into
+  # feat-cmux-next are retired (direct pushes since 2026-10-03), so no PR
+  # same-tree wait needs an intermediate base tree. tree-preflight still skips
+  # a complete tree, and tree-owner-wait keeps one builder per tree key.
   group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 permissions: {}
 
@@ -119,6 +172,7 @@ jobs:
       actions: read
       contents: read
     outputs:
+      darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
       key: ${{ steps.inspect.outputs.key }}
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
@@ -131,6 +185,15 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 1
+
+      - name: Read the macOS builder switch
+        id: darwin-builder
+        run: |
+          set -euo pipefail
+          builder="$(tr -d '[:space:]' < scripts/ci/cmux-tui-darwin-builder)"
+          [[ "$builder" == mac || "$builder" == linux ]] || { echo "::error::scripts/ci/cmux-tui-darwin-builder must be mac or linux, not '$builder'"; exit 1; }
+          echo "builder=$builder" >> "$GITHUB_OUTPUT"
+          echo "macOS targets build on: $builder"
 
       - name: Check the branch head and tree publication
         id: inspect
@@ -416,15 +479,40 @@ jobs:
       # This lane publishes the raw cmux-tui, cmux-relay, and chatmux-relay
       # binaries. The Cloudflare Worker is a separate deployment artifact and
       # its npm audit must not block these commit-addressed files.
-      # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
-      # the Node rollback lane until a tested backend exists; do not publish a
-      # misleading Rust machine package or manifest entry.
-      include_windows: false
-      # Post-merge publication is off the PR critical path, so its two macOS
-      # Rust legs run on the background lane (free GitHub-hosted capacity)
-      # unless a dispatch names a runner. See docs/ci-runners.md.
-      macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+      # The Windows daemon (cmux-tui-x86_64-pc-windows-gnu.exe) for GPUI's
+      # Windows daemon mode: published UNSIGNED (coordinator decision
+      # 2026-10-08; signing is a later release decision) on files.cmux.com
+      # only, under its own prefix cmux-tui-windows/<sha>/ and in the tree,
+      # never in cmux-tui/<sha>/ or cmux-tui/latest/ (the public Windows
+      # installer, web/public/tui/install-static.ps1, installs whatever
+      # cmux-tui/latest/manifest.json lists). pin-cmux-tui.sh fetch checks
+      # its tree .sha256. The same build also makes cmux-tui-hook, cmux-relay
+      # and chatmux-relay for Windows: none is published (the Rust machine
+      # relay has no Windows PTY backend yet; no misleading Windows relay,
+      # machine package or manifest entry).
+      include_windows: true
+      # Optional: a failed Windows build publishes the macOS and Linux tree
+      # without it (a ::warning names it); the key gets the Windows daemon on
+      # a later republication (cmux-tui-pin-* push or dispatch), and
+      # pin-cmux-tui.sh fetch on Windows fails fast until then.
+      windows_optional: true
+      # Same-repository PRs (pull_request_target) publish the tree that their
+      # same-tree checks wait for, so these macOS legs are on the PR critical
+      # path and use the PR pool, never the background lane. See
+      # docs/ci-runners.md.
+      # Attempt 1 runs on the owned minis through CI_SIDE_LANE_RUNNER (the
+      # glaeda-aws pools have no runners); Blacksmith macOS queued these
+      # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
+      # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
+      # A rerun goes back to the PR pool through macos_retry_runner.
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
+      # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file
+      # scripts/ci/cmux-tui-darwin-builder (mac or linux), a tree-key input, so
+      # the published tree always says which builder made it. Fallback: commit
+      # `mac` to that file.
+      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
 
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
@@ -440,7 +528,7 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
-    runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -516,16 +604,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Only the members whose sources name cmux_next_ (the filter matches the
+          # test path, so no other member can hold one): skips the test binaries of
+          # every other member. Falls back to --workspace.
+          read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+          echo "cmux_next_ test members: ${members[*]}"
           status=1
           for attempt in 1 2 3; do
             rm -f "$RUNNER_TEMP/cmux-next-tests.txt"
-            if cargo test --workspace --locked cmux_next_ -- --list > "$RUNNER_TEMP/cmux-next-tests.txt" \
-              && grep -qE ': test$' "$RUNNER_TEMP/cmux-next-tests.txt" \
-              && cargo test --workspace --locked cmux_next_; then
-              status=0
-              break
+            # One cargo invocation: a separate `-- --list` pass rebuilt acpmux and
+            # cmux-tui before the real run (2m39s, run 38014219284). The filter
+            # must still match tests: a run that passed none is red.
+            status=0
+            cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$RUNNER_TEMP/cmux-next-tests.txt" || status=$?
+            if [[ "$status" -eq 0 ]]; then
+              if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/cmux-next-tests.txt"; then
+                break
+              fi
+              echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)" >&2
+              exit 1
             fi
-            status=$?
             if [[ "$attempt" -lt 3 ]]; then
               echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
               sleep $((attempt * 10))
@@ -588,6 +686,25 @@ jobs:
           path: assets/cmux-tui
           merge-multiple: true
 
+      # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
+      # the hook and both relays too. Only the daemon is published, and in
+      # its own prefix (see the build job).
+      - name: Move the Windows daemon to its own prefix
+        id: windows
+        run: |
+          set -euo pipefail
+          if [[ ! -f assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe ]]; then
+            echo "::warning title=no Windows daemon::the optional Windows build made no cmux-tui-x86_64-pc-windows-gnu.exe; publishing without cmux-tui-windows/$GITHUB_SHA"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          mkdir -p assets/cmux-tui-windows
+          mv assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          # The rest of the Windows build: the hook and both relays.
+          rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
+          ls assets/cmux-tui assets/cmux-tui-windows
+
       - name: Download cmux-relay binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -645,7 +762,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -811,6 +928,9 @@ jobs:
             cp "assets/cmux-tui/cmux-tui-${target}" "assets/chatmux-relay/cmux-tui-${target}"
           done
           build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
+          if [[ -d assets/cmux-tui-windows ]]; then
+            build_manifest assets/cmux-tui-windows cmux-tui- cmux-tui-windows-checksums.txt
+          fi
           build_manifest assets/cmux-relay cmux-relay- cmux-relay-checksums.txt
           build_machine_manifest assets/chatmux-relay assets/cmux-tui
 
@@ -838,6 +958,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-file assets/cmux-tui-windows/manifest.json \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-directory assets/cmux-tui-windows
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-file assets/cmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
@@ -860,6 +988,8 @@ jobs:
           subject-path: |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
+            assets/cmux-tui-windows/cmux-tui-*
+            assets/cmux-tui-windows/manifest.json
             assets/cmux-relay/cmux-relay-*
             assets/cmux-relay/manifest.json
             assets/chatmux-relay/chatmux-relay-*
@@ -896,6 +1026,10 @@ jobs:
             done
           }
           publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+          if [[ -d assets/cmux-tui-windows ]]; then
+            publish_prefix assets/cmux-tui-windows "cmux-tui-windows/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+            echo "Published: https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json"
+          fi
           publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           publish_prefix assets/chatmux-relay "chatmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
@@ -910,7 +1044,7 @@ jobs:
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
           for file in assets/cmux-tui/cmux-tui-*; do
-            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* ]]; then
+            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
             fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
@@ -984,6 +1118,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
@@ -1073,6 +1215,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
@@ -1130,6 +1280,191 @@ jobs:
   # the commit-addressed publication and the cmux_next_ daemon tests of this
   # commit pass. A key is published once: the first passing commit with a tree
   # wins, and a later commit with the same tree keeps that binary.
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow. Builds every macOS artifact of the
+  # build job on Linux without an Apple SDK (cmux-app-host, cmux-browser-host,
+  # cmux-cloud, libghostty-vt, and through the framework stubs in
+  # scripts/ci/macos-stubs: cmux-tui, cmux-tui-hook, acpmux, cmux-relay,
+  # chatmux-relay) and compares each with the Mac-built artifact that `publish`
+  # just uploaded for this commit (scripts/ci/macos-cross.sh, macho_parity.py).
+  # It replaces nothing: no job reads its output, it holds no credentials, and
+  # continue-on-error keeps a red comparison out of the run's conclusion. The
+  # report is the job summary and the macos-cross-parity artifact. The switch
+  # file scripts/ci/cmux-tui-darwin-builder moves publication to the same
+  # Linux build once this comparison is clean.
+  macos-cross-shadow:
+    name: macOS cross-compile shadow (Linux, compare only)
+    needs: [tree-preflight, publish]
+    # Only while the Mac builds publish: with darwin_builder=linux the
+    # references are this job's own output.
+    if: needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    # 8 vCPU: the shadow builds both macOS targets of every binary.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict and the stub tools
+        run: |
+          python3 tests/test_ci_macho_parity.py
+          python3 tests/test_ci_macos_stubs.py
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19
+
+      # libghostty-vt's Zig: the ghostty-next manifest sets it. Zig's darwin
+      # headers and libSystem stub must match the version Ghostty builds with.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Fetch the Mac-built references of this commit
+        run: ./scripts/ci/macos-cross.sh fetch-refs "$GITHUB_SHA"
+
+      - name: Build on Linux (no Apple SDK)
+        env:
+          # Public keys compiled into cmux-tui, as in the build job.
+          CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
+        run: |
+          set -euo pipefail
+          sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
+          ./scripts/ci/macos-cross.sh toolchain "$sdk"
+          start=$(date +%s)
+          ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
+          ./scripts/ci/macos-cross.sh vt
+          # The same stamps as the build job (cmux-tui-artifacts passes this version).
+          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
+          echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Compare with the Mac builds
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          ./scripts/ci/macos-cross.sh parity-hosts > "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-vt >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh stubs-check >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-bins >> "$report" 2>&1 || status=1
+          cat "$report"
+          {
+            echo "### macOS cross-compile shadow: ${GITHUB_SHA}"
+            echo "Linux build: ${LINUX_BUILD_SECONDS:-?} s. Mac references: https://files.cmux.com/cmux-tui/${GITHUB_SHA}/"
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
+      # For the run-time half on a fleet Mac (scripts/ci/macos-cross-runtime-check.sh).
+      - name: Upload the Linux-built macOS binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/macos-cross/linux/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # MACOS-CROSS-COMPILE-ON-LINUX run-time half for x86_64, on a GitHub-hosted
+  # Intel Mac: each Linux-built x86_64 binary loads, matches the Mac build's
+  # minos, dylibs, ad-hoc signature and version text, and the Linux-built
+  # cmux-tui passes smoke-remote-release.sh (scripts/ci/macos-cross-runtime-check.sh).
+  # Compare-only like the shadow job it reads; it holds no credentials.
+  macos-cross-runtime-x86_64:
+    name: macOS cross-compile run-time check (Intel, compare only)
+    needs: [macos-cross-shadow]
+    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the Linux-built macOS binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/linux
+
+      - name: Fetch the Mac-built x86_64 references of this commit
+        env:
+          REF_DIR: ${{ runner.temp }}/mac
+        run: |
+          set -euo pipefail
+          mkdir -p "$REF_DIR"
+          base="https://files.cmux.com"
+          for n in cmux-tui cmux-tui-hook cmux-tui-acpmux cmux-tui-app-host cmux-tui-browser-host cmux-tui-cloud-server; do
+            curl -fsS --retry 3 -o "$REF_DIR/$n-x86_64-apple-darwin" "$base/cmux-tui/$GITHUB_SHA/$n-x86_64-apple-darwin"
+          done
+          curl -fsS --retry 3 -o "$REF_DIR/manifest.json" "$base/cmux-tui/$GITHUB_SHA/manifest.json"
+          for n in cmux-relay chatmux-relay; do
+            curl -fsS --retry 3 -o "$REF_DIR/$n-x86_64-apple-darwin" "$base/$n/$GITHUB_SHA/$n-x86_64-apple-darwin"
+            curl -fsS --retry 3 -o "$REF_DIR/$n-manifest.json" "$base/$n/$GITHUB_SHA/manifest.json"
+          done
+          python3 - "$REF_DIR" <<'PY'
+          import hashlib, json, pathlib, sys
+          out = pathlib.Path(sys.argv[1])
+          expected = dict(json.loads((out / "manifest.json").read_text())["binaries"])
+          expected.update(json.loads((out / "cmux-relay-manifest.json").read_text())["binaries"])
+          for files in json.loads((out / "chatmux-relay-manifest.json").read_text())["artifacts"].values():
+              expected[files["chatmux-relay"]["name"]] = files["chatmux-relay"]["sha256"]
+          for path in sorted(out.glob("*-apple-darwin")):
+              if expected.get(path.name) != hashlib.sha256(path.read_bytes()).hexdigest():
+                  raise SystemExit(f"checksum mismatch for {path.name}")
+          PY
+
+      - name: Run the Linux-built binaries beside the Mac-built ones
+        run: |
+          set -o pipefail
+          uname -m
+          status=0
+          ./scripts/ci/macos-cross-runtime-check.sh "$RUNNER_TEMP/linux" "$RUNNER_TEMP/mac" | tee "$RUNNER_TEMP/runtime.txt" || status=$?
+          { echo "### macOS cross-compile run-time check (x86_64): ${GITHUB_SHA}"; echo '```'; cat "$RUNNER_TEMP/runtime.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
@@ -1144,7 +1479,11 @@ jobs:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
+      # actions: write dispatches cmux-next's same-tree mode and removes the
+      # wait markers; pull-requests: read checks a waiting pull request's head.
+      actions: write
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1155,6 +1494,44 @@ jobs:
         with:
           name: cmux-tui-aarch64-apple-darwin
           path: assets/tree
+
+      # Linux daemon mode fetches the musl daemon and app host by tree key
+      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
+      - name: Download the Linux x86_64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
+          path: assets/tree
+
+      # GPUI's Windows daemon mode fetches the Windows daemon by tree key
+      # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
+      # Windows build artifact also holds the hook and relays; only the daemon
+      # goes into the tree.
+      # Optional (build windows_optional): absent when the Windows build failed.
+      - name: Download the Windows x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: assets/windows
+
+      - name: Keep only the Windows daemon for the tree
+        run: |
+          set -euo pipefail
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            else
+              echo "::warning title=no Windows daemon::this run built no $asset; the tree keeps an earlier Windows build or none"
+            fi
+          done
+          rm -rf assets/windows
 
       - name: Publish the complete tree with the trusted helper
         env:
@@ -1190,7 +1567,7 @@ jobs:
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
-            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
               fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
             done
           else
@@ -1199,7 +1576,7 @@ jobs:
           import json, os, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
-          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
+          names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
           print(json.dumps({
@@ -1215,12 +1592,42 @@ jobs:
           PY
             source_args=(--source-file tree/source.json --publish-source)
           fi
+          # The Windows daemon has its own attestation (completion-windows.json)
+          # and commit prefix (cmux-tui-windows/<commit>/): the build of the
+          # commit an earlier publication of this tree named there; else the
+          # tree's source commit's, when it published one; else this run's (a
+          # tree published before the Windows target). A write-once object
+          # never gets a second build's bytes. The Windows build is optional:
+          # with none of these, the tree is published without Windows.
+          windows_commit=""
+          if fetch "$base/completion-windows.json" tree/completion-windows.json 2>/dev/null; then
+            windows_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' tree/completion-windows.json)"
+          elif [[ "$source_commit" != "$GITHUB_SHA" ]] &&
+              fetch "https://files.cmux.com/cmux-tui-windows/$source_commit/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+            windows_commit="$source_commit"
+          elif fetch "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+            windows_commit="$GITHUB_SHA"
+          fi
+          windows_args=()
+          if [[ -n "$windows_commit" ]]; then
+            [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
+            if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
+              for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+              done
+            fi
+            windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
+          else
+            echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
+          fi
           python3 scripts/ci/publish-cmux-tui-tree.py \
             --key "$KEY" \
             --source-commit "$source_commit" \
             --assets-dir assets/tree \
             --manifest-file manifest.json \
             "${source_args[@]}" \
+            "${windows_args[@]}" \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
@@ -1237,18 +1644,70 @@ jobs:
         run: |
           set -euo pipefail
           verify_tree() {
-          local base="https://files.cmux.com/cmux-tui/tree/$1" name=cmux-tui-aarch64-apple-darwin published_sha
-          curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
-          published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
-          [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+          local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
+          names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
+          # The Windows daemon is optional: verified when the tree has it.
+          if curl -fsSL --proto '=https' -o /dev/null "$base/completion-windows.json?verify=$GITHUB_RUN_ID"; then
+            names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
+          else
+            echo "::warning title=tree without Windows::$base has no completion-windows.json"
+          fi
+          for name in $names; do
+            curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
+            published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
+            [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+            echo "Verified: $base/$name"
+          done
           curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID"
-          echo "Verified: $base/$name"
           }
           verify_tree "$KEY"
           # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
           if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
             verify_tree "$LEGACY_KEY"
           fi
+
+      # cmux-next runs that probed this tree before it was published left a
+      # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
+      # waited). Start them now: cmux-next.yml same-tree mode.
+      - name: Start the cmux-next tree jobs that waited for this tree
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
+  # nightly-next is promoted only to a commit whose cmux-tui tree is published
+  # and whose cmux-next Release compile passed, so the nightly builds its tip
+  # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
+  # Release compile passes; this job asks when the tree is ready (just
+  # published, or already published by an earlier commit with the same key),
+  # so whichever finishes last requests it. It requests the newest
+  # feat-cmux-next push with this tree and a green Release compile, so a
+  # commit whose own run here was replaced by a newer push is not lost.
+  request-nightly-next:
+    name: request nightly-next promotion
+    needs: [tree-preflight, publish-tree]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.publish-tree.result == 'success') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # One fetch of the branch's recent history plus a jobs lookup per candidate.
+    timeout-minutes: 15
+    permissions:
+      # actions: read finds the Release compile; actions: write dispatches
+      # main's promote-nightly-next.
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Request nightly-next promotion on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: scripts/cmux-next/request-nightly-next.sh --tree-ready "$SHA" --repo "$GITHUB_REPOSITORY"
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
@@ -1266,7 +1725,11 @@ jobs:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
       cancel-in-progress: false
     permissions:
+      # actions: write and pull-requests: read: see publish-tree. The notify
+      # script comes from the base checkout, like the uploader.
+      actions: write
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1276,6 +1739,20 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-aarch64-apple-darwin
+          path: assets/tree
+
+      # Linux daemon mode fetches the musl daemon and app host by tree key
+      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
+      - name: Download the Linux x86_64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
       - name: Publish the PR tree with the trusted helper
@@ -1314,16 +1791,16 @@ jobs:
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/existing-source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
-            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            for asset in $(python3 "$helper" --list-companions); do
               fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
             done
           else
             source_args=(--source-file tree/source.json --publish-source)
           fi
-          python3 - "$source_commit" "$KEY" > manifest.json.tmp <<'PY'
-          import hashlib, json, pathlib, sys
-          commit, key = sys.argv[1:]
-          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
+          python3 - "$source_commit" "$KEY" "$helper" > manifest.json.tmp <<'PY'
+          import hashlib, json, pathlib, subprocess, sys
+          commit, key, helper = sys.argv[1:]
+          names = subprocess.check_output([sys.executable, helper, "--list-companions"], text=True).split()
           binaries = {}
           for name in names:
               path = pathlib.Path("assets/tree") / name
@@ -1359,3 +1836,45 @@ jobs:
             --uploader "$uploader" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
+
+      # cmux-next runs that probed this tree before it was published left a
+      # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
+      # waited). Start them now: cmux-next.yml same-tree mode.
+      - name: Start the cmux-next tree jobs that waited for this tree
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
+  # A run that took the build and ended without publishing its tree (a failed
+  # build, daemon test or publish) tells the cmux-next runs waiting for that
+  # key: same-tree mode with same_tree_state=failed reports it in red at once.
+  # The markers stay, so a later publication of the key (a takeover run, a
+  # cmux-tui-pin-* push) still starts their tree jobs.
+  notify-unpublished-tree:
+    name: report an unpublished cmux-tui tree to cmux-next
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
+    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      # The base branch's script on a pull_request_target run, the pushed one otherwise.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Report the unpublished tree to the cmux-next runs that wait for it
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state failed \
+            --reason "the cmux-tui artifacts run $RUN_URL ended without publishing tree $KEY (build, daemon tests or publish failed); re-run it, and its publish starts the tree jobs"

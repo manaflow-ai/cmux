@@ -128,7 +128,9 @@ fn remote_op_allowed(op: &Op) -> bool {
         | Op::ReactionAdd { .. }
         | Op::ReactionRemove { .. }
         | Op::ReadCursorSet { .. } => true,
-        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } => false,
+        // Paired installs do not see question parts yet (project.rs), so
+        // they cannot answer one; allow it with the question projection.
+        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } | Op::QuestionAnswer { .. } => false,
     }
 }
 
@@ -197,6 +199,9 @@ pub(in crate::server) fn remote_event(
                 "on": on,
             }))
         }
+        // Drafts reach only the v2 conversation.events stream, which the
+        // relay never admits (it refuses every resource-protocol frame).
+        ConversationEvent::Draft { .. } => None,
     }
 }
 

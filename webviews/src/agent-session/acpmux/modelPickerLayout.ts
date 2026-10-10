@@ -13,6 +13,8 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
+  switching?: { harness: string; name: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
   /// The name of the model the agent's default resolves to, when known: the "Default" row draws
@@ -24,16 +26,44 @@ export type ModelPickerProps = {
   recents: Combo[];
   onLand(model: string, effort?: string): void;
   onEffort(value: string): void;
+  fastMode?: {
+    name: string;
+    currentValue?: string;
+    onValue: string;
+    offValue: string;
+    onLabel: string;
+    offLabel: string;
+    onPick(value: string): void;
+  };
+  /** Refreshes the host-backed model catalog; the host owns transport and live events. */
+  catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
+  /// One pick of a model with the effort and fast mode a typed query named ("gpt medium fast"),
+  /// in this harness or another (which starts a new chat there, then applies the rest).
+  onCombo?(combo: ModelCombo): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
   /// prewarm hint (harnessSwitch.ts).
   onHarnessHint?(harness: string | undefined): void;
+  /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
+  /// from the click or key handler itself: the host's confirmation needs the gesture.
+  onHarnessEnable?(folder: string, id: string): void;
+  /// The rail's + (Add agent…): the app's agent.harness.add, which opens Settings > Agents > Add.
+  onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
+};
+
+export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };
+
+export type CatalogRefreshState = {
+  status?: "idle" | "fetching" | "updated" | "error";
+  /** ISO timestamp for the catalog copy shown by the picker. */
+  date?: string;
+  refresh(): void | Promise<void>;
 };
 
 /// The keys and pointer moves the chip forwards to the open menu's body.
@@ -56,7 +86,7 @@ export const RECENT_ROWS = 4;
 /// Rows a level shows before "More…".
 export const LEVEL_ROWS = 3;
 /// How long the pointer rests on a row before its submenu opens.
-export const HOVER_INTENT_MS = 120;
+export const HOVER_INTENT_MS = 150;
 /// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
 /// plus the 10px gap. Family and model submenus are at least 210px.
 export const SUBMENU_ROOM = 250;

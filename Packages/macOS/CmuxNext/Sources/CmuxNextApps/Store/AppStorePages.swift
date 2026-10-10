@@ -33,7 +33,11 @@ public final class AppStorePages {
         for model in models.values { model.refresh() }
     }
 
+    /// Drops tab `key`'s model. A Remove still in its undo window commits: the closed tab has no
+    /// Undo to show, and the user asked for a remove (the task keeps the model until it ends).
     public func tabClosed(_ key: String) {
-        models[key] = nil
+        guard let model = models.removeValue(forKey: key), model.pendingRemoval != nil else { return }
+        // task-owner: one commit of the closed tab's pending Remove; ends when the registry write does
+        Task { await model.commitPendingRemoval() }
     }
 }

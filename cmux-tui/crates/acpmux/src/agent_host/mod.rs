@@ -19,10 +19,11 @@
 
 pub mod host;
 pub mod link;
+pub mod sweep;
 mod wait;
 pub use wait::{
-    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, death_watches, wait_dead_async, wait_dead_within,
-    within,
+    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
+    wait_dead_within, within, within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -172,6 +173,9 @@ pub struct TranslatorSpec {
     pub mode: String,
     pub model: String,
     pub effort: String,
+    /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
+    #[serde(default)]
+    pub fast: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
 }

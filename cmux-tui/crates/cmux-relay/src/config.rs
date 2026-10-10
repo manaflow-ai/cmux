@@ -1,13 +1,14 @@
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::time::Duration;
 
 use cmux_remote_protocol::{LaneToken, RelayPermission, RelayTicketClaims};
 
-const DEFAULT_BIND: &str = "127.0.0.1:8787";
+/// `127.0.0.1:8787`; a test checks that it equals the documented text.
+const DEFAULT_BIND: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8787));
 const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
@@ -65,7 +66,7 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            bind: DEFAULT_BIND.parse().expect("default relay bind address is valid"),
+            bind: DEFAULT_BIND,
             lease_duration: Duration::from_secs(DEFAULT_LEASE_SECONDS),
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
@@ -258,9 +259,12 @@ impl RelayConfig {
                 "CMUX_RELAY_ISSUER must contain 1 to 256 bytes without newline",
             ));
         }
-        if !self.bind.ip().is_loopback() && self.ticket_secret.is_none() && !self.allow_open {
+        // Open mode admits any non-empty provider ticket: any process that
+        // reaches the port could register or connect to any slot, also on
+        // loopback. It needs an explicit opt-in.
+        if self.ticket_secret.is_none() && !self.allow_open {
             return Err(ConfigError::new(
-                "refusing a non-loopback open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open",
+                "refusing an open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open (development only)",
             ));
         }
         Ok(())
@@ -299,10 +303,10 @@ impl RelayCommand {
     ) -> Result<Self, ConfigError> {
         let mut args = arguments.into_iter().peekable();
         let mut command = "serve".to_owned();
-        if let Some(first) = args.peek().and_then(|value| value.to_str())
-            && !first.starts_with('-')
+        if let Some(first) =
+            args.next_if(|value| value.to_str().is_some_and(|first| !first.starts_with('-')))
         {
-            command = args.next().unwrap().to_string_lossy().into_owned();
+            command = first.to_string_lossy().into_owned();
         }
 
         if command == "help" {
@@ -519,7 +523,7 @@ impl RelayCommand {
            --max-active-circuits-per-slot N   Paired circuits per slot\n\
            --max-allocations-per-second-per-slot N  Sliding one-second allocation limit\n\
            --issuer NAME                     HMAC ticket issuer (CMUX_RELAY_ISSUER)\n\
-           --allow-open                      Permit an unauthenticated non-loopback relay\n\n\
+           --allow-open                      Permit an unauthenticated relay (development only)\n\n\
          Ticket options: --lane TOKEN, --generation N, --ttl-seconds N (maximum 300).\n\
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
          Endpoints: /healthz, /v1/relay, and /ws\n"
@@ -596,8 +600,22 @@ fn parse_next_string(
 }
 
 #[cfg(test)]
+impl RelayConfig {
+    /// An open relay (no ticket secret), which tests start explicitly.
+    pub(crate) fn open_for_tests() -> Self {
+        Self { allow_open: true, ..Self::default() }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Relay;
+
+    #[test]
+    fn the_default_bind_is_loopback_port_8787() {
+        assert_eq!(RelayConfig::default().bind, "127.0.0.1:8787".parse::<SocketAddr>().unwrap());
+    }
 
     #[test]
     fn non_loopback_open_relay_requires_an_explicit_override() {
@@ -606,10 +624,25 @@ mod tests {
         assert!(config.validate().is_err());
     }
 
+    /// Open mode admits any non-empty provider ticket, so a local process
+    /// could register or connect to any slot. A relay without a ticket
+    /// secret starts only with an explicit `--allow-open`, also on loopback.
+    #[test]
+    fn a_loopback_relay_without_a_secret_refuses_to_start() {
+        assert!(RelayConfig::default().validate().is_err());
+        assert!(Relay::new(RelayConfig::default()).is_err());
+        let serve = ["--bind", "127.0.0.1:9000"].map(OsString::from);
+        assert!(RelayCommand::parse(RelayConfig::default(), serve.clone()).is_err());
+        let open = ["--bind", "127.0.0.1:9000", "--allow-open"].map(OsString::from);
+        assert!(RelayCommand::parse(RelayConfig::default(), open).is_ok());
+        let signed = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        assert!(RelayCommand::parse(signed, serve).is_ok());
+    }
+
     #[test]
     fn command_line_overrides_defaults() {
         let command = RelayCommand::parse(
-            RelayConfig::default(),
+            RelayConfig { allow_open: true, ..RelayConfig::default() },
             [
                 "--bind",
                 "127.0.0.1:9000",

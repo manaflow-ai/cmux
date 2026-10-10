@@ -23,6 +23,9 @@ pub enum CloudSignal {
     },
     /// `cloud-session-needed`: mint and lease a new chief token now.
     SessionNeeded(String),
+    /// `cloud-mux-wake` (new wakes) or `cloud-mux-resynced` (the pending
+    /// ones after a (re)subscribe): the chief's wake queue, ids only.
+    MuxWakes(Vec<crate::daemon::MuxWake>),
 }
 
 /// Maps one event line; None for events of other conversations or kinds.
@@ -60,6 +63,9 @@ pub fn map_event(raw: &Value, conversation: &str, chief: &str) -> Option<CloudSi
                 state,
             })
         }
+        // The chief's wake queue: every conversation, ids only.
+        "cloud-mux-wake" => wakes(raw.get("wakes")),
+        "cloud-mux-resynced" => wakes(raw.get("pending")),
         "cloud-session-needed" => Some(CloudSignal::SessionNeeded(
             raw.get("reason")
                 .and_then(Value::as_str)
@@ -68,6 +74,17 @@ pub fn map_event(raw: &Value, conversation: &str, chief: &str) -> Option<CloudSi
         )),
         _ => None,
     }
+}
+
+/// The wakes of a `cloud-mux-*` event; an unreadable item is skipped (the
+/// queue delivers it again after the next resubscribe).
+fn wakes(list: Option<&Value>) -> Option<CloudSignal> {
+    let list = list?.as_array()?;
+    Some(CloudSignal::MuxWakes(
+        list.iter()
+            .filter_map(|w| serde_json::from_value(w.clone()).ok())
+            .collect(),
+    ))
 }
 
 /// A message in cloud shape, ids rewritten. A part this brain cannot read

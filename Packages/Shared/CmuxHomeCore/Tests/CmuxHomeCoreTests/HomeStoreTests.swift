@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 @MainActor
@@ -10,11 +11,6 @@ import Testing
         store.start()
         await waitUntil { store.isOnline && !store.rows.isEmpty }
         return (store, source)
-    }
-
-    /// Waits on observation changes, never on a clock.
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
     @Test func chiefIsPinnedFirst() async {
@@ -40,14 +36,20 @@ import Testing
         #expect(store.rows.first(where: { $0.id == id })?.preview == "hello")
     }
 
-    @Test func offlineRefusesNewOpsAndQueuesNothing() async {
+    /// Ops other than sends are refused offline and leave nothing behind;
+    /// a send waits for the reconnect (OfflineSendQueueTests).
+    @Test func offlineRefusesNewOpsAndQueuesOnlySends() async {
         let (store, source) = await started()
         await source.setOnline(false)
         await waitUntil { !store.isOnline }
         await #expect(throws: HomeRejection.ownerUnreachable) {
-            try await store.perform(.sendMessage(conversation: ConversationID("conv_austin"), parts: [.text("x")]))
+            try await store.perform(.setReadCursor(conversation: ConversationID("conv_austin"), seq: 1))
         }
         #expect(store.log.isEmpty)
+        await #expect(throws: HomeSendState.pendingResend) {
+            try await store.perform(.sendMessage(conversation: ConversationID("conv_austin"), parts: [.text("x")]))
+        }
+        #expect(store.log.entries.count == 1)
     }
 
     @Test func replayedKeyIsAppliedOnce() async throws {
@@ -96,7 +98,7 @@ import Testing
     @Test func typingIsSentButNeverLogged() async throws {
         let store = HomeStore(source: MockHomeSource(options: .immediate))
         store.start()
-        for _ in 0..<200 where !store.isOnline { await Task.yield() }
+        await waitUntil { store.isOnline }
         try await store.perform(.setTyping(conversation: ConversationID("conv_aziz"), on: true))
         #expect(store.log.isEmpty)
     }

@@ -26,7 +26,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 export const runtimeDir = path.join(repoRoot, "cmux-tui/crates/cmux-browser-host/js");
 
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
-const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
+const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 const JSON_KEY = "__cmuxJson__";
@@ -569,8 +569,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (targetId !== undefined) tabFor(targetId);
       return { dataStore: DATA_STORE };
     },
-    "tabs.open": async ({ url, background, dataStore }, driver) => {
+    "tabs.open": async ({ url, background, dataStore, incognito }, driver) => {
       if (dataStore !== undefined && dataStore !== DATA_STORE) throw new DriverError("invalid", `tabs.open: no open tab uses data store ${JSON.stringify(dataStore)}`);
+      // driver-protocol.md: a driver without a store that keeps nothing
+      // opens nothing (never a persistent tab).
+      if (incognito === true) throw new DriverError("unsupported", "tabs.open: incognito tabs are not supported by the dev driver; nothing was opened");
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;
@@ -696,7 +699,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         throw Object.assign(new DriverError("forbidden", `frame.observe: ${method} is not a read; use frame.evaluate`), { errorName: "observe_not_allowed" });
       }
       if (!Array.isArray(args) || args.length > 8 || JSON.stringify(args).length > 65536) throw new DriverError("invalid", "frame.observe: args: expected at most 8 JSON values (64 KiB)");
-      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => globalThis[${AGENT_KEY}][m](...a)`, args: [method, ...args], awaitPromise: true });
+      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => { const A = globalThis[${AGENT_KEY}]; return A.reply(A[m](...a)); }`, args: [method, ...args], awaitPromise: true });
     },
     "frame.ownerBox": async ({ targetId, frameId: id }) => {
       const frame = frameFor(targetId, id);

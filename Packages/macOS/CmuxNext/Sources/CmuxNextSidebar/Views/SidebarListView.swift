@@ -32,28 +32,35 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    /// Inline rename of a workspace or group row.
+    /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
+    var leaving: Set<WorkspaceID> = []
+    /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
+    /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
+    let groupEditor = SidebarGroupEditor()
+    var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
+    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
+    /// The row that paints the selection fill (`SidebarLayout.selectedRowKey`).
+    private(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
+    let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
     var springLoadClock: any Clock<Duration> = ContinuousClock()
-    /// A title click's collapse toggle waiting out the double-click interval.
-    var pendingGroupToggle: PendingGroupToggle?
-    /// How long a group title click waits for a second click.
-    var groupToggleDelay: Duration = .milliseconds(Int(NSEvent.doubleClickInterval * 1000))
-    /// Clock for the group toggle delay; tests inject a manual clock.
-    var clickClock: any Clock<Duration> = ContinuousClock()
+    /// The group header that holds keyboard focus (arrow keys stop on
+    /// headers; focus is not selection). Nil when a workspace has it.
+    var focusedGroup: GroupID?
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -68,17 +75,18 @@ final class SidebarListView: NSView {
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
         inlineRename.list = self
+        groupEditing.wire()
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
-        pendingGroupToggle?.task.cancel()
-        NotificationCenter.default.removeObserver(self)
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
+    private var occlusionObserver: (any NSObjectProtocol)?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -86,13 +94,14 @@ final class SidebarListView: NSView {
         if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
-        if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
+        if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
-        if let window {
-            center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        }
+        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
+        occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
+        } }
     }
-    @objc private func windowOcclusionChanged(_ note: Notification) {
+    private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
     /// Pauses (or resumes) every row's activity animation.
@@ -130,10 +139,13 @@ final class SidebarListView: NSView {
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         applyKeepingViewport(displayLayout(), animated: animated)
         inlineRename.follow()
+        groupEditor.follow(groups)
+        if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -141,12 +153,12 @@ final class SidebarListView: NSView {
         guard let drag else { return o }
         switch drag.payload {
         case let .workspaces(ids):
-            o.excludedWorkspaces = Set(ids)
+            o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
         case let .group(group):
             o.excludedGroup = group
         }
-        if includeGap, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }
@@ -166,6 +178,8 @@ final class SidebarListView: NSView {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        groupEditing.adoptReidentified(from: old, to: layout)
+        selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
@@ -184,7 +198,9 @@ final class SidebarListView: NSView {
                 if animate, let previous = old.row(for: row.key) {
                     view.frame = frame(for: previous)
                 } else if animate {
-                    view.frame = target.offsetBy(dx: 0, dy: -Metrics.space3)
+                    // An expanded row comes out from under its header.
+                    let y = SidebarRowTransition.appearY(row, from: old, to: layout, dropIn: Metrics.space3)
+                    view.frame = NSRect(x: target.minX, y: y, width: target.width, height: target.height)
                     view.alphaValue = 0
                 } else {
                     view.frame = target
@@ -197,6 +213,7 @@ final class SidebarListView: NSView {
                 view.alphaValue = 0
             } else if animate, existing == nil, old.row(for: row.key) == nil {
                 appearing.append((view, target))
+                (view as? GroupHeaderRowView)?.playAppear()
             } else {
                 targets.append((view, target))
             }
@@ -207,25 +224,25 @@ final class SidebarListView: NSView {
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
-        var leaving: [SidebarRowView] = []
-        var replacedRows = false
+        var leaving: [(SidebarRowView, CGFloat)] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
             let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
-            replacedRows = replacedRows || replaced
             if suppressed.contains(key) || !animate || placeholder || replaced {
                 recycle(view)
             } else {
-                leaving.append(view)
+                // A leaving row fades out without the selection fill: the
+                // fill is already on the new selected item (no second one).
+                view.isSelected = false
+                // A collapsed row slides up under its header; another leaving row nudges up.
+                let folded = old.row(for: key).flatMap { SidebarRowTransition.foldedY($0, from: old, to: layout) }
+                leaving.append((view, folded ?? view.frame.minY - Metrics.space3))
             }
         }
-        let pillFrame = activePillFrame(in: layout)
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
-        // A pill whose row the placeholder replaced at once leaves with it.
-        decorations.setPill(pillFrame, animated: animate && !(pillFrame == nil && replacedRows))
         decorations.setGap(gapFrame, animated: animate)
         let moves = {
             for (view, target) in targets {
@@ -235,7 +252,7 @@ final class SidebarListView: NSView {
         }
         guard animate else {
             Motion.withoutAnimation(moves)
-            leaving.forEach(recycle)
+            leaving.forEach { recycle($0.0) }
             return
         }
         // Existing rows move, new rows (group expand, insert) appear, and
@@ -248,32 +265,24 @@ final class SidebarListView: NSView {
             }
         }
         Motion.animate(.disappear, in: self, {
-            for view in leaving {
+            for (view, endY) in leaving {
                 view.animator().alphaValue = 0
-                view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
+                view.animator().frame.origin.y = endY
             }
         }, completion: { [weak self] in
             guard let self else { return }
-            for view in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for (view, _) in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
             self.pruneOffscreen()
         })
     }
-    func activePillFrame(in layout: SidebarLayout) -> NSRect? {
-        guard let active = model.activeWorkspaceID, !suppressed.contains(.workspace(active)) else { return nil }
-        if let row = layout.row(for: .workspace(active)) { return frame(for: row) }
-        // A workspace in a collapsed group: the group's header stands for it.
-        let group = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in
-            if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == active }) { group.id } else { nil }
-        }.first
-        return group.flatMap { layout.row(for: .group($0)) }.map(frame(for:))
-    }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
+        view.isSelected = selectedRowKey == row.key
         switch (row.key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row)
-            view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
+            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
@@ -285,8 +294,8 @@ final class SidebarListView: NSView {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView):
-            view.configure(pinned: id == .pinned)
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned)
+        case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         default:
             break
         }
@@ -316,11 +325,11 @@ final class SidebarListView: NSView {
             view.frame = target
         }
         decorations.frame = bounds
-        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {
         guard !isShiftingViewport else { return }
+        groupEditing.followScroll()
         let realize = realizationRect()
         for row in displayed.rows where rowViews[row.key] == nil {
             let target = frame(for: row)
@@ -340,7 +349,7 @@ final class SidebarListView: NSView {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
         for row in displayed.rows {
             guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
-                  inlineRename.session?.key != row.key else { continue }
+                  inlineRename.session?.key != row.key, row.key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[row.key] = nil
         }

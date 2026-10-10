@@ -24,17 +24,36 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let inactiveTintView = NSView()
+    private var keyObservers: [NSObjectProtocol] = []
+    /// The window gave up the keyboard. Only then does glass go grey; a window
+    /// that was never key (opening, tests, snapshots) shows the glass alone.
+    private var resignedKey = false
     private let artView = NSView()
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
     private var artImage: NSImage?
     private let textureCache = BackdropTextureCache()
+    private let images: BackdropImageStore
+    /// Loads the art the last `apply` asked for when it was not decoded yet.
+    private var artLoad: Task<Void, Never>?
+    /// The solid sheet and Reduce Transparency must never expose art.
+    private var hidesArt = false
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
     /// - Parameter frameRect: The initial frame.
-    override public init(frame frameRect: NSRect) {
+    override public convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, images: .shared)
+    }
+
+    /// Creates an opaque backdrop whose art comes from `images`.
+    ///
+    /// - Parameter frameRect: The initial frame.
+    /// - Parameter images: Where decoded backdrop images are shared.
+    public init(frame frameRect: NSRect, images: BackdropImageStore) {
+        self.images = images
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -48,6 +67,11 @@ public final class WindowMaterialView: NSView {
         tintView.autoresizingMask = [.width, .height]
         tintView.isHidden = true
         addSubview(tintView)
+        inactiveTintView.wantsLayer = true
+        inactiveTintView.frame = bounds
+        inactiveTintView.autoresizingMask = [.width, .height]
+        inactiveTintView.isHidden = true
+        addSubview(inactiveTintView)
         setAccessibilityElement(false)
     }
 
@@ -55,6 +79,9 @@ public final class WindowMaterialView: NSView {
         super.layout()
         updateArtCrop()
     }
+
+    /// Waits until the art the last `apply` asked for has loaded (tests).
+    func artLoaded() async { await artLoad?.value }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -65,6 +92,48 @@ public final class WindowMaterialView: NSView {
     public var tintColor: CGColor? {
         if let glass = materialView as? NSGlassEffectView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
+    }
+
+    /// The theme tint laid over glass while the window is not key: Liquid
+    /// Glass drops its `tintColor` then and draws the system's grey, so the
+    /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
+    var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
+    var inactiveTintColor: CGColor? { inactiveTintView.isHidden ? nil : inactiveTintView.layer?.backgroundColor }
+
+    /// Classic's wash over inactive glass: strong over a dark theme, light
+    /// over a light one, none while the window is key or for other materials.
+    static func inactiveTintAlpha(isGlass: Bool, isKeyWindow: Bool, tint: NSColor) -> CGFloat {
+        guard isGlass, !isKeyWindow else { return 0 }
+        guard let rgb = tint.usingColorSpace(.sRGB) else { return 0.85 }
+        let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        return luminance > 0.5 ? 0.35 : 0.85
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
+        keyObservers = []
+        resignedKey = false
+        guard let window else { return updateInactiveTint() }
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                let resigned = note.name == NSWindow.didResignKeyNotification
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated {
+                    self?.resignedKey = resigned
+                    self?.updateInactiveTint()
+                }
+            }
+        }
+        updateInactiveTint()
+    }
+
+    private func updateInactiveTint() {
+        let glass = materialView as? NSGlassEffectView
+        let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
+        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        inactiveTintView.alphaValue = alpha
+        inactiveTintView.isHidden = alpha == 0
     }
 
     /// Decoration only: clicks reach the views above or the window.
@@ -78,18 +147,28 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
+        hidesArt = backdrop.isOpaque
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
-            let source = backdrop.selection?.image() ?? backdrop.art?.image()
-            let sourceID = backdrop.selection?.id ?? backdrop.art?.rawValue ?? "none"
-            artImage = source.flatMap { textureCache.image(for: sourceID, source: $0, texture: backdrop.texture) }
-            artView.layer?.contents = artImage
-            updateArtCrop()
+            artLoad?.cancel()
+            artLoad = nil
+            let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
+            let texture = backdrop.texture
+            // A painting not decoded yet loads off the main actor and fades
+            // in; until then the window shows the theme's colors.
+            showArt(shown.flatMap(images.cached), id: shown?.id, texture: texture)
+            if let shown, artImage == nil {
+                artLoad = Task { [weak self, images] in
+                    let image = await images.image(shown)
+                    guard !Task.isCancelled, let self, let image else { return }
+                    self.showArt(image, id: shown.id, texture: texture)
+                    self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn")
+                }
+            }
         }
-        // The solid sheet and Reduce Transparency must never expose art.
-        artView.isHidden = backdrop.isOpaque || artImage == nil
+        artView.isHidden = hidesArt || artImage == nil
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -108,6 +187,22 @@ public final class WindowMaterialView: NSView {
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        updateInactiveTint()
+    }
+
+    private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
+        artImage = source.flatMap { textureCache.image(for: id ?? "none", source: $0, texture: texture) }
+        artView.layer?.contents = artImage
+        artView.isHidden = hidesArt || artImage == nil
+        updateArtCrop()
+    }
+
+    private static func fadeIn() -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.2
+        return fade
     }
 
     private func updateArtCrop() {

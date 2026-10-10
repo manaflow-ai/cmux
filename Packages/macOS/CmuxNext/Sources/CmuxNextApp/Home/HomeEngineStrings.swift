@@ -38,8 +38,29 @@ nonisolated enum HomeEngineStrings {
     static var pillHelp: String { String(localized: "home.engine.pillHelp", defaultValue: "Shows or hides this Chief's settings", table: "Home", bundle: .module) }
     static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .module) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .module) }
+    static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .module) }
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
+    }
+    /// "Runs on the paired server cmux-lawrence."
+    static var runsOnServerFormat: String {
+        String(localized: "home.engine.runsOnServer", defaultValue: "Runs on the paired server %@.", table: "Home", bundle: .module)
+    }
+    static var errorUnreachable: String {
+        String(localized: "home.engine.error.unreachable", defaultValue: "The server with this Chief is not connected.", table: "Home", bundle: .module)
+    }
+    static var errorForbidden: String {
+        String(localized: "home.engine.error.forbidden", defaultValue: "This server does not let this connection change its Chief.", table: "Home", bundle: .module)
+    }
+    static var errorNotConfigured: String {
+        String(localized: "home.engine.error.notConfigured", defaultValue: "This daemon does not reach its Chief's brain. Restart the Chief's daemon.", table: "Home", bundle: .module)
+    }
+    static var errorUnsupported: String {
+        String(localized: "home.engine.error.unsupported", defaultValue: "This server's cmux is too old to change its Chief from here.", table: "Home", bundle: .module)
+    }
+    /// "The change failed: acpmux on this host has no harness x"
+    static var errorRefusedFormat: String {
+        String(localized: "home.engine.error.refused", defaultValue: "The change failed: %@", table: "Home", bundle: .module)
     }
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }

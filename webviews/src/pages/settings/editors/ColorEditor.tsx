@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore, useSettingsState } from "../context";
+import { useStore } from "../context";
 import { t, text } from "../strings";
 import { isHexColor } from "../validate";
 import type { EditorProps } from "./types";
@@ -15,7 +15,6 @@ function normalized(input: string): string {
  */
 export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const customized = useSettingsState().rows.get(row.key)?.customized ?? false;
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   const stored = typeof value === "string" ? normalized(value) : "";
@@ -63,11 +62,6 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
           if (event.key === "Enter") commit(event.currentTarget.value);
         }}
       />
-      {customized && !disabled && (
-        <button type="button" className="button" data-reset="" onClick={() => void store.reset(row.key)}>
-          {t("settingsPage.useThemeColor")}
-        </button>
-      )}
       {invalid && (
         <span className="field-error" role="alert">
           {t("settingsPage.invalidColor")}

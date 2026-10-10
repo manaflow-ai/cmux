@@ -26,6 +26,7 @@ public struct PersonalTerminal: Sendable, Hashable, Decodable {
 public struct SetPersonalTerminalRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-personal-terminal"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.personalTerminals
     public var sessionID: String
     public var terminalKey: String
     public var theme: String?

@@ -2,18 +2,26 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { DiagramBlock, isChart } from "./DiagramBlock";
+import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
+import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
+import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { codePath, linkPath } from "../chips/paths";
+import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
+import "../../../markdown-task-checkbox.css";
+import { TaskCheckbox } from "../../../ui/TaskCheckbox";
+import { githubReferences } from "../../../githubReferences";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -237,6 +245,14 @@ export type InlineOptions = {
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */
   notes?: FootnoteNumbers;
+  /** Long data URLs of this text, by the index their short stand-in names (`capDataUrls`). */
+  dataRefs?: string[];
+  /** Data URLs past the reply's total budget (MAX_REPLY_DATA_URLS): drawn as their name. */
+  overBudget?: Set<string>;
+  /** The workspace's GitHub `owner/repo`, used for bare issue references. */
+  githubRepository?: string;
+  /** Link GitHub references in prose; labels of an outer link disable this. */
+  linkGithubReferences?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -262,20 +278,50 @@ const INLINE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i;
 export const MAX_DATA_URL_LENGTH = 2_000_000;
 /// What an over-long data URL is replaced with before the inline parser sees it (`capDataUrls`).
 const OVERSIZED_DATA_URL = "data:image/x-cmux-oversized;";
+/// A long data URL's short stand-in for the inline parser, `<prefix><index in dataRefs>`: the
+/// inline pattern does not match a target of megabytes, so such an image drew as its source.
+const DATA_REF = "data:image/x-cmux-ref;";
+const DATA_REF_FROM = 4096;
+/// The data URL text one reply may draw in all (8 MB); images after it draw as their name.
+export const MAX_REPLY_DATA_URLS = 8_000_000;
+
+/// The data URL image targets of `source` past the reply's budget, in reading order. Each image
+/// over MAX_DATA_URL_LENGTH draws as its name anyway and does not count.
+export function dataUrlsOverBudget(source: string): Set<string> {
+  const over = new Set<string>();
+  if (source.length <= MAX_REPLY_DATA_URLS) return over;
+  let total = 0;
+  for (let at = source.indexOf("](data:image/"); at >= 0; at = source.indexOf("](data:image/", at + 2)) {
+    URL_END.lastIndex = at + 2;
+    const end = URL_END.exec(source)?.index ?? source.length;
+    const url = source.slice(at + 2, end);
+    if (url.length > MAX_DATA_URL_LENGTH) continue;
+    total += url.length;
+    if (total > MAX_REPLY_DATA_URLS) over.add(url);
+  }
+  return over;
+}
 const URL_END = /[\s()]/g;
 
 /// `text` with every link or image target that is a data URL over MAX_DATA_URL_LENGTH replaced by
 /// OVERSIZED_DATA_URL, in one linear scan. The inline pattern does not match such a long target
 /// (it would draw the whole URL as text), and the pane never decodes it.
-function capDataUrls(text: string): string {
-  if (text.length <= MAX_DATA_URL_LENGTH) return text;
+function capDataUrls(text: string, refs: string[]): string {
+  if (text.length <= DATA_REF_FROM) return text;
   let out = "";
   let from = 0;
   for (let at = text.indexOf("](data:"); at >= 0; at = text.indexOf("](data:", from)) {
     const start = at + 2;
     URL_END.lastIndex = start;
     const end = URL_END.exec(text)?.index ?? text.length;
-    out += text.slice(from, start) + (end - start > MAX_DATA_URL_LENGTH ? OVERSIZED_DATA_URL : text.slice(start, end));
+    const url = text.slice(start, end);
+    const short =
+      url.length > MAX_DATA_URL_LENGTH
+        ? OVERSIZED_DATA_URL
+        : url.length > DATA_REF_FROM
+          ? `${DATA_REF}${refs.push(url) - 1}`
+          : url;
+    out += text.slice(from, start) + short;
     from = end;
   }
   return out + text.slice(from);
@@ -300,6 +346,29 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
+function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+  if (!enabled) return linkedText(text, key);
+  const refs = githubReferences(text, repository);
+  if (!refs.length) return linkedText(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  refs.forEach((reference, index) => {
+    if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
+    out.push(
+      <UrlChip
+        key={`${key}-${index}`}
+        href={reference.href}
+        icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+      >
+        {reference.text}
+      </UrlChip>,
+    );
+    at = reference.end;
+  });
+  if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
+  return out;
+}
+
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
 // `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
 // "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
@@ -308,42 +377,64 @@ const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
-export function renderInline(source: string, opts: InlineOptions = {}): ReactNode[] {
-  const text = capDataUrls(source);
+export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
+  const refs: string[] = [];
+  const text = capDataUrls(source, refs);
+  const opts = refs.length ? { ...outer, dataRefs: refs } : outer;
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last) out.push(text.slice(last, m.index));
-    const t = m[0];
-    if (m[1])
+    if (m.index! > last)
       out.push(
-        <code key={k++} className="cv-code">
-          {t.slice(1, -1)}
-        </code>,
+        ...linkedGithubText(
+          text.slice(last, m.index),
+          `t${k++}`,
+          opts.githubRepository,
+          opts.linkGithubReferences !== false,
+        ),
       );
-    else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
+    const t = m[0];
+    if (m[1]) {
+      const path = codePath(t.slice(1, -1));
+      out.push(
+        path ? (
+          <PathChip key={k++} path={path} written={t.slice(1, -1)} />
+        ) : (
+          <code key={k++} className="cv-code">
+            {t.slice(1, -1)}
+          </code>
+        ),
+      );
+    } else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
     else if (m[3]) out.push(<del key={k++}>{renderInline(t.slice(2, -2), opts)}</del>);
     else if (m[4]) out.push(<em key={k++}>{renderInline(t.slice(1, -1), opts)}</em>);
     else if (m[5]?.startsWith("!")) out.push(<InlineImage key={k++} source={t} opts={opts} />);
     else if (m[5]) {
       const lm = t.match(/^\[([^\]]+)\]\((.+)\)$/)!;
       const href = safeHref(lm[2]);
-      // A link the pane will not open draws as its text; a local path keeps its file mark.
-      if (linkKind(lm[2]) === "file")
+      // A local path is a path chip; a link the pane will not open draws as its text; a web
+      // link is a chip with its site's mark (chips/LinkChips.tsx).
+      const path = linkPath(lm[2]);
+      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file" title={lm[2]}>
             {(opts.linkIcon ?? linkIcon)(lm[2])}
-            {renderInline(lm[1], opts)}
+            {renderInline(lm[1], labelOpts)}
           </span>,
         );
-      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
+      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else
         out.push(
-          <a key={k++} className={`cv-link is-${linkKind(href)}`} href={href} rel="noreferrer">
-            {(opts.linkIcon ?? linkIcon)(href)}
-            {renderInline(lm[1], opts)}
-          </a>,
+          <UrlChip
+            key={k++}
+            href={href}
+            icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
+          >
+            {renderInline(lm[1], labelOpts)}
+          </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
@@ -370,32 +461,64 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
     }
     last = m.index! + t.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length)
+    out.push(
+      ...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false),
+    );
   return out;
 }
 
-/// `![alt](src)`: a data URL image draws inline; a web image the pane cannot load draws as a link
-/// to it, named by its alt text or file name.
+/// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
+/// recursion into bold, italic, strikethrough and link text (so code never counts), the same
+/// stand-ins for long data URLs, and none of the reply's images past its budget (`overBudget`).
+export function inlineImages(
+  source: string,
+  overBudget: ReadonlySet<string> = new Set(),
+  outerRefs: string[] = [],
+): { src: string; alt: string }[] {
+  const found: string[] = [];
+  const text = capDataUrls(source, found);
+  const refs = found.length ? found : outerRefs;
+  const out: { src: string; alt: string }[] = [];
+  const inner = (part: string) => inlineImages(part, overBudget, refs);
+  for (const m of text.matchAll(INLINE_RE)) {
+    const t = m[0];
+    if (m[2] || m[3]) out.push(...inner(t.slice(2, -2)));
+    else if (m[4]) out.push(...inner(t.slice(1, -1)));
+    else if (m[5]?.startsWith("!")) {
+      const [, alt = "", written = ""] = t.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+      const src = written.startsWith(DATA_REF) ? (refs[Number(written.slice(DATA_REF.length))] ?? "") : written;
+      if (INLINE_IMAGE.test(src) && src.length <= MAX_DATA_URL_LENGTH && !overBudget.has(src)) out.push({ src, alt });
+    } else if (m[5]) out.push(...inner(t.match(/^\[([^\]]+)\]/)?.[1] ?? ""));
+  }
+  return out;
+}
+
+/// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
+/// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
-  const [, alt = "", src = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
+  if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
+  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
   const href = safeHref(src);
-  if (!href)
-    return (
-      <span className="cv-link is-image" title={src}>
-        <ImageIcon size={16} className="cv-link__icon" />
-        {renderInline(name, opts)}
-      </span>
-    );
-  return (
+  const fallback = !href ? (
+    <span className="cv-link is-image" title={src}>
+      <ImageIcon size={16} className="cv-link__icon" />
+      {renderInline(name, labelOpts)}
+    </span>
+  ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts)}
+      {renderInline(name, labelOpts)}
     </a>
   );
+  // A file inside the session's folders, or a web image, loads through the host (D5).
+  return <ReplyImage src={src} alt={alt} fallback={fallback} />;
 }
 
 /// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
@@ -405,7 +528,9 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
   return (
     <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {alt ? renderInline(alt, opts) : t("markdown.imageTooLarge")}
+      {alt
+        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
+        : t("markdown.imageTooLarge")}
     </span>
   );
 }
@@ -439,8 +564,17 @@ function Block({
       const H = `h${block.level}` as "h1";
       return <H className={`cv-h cv-h${Math.min(block.level, 4)}${motion}`}>{inline(block.text)}</H>;
     }
-    case "paragraph":
+    case "paragraph": {
+      // A web video link alone on its line plays in place (ReplyMedia); in a sentence it stays a link.
+      const link = block.text.trim();
+      if (!tail && !/\s/.test(link) && isRemoteMedia(link))
+        return (
+          <p className={`cv-p${motion}`}>
+            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+          </p>
+        );
       return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
+    }
     case "hr":
       return <hr className={`cv-hr${motion}`} />;
     case "blockquote":
@@ -462,11 +596,7 @@ function Block({
             <li key={i} className={it.task ? "cv-task" : undefined}>
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
               {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
-              {it.task && (
-                <span className={`cv-checkbox${it.checked ? " is-checked" : ""}`}>
-                  {it.checked && <Check size={12} strokeWidth={1.4} />}
-                </span>
-              )}
+              {it.task && <TaskCheckbox checked={Boolean(it.checked)} className="cv-checkbox" />}
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
@@ -509,6 +639,7 @@ function Block({
     }
     case "code":
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
@@ -595,6 +726,7 @@ export function Markdown({
   fresh,
   now = 0,
   waiting = false,
+  githubRepository,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -605,12 +737,20 @@ export function Markdown({
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
   const noteIds = footnoteOrder(children).join(" ");
+  // The reply's data URL budget; only a reply longer than the budget can pass it.
+  const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
+  const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
   const notePrefix = useId();
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
-    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` } };
-  }, [linkIcon, noteIds, notePrefix]);
+    return {
+      linkIcon,
+      githubRepository,
+      notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
+      overBudget,
+    };
+  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

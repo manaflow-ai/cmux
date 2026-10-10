@@ -1,15 +1,16 @@
 import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The Chief's settings, a right sidebar inside the Home page that the
 /// header's "Chief >" name pill toggles (Lawrence, 2026-10-05: per-Chief
-/// configuration opens only from the pill). One per Chief: its settings
-/// live in that Chief's mux home. The pickers write
-/// `<mux home>/optchat/engine.json`, which optchat-chief reads at each turn
-/// start (engine.rs), so a change applies from the next turn; the compactor
-/// fields of the file are kept. It also shows the last turn's engine and
-/// stats from the host's trace, where the brain runs, its tools, and opens
-/// the trace folder.
+/// configuration opens only from the pill). One per Chief: the pickers read
+/// and write the engine of the brain that answers it (`HomeChiefEngineSource`):
+/// this Mac's `<mux home>/optchat/engine.json`, or a paired server's brain
+/// through `chief.engine.get` / `chief.engine.set` for a cloud Chief.
+/// optchat-chief reads it at each turn start (engine.rs), so a change
+/// applies from the next turn. It also shows the last turns' engines and
+/// stats, where the brain runs, and (this Mac's brain only) its traces.
 @MainActor
 final class HomeChiefSidebar: NSView {
     static let width: CGFloat = 280
@@ -22,17 +23,34 @@ final class HomeChiefSidebar: NSView {
     private let nameField = NSTextField(string: "")
     private let avatarField = NSTextField(string: "")
     private let stack = NSStackView()
+    /// This Mac's brain only (its mux home, traces, memory): hidden for a
+    /// Chief whose brain runs on a paired server.
+    private var localViews: [NSView] = []
+    /// Where a paired server's brain runs.
+    private let place = NSTextField(wrappingLabelWithString: "")
+    /// Why the engine could not be read or set.
+    private let failure = NSTextField(wrappingLabelWithString: "")
+    private var source: any HomeChiefEngineSource
     /// Renames the Chief conversation (the daemon's set-title op).
     var onRename: (String) -> Void = { _ in }
     /// The header avatar's text changed (nil: the initials).
     var onAvatar: (String?) -> Void = { _ in }
+    /// Show Memory: runs "Chief: Open Memory Inspector".
+    var onShowMemory: () -> Void = {}
 
-    static let harnesses = ["claude-sr", "codex"]
+    /// The harness items the picker offers: the user's own Claude login and
+    /// Codex; the CodeRouter route (`claude-cr`) only when this Chief's
+    /// acpmux has one configured. The subrouter pool (`claude-sr`) is never a
+    /// default item; a current choice of it still shows (`fill`).
+    static func harnesses(routeConfigured: Bool) -> [String] {
+        routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
+    }
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
     static let efforts = ["low", "medium", "high", "xhigh"]
 
     init(muxHome: URL) {
         self.muxHome = muxHome
+        source = HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: muxHome))
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.6).cgColor
@@ -87,7 +105,23 @@ final class HomeChiefSidebar: NSView {
         let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
-        for view in [note, stats, replies, brain] {
+        // The memory inspector (DEV and nightly, like its palette action).
+        if DevTools.isEnabled {
+            let memory = NSButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+            memory.bezelStyle = .push
+            stack.addArrangedSubview(memory)
+            localViews.append(memory)
+        }
+        localViews += [brain, traces]
+        place.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        place.textColor = .secondaryLabelColor
+        place.isHidden = true
+        stack.insertArrangedSubview(place, at: stack.arrangedSubviews.firstIndex(of: brain) ?? 0)
+        failure.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        failure.textColor = .systemRed
+        failure.isHidden = true
+        stack.insertArrangedSubview(failure, at: stack.arrangedSubviews.firstIndex(of: note) ?? 0)
+        for view in [note, stats, replies, brain, place, failure] {
             view.preferredMaxLayoutWidth = Self.width - 32
         }
         addSubview(stack)
@@ -103,6 +137,18 @@ final class HomeChiefSidebar: NSView {
         super.layout()
         stack.frame = CGRect(x: 0, y: 0, width: Self.width, height: bounds.height)
     }
+
+    /// The brain this panel shows and sets: this Mac's (the default) or a
+    /// paired server's (a cloud Chief), then a read of it.
+    @discardableResult
+    func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
+        self.source = source
+        for view in localViews { view.isHidden = !source.isLocal }
+        place.isHidden = source.isLocal
+        place.stringValue = source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? ""
+        return refresh()
+    }
+
 
     /// The conversation's title, shown in the name field.
     func setName(_ name: String) {
@@ -125,23 +171,59 @@ final class HomeChiefSidebar: NSView {
         onAvatar(text.isEmpty ? nil : text)
     }
 
+    @objc private func showMemory() {
+        onShowMemory()
+    }
+
     @objc private func openTraces() {
         NSWorkspace.shared.activateFileViewerSelecting([HomeChiefFiles(muxHome: muxHome).traceDirectory])
     }
 
-    /// Re-reads the engine file and the trace (a new message or a turn's
-    /// end) off the main actor, then shows them.
-    func refresh() {
-        let files = HomeChiefFiles(muxHome: muxHome)
+    /// Re-reads the engine and the last turns (a new message or a turn's
+    /// end) off the main actor, then shows them, or why it could not.
+    @discardableResult
+    func refresh() -> Task<Void, Never> {
+        let source = source
         // task-owner: one read off the main actor; ends when it is shown
-        Task { [weak self] in
-            let snapshot = await Task.detached { files.snapshot() }.value
-            self?.show(snapshot)
+        return Task { [weak self] in
+            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+                do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
+            }.value
+            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
+            switch result {
+            case .success(let snapshot): show(snapshot)
+            case .failure(let error): say(error, readable: false)
+            }
         }
     }
 
+    /// Sets (nil: clears) one engine field on the brain, then shows the result.
+    @discardableResult
+    func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+        let source = source
+        // task-owner: one write off the main actor; ends when its result is shown
+        return Task { [weak self] in
+            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+                do { return .success(try await source.set(key, value)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
+            }.value
+            switch result {
+            case .success(let snapshot): self?.show(snapshot)
+            case .failure(let error): self?.say(error, readable: true)
+            }
+        }
+    }
+
+    /// Says `error`; the pickers stay usable only when the brain answered before.
+    private func say(_ error: HomeChiefEngineError, readable: Bool) {
+        failure.stringValue = error.text
+        failure.isHidden = false
+        if !readable { for button in [harness, model, effort] { button.isEnabled = false } }
+    }
+
     private func show(_ snapshot: HomeChiefSnapshot) {
-        fill(harness, Self.harnesses, current: snapshot.harness)
+        failure.isHidden = true
+        for button in [harness, model, effort] { button.isEnabled = true }
+        fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
         fill(model, Self.models, current: snapshot.model)
         fill(effort, Self.efforts, current: snapshot.effort)
         if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
@@ -172,12 +254,6 @@ final class HomeChiefSidebar: NSView {
 
     @objc private func picked(_ sender: NSPopUpButton) {
         let key = sender === harness ? "harness" : sender === model ? "model" : "effort"
-        let value = sender.selectedItem?.representedObject as? String
-        let files = HomeChiefFiles(muxHome: muxHome)
-        // task-owner: one read-modify-write off the main actor, then a refresh
-        Task { [weak self] in
-            await Task.detached { files.setEngine(key, value) }.value
-            self?.refresh()
-        }
+        pick(key, sender.selectedItem?.representedObject as? String)
     }
 }

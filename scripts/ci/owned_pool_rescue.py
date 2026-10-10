@@ -128,10 +128,12 @@ cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
-on the feat-cmux-next branch; its macos-placement job records idle side
-capacity but keeps each trusted Mac job on the side label while the fleet
-drains (side_lane_placement.py), and uploads the owned-pool-watch marker so
-the sweeper adopts it like a picker's run and watches the jobs on owned labels.
+on the feat-cmux-next branch; its pull request and dispatch runs upload the
+owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
+run. Its push runs upload none (they queue each Mac job in a group per branch),
+and a cmux-next push run this rescue watches anyway (a dispatch with its run
+id) is never cancelled because a newer push run exists; a refused job's failed
+jobs are still re-run when no newer push run covers the branch.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -147,6 +149,13 @@ finished: nightly.yml's concurrency group holds that run pending behind this
 one, and a re-run would join the group and cancel it. With one, a stuck run is
 cancelled and not re-run (so the newer run starts), and a refused one is left
 as it is; the newer run builds main's newer HEAD.
+
+A job stuck with no runner is not rescued while another job of its run is
+running on a persistent runner, whatever the workflow: the rescue cancels the
+whole run, which would move that job to Blacksmith too (#16463). The stuck
+job waits until that job ends, and if the watch ends first, it stays queued
+for the mini that frees up. A refused job, or one held in setup at the
+watch's end, is still acted on as described above, running siblings or not.
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
@@ -538,17 +547,26 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
-           floor_seconds: int | None = None) -> Look:
+           floor_seconds: int | None = None, allow_running_rescue: bool = False) -> Look:
     """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
     seen = first_seen or {}
     waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
-    if stuck:
-        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
+    names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
+    # Rescuing normally cancels the whole run, so a job already running on a
+    # persistent runner would die with the stuck one and move to Blacksmith
+    # too (#16463). cmux-next's explicit rescue window is the overflow
+    # boundary: move the run as the bot once a side job waits past budget even
+    # when another side job is still running. Manual reruns stay minis-first
+    # through attempt 2; the bot's next rerun is the overflow.
+    on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
+    if stuck and (allow_running_rescue or not on_mini):
+        suffix = (" while another owned job is running; overflowing the queued side jobs"
+                  if on_mini else " with no runner")
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
-                              f"{min(budgets[id(job)] for job in stuck)}s with no runner")
+                              f"{min(budgets[id(job)] for job in stuck)}s{suffix}")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
     held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
@@ -564,6 +582,9 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if stuck:
+        return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
+                             f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
     if waiting or settling:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
                     waiting=True)
@@ -659,14 +680,16 @@ class GitHub:
         return self.request("GET", f"/actions/runs/{run_id}")
 
     def owned_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished CI re-runs whose owned jobs go back to the minis (owned_rerun()): a
-        re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
+        """(run id, attempt) of unfinished CI and cmux-next re-runs whose owned jobs go back to the minis
+        (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/workflows/ci.yml/runs?status={status}&per_page={count}")
-            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+            name = workflow.rsplit("/", 1)[-1]
+            for status in ("queued", "in_progress"):
+                data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
+                found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                          if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
@@ -710,6 +733,14 @@ class GitHub:
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
                       and run.get("status") == "pending")
 
+    def newer_push_runs(self, path: str, run_id: int, branch: str) -> list[int]:
+        """Ids of `path`'s push runs on `branch` newer than `run_id` and not cancelled (one request)."""
+        workflow = path.rsplit("/", 1)[-1]
+        data = self.request("GET", f"/actions/workflows/{workflow}/runs?branch={branch}&event=push&per_page=20")
+        return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
+                      and run.get("event") == "push" and run.get("conclusion") != "cancelled")
+
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
@@ -746,6 +777,9 @@ class Target:
     # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
     late: bool = False
     attempt_started_at: dt.datetime | None = None
+    # A side lane's push run: its branch. Push runs of a side lane may each hold
+    # their own concurrency group, so a newer push does not cancel this one.
+    push_branch: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -795,8 +829,9 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
                       attempt_started_at=attempt_started)
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
+        push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started)
+                      attempt_started_at=attempt_started, push_branch=push_branch)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
@@ -927,7 +962,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
-                          deadline=deadline, floor_seconds=floor_seconds)
+                          deadline=deadline, floor_seconds=floor_seconds,
+                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
@@ -989,8 +1025,15 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         if newer:
             return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
         return ""
+    if target.push_branch:
+        # Not the branch head: a head commit outside the workflow's paths has no
+        # run, and the newest push run that does cover the branch must finish.
+        newer = read(lambda: api.newer_push_runs(target.path, target.run_id, target.push_branch), sleep, log)
+        if newer:
+            return f"a newer push run on {target.push_branch} ({newer[-1]}) covers the branch instead"
+        return ""
     if (target.e2e or target.side) and not target.pr_number:
-        return ""  # a dispatch, push or schedule has no head to move; a newer run cancels it by concurrency
+        return ""  # a dispatch or schedule has no head to move
     if target.main:
         head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
         if head != target.head_sha:
@@ -1022,10 +1065,18 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
-    if moved and (target.main or target.nightly):
+    if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # cmux-next.yml queues each push Mac job in a group per branch (one
+        # runs, one waits, a newer push replaces only the waiting one), so a
+        # newer push never makes this run cancel. Cancelling here killed every
+        # tip run's running jobs at one push a minute (2026-10-07: no tip swift
+        # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
+        # would join the branch group and replace the newer run's waiting job.
+        return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+    if moved and (target.main or target.nightly or target.push_branch):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
-        # the new HEAD.
+        # the new HEAD. A superseded push run only holds a slot the newer run needs.
         run = read(lambda: api.run(target.run_id), sleep, log)
         if not run:
             return f"not rescued: the run could not be read ({moved})"
