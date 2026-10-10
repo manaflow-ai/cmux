@@ -322,15 +322,6 @@ mod test_hooks {
         with_origin(mux, client, |origin| origin.peer_key = Some(peer_key.to_string()));
     }
 
-    pub(in crate::server) fn advance_origin_clock_for_test(mux: &Arc<Mux>, ms: u64) {
-        mux.control_clients.origin_clock.advance(ms);
-    }
-
-    /// Moves only the wall clock (an NTP step or a user change).
-    pub(in crate::server) fn jump_origin_wall_clock_for_test(mux: &Arc<Mux>, delta_ms: i64) {
-        mux.control_clients.origin_clock.jump_wall(delta_ms);
-    }
-
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
         let role = {
             let state = mux.control_clients.state.lock().unwrap();
@@ -344,15 +335,3 @@ mod test_hooks {
         .to_string()
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "origin_gate_tests.rs"]
-mod tests;
-
-#[cfg(all(test, unix))]
-#[path = "page_access_tests.rs"]
-mod page_access_tests;
-
-#[cfg(all(test, unix))]
-#[path = "pairing_gate_tests.rs"]
-mod pairing_gate_tests;

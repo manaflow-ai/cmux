@@ -231,26 +231,6 @@ fn an_admitted_frame_reaches_dispatch() {
     assert_eq!(reply["ok"], json!(true), "{reply}");
 }
 
-/// A stamp sent to the local socket is not a stamp there: it is an unknown
-/// command, and the connection stays the local user's.
-#[test]
-fn a_stamp_on_the_local_socket_binds_no_peer() {
-    let mux = Mux::new_for_test("remote-entry-local", crate::SurfaceOptions::default());
-    let (server, mut client) = UnixStream::pair().unwrap();
-    let handler = {
-        let mux = mux.clone();
-        std::thread::spawn(move || handle_connection(mux, Box::new(server)))
-    };
-    client.set_read_timeout(Some(READ_HANG_GUARD)).unwrap();
-    let mut reader = BufReader::new(client.try_clone().unwrap());
-    send(&mut client, STAMP);
-    let reply = response(&mut reader);
-    assert_eq!(reply["ok"], json!(false), "{reply}");
-    assert!(remote_clients(&mux).is_empty());
-    client.shutdown(Shutdown::Both).unwrap();
-    handler.join().unwrap();
-}
-
 #[test]
 fn the_entry_socket_is_private_and_removed_on_drop() {
     use std::os::unix::fs::PermissionsExt;

@@ -63,25 +63,6 @@ impl Mux {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn pane_focus_neighbor(
-        &self,
-        pane: PaneId,
-        dir: Direction,
-    ) -> anyhow::Result<Option<PaneId>> {
-        self.with_state(|state| {
-            let Some((wi, si)) = state.screen_of(pane) else {
-                anyhow::bail!("unknown pane {pane}");
-            };
-            let screen = &state.workspaces[wi].screens[si];
-            let (dx, dy) = dir.delta();
-            let layout = Self::pane_navigation_layout(screen, pane, dir);
-            Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
-                state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
-            }))
-        })
-    }
-
     /// Select a tab within a pane (default: the active pane) by index or
     /// relative delta.
     pub fn select_tab_as(

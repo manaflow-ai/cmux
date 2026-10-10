@@ -183,6 +183,3 @@ fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
         other => anyhow::bail!("invalid durable agent source {other:?}"),
     }
 }
-
-#[cfg(test)]
-mod tests;

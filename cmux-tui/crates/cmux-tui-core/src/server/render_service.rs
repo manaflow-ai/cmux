@@ -262,11 +262,6 @@ impl RenderService {
         )
     }
 
-    #[cfg(test)]
-    pub(super) fn new_with_outbound_budget(max_bytes: usize) -> Self {
-        Self::new_with_outbound_budgets(max_bytes, OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY)
-    }
-
     pub(super) fn new_with_outbound_budgets(max_bytes: usize, control_max_bytes: usize) -> Self {
         Self {
             graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(

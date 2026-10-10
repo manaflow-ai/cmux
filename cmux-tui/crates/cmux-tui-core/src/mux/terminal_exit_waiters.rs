@@ -25,27 +25,6 @@ impl TerminalExitDetachTracker {
             self.changed.notify_all();
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn contains(&self, terminal_id: &str) -> bool {
-        self.active.lock().unwrap().contains(terminal_id)
-    }
-
-    #[cfg(test)]
-    pub(super) fn wait_until_finished(&self, terminal_id: &str, deadline: Instant) -> bool {
-        let mut active = self.active.lock().unwrap();
-        while active.contains(terminal_id) {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.changed.wait_timeout(active, remaining).unwrap();
-            active = next;
-            if timeout.timed_out() && active.contains(terminal_id) {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 pub(super) struct TerminalExitDetachLease {

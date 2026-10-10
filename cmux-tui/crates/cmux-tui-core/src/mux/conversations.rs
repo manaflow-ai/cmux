@@ -94,12 +94,6 @@ impl Mux {
         Ok(())
     }
 
-    /// The bindings lock (tests poison it).
-    #[cfg(test)]
-    pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
-        &self.conversations.bindings
-    }
-
     /// Records that `participant` types (or stopped) in `conversation`.
     pub(crate) fn set_conversation_typing(&self, conversation: &str, participant: &str, on: bool) {
         let mut typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);

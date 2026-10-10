@@ -8,8 +8,6 @@ use cmux_conversation::{Op, Participant, ParticipantKind};
 
 use std::sync::Arc;
 
-#[cfg(test)]
-use super::super::conversations::commit_op;
 use super::super::{Mux, MuxEvent};
 use crate::conversation_store::{ConversationEvent, LOCAL_USER};
 use crate::remote_relay_state::remote_participant;
@@ -28,23 +26,6 @@ fn device(install: &str, display_name: &str) -> Participant {
 }
 
 impl Mux {
-    /// `participants.add_system` for one conversation: add the device
-    /// participant of `install` and publish the change. Idempotent per
-    /// conversation and install. Tests place a device in one conversation
-    /// with it; pairing uses [`Mux::pair_remote_install`].
-    #[cfg(test)]
-    pub(crate) fn add_remote_participant_system(
-        &self,
-        conversation: &str,
-        install: &str,
-        display_name: &str,
-    ) -> anyhow::Result<()> {
-        let op = Op::ParticipantsAdd { participant: device(install, display_name) };
-        let key = format!("system-pair-{install}");
-        commit_op(self, conversation, &key, LOCAL_USER, &op, &None)?;
-        Ok(())
-    }
-
     /// Pairing: add the device of `install` to every conversation of the
     /// server's own user that does not list it yet, in one transaction: all
     /// of them join or none does (no half-applied pairing). Returns how many

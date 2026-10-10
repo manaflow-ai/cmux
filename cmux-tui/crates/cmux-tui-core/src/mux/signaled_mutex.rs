@@ -4,8 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
-#[cfg(test)]
-use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
 use super::{Mux, State, WorkspaceRegistry};
@@ -63,79 +61,6 @@ impl<T> SignaledMutex<T> {
             Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
             Err(error) => {
                 Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
-            }
-        }
-    }
-
-    #[cfg(test)]
-    #[track_caller]
-    pub(super) fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
-    }
-
-    #[cfg(test)]
-    fn try_lock_at(
-        &self,
-        site: crate::diagnostics::LockSite,
-        waited_from: Instant,
-        blocker: Option<crate::diagnostics::LockSite>,
-    ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.try_lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
-                self.guard(error.into_inner(), site, waited_from, blocker),
-            ))),
-        }
-    }
-
-    /// Deadline wait. The session journal writer used it on the registry
-    /// before it moved to the registry connection lock; only tests use it now.
-    #[cfg(test)]
-    #[track_caller]
-    pub(super) fn lock_until(
-        &self,
-        deadline: Instant,
-    ) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
-        debug_assert_not_journal_writer_commit();
-        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
-        let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
-        let blocker = self.stats.wait_started();
-        loop {
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let observed = *self.release_epoch.lock().unwrap();
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let mut epoch = self.release_epoch.lock().unwrap();
-            if *epoch != observed {
-                continue;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
-            }
-            let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
-            epoch = next;
-            if result.timed_out() && *epoch == observed {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
         }
     }
@@ -262,17 +187,6 @@ impl StateMutex {
         match self.0.lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
             Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
-        match self.0.try_lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(poison)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
-            }
         }
     }
 }

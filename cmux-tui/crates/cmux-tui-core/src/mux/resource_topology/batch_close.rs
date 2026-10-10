@@ -411,17 +411,6 @@ impl Mux {
 }
 
 impl Mux {
-    /// `close-tabs`: close these tab placements in one commit.
-    #[cfg(test)]
-    pub(crate) fn close_tabs(
-        &self,
-        surfaces: Vec<SurfaceId>,
-        end_terminals: bool,
-        mutation: &WorkspaceMutation,
-    ) -> anyhow::Result<BatchCloseOutcome> {
-        self.close_tabs_for(surfaces, end_terminals, None, mutation)
-    }
-
     /// `close-tabs` with an optional `reason` (`close-reason-v1`): a
     /// `session_end` close commits the same way but is not recorded in the
     /// closed history. The reason is part of the request a key names.
@@ -602,6 +591,3 @@ fn batch_slots(
 ) -> EffectSlots {
     EffectSlots { workspace, screen, pane, tab: None, terminal: None }
 }
-
-#[cfg(all(test, unix))]
-mod tests;

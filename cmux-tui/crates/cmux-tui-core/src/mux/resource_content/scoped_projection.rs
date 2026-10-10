@@ -64,15 +64,6 @@ thread_local! {
     static CROSSCHECK_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Run `body` with the cross-check off on this thread, as release builds run.
-#[cfg(test)]
-pub(super) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
-    CROSSCHECK_OFF.with(|off| off.set(true));
-    let result = body();
-    CROSSCHECK_OFF.with(|off| off.set(false));
-    result
-}
-
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
 fn crosscheck_enabled() -> bool {
