@@ -174,7 +174,7 @@
             run: () =>
               editors.inEditor(name, ref, async (p) => {
                 if (!String(p.url()).includes(`/d/${ref.id}/`)) throw new S.SiteError("target_mismatch", `${name}: the editor left file ${ref.id}; nothing was changed`);
-                const now = { title: await p.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }), sharing: (await editors.sharing(p)) || "unknown" };
+                const now = { title: await t.readBack(p, () => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }), sharing: (await editors.sharing(p)) || "unknown" };
                 t.checkFields(name, now, { title, sharing: label || "unknown" }, { what: "changed" });
                 return s.run(p);
               }),

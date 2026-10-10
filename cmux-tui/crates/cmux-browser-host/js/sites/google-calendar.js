@@ -137,12 +137,15 @@
     out.start = startShown ? draft.start : null;
     out.end = endShown ? draft.end : null;
     const own = await t.readBack(page, readAccountEmail);
+    const drafted = new Set((draft.guests || []).map((g) => String(g).trim().toLowerCase()));
     const listed = page.locator('[role="main"] [data-email]');
     const n = await listed.count();
     if (n <= 200) {
       const shown = new Set();
       for (let i = 0; i < n; i++) shown.add(String((await listed.nth(i).getAttribute("data-email", { timeout: 2000 })) || "").trim().toLowerCase());
-      if (own) shown.delete(own);
+      // The organizer (the account) is listed once there are guests; it
+      // counts as a guest only when the draft lists it.
+      if (own && !drafted.has(own)) shown.delete(own);
       out.guests = [...shown];
     } else out.guests = null;
     return out;
@@ -189,24 +192,30 @@
             if (e.description) q.set("details", String(e.description));
             if (e.location) q.set("location", String(e.location));
             if (guests.length) q.set("add", guests.join(","));
-            if (e.timeZone) q.set("ctz", String(e.timeZone));
             if (e.recurrence) q.set("recur", String(e.recurrence));
             const uid = e.uid === undefined ? 0 : e.uid;
             base(uid);
             q.set("authuser", String(uid));
-            const url = `https://calendar.google.com/calendar/render?${q}`;
+            // The editor shows times in ctz; without a drafted time zone it is
+            // the browser's (read in the page at run time: the REPL runtime
+            // has no Intl), so the form and the check use the same zone.
+            const urlIn = (zone) => {
+              q.set("ctz", zone);
+              return `https://calendar.google.com/calendar/render?${q}`;
+            };
             return {
               category: guests.length ? "[9] create appointments; [14] sends invitations to guests" : "[9] create appointments",
               summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} in account u/${uid}${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
               preview: { account: uid, title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description || "", location: e.location || "", guests, timeZone: e.timeZone || null, recurrence: e.recurrence || null },
-              run: () =>
-                t.withTab(url, async (page) => {
+              run: async () => {
+                const zone = e.timeZone ? String(e.timeZone) : await t.inOrigin("https://calendar.google.com", () => Intl.DateTimeFormat().resolvedOptions().timeZone);
+                return t.withTab(urlIn(zone), async (page) => {
                   t.assertSignedIn("googleCalendar.create", page, SIGN_IN);
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
                   // The form must hold the drafted title, start, end and
                   // guests right before Save, and again before Send to guests.
-                  const draft = { title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, timeZone: e.timeZone || null };
+                  const draft = { title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, timeZone: zone, guests };
                   const want = { title: t.normText(e.title), start: draft.start, end: draft.end, allDay: draft.allDay, guests: [...new Set(guests.map((g) => g.trim().toLowerCase()))] };
                   const check = async () => t.checkFields("googleCalendar.create", await observeForm(t, page, draft), want, { what: "saved" });
                   await check();
@@ -220,7 +229,8 @@
                   }
                   await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                   return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
-                }),
+                });
+              },
             };
           });
         },

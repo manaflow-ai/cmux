@@ -83,14 +83,27 @@
   // subjectbox value (null when there is none). The window's elements are
   // read one at a time within the page-read budget; past it the answer is
   // null (unreadable, so nothing is sent).
-  function readComposeHeader() {
+  function readComposeHeader(arg) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
     const B = A.budget();
     const isBox = (b) => !b.closest(".a3s, .gmail_quote") && !(b.parentElement && b.parentElement.closest('[contenteditable], [role="textbox"]'));
     const boxes = document.querySelectorAll('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
+    // The composer the helper types in: the first for a new message, the
+    // last (the newest reply) in a thread.
     let box = null;
-    for (let i = 0; i < boxes.length && B.spend(1); i++) if (isBox(boxes[i])) box = boxes[i];
-    const root = (box && box.closest('[role="dialog"], form')) || document;
+    for (let i = 0; i < boxes.length && B.spend(1); i++) {
+      if (!isBox(boxes[i])) continue;
+      box = boxes[i];
+      if (arg && arg.first) break;
+    }
+    if (!box) return null;
+    // The compose window: the nearest ancestor of the composer that holds a
+    // To row (an inline reply is no dialog and may sit outside a form).
+    // Never the whole document: a thread's sender names carry addresses too.
+    const TO = 'input[aria-label="To recipients" i], textarea[aria-label="To recipients" i], input[name="to"], textarea[name="to"]';
+    let root = box.parentElement;
+    for (let depth = 0; root && root !== document.body && !root.querySelector(TO); depth++, root = root.parentElement) if (depth > 60 || !B.spend(1)) return null;
+    if (!root || root === document.body) return null;
     const inputs = { to: null, cc: null, bcc: null };
     const chips = [];
     let subjectBox = null;
@@ -106,6 +119,12 @@
       if (String(el.getAttribute("data-hovercard-id") || "").includes("@") || el.hasAttribute("email")) chips.push(el);
     }
     const address = (e) => String(e.getAttribute("data-hovercard-id") || e.getAttribute("email") || "").trim().toLowerCase();
+    // The From row (send-as aliases carry addresses) is not a recipient row.
+    const from = root.querySelector('input[name="from"], select[name="from"], [name="from"]');
+    let fromRow = from;
+    const recipientInputs = Object.values(inputs).filter(Boolean);
+    while (fromRow && fromRow.parentElement && fromRow.parentElement !== root && !recipientInputs.some((i) => fromRow.parentElement.contains(i))) fromRow = fromRow.parentElement;
+    if (fromRow) for (let i = chips.length - 1; i >= 0; i--) if (fromRow.contains(chips[i])) chips.splice(i, 1);
     const others = (field) => Object.keys(inputs).filter((f) => f !== field && inputs[f]).map((f) => inputs[f]);
     const seen = new Set();
     const rows = {};
@@ -187,7 +206,7 @@
       // an address outside its rows, counts as unreadable: its recipients
       // could be shown to no one and still be sent to.
       async function readHeader(page, reply) {
-        const held = await t.readBack(page, readComposeHeader);
+        const held = await t.readBack(page, readComposeHeader, { first: !reply });
         if (!held || !Array.isArray(held.rows)) return null;
         if (reply && (!held.rows.includes("to") || (held.other && held.other.length))) return null;
         return held;
@@ -211,6 +230,9 @@
           const held = await readHeader(page, true);
           if (!held) throw new S.SiteError("target_unverified", "gmail.send: cannot read who Gmail's reply composer addresses (no To row it recognizes, or an address outside its rows); nothing was drafted. Reply from Gmail itself, or send a new message with explicit recipients");
           const recipients = heldRecipients(held);
+          // Page-made strings go into the draft the user sees: only plain
+          // email addresses are accepted.
+          for (const a of [...recipients.to, ...recipients.cc, ...recipients.bcc]) if (a.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(a)) throw new S.SiteError("target_unverified", "gmail.send: Gmail's reply composer holds a recipient that is not a plain email address; nothing was drafted");
           if (!recipients.to.length && !recipients.cc.length && !recipients.bcc.length) throw new S.SiteError("target_unverified", "gmail.send: Gmail's reply composer addresses no one; nothing was drafted");
           return recipients;
         });
