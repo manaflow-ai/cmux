@@ -55,20 +55,19 @@ extension ConversationViewController {
         }
         collectionView.topFadeHeaderBottom = background == nil || Self.usesSystemTopPocket
             ? nil : header.frame.maxY - collectionView.frame.minY
-        detailsOverlay?.background = background
-    }
-
-    /// The details panel's "Backgrounds" row (hidden when the backend has none).
-    func configureBackgroundRow(_ overlay: ConversationDetailsOverlay) {
-        overlay.background = store.background
-        guard store.supportsBackgrounds else { return }
-        overlay.onEditBackground = { [weak self] in self?.presentBackgroundPicker() }
+        detailsController?.background = background
     }
 
     /// Opens the background gallery as a sheet; "Set" applies the choice for
     /// everyone in the conversation. The details row and the lab call this.
     public func presentBackgroundPicker() {
-        guard store.supportsBackgrounds, presentedViewController == nil else { return }
+        presentBackgroundPicker(from: self, category: nil)
+    }
+
+    /// From the details' Backgrounds page the editor opens over the details,
+    /// on the chosen category.
+    func presentBackgroundPicker(from presenter: UIViewController, category: ConversationBackground.Kind??) {
+        guard store.supportsBackgrounds, presenter.presentedViewController == nil else { return }
         view.endEditing(true)
         let picker = ConversationBackgroundPickerViewController(current: store.background)
         picker.onSet = { [weak self] choice in self?.applyBackgroundChoice(choice) }
@@ -78,7 +77,11 @@ extension ConversationViewController {
             sheet.detents = [.large()]
             sheet.prefersGrabberVisible = true
         }
-        present(navigation, animated: true)
+        presenter.present(navigation, animated: true)
+        if let category {
+            picker.loadViewIfNeeded()
+            picker.selectCategoryFromLab(category)
+        }
     }
 
     func applyBackgroundChoice(_ choice: ConversationBackgroundChoice) {
@@ -105,15 +108,30 @@ extension ConversationViewController {
     public func backgroundLabCommand(_ line: String) -> String {
         let parts = line.split(separator: " ").map(String.init)
         let argument = parts.count > 1 ? parts[1] : ""
-        let picker = (presentedViewController as? UINavigationController)?.viewControllers.first as? ConversationBackgroundPickerViewController
+        let sheet = presentedViewController?.presentedViewController ?? presentedViewController
+        let picker = (sheet as? UINavigationController)?.viewControllers.first as? ConversationBackgroundPickerViewController
         switch parts.first {
         case "info":
             openInfo()
             return "ok"
         case "details":
-            // The details panel's "Backgrounds" row.
-            guard let overlay = detailsOverlay, let open = overlay.onEditBackground else { return "error no row" }
-            open()
+            // The details' Backgrounds page, first category.
+            guard let details = detailsController, let open = details.onEditBackground else { return "error no page" }
+            details.showPage(1, animated: false)
+            open(nil)
+            return "ok"
+        case "closeinfo":
+            return closeInfo() ? "ok" : "error not open"
+        case "page":
+            guard let details = detailsController else { return "error not open" }
+            details.showPage(Int(argument) ?? 0, animated: true)
+            return "ok"
+        case "scroll":
+            // Sets the Info page's offset from rest (header collapse checks).
+            guard let details = detailsController, let y = Double(argument) else { return "error not open" }
+            let table = details.infoPage.table
+            table.contentOffset.y = CGFloat(y) - table.adjustedContentInset.top
+            details.view.layoutIfNeeded()
             return "ok"
         case "picker":
             presentBackgroundPicker()

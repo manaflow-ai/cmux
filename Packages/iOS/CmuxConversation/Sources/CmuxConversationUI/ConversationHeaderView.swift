@@ -19,6 +19,8 @@ final class ConversationHeaderView: UIView {
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
     private var avatars: [ConversationAvatarView] = []
+    /// The avatar or group cluster: the details zoom out of (and back into) it.
+    let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
     private let clusterDisc = makeGlassView(cornerRadius: 30)
     /// Measured on iOS 26 Messages: a 32.33 pt capsule 55 pt below the safe
@@ -71,8 +73,10 @@ final class ConversationHeaderView: UIView {
         // Messages draws the avatar over the name capsule where they overlap
         // (iOS 26.5 and 27.0). The layer order does that; the subview order
         // keeps VoiceOver reading the photo before the name.
-        clusterDisc.layer.zPosition = Self.avatarZPosition
-        addSubview(clusterDisc)
+        avatarContainer.layer.zPosition = Self.avatarZPosition
+        avatarContainer.isUserInteractionEnabled = false
+        addSubview(avatarContainer)
+        avatarContainer.addSubview(clusterDisc)
         addSubview(avatarTapButton)
         avatarTapButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
         avatarTapButton.accessibilityLabel = String(localized: "conversation.ax.contactPhoto", defaultValue: "Contact photo", bundle: .module)
@@ -122,8 +126,7 @@ final class ConversationHeaderView: UIView {
             view.configure(initials: participant.initials, colorHex: nil)
             view.layer.borderWidth = info.kind == .group ? 1.5 : 0
             view.layer.borderColor = ConversationTheme.background.resolvedColor(with: traitCollection).cgColor
-            view.layer.zPosition = Self.avatarZPosition
-            insertSubview(view, belowSubview: namePillGlass)
+            avatarContainer.addSubview(view)
             return view
         }
         clusterDisc.isHidden = info.kind != .group
@@ -203,18 +206,18 @@ final class ConversationHeaderView: UIView {
         trailingGlass.frame = CGRect(x: bounds.width - ConversationHeaderGeometry.sideMargin(layoutMargin: layoutMargins.right) - 44, y: top, width: 44, height: 44)
         trailingButton.frame = trailingGlass.bounds
 
-        let avatarSize: CGFloat = avatars.count > 1 ? 40 : 60
         let centerX = bounds.midX
+        avatarContainer.frame = CGRect(x: centerX - 30, y: top, width: 60, height: 60)
         if avatars.count <= 1 {
-            avatars.first?.frame = CGRect(x: centerX - avatarSize / 2, y: top, width: avatarSize, height: avatarSize)
+            avatars.first?.frame = avatarContainer.bounds
         } else {
             // Cluster: the first large, the rest small and offset.
-            clusterDisc.frame = CGRect(x: centerX - 30, y: top, width: 60, height: 60)
-            avatars[0].frame = CGRect(x: centerX - 25, y: top + 6, width: 32, height: 32)
-            if avatars.count > 1 { avatars[1].frame = CGRect(x: centerX + 2, y: top + 18, width: 24, height: 24) }
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: centerX - 14, y: top + 36, width: 18, height: 18) }
+            clusterDisc.frame = avatarContainer.bounds
+            avatars[0].frame = CGRect(x: 5, y: 6, width: 32, height: 32)
+            if avatars.count > 1 { avatars[1].frame = CGRect(x: 32, y: 18, width: 24, height: 24) }
+            if avatars.count > 2 { avatars[2].frame = CGRect(x: 16, y: 36, width: 18, height: 18) }
         }
-        let clusterBottom = avatars.map(\.frame.maxY).max() ?? top + 60
+        let clusterBottom = avatars.isEmpty ? top + 60 : top + (avatars.map(\.frame.maxY).max() ?? 60)
         avatarTapButton.frame = CGRect(x: centerX - 40, y: top, width: 80, height: clusterBottom - top)
 
         nameLabel.sizeToFit()
@@ -241,21 +244,9 @@ final class ConversationHeaderView: UIView {
         UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 
-    /// The avatar (or group cluster) and name capsule, which the details
-    /// panel grows out of and shrinks back into.
-    var detailsSourceFrame: CGRect {
-        avatars.map(\.frame).reduce(namePillGlass.frame) { $0.union($1) }
-    }
-
-    /// While details are open only the back button stays; it closes them.
-    func setDetailsShown(_ shown: Bool, animated: Bool) {
-        let views: [UIView] = avatars + [clusterDisc, namePillGlass, avatarTapButton, trailingGlass, statusLabel]
-        let apply = {
-            for view in views { view.alpha = shown ? 0 : (view === self.statusLabel ? (self.statusLabel.text == nil ? 0 : 1) : 1) }
-        }
-        guard animated else { apply(); return }
-        UIView.animate(withDuration: shown ? 0.12 : 0.2, delay: shown ? 0 : 0.08, options: [.beginFromCurrentState], animations: apply)
-    }
+    /// The details zoom out of the avatar (Messages' zoom source is its
+    /// CKAvatarButton); UIKit hides it while the details cover it.
+    var zoomSourceView: UIView { avatarContainer }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // Pass touches through the empty header area to the transcript.
