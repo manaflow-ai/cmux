@@ -11,6 +11,14 @@ import Testing
 @MainActor
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
+    private final class HoverWindow: NSWindow {
+        var pointerOnScreen = NSPoint.zero
+
+        override var mouseLocationOutsideOfEventStream: NSPoint {
+            pointerOnScreen
+        }
+    }
+
     private let teams = [
         AccountTeamSummary(id: "team-long", displayName: "Benjamin Swerdlow's Team With A Long Name"),
         AccountTeamSummary(id: "team-alpha", displayName: "Alpha Squad"),
@@ -200,6 +208,29 @@ struct CloudTeamPickerMenuTests {
         anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
         anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
         anchor.mouseExited(with: try pointerEvent(.mouseExited))
+
+        #expect(hovers == [true, false])
+    }
+
+    /// Detaching clears hover before the view can be reattached, rather than
+    /// waiting for a later lifecycle callback.
+    @Test func windowDetachClearsHoverImmediately() throws {
+        let window = HoverWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        window.contentView?.addSubview(anchor)
+
+        var hovers: [Bool] = []
+        anchor.onHoverChange = { hovers.append($0) }
+        anchor.mouseEntered(with: try pointerEvent(.mouseEntered))
+        anchor.removeFromSuperview()
 
         #expect(hovers == [true, false])
     }
