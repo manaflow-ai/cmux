@@ -70,13 +70,20 @@ public final class TabModel: Identifiable {
 
     public var hasUnread: Bool { notification?.unread == true }
 
-    /// Public tab id (`tab_…`) on registry daemons.
-    public var resourceID: ResourceID? { snapshot.tabResourceID }
+    /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
+    /// tab can get its id in a later snapshot of the same surface, and an
+    /// observer that found no tab by this id must hear it.
+    public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
+    }
+
+    /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
+    public var appTab: AppTabRef? {
+        kind == .browser ? snapshot.app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
@@ -88,6 +95,7 @@ public final class TabModel: Identifiable {
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
         snapshot = s
+        resourceID = s.tabResourceID
         surface = s.surface
         terminalID = s.terminalID
         terminalIncarnation = s.terminalIncarnation
@@ -119,6 +127,7 @@ public final class TabModel: Identifiable {
     func update(_ s: TabSnapshot) {
         guard s != snapshot else { return }
         snapshot = s
+        if resourceID != s.tabResourceID { resourceID = s.tabResourceID }
         if surface != s.surface { surface = s.surface }
         if terminalID != s.terminalID { terminalID = s.terminalID }
         if terminalIncarnation != s.terminalIncarnation { terminalIncarnation = s.terminalIncarnation }
@@ -200,7 +209,8 @@ public final class TabModel: Identifiable {
             path = URL(string: value)?.path
         } else if value.hasPrefix("kitty-shell-cwd://") {
             let rest = value.dropFirst("kitty-shell-cwd://".count)
-            path = rest.firstIndex(of: "/").map { String(rest[$0...]) }
+            let fromSlash = rest.drop { $0 != "/" }
+            path = fromSlash.isEmpty ? nil : String(fromSlash)
         }
         // Only an absolute local path; a relative or `~` report says nothing usable.
         return path?.hasPrefix("/") == true ? path : nil

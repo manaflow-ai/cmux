@@ -38,10 +38,55 @@ public final class RemoteBrowserContentView: NSView {
     /// Called when the viewport may have changed (size or screen scale).
     public var onViewport: ((RemoteBrowserViewport) -> Void)?
 
+    /// Called when the view may have moved on screen or been hidden or
+    /// shown: a new frame, window, superview or hidden state. Popup surface
+    /// panels follow the page with it.
+    public var onPlacementChange: (() -> Void)?
+
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         onViewport?(viewport)
+        onPlacementChange?()
     }
+
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        onPlacementChange?()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onPlacementChange?()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onPlacementChange?()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        onPlacementChange?()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        onPlacementChange?()
+    }
+
+    /// A popup surface's view: it is in a panel that never becomes key, so
+    /// the first click acts at once and hover works while the app is active
+    /// (not only in the key window).
+    package var isSurface = false {
+        didSet {
+            guard isSurface != oldValue else { return }
+            if let hover { removeTrackingArea(hover) }
+            hover = nil
+            installHover()
+        }
+    }
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { isSurface }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
@@ -61,6 +106,40 @@ public final class RemoteBrowserContentView: NSView {
         installHover()
     }
 
+    /// Why the page is not shown (a refused or lost session), drawn over
+    /// the page area; nil while the page streams.
+    public private(set) var failureMessage: String?
+    private var failureLabel: NSTextField?
+
+    /// Shows `message` centered in the page area (nil hides it).
+    public func showFailure(_ message: String?) {
+        failureMessage = message
+        guard let message else {
+            failureLabel?.removeFromSuperview()
+            failureLabel = nil
+            return
+        }
+        let label = failureLabel ?? NSTextField(wrappingLabelWithString: "")
+        label.stringValue = message
+        label.alignment = .center
+        label.textColor = .secondaryLabelColor
+        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.isSelectable = true
+        if failureLabel == nil {
+            failureLabel = label
+            addSubview(label)
+        }
+        needsLayout = true
+    }
+
+    public override func layout() {
+        super.layout()
+        guard let failureLabel else { return }
+        let width = min(max(bounds.width - 48, 0), 480)
+        let height = failureLabel.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height
+        failureLabel.frame = NSRect(x: (bounds.width - width) / 2, y: max((bounds.height - height) / 2, 0), width: width, height: height)
+    }
+
     /// Hover: mouse moves, enter and exit while the pointer is over the
     /// page (CSS `:hover`, tooltips, cursors), with no button down. Covers
     /// the visible rect, so it follows every resize by itself.
@@ -68,8 +147,9 @@ public final class RemoteBrowserContentView: NSView {
 
     private func installHover() {
         if let hover, trackingAreas.contains(hover) { return }
+        let active: NSTrackingArea.Options = isSurface ? .activeInActiveApp : .activeInKeyWindow
         let area = NSTrackingArea(
-            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, active, .inVisibleRect], owner: self, userInfo: nil)
         hover = area
         addTrackingArea(area)
     }

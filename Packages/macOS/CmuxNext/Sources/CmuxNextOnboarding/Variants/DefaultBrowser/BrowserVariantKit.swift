@@ -123,7 +123,7 @@ extension NSButton {
     /// A glass button one size up, for screens built around one action.
     static func browserHeroButton(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
         let button = OnboardingControl.button(title, prominent: true, target: target, action: action)
-        button.controlSize = .extraLarge
+        if #available(macOS 26, *) { button.controlSize = .extraLarge } else { button.controlSize = .large }
         button.setContentHuggingPriority(.required, for: .horizontal)
         return button
     }
@@ -132,7 +132,7 @@ extension NSButton {
 extension Glass {
     /// A glass panel whose content is pinned to its edges, so the content's
     /// constraints size the panel.
-    static func browserVariantPanel(_ content: NSView, cornerRadius: CGFloat) -> NSGlassEffectView {
+    static func browserVariantPanel(_ content: NSView, cornerRadius: CGFloat) -> GlassPanelView {
         content.translatesAutoresizingMaskIntoConstraints = false
         let glass = makePanel(content: content, cornerRadius: cornerRadius)
         NSLayoutConstraint.activate([

@@ -27,7 +27,7 @@ import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./pla
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, HostLists } from "../pages/settings/ops";
+import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -42,6 +42,10 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
+  agents?: Partial<AgentsState>;
+  /** Settings > Agents > Harnesses; default the mock's four. */
+  harnesses?: HarnessesState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
@@ -90,6 +94,11 @@ export type ArmMeasurement = {
   over16: number;
   /** Main-thread time the arm spent planning its motion, in ms per toggle (largest). */
   planMs?: number;
+  /** Action-to-settled samples across clicks, keys and press-drag pointer steps. */
+  settleCount?: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
   /** The frame strip image, relative to the run's folder. */
   strip?: string;
 };
@@ -118,6 +127,8 @@ type VariantBase = {
    * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
    */
   play?: Play;
+  /** Variant-specific play thresholds, merged over the entry defaults. */
+  checks?: PlayChecks;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -130,6 +141,9 @@ export type AgentPaneVariant = VariantBase & {
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
+  /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
+   *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
+  afterCall?: Record<string, AcpmuxSnapshot>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -200,11 +214,15 @@ export type ChangelogPageVariant = VariantBase & {
   error?: { code: string; message: string };
   current?: string;
   notes: ReleaseNotes[];
+  /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
+  route?: string;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
 export type IconPickerPageVariant = VariantBase & {
   session: PickerSession;
+  /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
+  prefs?: unknown;
   assetState?: "loading" | "error";
   query?: string;
   active?: number;
@@ -431,6 +449,8 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
+    for (const [name, variant] of Object.entries(entry.variants))
+      for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);
   }
   return problems;
 }

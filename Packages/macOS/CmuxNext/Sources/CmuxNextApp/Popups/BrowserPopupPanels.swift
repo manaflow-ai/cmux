@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The open popup panels: sized `window.open` popups (OAuth, payment) and
 /// extension popup windows, each a `BrowserPopupPanel` over its opener's
@@ -11,12 +12,16 @@ import CmuxNextDesign
 /// closes; closing it closes the page.
 final class BrowserPopupPanels {
     private let contextMenus: BrowserContextMenuBuilder
+    /// Where the opener windows' close notices arrive (a private center in
+    /// tests that post one off main).
+    private let center: NotificationCenter
     /// The link, image and selection rows for a right-click, by the
     /// opener's tab (`BrowserPageRequests.hitItems`).
     var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
 
-    init(contextMenus: BrowserContextMenuBuilder = .shared) {
+    init(contextMenus: BrowserContextMenuBuilder = .shared, center: NotificationCenter = .default) {
         self.contextMenus = contextMenus
+        self.center = center
     }
 
     private struct Entry {
@@ -93,7 +98,7 @@ final class BrowserPopupPanels {
         entry.panel.page.close()
         if let parent = entry.parent, !entries.values.contains(where: { $0.parent === parent }) {
             if let observer = parentObservers.removeValue(forKey: ObjectIdentifier(parent)) {
-                NotificationCenter.default.removeObserver(observer)
+                center.removeObserver(observer)
             }
         }
     }
@@ -102,10 +107,11 @@ final class BrowserPopupPanels {
     private func observeParent(_ parent: NSWindow) {
         let key = ObjectIdentifier(parent)
         guard parentObservers[key] == nil else { return }
-        parentObservers[key] = NotificationCenter.default.addObserver(
+        parentObservers[key] = center.addObserver(
             forName: NSWindow.willCloseNotification, object: parent, queue: nil
         ) { [weak self, weak parent] _ in
-            MainActor.assumeIsolated {
+            // No queue: inline on main (AppKit posts window notifications there), a hop from anywhere else.
+            MainDelivery().run {
                 guard let self else { return }
                 for entry in self.entries.values where entry.parent === parent { entry.panel.close() }
             }
@@ -138,8 +144,9 @@ final class BrowserPopupPanels {
             // A panel has no tab to select, no chrome for notices or an
             // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab, .download:
-            // A download joins the App's list through the opener's tab.
+        case .openURL, .adoptTab, .download, .openLocalFile:
+            // A download joins the App's list through the opener's tab, and a
+            // handed-off file opens in the opener's pane.
             return false
         }
         return true

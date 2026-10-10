@@ -35,7 +35,7 @@ extension LineTransport {
             if let number = try? c.decodeIfPresent(UInt64.self, forKey: .id) {
                 id = number
             } else if let text = try? c.decodeIfPresent(String.self, forKey: .id) {
-                id = UInt64(text)
+                id = UInt64(text, radix: 10)
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))

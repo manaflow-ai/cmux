@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import Observation
@@ -29,7 +30,7 @@ final class WorkspaceContentView: NSView {
         bar.isHidden = true
         addSubview(bar)
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ Metrics.tabStripHeight }) { self?.needsLayout = true }
+            for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
         }
     }
 

@@ -73,7 +73,7 @@ enum DestructiveConfirmation {
             let programs = await runningPrograms(in: workspace, on: daemon)
             guard !programs.isEmpty else { return nil }
             return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
-                          body: ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
+                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
                           suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
             return nil

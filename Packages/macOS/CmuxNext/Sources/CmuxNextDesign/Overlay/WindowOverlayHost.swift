@@ -60,8 +60,12 @@ public final class WindowOverlayHost {
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
     var forwardButton = 0
-    /// Another window became key while a modal showed: dismissing it leaves the keyboard there.
-    var focusMoved = false
+    /// Another window (not the panel nor the overlay's own window) became key while a modal
+    /// showed: dismissing it leaves the keyboard there (`focusMoved`).
+    var otherWindowTookKey = false
+    /// A tab dialog (a modal with a region) showed: the rest of the window took clicks, so
+    /// a first responder change there is a move. Kept here, as `endModal` runs after it left.
+    var modalLeftWindowUsable = false
     var keyObserver: (any NSObjectProtocol)?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
@@ -95,7 +99,7 @@ public final class WindowOverlayHost {
         host.observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak host] _ in
-            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            // main-proof: observer on queue: .main
             MainActor.assumeIsolated { host?.tearDown() }
         })
         return host
@@ -231,20 +235,23 @@ public final class WindowOverlayHost {
         return index > last
     }
 
-    /// Page windows (Chromium) are the child windows that are not panels.
-    public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool { !(child is NSPanel) }
+    /// Page windows are the child windows that are not panels (Chromium),
+    /// and content panels (`ContentChildPanel`: remote browser popups).
+    public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool {
+        !(child is NSPanel) || child is ContentChildPanel
+    }
 
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
         let center = NotificationCenter.default
         windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
-            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            // main-proof: observer on queue: .main
             MainActor.assumeIsolated { self?.reassertOrder() }
         })
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
             windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+                // main-proof: observer on queue: .main
                 MainActor.assumeIsolated { self?.windowGeometryDidChange() }
             })
         }

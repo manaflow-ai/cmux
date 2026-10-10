@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -34,7 +35,7 @@ final class TabStripRevealController {
         applyPlusButtonMode()
         // task-owner: this controller (cancelled in deinit); event-driven (Observation).
         observation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.plusButton }) {
+            for await _ in ObservationStream({ DesignSettings.shared.plusButton }) {
                 self?.applyPlusButtonMode()
             }
         }

@@ -60,13 +60,18 @@ enum DebugWindowSnapshot {
     /// Captures the window and paints each visible page over the window
     /// image, in screen order: the window (with its page child windows), the
     /// WebKit pages, the Chromium pages, then the overlay panels above
-    /// content. The window server and AppKit snapshots omit WebKit's remote
-    /// content (the WebContent process draws it) and, without the Screen
-    /// Recording grant, Chromium's (its GPU process draws into the page's
-    /// child window), so each engine's own page image is painted instead:
-    /// `WKWebView.takeSnapshot` and Chromium's `Page.captureScreenshot`
-    /// (`BrowserTab.snapshot`), which need no grant and work for a
-    /// background, non-key window.
+    /// content. The base is the window server's image whenever it gives one:
+    /// it is the window as on screen, WebKit pages included (they are layers
+    /// of this window), so no WebKit image is painted over it. AppKit drawing
+    /// is only the fallback (no window server image, a host without a lit
+    /// display): it leaves out WebKit's remote content, so each page's own
+    /// image is painted there, and it drops Liquid Glass with the views
+    /// around it (a sidebar holding a glass card came out empty, cx-ddjj).
+    /// Without the Screen Recording grant both leave out Chromium's page
+    /// (its GPU process draws into the page's child window), so Chromium's
+    /// own image (`Page.captureScreenshot`, `BrowserTab.snapshot`) is
+    /// painted; WebKit's `takeSnapshot` and that need no grant and work for
+    /// a background, non-key window.
     @MainActor
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if params["webviews"]?.boolValue == false { return capture(params, services: services) }
@@ -76,12 +81,14 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let webViews = visibleWebViews(in: window)
-            // AppKit drawing supplies the chrome and backdrop without stale
-            // remote WebKit layers. Hide the live views while drawing the
-            // native base so the page snapshots below fill each rectangle
-            // exactly once. The overlay panels go on top at the end, so the
-            // composited base has only the page windows.
-            let base = webViews.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: webViews)
+            // The window server's image first: it shows the window as on
+            // screen, WebKit pages included. Only without it, AppKit drawing
+            // with the live web views hidden, so the page snapshots below fill
+            // each rectangle exactly once. The overlay panels go on top at the
+            // end, so either base has only the page windows.
+            let composited = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow)
+            let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
+                ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
             var layers: [Layer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
@@ -93,7 +100,7 @@ enum DebugWindowSnapshot {
                 childrenIncluded += pageChildren
             }
             var failed = 0
-            for webView in webViews {
+            for webView in webViews where base.method == .appkit {
                 do {
                     let image = try await webView.takeSnapshot(configuration: nil)
                     var proposedRect = NSRect.zero
@@ -110,7 +117,10 @@ enum DebugWindowSnapshot {
             var pagesFailed = 0
             for (page, rect) in pages {
                 do {
-                    layers.append(.page(try await page.snapshot(), rect))
+                    // The chrome's holes (find bar, prompt bar, error page)
+                    // show the window there, as on screen.
+                    let holes = page.occlusionRects.map { page.contentView.convert($0, to: nil) }
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes))
                 } catch {
                     pagesFailed += 1
                 }
@@ -147,8 +157,9 @@ enum DebugWindowSnapshot {
 
     /// What `composite` paints over the base image, bottom first.
     private enum Layer {
-        /// A page image filling a rectangle in window coordinates.
-        case page(CGImage, NSRect)
+        /// A page image filling a rectangle in window coordinates, except
+        /// `holes` (window coordinates), where the page window is cut out.
+        case page(CGImage, NSRect, holes: [NSRect] = [])
         /// A window server image of child windows, the size of the window.
         case window(CGImage)
     }
@@ -168,16 +179,6 @@ enum DebugWindowSnapshot {
             result.append((page, rect))
         }
         return result
-    }
-
-    private static func baseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        if let image = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
-            return (image, .composited)
-        }
-        if let rep = window.renderSnapshot(), let image = rep.cgImage {
-            return (image, .appkit)
-        }
-        throw CocoaError(.fileWriteUnknown)
     }
 
     private static func appKitBaseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
@@ -242,10 +243,23 @@ enum DebugWindowSnapshot {
         context.interpolationQuality = .high
         for layer in layers {
             switch layer {
-            case .page(let image, let rect):
+            case .page(let image, let rect, let holes):
                 // Window coordinates and the bitmap both have a bottom-left origin.
-                let pixels = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
-                if pixels.width > 0, pixels.height > 0 { context.draw(image, in: pixels) }
+                func pixels(_ rect: NSRect) -> CGRect {
+                    CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                }
+                let area = pixels(rect)
+                guard area.width > 0, area.height > 0 else { continue }
+                context.saveGState()
+                if !holes.isEmpty {
+                    let clip = CGMutablePath()
+                    clip.addRect(area)
+                    for hole in holes { clip.addRect(pixels(hole)) }
+                    context.addPath(clip)
+                    context.clip(using: .evenOdd)
+                }
+                context.draw(image, in: area)
+                context.restoreGState()
             case .window(let image):
                 context.draw(image, in: whole)
             }

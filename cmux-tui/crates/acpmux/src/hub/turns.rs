@@ -3,6 +3,53 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// ACP v1 does not define a `document` content block. Claude's translator can
+/// turn our internal document block into Anthropic's native document. Strict
+/// ACP adapters (including Codex) instead get a stable workspace file and a
+/// resource link, plus a short note telling the agent where to open it.
+fn acp_prompt_blocks(session: &Session, blocks: &[Value]) -> Result<Vec<Value>, RpcError> {
+    let is_claude = session.meta().family.as_deref() == Some("claude");
+    let mut out = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("document") || is_claude {
+            out.push(block.clone());
+            continue;
+        }
+        let name = block.get("name").and_then(Value::as_str).unwrap_or("document.pdf");
+        let safe_name: String = name
+            .chars()
+            .map(
+                |c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' },
+            )
+            .collect();
+        let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
+        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
+        })?;
+        let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
+        let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
+        std::fs::write(&path, bytes)
+            .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
+        let uri = format!("file://{}", path.display());
+        out.push(json!({
+            "type": "text",
+            "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
+        }));
+        out.push(json!({
+            "type": "resource_link",
+            "uri": uri,
+            "name": name,
+            "mimeType": "application/pdf"
+        }));
+    }
+    Ok(out)
+}
+
 impl Hub {
     // --------------------------------------------------------------- turns
 
@@ -127,6 +174,12 @@ impl Hub {
                     ended = Some(rec.msg);
                     return false;
                 }
+                ("queue_removed", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
                 _ => {}
             }
             true
@@ -174,6 +227,12 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        if steer && opts.steer_only && !steer_now {
+            return Err(RpcError::invalid_params(
+                "steer.unavailable: the session has no running turn that its agent can steer",
+            )
+            .with_data(json!({"reason": "steer.unavailable"})));
+        }
         if steer_now {
             self.check_steer(session, control)?;
             // A running turn has a live agent.
@@ -192,9 +251,28 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
             );
-            let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
+            // The turn may end between this check and the agent: without
+            // steerOnly the message then becomes the next prompt, as before.
+            let fallback = (!opts.steer_only).then(|| blocks.clone());
+            let wire_blocks = acp_prompt_blocks(session, &blocks)?;
+            let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = child.request(method::SESSION_PROMPT, params).await?;
+            let mut r =
+                match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
+                {
+                    Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                        let Some(blocks) = fallback else { return Err(e) };
+                        let opts = PromptOptions {
+                            prompt_id: Some(prompt_id),
+                            control,
+                            trust_gate,
+                            ..PromptOptions::default()
+                        };
+                        return Box::pin(self.run_prompt(session, blocks, client, false, opts))
+                            .await;
+                    }
+                    r => r?,
+                };
             merge_mux_meta(
                 &mut r,
                 json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
@@ -204,35 +282,26 @@ impl Hub {
         let turn_id = uuid::Uuid::now_v7().to_string();
         let waiting = session.turn().is_some() || session.queued() > 0;
         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-        if waiting {
-            session.queue.lock().unwrap().push(QueuedPrompt {
-                prompt_id: prompt_id.clone(),
-                turn_id: turn_id.clone(),
-                client: client.to_owned(),
-                preview: short_text(&text, 200),
-                queued_at: now_ms(),
-            });
-            // Tell every client right away; the turn itself starts when the lock frees.
-            self.append(
-                session,
-                "mux",
-                "queued",
-                json!({"text": text, "client": client, "position": position, "promptId": prompt_id, "turnId": turn_id}),
-            );
+        let withdraw = waiting.then(|| {
+            let withdraw = self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
             );
-        }
-        let guard = session.turn_lock.lock().await;
-        session.queued.fetch_sub(1, Ordering::SeqCst);
-        if waiting {
-            session.queue.lock().unwrap().retain(|q| q.turn_id != turn_id);
-            self.append(
-                session,
-                "mux",
-                "dequeued",
-                json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
-            );
+            withdraw
+        });
+        // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
+        let guard = match withdraw {
+            Some(withdraw) => tokio::select! {
+                guard = session.turn_lock.lock() => guard,
+                () = withdraw.notified() => return Ok(super::queue::withdrawn_reply(&prompt_id, &turn_id)),
+            },
+            None => session.turn_lock.lock().await,
+        };
+        if !waiting {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+        } else if let Some(withdrawn) = self.take_queued(session, &prompt_id, &turn_id) {
+            drop(guard);
+            return Ok(withdrawn);
         }
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
@@ -340,12 +409,14 @@ impl Hub {
             return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
-        let mut result = child
-            .request(
-                method::SESSION_PROMPT,
-                json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
-            )
-            .await;
+        let mut result = super::steer_end::agent_prompt(
+            session,
+            &child,
+            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            &turn_id,
+            false,
+        )
+        .await;
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
@@ -379,11 +450,22 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // A fallback that could not resume (another store)
+                        // starts fresh: it gets the restored transcript first.
+                        let mut blocks = blocks;
+                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                            && let Some(transcript) = self.transcript(session, 24_000)
+                        {
+                            blocks.insert(
+                                0,
+                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                            );
+                        }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
                                 )
                                 .await;
                         }
@@ -395,6 +477,12 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // The chat's route changed during the turn: move it before the next
+        // one starts (route_switch.rs). A restart that fails leaves the
+        // harness stopped; the next prompt's spawn reports why.
+        if session.route_switch.load(Ordering::SeqCst) {
+            let _ = self.restart_on_route(session).await;
+        }
         drop(guard);
         if let Ok(v) = &mut result {
             merge_mux_meta(v, ids);
@@ -463,6 +551,19 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // A failure on a bound route names the route and its fallback
+        // (route_switch.rs), in the error's data and the turn result.
+        let route_info = match &result {
+            Err(e) => self.route_failure(session, &e.message).await,
+            Ok(_) => None,
+        };
+        if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
+            match &mut e.data {
+                Some(Value::Object(data)) => data.extend(info.clone()),
+                None => e.data = Some(Value::Object(info.clone())),
+                Some(_) => {}
+            }
+        }
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -495,6 +596,9 @@ impl Hub {
                     let agent_error =
                         (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
                     o.extend(self.turn_error_fields(session, agent_error));
+                    if let Some(Value::Object(info)) = &route_info {
+                        o.extend(info.clone());
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);

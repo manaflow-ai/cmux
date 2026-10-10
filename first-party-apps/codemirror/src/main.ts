@@ -1,5 +1,5 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// Editor app commands (identical in first-party-apps/{monaco,codemirror}/src/main.ts).
+// Editor app commands (identical in first-party-apps/codemirror/src/main.ts).
 // The editor itself is the web pane (web/index.html, built from web-src/). These
 // exports serve the palette, CLI and MCP: with a `doc` handle they act on the
 // document owner directly; without one they go to the focused editor pane

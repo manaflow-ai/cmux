@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
@@ -40,13 +41,16 @@ extension WindowRootView {
         content?.layoutSubtreeIfNeeded()
     }
 
-    /// Follows the two settings from `DesignSettings` (init reads the
+    /// Follows the placement settings from `DesignSettings` (init reads the
     /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
         Task { [weak self] in
-            for await (side, spaces) in Observations({ (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition) }) {
+            for await (side, spaces, visibility) in ObservationStream({
+                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility)
+            }) {
                 self?.sidebarSide = side
                 self?.sidebar.sidebarView.spacesPosition = spaces
+                self?.sidebar.sidebarView.spacesVisibility = visibility
             }
         }
     }

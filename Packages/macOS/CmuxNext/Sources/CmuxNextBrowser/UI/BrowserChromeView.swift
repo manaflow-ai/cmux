@@ -63,7 +63,13 @@ public final class BrowserChromeView: NSView {
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
-    var toolbarHeight: NSLayoutConstraint!
+    lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
+    /// Bound in setup (first read there), never an IUO.
+    lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
+        // A deallocated chrome view's constraint is never laid out again.
+        guard let self else { return 0 }
+        return isToolbarHidden ? 0 : currentToolbarHeight
+    }
     private var observation: ObservationLoop?
     private var showsStop = false
     var isToolbarHidden = false
@@ -103,6 +109,9 @@ public final class BrowserChromeView: NSView {
     public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
     var recordedURL: URL?
     var recordedTitle: String?
+    /// Each page that finished loading, once per URL (the App's cookie import offer).
+    public var onPageFinished: ((URL) -> Void)?
+    var finishedURL: URL?
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
@@ -194,9 +203,7 @@ public final class BrowserChromeView: NSView {
         addSubview(promptBar)
         addSubview(findBar)
 
-        toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
-            isToolbarHidden ? 0 : currentToolbarHeight
-        }
+        _ = toolbarHeight  // binds it here, in the same order as before
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing
             toolbarButtons.spacing = BrowserMetrics.buttonSpacing
@@ -329,6 +336,7 @@ public final class BrowserChromeView: NSView {
         addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
+        reportFinishedLoad(state)
         progressLine.set(progress: state.progress, visible: loading)
 
         pageStatus.render(state)
@@ -348,7 +356,12 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         super.layout()
+        // Auto Layout may defer the address bar's frame until its subtree is
+        // laid out. Follow the card only after that frame reflects this pass.
+        addressBar.layoutSubtreeIfNeeded()
+        addressBar.followLayout()
         updateOcclusion()
+        syncPageOverlays()
         if pageAreaTop != reportedHeader {
             reportedHeader = pageAreaTop
             onPaneHeaderHeightChange?()
@@ -356,10 +369,11 @@ public final class BrowserChromeView: NSView {
     }
 
     /// Child-window pages draw above this view; tell them where the find
-    /// bar, prompt bar, and error page cover them.
+    /// bar, prompt bar, and error page cover them (floating cards are on
+    /// the overlay host instead, `PageFloatingOverlays`).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let bars = ([findBar, promptBar] + [currentNotice].compactMap { $0 }).filter { !$0.isHidden && $0.superview != nil }
+        let bars = [findBar, promptBar].filter { !$0.isHidden && $0.superview != nil }
         let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
@@ -372,7 +386,7 @@ public final class BrowserChromeView: NSView {
     /// Surface token in an opaque window, clear over a see-through one (windows.md);
     /// the toolbar takes `appearance.surfaces.browserChrome` over that (R55).
     func updateColors() {
-        let paints = WindowBackdrop(themeTokens).panesPaintBackground
+        let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
         performWithTheme {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface

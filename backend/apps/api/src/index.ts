@@ -1,16 +1,23 @@
-import { authenticate, withGrantClasses } from "./auth.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
+import { authenticate } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
+import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
+import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
+
+/** The owner each wire scope reaches (principalForOwner). */
+const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { handleCloudAbandonedClear } from "./cloud-admin.ts"
 import { handleTeamVmAdmin } from "./team-vm-admin.ts"
+import { handleTeamVmExport } from "./team-vm-export-route.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
@@ -36,6 +43,14 @@ export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
+export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { FreeDeviceDO } from "./inference/free-device-do.ts"
+
+/** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
+const gateUnreachable = (e: unknown) => {
+  console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) }))
+  return Response.json({ error: { code: "owner.unreachable", message: "the sign-in policy could not be checked; retry", retryable: true } }, { status: 503 })
+}
 
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocols
@@ -46,19 +61,30 @@ export { UsageMeterDO } from "./usage-meter-do.ts"
 const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const authenticated = await authenticate(env, token)
-  if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
+  const authenticatedToken = await authenticate(env, token)
+  if (!authenticatedToken?.user || !authenticatedToken.team) return new Response("unauthenticated", { status: 401 })
+  // A session names a shared team with the `team.<id>` subprotocol; TeamDO confirms the membership (team-select.ts).
+  const selected = await selectTeam(env, { ...authenticatedToken, user: authenticatedToken.user, team: authenticatedToken.team }, protocols.find((p) => p.startsWith(TEAM_SUBPROTOCOL_PREFIX))?.slice(TEAM_SUBPROTOCOL_PREFIX.length))
+  if (!selected.ok) return Response.json({ error: { code: selected.code, message: selected.message } }, { status: selected.code === "owner.unreachable" ? 503 : 403 })
+  const authenticated = selected.principal
   // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
-  if (authenticated.install_kind === "vm") return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
+  if (isMachineInstallKind(authenticated.install_kind)) return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
   // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
-  const rules = await signInRules(env, authenticated.team, authenticated.user)
-  const gate = await ssoGate(env, authenticated)
+  let rules: Awaited<ReturnType<typeof signInRules>>, gate: Awaited<ReturnType<typeof ssoGate>>
+  try {
+    ;[rules, gate] = [await signInRules(env, authenticated.team, authenticated.user), await ssoGate(env, authenticated)]
+  } catch (e) {
+    return gateUnreachable(e)
+  }
   // The Stack session id and the install's email domain serve only this gate; owners never receive them.
   const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
   const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
   if (refused) return Response.json({ error: refused }, { status: 403 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
-  const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
+  // In a shared team, a role without team.resources (guest, billing) opens no owner's socket but TeamDO's, which checks by grant (review P2-2).
+  const granted = scope === "user" ? authed : await principalForOwner(env, WIRE_OWNER[scope] ?? "", authed).catch(() => null)
+  if (granted === null) return Response.json({ error: { code: "owner.unreachable", message: "team membership could not be checked; retry" } }, { status: 503 })
+  const principal = granted && !("refused" in granted) ? granted : undefined
   if (!principal) return new Response("forbidden", { status: 403 })
   const [ns, entity] =
     scope === "user"
@@ -82,13 +108,27 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   return stub.fetch(new Request(request.url, { headers, method: "GET" }))
 }
 
+/** The model router (src/inference): loaded only for its own paths. */
+const inference = async (path: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
+  const r = await import("./inference/route.ts")
+  if (path === "/v1/inference/models" && request.method === "GET") return r.handleInferenceModels(env)
+  if (path === "/v1/inference/chat/completions" && request.method === "POST") return r.handleChatCompletions(env, request, ctx)
+  if (path === "/v1/inference/status" && request.method === "GET") return r.handleInferenceStatus(env, request)
+  if (path.startsWith("/v1/inference/free/")) return (await import("./inference/free.ts")).handleFree(env, path, request)
+  // Messages API shape: a client's base URL is <origin>/v1/inference (it appends /v1/messages).
+  if (path === "/v1/inference/v1/messages" && request.method === "POST") return (await import("./inference/messages.ts")).handleMessages(env, request, ctx)
+  if (path === "/v1/inference/v1/messages/count_tokens" && request.method === "POST") return (await import("./inference/messages.ts")).handleCountTokens(env, request)
+  return Response.json({ error: { code: "not_found", message: "not found" } }, { status: 404 })
+}
+
 /** POST /v1/presence-key with the install's own token (home-messaging.md section 21). */
 const handlePresenceKey = async (request: Request, env: Env): Promise<Response> => {
   const auth = request.headers.get("authorization") ?? ""
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
   if (authenticated.install_kind === "vm") return Response.json({ ok: false, error: { code: "auth.forbidden", message: "a VM install has no presence key" } }, { status: 403 })
-  const gate = await ssoGate(env, authenticated)
+  const gate = await ssoGate(env, authenticated).catch((e: unknown) => (console.error(JSON.stringify({ msg: "sso gate unreachable", error: String(e) })), null))
+  if (!gate) return gateUnreachable("presence key")
   if (gate.refusal) return Response.json({ ok: false, error: gate.refusal }, { status: 403 })
   const { stack_session: _session, email_domain: _domain, ...principal } = gate.principal
   const user = authenticated.user
@@ -106,7 +146,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
@@ -124,6 +164,7 @@ export default {
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
+    if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)
@@ -140,7 +181,10 @@ export default {
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
+    const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
+    if (tvmExport) return handleTeamVmExport(request, env, tvmExport[1]!, tvmExport[2]!)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
+    if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)

@@ -149,9 +149,9 @@ public struct HomePalette: Hashable, Sendable {
         let s = outgoingGradient
         guard let first = s.first else { return .gray255(0) }
         guard s.count > 1 else { return first.color }
-        var i = 1
-        while i < s.count - 1, s[i].location < fraction { i += 1 }
-        let a = s[i - 1], b = s[i]
+        // The first inner stop at or past `fraction`, else the last stop.
+        let upper = s.dropFirst().dropLast().firstIndex(where: { $0.location >= fraction }) ?? s.count - 1
+        guard let a = s[checked: upper - 1], let b = s[checked: upper] else { return first.color }
         let f = max(0, min(1, (fraction - a.location) / max(1e-6, b.location - a.location)))
         func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * f }
         return HomeColor(red: mix(a.color.red, b.color.red), green: mix(a.color.green, b.color.green),

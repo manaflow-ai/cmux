@@ -1,0 +1,201 @@
+// The agent pane's native context menu (CmuxNextAgentPane AgentPaneContextMenu) acts on the
+// message under the pointer: on `contextmenu`, before WebKit asks the host for its menu, the page
+// reports that message (its text, an agent reply's Markdown, its turn's fork point, Retry and its
+// links) and the selected transcript text under the pointer to the host's `cmuxAgentContextMenu`
+// handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
+// report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
+// one report for one menu.
+import { lexer, type Token, walkTokens } from "marked";
+import { turnRows } from "../diff";
+import type { AcpmuxSnapshot } from "../model";
+
+export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
+
+export type MessageMenuTarget = {
+  text: string;
+  markdown?: string;
+  forkSeq?: number;
+  /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
+  retryRowId?: string;
+  /// The message's web links and images, each once, for Open Link.
+  links?: string[];
+};
+
+/// What the page reports on `contextmenu`: the message under the pointer, and the selected
+/// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true };
+
+/// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
+/// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
+/// shows on the same rule.
+export const canFork = (snapshot: AcpmuxSnapshot) =>
+  Boolean(snapshot.canFork) &&
+  !snapshot.isWorking &&
+  !snapshot.summary?.peer &&
+  snapshot.connection !== "disconnected" &&
+  !snapshot.connection.startsWith("connecting");
+
+/// The one turn a fork can go through: the latest completed turn's summary event. acpmux forks a
+/// chat at its end (`acp.session.fork` refuses an earlier turn), so no earlier turn offers it.
+export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary" && row.seq !== undefined) return row.seq;
+  }
+  return undefined;
+}
+
+/// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
+/// `:fold`), or undefined for a row that is not a prompt or a reply.
+export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): MessageMenuTarget | undefined {
+  const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
+  const row = snapshot.rows.find((candidate) => candidate.id === id);
+  if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
+  const turnSeq = canFork(snapshot)
+    ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
+    : undefined;
+  const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
+  const target: MessageMenuTarget =
+    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+  if (forkSeq !== undefined) target.forkSeq = forkSeq;
+  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// The http(s) links and images in a message's Markdown (bare URLs too), each once, in reading
+/// order. Anything else (javascript:, file:, relative paths) is not offered.
+export function webLinks(markdown: string): string[] {
+  const links: string[] = [];
+  void walkTokens(lexer(markdown), (token) => {
+    if (token.type !== "link" && token.type !== "image") return;
+    const href = String(token.href);
+    if (/^https?:\/\//i.test(href) && !links.includes(href)) links.push(href);
+  });
+  return links;
+}
+
+/// Markdown as a person reads it: the words, code and links' text without the syntax, one block
+/// per paragraph, list items on their own lines.
+export function plainText(markdown: string): string {
+  return blocks(lexer(markdown)).join("\n\n").trim();
+}
+
+function blocks(tokens: Token[]): string[] {
+  return tokens.flatMap((token): string[] => {
+    switch (token.type) {
+      case "space":
+      case "hr":
+        return [];
+      case "code":
+        return [token.text];
+      case "list":
+        return [
+          (token.items as { tokens: Token[] }[])
+            .map(
+              (item, index) =>
+                `${token.ordered ? `${(Number(token.start) || 1) + index}.` : "-"} ${blocks(item.tokens).join("\n")}`,
+            )
+            .join("\n"),
+        ];
+      case "blockquote":
+        return blocks(token.tokens ?? []);
+      case "table":
+        return [
+          [token.header, ...token.rows]
+            .map((cells: { tokens: Token[] }[]) => cells.map((cell) => inline(cell.tokens)).join("\t"))
+            .join("\n"),
+        ];
+      case "html":
+        return token.text.replace(/<[^>]*>/g, "").trim() ? [token.text.replace(/<[^>]*>/g, "").trim()] : [];
+      default:
+        return "tokens" in token && token.tokens ? [inline(token.tokens)] : "text" in token ? [String(token.text)] : [];
+    }
+  });
+}
+
+function inline(tokens: Token[]): string {
+  return tokens
+    .map((token) => {
+      switch (token.type) {
+        case "br":
+          return "\n";
+        case "image":
+          return token.text;
+        case "html":
+          return "";
+        case "codespan":
+        case "escape":
+          return token.text;
+        default:
+          return "tokens" in token && token.tokens ? inline(token.tokens) : "text" in token ? String(token.text) : "";
+      }
+    })
+    .join("");
+}
+
+type MessageSource = (rowId: string) => MessageMenuTarget | undefined;
+let source: MessageSource | undefined;
+
+/// The page's reader of its current transcript (App sets it once its client connects).
+export function setMessageMenuSource(next: MessageSource | undefined) {
+  source = next;
+}
+
+type Handler = { postMessage(body: unknown): void };
+
+let reportedImage: HTMLElement | undefined;
+
+/// Open Image: opens the image the last report named as its click does; false when it named none.
+export function openReportedImage(): boolean {
+  const image = reportedImage;
+  reportedImage = undefined;
+  image?.click();
+  return Boolean(image);
+}
+
+/// Reports the message under the pointer on every `contextmenu` in `doc` (capture, so a row that
+/// stops the event still reports). Returns the remover.
+export function installMessageMenuReporter(
+  doc: Document,
+  handler: () => Handler | undefined = () =>
+    (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
+      ?.messageHandlers?.[MESSAGE_MENU_HANDLER],
+): () => void {
+  const report = (event: Event) => {
+    const target = event.target as Element | null;
+    const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
+    const message = (rowId && source?.(rowId)) || undefined;
+    reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const selection = selectionAt(doc, target);
+    const body: MessageMenuReport | null =
+      message || selection || reportedImage
+        ? { ...message, ...(selection ? { selection } : {}), ...(reportedImage ? { openImage: true as const } : {}) }
+        : null;
+    handler()?.postMessage(body);
+  };
+  doc.addEventListener("contextmenu", report, true);
+  return () => doc.removeEventListener("contextmenu", report, true);
+}
+
+/// The selected transcript text when the right-click is inside the selection; nothing for a
+/// collapsed or blank selection, a right-click elsewhere, or text in the composer (an editable
+/// field, whose own Cut, Copy and Paste the menu keeps).
+function selectionAt(doc: Document, target: Element | null): string | undefined {
+  const selection = doc.getSelection();
+  if (!target || !selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
+  const editable = '[contenteditable]:not([contenteditable="false"]), textarea, input';
+  if (target.closest?.(editable)) return undefined;
+  const range = selection.getRangeAt(0);
+  // A range can cross from the transcript into the composer. Reporting it would offer Quote in
+  // Reply / Ask About This with text the user did not select from the message, so reject any
+  // selection whose endpoint is in an editable field just like a right-click in that field.
+  const endpointIsEditable = (node: Node | null) => {
+    const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement;
+    return Boolean(element?.closest?.(editable));
+  };
+  if (endpointIsEditable(selection.anchorNode) || endpointIsEditable(selection.focusNode)) return undefined;
+  if (!range.intersectsNode(target)) return undefined;
+  return selection.toString().trim() || undefined;
+}

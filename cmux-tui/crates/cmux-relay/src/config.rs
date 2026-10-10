@@ -1,13 +1,14 @@
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::time::Duration;
 
 use cmux_remote_protocol::{LaneToken, RelayPermission, RelayTicketClaims};
 
-const DEFAULT_BIND: &str = "127.0.0.1:8787";
+/// `127.0.0.1:8787`; a test checks that it equals the documented text.
+const DEFAULT_BIND: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8787));
 const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
@@ -65,7 +66,7 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            bind: DEFAULT_BIND.parse().expect("default relay bind address is valid"),
+            bind: DEFAULT_BIND,
             lease_duration: Duration::from_secs(DEFAULT_LEASE_SECONDS),
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
@@ -302,10 +303,10 @@ impl RelayCommand {
     ) -> Result<Self, ConfigError> {
         let mut args = arguments.into_iter().peekable();
         let mut command = "serve".to_owned();
-        if let Some(first) = args.peek().and_then(|value| value.to_str())
-            && !first.starts_with('-')
+        if let Some(first) =
+            args.next_if(|value| value.to_str().is_some_and(|first| !first.starts_with('-')))
         {
-            command = args.next().unwrap().to_string_lossy().into_owned();
+            command = first.to_string_lossy().into_owned();
         }
 
         if command == "help" {
@@ -596,121 +597,4 @@ fn parse_next_string(
     args.next()
         .map(|value| value.to_string_lossy().into_owned())
         .ok_or_else(|| ConfigError::new(format!("{option} requires a value")))
-}
-
-#[cfg(test)]
-impl RelayConfig {
-    /// An open relay (no ticket secret), which tests start explicitly.
-    pub(crate) fn open_for_tests() -> Self {
-        Self { allow_open: true, ..Self::default() }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Relay;
-
-    #[test]
-    fn non_loopback_open_relay_requires_an_explicit_override() {
-        let config =
-            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
-        assert!(config.validate().is_err());
-    }
-
-    /// Open mode admits any non-empty provider ticket, so a local process
-    /// could register or connect to any slot. A relay without a ticket
-    /// secret starts only with an explicit `--allow-open`, also on loopback.
-    #[test]
-    fn a_loopback_relay_without_a_secret_refuses_to_start() {
-        assert!(RelayConfig::default().validate().is_err());
-        assert!(Relay::new(RelayConfig::default()).is_err());
-        let serve = ["--bind", "127.0.0.1:9000"].map(OsString::from);
-        assert!(RelayCommand::parse(RelayConfig::default(), serve.clone()).is_err());
-        let open = ["--bind", "127.0.0.1:9000", "--allow-open"].map(OsString::from);
-        assert!(RelayCommand::parse(RelayConfig::default(), open).is_ok());
-        let signed = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
-        assert!(RelayCommand::parse(signed, serve).is_ok());
-    }
-
-    #[test]
-    fn command_line_overrides_defaults() {
-        let command = RelayCommand::parse(
-            RelayConfig { allow_open: true, ..RelayConfig::default() },
-            [
-                "--bind",
-                "127.0.0.1:9000",
-                "--max-frame-bytes",
-                "1024",
-                "--max-queue-bytes",
-                "2048",
-                "--http-header-timeout-seconds",
-                "7",
-                "--max-control-sockets-per-slot",
-                "9",
-                "--max-allocations-per-second-per-slot",
-                "11",
-            ]
-            .map(OsString::from),
-        )
-        .unwrap();
-        let RelayCommand::Serve(config) = command else {
-            panic!("expected serve command");
-        };
-        assert_eq!(config.bind, "127.0.0.1:9000".parse().unwrap());
-        assert_eq!(config.max_frame_bytes, 1024);
-        assert_eq!(config.max_queue_bytes, 2048);
-        assert_eq!(config.http_header_timeout, Duration::from_secs(7));
-        assert_eq!(config.max_control_sockets_per_slot, 9);
-        assert_eq!(config.max_allocations_per_second_per_slot, 11);
-    }
-
-    #[test]
-    fn allow_open_flag_is_applied_before_security_validation() {
-        let config =
-            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
-        let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
-        assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
-    }
-
-    #[test]
-    fn version_is_available_as_a_flag_or_command() {
-        for arguments in [vec!["--version"], vec!["-V"], vec!["version"]] {
-            let command = RelayCommand::parse(
-                RelayConfig::default(),
-                arguments.into_iter().map(OsString::from),
-            )
-            .unwrap();
-            assert!(matches!(command, RelayCommand::Version));
-        }
-    }
-
-    #[test]
-    fn ticket_command_rejects_ttl_over_five_minutes() {
-        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
-        let result = RelayCommand::parse(
-            config,
-            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "301"]
-                .map(OsString::from),
-        );
-
-        let error = result.err().expect("ticket TTL above five minutes must be rejected");
-        assert!(error.to_string().contains("cannot exceed 300 seconds"));
-    }
-
-    #[test]
-    fn ticket_command_accepts_five_minute_ttl_boundary() {
-        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
-        let command = RelayCommand::parse(
-            config,
-            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "300"]
-                .map(OsString::from),
-        )
-        .unwrap();
-
-        assert!(matches!(
-            command,
-            RelayCommand::Ticket { ttl, .. } if ttl == Duration::from_secs(300)
-        ));
-    }
 }

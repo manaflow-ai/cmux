@@ -18,10 +18,13 @@ import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
+import { BrowseView } from "./BrowseView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 import { Tunables } from "./Tunables";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { Toolbar, ToolbarToggleGroup } from "../../ui/Toolbar";
 
 const VIEW_LABELS: Record<View, string> = {
   variant: "Variant",
@@ -29,6 +32,7 @@ const VIEW_LABELS: Record<View, string> = {
   locales: "All locales",
   themes: "Themes",
   compare: "Compare arms",
+  browse: "Browse gallery",
 };
 
 export const { router } = createGalleryRouter(Layout);
@@ -118,6 +122,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
   const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
+  const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
       <div className="gallery-filter">
@@ -142,6 +147,17 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             }
           }}
         />
+        <a
+          className="gallery-browse-link"
+          href={href({ ...address, search: browseSearch })}
+          aria-current={address.search.view === "browse" ? "page" : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            go({ ...address, search: browseSearch });
+          }}
+        >
+          Browse all {entries.length} entries
+        </a>
       </div>
       {groups.map(({ area, states: all }) => {
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
@@ -294,27 +310,78 @@ function Layout() {
   const status = useSyncExternalStore(liveStatus.subscribe, liveStatus.get);
   const address = useAddress(states);
   const { state, search } = address;
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   return (
-    <div className="gallery" style={shellColors(search)}>
-      <Sidebar address={address} states={states} status={status} />
-      <main className="gallery-main">
-        <ErrorBanner states={states} status={status} />
-        {state ? (
-          <EntryBoundary
-            key={state.path}
-            state={state}
-            loading={<p className="gallery-empty">Loading {state.path}</p>}
-            render={(entry) => <EntryView entry={entry} address={address} />}
-          />
-        ) : states.length === 0 ? (
-          <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
-        ) : states.every((each) => each.status === "error") ? (
-          <p className="gallery-empty">No entry loads. Each file's error is in the list.</p>
-        ) : (
-          <p className="gallery-empty">Loading</p>
-        )}
-      </main>
+    <div ref={setContainer} className="gallery" style={shellColors(search)}>
+      <UiProvider container={container} dir={languageDirection(search.locale)}>
+        <Sidebar address={address} states={states} status={status} />
+        <main className="gallery-main">
+          <ErrorBanner states={states} status={status} />
+          {search.view === "browse" ? (
+            <BrowseEntryView address={address} states={states} />
+          ) : state ? (
+            <EntryBoundary
+              key={state.path}
+              state={state}
+              loading={<p className="gallery-empty">Loading {state.path}</p>}
+              render={(entry) => <EntryView entry={entry} address={address} />}
+            />
+          ) : states.length === 0 ? (
+            <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
+          ) : states.every((each) => each.status === "error") ? (
+            <p className="gallery-empty">No entry loads. Each file's error is in the list.</p>
+          ) : (
+            <p className="gallery-empty">Loading</p>
+          )}
+        </main>
+      </UiProvider>
     </div>
+  );
+}
+
+/** Browse is registry-wide, so it must not wait for the route's current entry to load. */
+function BrowseEntryView({ address, states }: { address: Address; states: readonly EntryState[] }) {
+  const { search } = address;
+  const current = states.find((state) => known(state)?.id === address.entry);
+  const canCompare = Boolean(current && known(current)?.experiment);
+  const env: GalleryEnv = search;
+  return (
+    <>
+      <header className="gallery-header">
+        <fieldset className="gallery-segmented">
+          <legend>View</legend>
+          {VIEWS.filter((view) => view !== "compare" || canCompare).map((view) => (
+            <label key={view}>
+              <input
+                type="radio"
+                name="view"
+                aria-label={VIEW_LABELS[view]}
+                checked={search.view === view}
+                onChange={() => go({ ...address, search: { ...search, view } })}
+              />
+              {VIEW_LABELS[view]}
+            </label>
+          ))}
+        </fieldset>
+        <Controls
+          env={env}
+          onChange={(next) =>
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+          }
+        />
+      </header>
+      <BrowseView
+        entries={readyEntries(states)}
+        env={env}
+        tune={search.tune}
+        onOpen={(target, targetVariant) =>
+          go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+        hrefFor={(target, targetVariant) =>
+          href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+      />
+    </>
   );
 }
 
@@ -355,27 +422,29 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
           {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
           {entry.experimental && <span className="gallery-experimental">{experimentalLabel(env.locale)}</span>}
         </h1>
-        <fieldset className="gallery-segmented">
-          <legend>View</legend>
-          {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
-            <label key={view}>
-              <input
-                type="radio"
-                name="view"
-                aria-label={VIEW_LABELS[view]}
-                checked={search.view === view}
-                onChange={() => go({ ...address, search: { ...search, view } })}
-              />
-              {VIEW_LABELS[view]}
-            </label>
-          ))}
-        </fieldset>
-        <Controls
-          env={env}
-          onChange={(next) =>
-            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
-          }
-        />
+        <Toolbar label="Gallery controls" className="gallery-toolbar">
+          <ToolbarToggleGroup
+            label="View"
+            value={search.view}
+            options={VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => ({
+              value: view,
+              label: VIEW_LABELS[view],
+            }))}
+            onValueChange={(value) => {
+              if ((VIEWS as readonly string[]).includes(value))
+                go({ ...address, search: { ...search, view: value as View } });
+            }}
+          />
+          <Controls
+            env={env}
+            onChange={(next) =>
+              go(
+                { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
+                true,
+              )
+            }
+          />
+        </Toolbar>
         {entry.tunables && entry.tunables.length > 0 && (
           <Tunables
             tunables={entry.tunables}
@@ -420,7 +489,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         ) : (
           stages.map((stage) => (
             <Stage
-              key={stage.key}
+              key={search.view === "variant" ? "stage" : stage.key}
               entry={entry}
               state={stage.variant}
               env={stage.env}

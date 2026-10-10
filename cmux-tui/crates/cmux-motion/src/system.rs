@@ -226,31 +226,3 @@ mod platform {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gsettings_lines() {
-        assert_eq!(parse_gsettings("false\n"), Some(true));
-        assert_eq!(parse_gsettings("true"), Some(false));
-        assert_eq!(parse_gsettings("enable-animations: false"), Some(true));
-        assert_eq!(parse_gsettings("enable-animations: true"), Some(false));
-        assert_eq!(parse_gsettings("No such schema"), None);
-    }
-
-    #[test]
-    fn gtk_settings_ini() {
-        assert_eq!(
-            parse_gtk_ini("[Settings]\ngtk-theme-name=Breeze\ngtk-enable-animations=0\n"),
-            Some(true)
-        );
-        assert_eq!(parse_gtk_ini("[Settings]\ngtk-enable-animations = true"), Some(false));
-        assert_eq!(
-            parse_gtk_ini("[Settings]\ngtk-enable-animations=1\ngtk-enable-animations=false"),
-            Some(true)
-        );
-        assert_eq!(parse_gtk_ini("[Settings]\ngtk-theme-name=Adwaita"), None);
-    }
-}

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -52,7 +53,7 @@ final class BrowserHibernation {
         source.setEventHandler { [weak self, weak source] in
             guard let event = source?.data else { return }
             let level: MemoryPressureLevel = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-            MainActor.assumeIsolated { self?.pressureDidChange(level) }
+            MainActor.assumeIsolated { self?.pressureDidChange(level) } // main-proof: dispatch source on queue: .main
         }
         source.activate()
         pressureSource = source
@@ -69,7 +70,7 @@ final class BrowserHibernation {
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
         settingsObservation = Task { [weak self] in
-            for await setting in Observations({ settings.snapshot.browserHibernation }) {
+            for await setting in ObservationStream({ settings.snapshot.browserHibernation }) {
                 self?.apply(setting)
             }
         }

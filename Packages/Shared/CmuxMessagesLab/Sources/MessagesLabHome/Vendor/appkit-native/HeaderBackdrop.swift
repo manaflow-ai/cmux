@@ -39,7 +39,7 @@ final class HeaderBackdropView: NSView {
         static func fromArguments() -> Params {
             var p = Params()
             let args = ProcessInfo.processInfo.arguments
-            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]).map { CGFloat($0) } : nil } }
+            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { args.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } /* cmux: no index math */ }
             if let x = v("--hb-height") { p.height = x }
             if let x = v("--hb-r1") { p.r1 = x }
             if let x = v("--hb-r2") { p.r2 = x }
@@ -89,6 +89,16 @@ final class HeaderBackdropView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Light appearance: the same blend toward a light grey (out = base + gain * blur, base =
+    /// a * c): c from Apple's light window background (white) so base = a * 1. UNVERIFIED against a
+    /// light capture of Messages; the dark c is the fitted macOS 27 value.
+    func setLight(_ light: Bool) {
+        let c = light ? 1 : params.c
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        tint.backgroundColor = NSColor(white: c, alpha: 1).cgColor
+        CATransaction.commit()
+    }
 
     override func layout() {
         super.layout()

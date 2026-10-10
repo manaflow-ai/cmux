@@ -9,9 +9,9 @@ public import Observation
 /// (plans/cmux-next/palette-scopes.md section 4); this model runs its
 /// effects: it keeps one `PageState` per level (providers, search index,
 /// cached rows), searches, runs commands, and mirrors the top level into
-/// observable properties for the views. Non-empty queries are ranked off
-/// the main actor by `PaletteSearcher`; results carry the level's
-/// generation and the reducer drops stale ones.
+/// observable properties for the views. Every query is ranked off the
+/// main actor by `PaletteSearcher`; results carry the level's generation
+/// and the reducer drops stale ones.
 @Observable
 public final class PaletteModel {
     // MARK: Observable page state
@@ -61,6 +61,10 @@ public final class PaletteModel {
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
     public internal(set) var isLoading = false
+    /// The shown page's rows stand in for an off-main rank that has not
+    /// landed: the view shows no "No results" state for an empty stand-in
+    /// (a Recent-only page on its first open, cx-9c8m).
+    var awaitsRank: Bool { shownLevelID.flatMap { pages[$0] }?.awaitsRank ?? false }
     /// Increments when keyboard navigation moves the selection, so the view
     /// scrolls it into view (mouse hover never scrolls).
     public internal(set) var scrollRequest = 0
@@ -105,8 +109,26 @@ public final class PaletteModel {
     @ObservationIgnored public var scopeEntry: PaletteScopeEntryStyle = .all
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
-    @ObservationIgnored public internal(set) var frecency: FrecencyStore
-    @ObservationIgnored let persistence: (any FrecencyPersisting)?
+    @ObservationIgnored public internal(set) var frecency: FrecencyStore {
+        didSet {
+            frecencyRevision += 1
+            // The next open's empty query ranks with the new usage before it opens.
+            prewarmEmptyRanks()
+        }
+    }
+    /// Bumps on every usage change: an empty-query rank of an older revision is not exact.
+    @ObservationIgnored var frecencyRevision = 0
+    /// The last empty-query rank of each page, by page id (`PaletteEmptyRank`): shown on open
+    /// while the next rank runs off the main actor.
+    @ObservationIgnored var emptyRanks: [String: PaletteEmptyRank] = [:]
+    /// Page ids of `emptyRanks`, oldest first (the cache keeps a few pages).
+    @ObservationIgnored var emptyRankOrder: [String] = []
+    /// The running empty-query rank of each page id: a newer request cancels it, and an older
+    /// one never writes the cache.
+    @ObservationIgnored var emptyRankRequests: [String: PaletteEmptyRankRequest] = [:]
+    @ObservationIgnored var emptyRankRequestCounter = 0
+    /// The usage history's owner; `frecency` mirrors its `history`.
+    @ObservationIgnored let usage: any PaletteUsageStore
     @ObservationIgnored public internal(set) var nav = PaletteNavState()
     /// One page per level, by level id.
     @ObservationIgnored var pages: [Int: PageState] = [:]
@@ -114,9 +136,8 @@ public final class PaletteModel {
     @ObservationIgnored var suppliedPages: [PaletteScopeID: PageState] = [:]
     @ObservationIgnored var current: PageState? { nav.top.flatMap { pages[$0.id] } }
     @ObservationIgnored var stack: [PageState] { nav.levels.compactMap { pages[$0.id] } }
+    /// Ranks every query off the main actor, the empty one included (`PaletteEmptyRank`).
     @ObservationIgnored let searcher = PaletteSearcher()
-    /// Persistent bridge for synchronous empty-query updates on the main actor.
-    @ObservationIgnored let ranker = PaletteRanker()
     @ObservationIgnored var searchGeneration = 0
     @ObservationIgnored var searchTask: Task<Void, Never>?
     /// Cmd-W pressed while a search was in flight; runs when it lands.
@@ -130,9 +151,17 @@ public final class PaletteModel {
     /// The level whose page chrome and rows are on screen.
     @ObservationIgnored var shownLevelID: Int?
 
-    public init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
-        self.persistence = persistence
-        self.frecency = frecency ?? persistence?.load() ?? FrecencyStore()
+    public convenience init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
+        self.init(usage: LocalPaletteUsageStore(history: frecency, persistence: persistence))
+    }
+
+    public init(usage: any PaletteUsageStore) {
+        self.usage = usage
+        self.frecency = usage.history
+        usage.onChange = { [weak self] in
+            guard let self else { return }
+            frecency = self.usage.history
+        }
     }
 
     // MARK: Derived
@@ -261,9 +290,9 @@ public final class PaletteModel {
 
     /// Records a use of `key` (an item's `frecencyKey`) from outside the
     /// palette, so actions run by shortcut or menu also rank higher here.
-    public func recordUse(_ key: String) {
-        frecency.record(key, at: now())
-        persistence?.save(frecency)
+    public func recordUse(_ key: String, query: String = "") {
+        usage.recordUse(key: key, query: query, at: now())
+        frecency = usage.history
     }
 
     /// Runs `command` for `item`, recording usage.
@@ -275,8 +304,7 @@ public final class PaletteModel {
             return
         }
         if let key = item.frecencyKey {
-            frecency.record(key, at: now())
-            persistence?.save(frecency)
+            recordUse(key, query: current?.query ?? "")
         }
         switch command.effect.resolved() {
         case .deferred:

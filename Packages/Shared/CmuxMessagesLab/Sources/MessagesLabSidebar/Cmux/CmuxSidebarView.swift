@@ -28,9 +28,19 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     public var pinned: Bool
     public var muted: Bool
     public var typing: Bool
+    /// Sidebar v1.2: the sender is a contact (the Known and Unknown Senders filters).
+    public var knownSender: Bool
+    /// Sidebar v1.2: filtered as spam (only the Spam filter shows it).
+    public var spam: Bool
+    /// Sidebar v1.2: deleted at this time (only Recently Deleted shows it).
+    public var deletedAt: Date?
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
-                unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false) {
+                unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil) {
+        self.knownSender = knownSender
+        self.spam = spam
+        self.deletedAt = deletedAt
         self.id = id
         self.title = title
         self.people = people
@@ -49,9 +59,13 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         let members = people.map { SummaryParticipant(id: $0.id, displayName: $0.name, avatar: .monogram($0.initials)) }
         let avatar: AvatarSpec = members.count > 1 ? .group(members.prefix(4).map(\.avatar))
             : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased())
-        return ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
-                                   previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
-                                   muted: muted, typing: typing, lastReaction: nil, version: hashValue)
+        var s = ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
+                                    previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
+                                    muted: muted, typing: typing, lastReaction: nil, version: hashValue)
+        s.knownSender = knownSender
+        s.spam = spam
+        s.deletedAt = deletedAt
+        return s
     }
 }
 
@@ -63,6 +77,11 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
+    /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
+    /// there). The host changes its order and calls `show` before returning, so the tiles land
+    /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
+    public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+    /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
@@ -82,7 +101,7 @@ public final class CmuxSidebarView: NSView {
         set { controller.selectionColor = newValue }
     }
 
-    private let controller = SidebarController()
+    let controller = SidebarController()
     private let link = SidebarLink()
     public private(set) var entries: [CmuxSidebarEntry] = []
     public private(set) var pinnedOrder: [String] = []
@@ -92,6 +111,7 @@ public final class CmuxSidebarView: NSView {
         SidebarLocalization.bundle = .module
         super.init(frame: frame)
         link.owner = self
+        controller.availableFilters = Self.filters(filterSources)
         controller.dataSource = link
         controller.delegate = link
         controller.searchProvider = link
@@ -103,6 +123,31 @@ public final class CmuxSidebarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    /// Sidebar v1.2's filters whose data the host supplies (the entries' knownSender, spam and
+    /// deletedAt). All Messages and Unread Messages always have data; a filter without a source
+    /// is not offered, so the menu never shows a list that can only be empty. Home sets none yet:
+    /// HomeStore has no contact, spam or deletion state.
+    public struct FilterSources: OptionSet, Sendable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        public static let senders = FilterSources(rawValue: 1 << 0)
+        public static let spam = FilterSources(rawValue: 1 << 1)
+        public static let recentlyDeleted = FilterSources(rawValue: 1 << 2)
+    }
+    public var filterSources: FilterSources = [] {
+        didSet { controller.availableFilters = Self.filters(filterSources) }
+    }
+    static func filters(_ s: FilterSources) -> [SidebarFilter] {
+        SidebarFilter.allCases.filter {
+            switch $0 {
+            case .all, .unread: return true
+            case .knownSenders, .unknownSenders: return s.contains(.senders)
+            case .spam: return s.contains(.spam)
+            case .recentlyDeleted: return s.contains(.recentlyDeleted)
+            }
+        }
+    }
 
     /// The compact (avatar-only) list's width and the width the list is designed for.
     public var minimumWidth: CGFloat { controller.minimumWidth }
@@ -143,6 +188,25 @@ public final class CmuxSidebarView: NSView {
         controller.select(id, notify: false)
     }
 
+    /// Each pinned tile's and list row's frame in window points from the top-left, in display
+    /// order (automation: drive a pin drag through synthesized mouse events).
+    public var itemFramesInWindow: [(id: String, pinned: Bool, frame: NSRect)] {
+        guard let window else { return [] }
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        let document = controller.document
+        func top(_ r: CGRect) -> NSRect {
+            let w = document.convert(r, to: nil)
+            return NSRect(x: w.minX, y: height - w.maxY, width: w.width, height: w.height)
+        }
+        let tiles = controller.pinnedItems.enumerated().compactMap { t, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, true, top(controller.tileRect(t))) }
+        }
+        let rows = controller.rowItems.enumerated().compactMap { r, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, false, top(controller.rowRect(r))) }
+        }
+        return tiles + rows
+    }
+
     var snapshot: ConversationListSnapshot { ConversationListSnapshot(items: entries.map(\.summary), pinned: pinnedOrder) }
 }
 
@@ -174,7 +238,8 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
 
 /// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
-private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider {
+private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
+    @preconcurrency SidebarPinPlacing {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -184,11 +249,14 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
-    // Pin, and Mark as Read while the conversation has unread messages (the read cursor only moves
-    // forward, so there is no Mark as Unread). Hide Alerts and Delete need owner support first:
-    // no item that does nothing.
+    func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    // v1.2: MessagesLab's own tile reorder reports its drop here; the same placement as a pin drag.
+    func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) { owner?.onPlacePinned(id, index) }
+    // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the
+    // controller picks the title from the entry's unread count; the host keeps the mark). Hide
+    // Alerts and Delete need owner support first: no item that does nothing.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        (owner?.entries.first { $0.id == id }?.unreadCount ?? 0) > 0 ? [.pin, .markRead] : [.pin]
+        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
     }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 

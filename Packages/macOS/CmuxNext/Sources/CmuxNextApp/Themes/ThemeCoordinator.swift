@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -60,7 +61,7 @@ final class ThemeCoordinator {
         chromeTheme = settings.snapshot.chromeTheme
         applyChromeTheme()
         chromeObservation = Task { [weak self] in
-            for await theme in Observations({ settings.snapshot.chromeTheme }) {
+            for await theme in ObservationStream({ settings.snapshot.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
@@ -88,17 +89,17 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
-        Task {
+        Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
-            for await loaded in Observations({ local.store.isLoaded }) where loaded {
-                self.pruneTerminalThemes()
+            for await loaded in ObservationStream({ local.store.isLoaded }) where loaded {
+                self?.pruneTerminalThemes()
                 return
             }
         }
         observation = Task { [weak self] in
-            for await _ in Observations({ () -> [String?] in
+            for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
@@ -167,11 +168,11 @@ final class ThemeCoordinator {
     /// Re-reads every theme. `forceSurfaces` re-applies surface configs
     /// even when unchanged (after a Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
-        for controller in services.windows?.controllers ?? [] {
+        for controller in services.windows.controllers {
             windowDidChange(controller)
             for content in controller.mountedContents { contentDidShow(content) }
         }
-        for entry in services.cache?.terminals.values.map({ $0 }) ?? [] {
+        for entry in services.cache.terminals.values.map({ $0 }) {
             entry.themeBinding.coordinator = self
             setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
             if forceSurfaces { entry.themeBinding.syncSurface(force: true) }

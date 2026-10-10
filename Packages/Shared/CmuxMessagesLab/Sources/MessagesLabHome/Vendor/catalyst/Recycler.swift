@@ -43,6 +43,9 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
     /// screen); ScrollPrefetcher sets them from the velocity.
     var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// Until this time (`clock`) a page motion runs (WindowView.addPageMotion): the offset jumped a
+    /// page at once, which is not a scroll, so the prefetcher adds no lead and reads no velocity.
+    var pageJumpUntil: CFTimeInterval = 0
     /// The transcript's clock (seconds; the window view sets its engine clock).
     var clock: () -> CFTimeInterval = { CACurrentMediaTime() }
     let prefetcher = ScrollPrefetcher()
@@ -63,7 +66,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
-        index[ObjectIdentifier(cell)].map { IndexPath(item: $0, section: 0) }
+        index.value(for: ObjectIdentifier(cell)).map { /* cmux: dictionary read */ IndexPath(item: $0, section: 0) }
     }
 
     /// All rows may have changed: reconfigure every visible cell on the next pass.
@@ -113,7 +116,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
             }
             if cell.frame != a.frame { cell.frame = a.frame }
             cell.layer.zPosition = CGFloat(a.zIndex)
-            next[k] = cell
+            next.updateValue(cell, forKey: k) /* cmux */
             newIndex[ObjectIdentifier(cell)] = i
         }
         // Rows that left the rect: back to the pool (hidden, not removed), in row order: the

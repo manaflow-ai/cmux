@@ -43,6 +43,31 @@ enum CloudStrings {
     static var deleteSnapshotTitle: String { String(localized: "cloud.prompt.deleteSnapshot", defaultValue: "Delete this Cloud snapshot?", table: "Cloud", bundle: .module) }
     static var deleteSnapshotBody: String { String(localized: "cloud.prompt.deleteSnapshotBody", defaultValue: "The snapshot is permanently deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     static var deleteSnapshot: String { String(localized: "cloud.button.deleteSnapshot", defaultValue: "Delete Snapshot", table: "Cloud", bundle: .module) }
+    /// The native confirmation of a Cloud machine create (cx-t2rz).
+    static var createConfirmTitle: String { String(localized: "cloud.create.confirm.title", defaultValue: "Create a Cloud machine?", table: "Cloud", bundle: .module) }
+    static var createConfirmAgent: String {
+        String(localized: "cloud.create.confirm.agent", defaultValue: "An agent or a script asked for a new Cloud machine. The machine counts against your Cloud plan.", table: "Cloud", bundle: .module)
+    }
+    static var createConfirmApproval: String {
+        String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
+    }
+    static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
+    nonisolated static var createStillPending: String {
+        String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
+    }
+    static func createConfirmSize(cpu: Int, memoryGB: Int, diskGB: Int) -> String {
+        String(format: String(localized: "cloud.create.confirm.size", defaultValue: "Size: %1$d vCPU, %2$d GB memory, %3$d GB disk", table: "Cloud", bundle: .module),
+               cpu, memoryGB, diskGB)
+    }
+    static func createConfirmName(_ name: String) -> String {
+        String(format: String(localized: "cloud.create.confirm.name", defaultValue: "Name: %@", table: "Cloud", bundle: .module), name)
+    }
+    nonisolated static var createApprovalMismatch: String {
+        String(localized: "cloud.create.approvalMismatch", defaultValue: "The approval request does not match the machine you confirmed, so cmux did not approve it.", table: "Cloud", bundle: .module)
+    }
+    nonisolated static var createApproveInFeed: String {
+        String(localized: "cloud.create.approveInFeed", defaultValue: "Approve this machine in your cmux feed, then try again.", table: "Cloud", bundle: .module)
+    }
     static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module) }
     static var ok: String { String(localized: "cloud.button.ok", defaultValue: "OK", table: "Cloud", bundle: .module) }
     static var rename: String { String(localized: "cloud.button.rename", defaultValue: "Rename", table: "Cloud", bundle: .module) }

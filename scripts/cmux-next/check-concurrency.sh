@@ -32,6 +32,10 @@
 #               of CPU; in a main-actor test target it runs on the main actor
 #               and stalls every main-actor test in the `swift test` process
 #               past its time limit (feat-cmux-next CI, 2026-10-02).
+#   Synchronization: `import Synchronization` needs macOS 15; CmuxNext runs
+#               on macOS 14 and uses CmuxNextCompat's Mutex/Atomic.
+#               CHECK_CONCURRENCY_ONLY=synchronization runs only this rule
+#               (safe-push blocks on it).
 #   isolated deinit: the class must say `@MainActor` itself or inherit it from
 #               an AppKit view, window or controller. Isolation inferred only
 #               from `.defaultIsolation(MainActor.self)` is lost when another
@@ -43,20 +47,35 @@
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
-exec python3 - "$root" <<'PY'
+scope_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-main-actor-work.py"
+exec python3 - "$root" "$scope_helper" <<'PY'
+import importlib.util
 import os
 import re
 import sys
 
 root = sys.argv[1]
+# Lexical isolation scopes (nonisolated, @concurrent, actor, Task.detached,
+# @MainActor) come from check-main-actor-work.py, so both checks agree on
+# which lines are main-actor code.
+_spec = importlib.util.spec_from_file_location("main_actor_scope", sys.argv[2])
+main_actor_scope = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(main_actor_scope)
 sources = os.path.join(root, "Sources")
 
-# Targets built with `.defaultIsolation(MainActor.self)` (Package.swift uiSwiftSettings).
-MAIN_ACTOR_MODULES = {
-    "CmuxNextApp", "CmuxNextBridge", "CmuxNextDesign", "CmuxNextActions", "CmuxNextTerminal",
-    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser", "CmuxNextUpdater",
-    "CmuxNextOnboarding", "CmuxNextAgentPane",
-}
+# Targets built with `.defaultIsolation(MainActor.self)`: every target whose
+# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest,
+# so a new UI target is scanned without an edit here (a hand list missed 21).
+def main_actor_modules(package_root):
+    with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
+        manifest = handle.read()
+    found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)', manifest, re.S)
+    modules = {name for name, settings in found if settings == "uiSwiftSettings"}
+    if not modules:
+        sys.exit("check-concurrency: no uiSwiftSettings targets found in Package.swift")
+    return modules
+
+MAIN_ACTOR_MODULES = main_actor_modules(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
@@ -106,6 +125,21 @@ WAKEUP_PENDING_FILES: set[str] = set()
 TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
 GROUP_SLEEP = re.compile(r"\bsleep\((for|until):")
+
+# macOS 14 floor (plans/cmux-next/macos-floor.md): Synchronization (Mutex,
+# Atomic) needs macOS 15; CmuxNextCompat has the same API on macOS 14.
+SYNCHRONIZATION_IMPORT = re.compile(r"^\s*(@\w+\s+)*((public|internal|package|private|fileprivate)\s+)?import\s+Synchronization\b")
+SYNCHRONIZATION_RULE = "import Synchronization: use CmuxNextCompat (macOS 14 floor)"
+# Files under a WINDOW FREEZE held by another lane that still import it.
+# Temporary: the owner switches them to CmuxNextCompat, then drops the entry.
+SYNCHRONIZATION_PENDING_FILES = {"CmuxNextSettings/Managed/ManagedKeyGuard.swift"}
+# `--only synchronization` (safe-push's blocking check) runs only this rule.
+ONLY = os.environ.get("CHECK_CONCURRENCY_ONLY", "")
+
+# CmuxNextCompat implements the sanctioned Mutex (the Synchronization.Mutex API
+# on macOS 14, plans/cmux-next/macos-floor.md) over os_unfair_lock; everyone
+# else uses that Mutex instead of a raw lock.
+LOCK_PRIMITIVES_MODULES = {"CmuxNextCompat"}
 
 SERVICE_MODULES = {"CmuxNextDaemon", "CmuxNextCloud", "CmuxNextMobile", "CmuxNextControl"}
 SERVICE_APP_FILE = re.compile(r"^CmuxNextApp/(Cloud/.*|.*(Service|Store)(\+\w+)?\.swift)$")
@@ -168,15 +202,27 @@ for dirpath, _, files in os.walk(sources):
         path = os.path.join(dirpath, filename)
         relative = os.path.relpath(path, sources)
         module = relative.split(os.sep)[0]
-        rules = rules_all + (rules_main if module in MAIN_ACTOR_MODULES else [])
         is_service = module in SERVICE_MODULES or SERVICE_APP_FILE.match(relative.replace(os.sep, "/")) is not None
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().split("\n")
+        # Main-actor rules apply to main-actor code: the target default for a
+        # uiSwiftSettings target, `@MainActor` scopes anywhere, minus
+        # nonisolated / @concurrent / actor / detached scopes.
+        main_lines = main_actor_scope.main_actor_lines(lines, module in MAIN_ACTOR_MODULES)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
             code = line.split("//", 1)[0] if "//" in line and '"' not in line else line
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)]
+            rules = rules_all + (rules_main if main_lines[index] else [])
+            if (SYNCHRONIZATION_IMPORT.match(code) and module not in LOCK_PRIMITIVES_MODULES
+                    and relative.replace(os.sep, "/") not in SYNCHRONIZATION_PENDING_FILES):
+                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {SYNCHRONIZATION_RULE}")
+                print(f"    {line.strip()}")
+                failures += 1
+            if ONLY == "synchronization":
+                continue
+            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                    and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -198,7 +244,7 @@ for dirpath, _, files in os.walk(sources):
 # Model checks run off the main actor (see the header).
 SUITE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|internal|package|fileprivate|private|final)\s+)*(struct|final class|class|enum)\s+\w+ModelCheckTests\b")
 tests = os.path.join(root, "Tests")
-for dirpath, _, files in os.walk(tests):
+for dirpath, _, files in ([] if ONLY else os.walk(tests)):
     for filename in sorted(files):
         if not filename.endswith("ModelCheckTests.swift"):
             continue

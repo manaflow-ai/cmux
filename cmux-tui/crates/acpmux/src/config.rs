@@ -404,6 +404,12 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
+    /// `initialize`, session load or new, config replay) may take. Past it
+    /// the request fails with a `deadline_exceeded` error and the agent is
+    /// ended. Default 90000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_start_timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -484,6 +490,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// `agentStartTimeoutMs`, or its 90 s default.
+    pub fn agent_start_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
     /// Family of a configured profile.
     pub fn family(&self, profile: &str) -> Option<String> {
         self.harnesses.get(profile).map(|p| derive_family(profile, p))
@@ -601,6 +612,19 @@ impl Config {
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
+        }
+        // Installed ACP Registry agents (the cached copy; no network, nothing
+        // started), after the default so a registry agent never becomes it
+        // while a built-in harness exists.
+        if let Some(registry) = crate::registry::load_cached(&home()) {
+            let found = crate::registry::discovered(
+                &registry,
+                crate::registry::platform(),
+                &which,
+                &|id| cfg.harnesses.contains_key(id),
+            );
+            // Never the default: a registry agent runs only when picked.
+            cfg.join_discovered(found);
         }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();
@@ -810,6 +834,7 @@ pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
 };
+pub mod chief_builtins;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

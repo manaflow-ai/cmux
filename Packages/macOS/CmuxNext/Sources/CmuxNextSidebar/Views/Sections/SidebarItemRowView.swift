@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import Observation
 import QuartzCore
 
 /// One item of a pinned section: a row (built-in or list look) or a tray
@@ -9,7 +10,7 @@ import QuartzCore
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot
 /// on the glyph instead of a count; the sidebar's own icon looks hide them.
-final class SidebarItemRowView: NSView {
+class SidebarItemRowView: NSView {
     enum Style: Hashable {
         /// Bare glyph and label: reads as app chrome (Home).
         case builtIn
@@ -47,7 +48,16 @@ final class SidebarItemRowView: NSView {
     let title = NSTextField(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
-    private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
+    /// now over the row's frame now. Leaving also ends a press.
+    private(set) var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            if !isHovered { isPressed = false }
+            pointerChanged()
+        }
+    }
+    private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
@@ -66,6 +76,7 @@ final class SidebarItemRowView: NSView {
         [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -80,6 +91,8 @@ final class SidebarItemRowView: NSView {
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
     private var pressModifiers: NSEvent.ModifierFlags = []
+    /// One observation of the Notifications glyph look is registered at a time.
+    private var observesNotificationIcon = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -241,10 +254,32 @@ final class SidebarItemRowView: NSView {
     private func glyphImage(side: CGFloat) -> NSImage? {
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
-        if let name = info.icon { return NSImage.icon(name, size: side) }
-        let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+        var glyphIcon = info.icon, symbolName = info.symbol
+        // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
+        if glyphIcon == .notification {
+            let look = observedNotificationIcon()
+            glyphIcon = look.icon
+            symbolName = look.symbol
+        }
+        if let name = glyphIcon { return NSImage.icon(name, size: side) }
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
+    }
+
+    /// Reads the Notifications glyph look and lays the row out again once
+    /// when Debug Settings changes it (no polling).
+    private func observedNotificationIcon() -> NotificationIconLook {
+        guard !observesNotificationIcon else { return NotificationIconLook.tunable.value }
+        observesNotificationIcon = true
+        return withObservationTracking {
+            NotificationIconLook.tunable.value
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesNotificationIcon = false
+                self?.needsLayout = true
+            }
+        }
     }
 
     /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
@@ -263,7 +298,8 @@ final class SidebarItemRowView: NSView {
     /// read as different sizes. Nil when the glyph draws nothing.
     private func inkSizedGlyph(centeredIn box: NSRect) -> (NSImage, NSRect)? {
         let nominal = SidebarStyle.kindGlyphSize
-        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(info.icon?.rawValue ?? "")|\(info.symbol)"
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        let glyph = "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)"
         guard let probe = glyphImage(side: nominal), let ink = SidebarGlyphInk.shared.box(of: probe, glyph: glyph),
               max(ink.width, ink.height) > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2
@@ -298,14 +334,6 @@ final class SidebarItemRowView: NSView {
 
     // MARK: Pointer
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

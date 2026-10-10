@@ -26,10 +26,14 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod cua_socket;
+pub mod cua_v2;
 pub mod daemon;
+pub mod deliver;
 #[cfg(test)]
 mod git_short_sha;
+pub mod harness_admin;
 pub mod hub;
+pub mod live_models;
 pub mod login_env;
 pub mod native;
 pub mod peer;
@@ -37,6 +41,8 @@ pub mod protected_folders;
 pub mod question_answer;
 #[cfg(test)]
 mod question_answer_tests;
+pub mod registry;
+pub mod routes;
 pub mod rpc;
 pub mod schema;
 pub mod server;

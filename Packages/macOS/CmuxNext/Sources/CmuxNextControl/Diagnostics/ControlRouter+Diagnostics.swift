@@ -10,7 +10,7 @@ extension ControlRouter {
                 guard let watchdog = self.watchdog else {
                     return ["installed": false, "count": 0, "records": []]
                 }
-                let after = call.params["after"]?.intValue.map { UInt64(max(0, $0)) } ?? 0
+                let after = call.params["after"]?.intValue.map { UInt64(clamping: $0) } ?? 0
                 let limit = call.params["limit"]?.intValue ?? watchdog.log.capacity
                 let summary = watchdog.log.summary
                 let records = watchdog.log.records(after: after).suffix(max(0, limit))

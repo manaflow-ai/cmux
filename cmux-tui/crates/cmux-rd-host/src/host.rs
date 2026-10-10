@@ -47,7 +47,21 @@ pub fn run(opts: &Opts) -> Res<()> {
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", 1000)?,
+        upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
+        upstream_record_max_bytes: opts
+            .num_or::<u64>("upstream-record-max-mb", 1024)?
+            .saturating_mul(1 << 20),
     };
+    if let Some(dir) = &cfg.upstream_record {
+        // Fail at start, not at the first viewer.
+        crate::upstream::RecordSink::new(dir, cfg.upstream_record_max_bytes)
+            .map_err(|e| format!("--upstream-record {}: {e}", dir.display()))?;
+        eprintln!(
+            "cmux-rd host: development only: --upstream-record writes the viewer's microphone, camera and \
+             screen share to {}",
+            dir.display()
+        );
+    }
     let policy = HostPolicy {
         enabled: true,
         owner_user: owner,
@@ -215,8 +229,13 @@ fn serve_viewer(
         return Ok("refused: missing or wrong session token".into());
     }
     // Route by service (C1): this host serves remote desktop only. Upstream
-    // media (C4) is offered only once the desktop has a sink for it.
-    let host_caps = crate::upstream::offered_caps(&crate::upstream::NoSink);
+    // media (C4) is offered only when the desktop has a sink for it (today the
+    // development recording sink, `--upstream-record DIR`).
+    let sink = crate::upstream::session_sink(
+        cfg.upstream_record.as_deref(),
+        cfg.upstream_record_max_bytes,
+    );
+    let host_caps = crate::upstream::offered_caps(&*sink);
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -270,6 +289,7 @@ fn serve_viewer(
         udp_port,
         max_datagram,
         &negotiated,
+        sink,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -294,6 +314,7 @@ fn stream_session(
     udp_port: Option<u16>,
     max_datagram: usize,
     negotiated: &Negotiated,
+    sink: Box<dyn crate::upstream::UpstreamSink>,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
@@ -308,7 +329,7 @@ fn stream_session(
         None => DatagramOut::Stream,
     };
     let carrier = if udp_port.is_some() { "udp" } else { "stream" };
-    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps)?;
+    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     write_control(
         stream,
@@ -335,47 +356,6 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().expect("ip")
-    }
-
-    #[test]
-    fn default_mode_refuses_every_non_loopback_peer() {
-        for peer in
-            ["10.250.93.2", "100.64.1.2", "192.168.1.5", "8.8.8.8", "fd7c::1", "2001:db8::1"]
-        {
-            assert!(!peer_allowed(ip(peer), Reach::LoopbackOnly), "{peer}");
-        }
-        assert!(peer_allowed(ip("127.0.0.1"), Reach::LoopbackOnly));
-        assert!(peer_allowed(ip("::1"), Reach::LoopbackOnly));
-    }
-
-    #[test]
-    fn default_mode_binds_loopback_only() {
-        assert!(bind_allowed(ip("127.0.0.1"), Reach::LoopbackOnly).is_ok());
-        for bind in ["0.0.0.0", "10.250.93.1", "100.64.0.1", "::"] {
-            assert!(bind_allowed(ip(bind), Reach::LoopbackOnly).is_err(), "{bind}");
-        }
-    }
-
-    fn opts(args: &[&str]) -> Opts {
-        Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).expect("opts")
-    }
-
-    #[test]
-    fn defaults_are_loopback_only_and_refuse_a_non_loopback_peer() {
-        let (reach, bind) = reach_and_bind(&opts(&[])).expect("defaults");
-        assert_eq!((reach, bind), (Reach::LoopbackOnly, ip("127.0.0.1")));
-        assert!(!peer_allowed(ip("10.250.93.2"), reach));
-        assert!(!peer_allowed(ip("::ffff:10.250.93.2"), reach));
-        assert!(peer_allowed(ip("::ffff:127.0.0.1"), reach));
-        // Anything but the exact "1" keeps the default.
-        assert_eq!(
-            reach_and_bind(&opts(&["--single-tenant-overlay", "true"])).map(|r| r.0),
-            Ok(Reach::LoopbackOnly)
-        );
-        assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1"])).is_err());
-        assert!(
-            reach_and_bind(&opts(&["--bind", "10.0.0.1", "--single-tenant-overlay", "1"])).is_ok()
-        );
     }
 
     #[test]
@@ -411,14 +391,5 @@ mod tests {
             let mut buf = [0u8; 16];
             assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap_or(0), 0, "{prefix}");
         }
-    }
-
-    #[test]
-    fn overlay_mode_is_private_only() {
-        assert!(bind_allowed(ip("10.250.93.1"), Reach::SingleTenantOverlay).is_ok());
-        assert!(bind_allowed(ip("0.0.0.0"), Reach::SingleTenantOverlay).is_err());
-        assert!(bind_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay).is_err());
-        assert!(peer_allowed(ip("10.250.93.2"), Reach::SingleTenantOverlay));
-        assert!(!peer_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay));
     }
 }

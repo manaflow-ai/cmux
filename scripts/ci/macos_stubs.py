@@ -12,6 +12,9 @@ libSystem and libiconv come from the sysroot (scripts/ci/macos-cross.sh).
   macos_stubs.py check <stub-dir> <mac-binary>...      exit 1 when a stub lacks an import
   macos_stubs.py install <stub-dir> <sysroot>          place the stubs where the linker looks
 
+MACOS_STUBS_SYSTEM_TBD names the sysroot's libSystem.tbd: routines it exports
+need no framework stub (scripts/ci/macos-cross.sh sets it).
+
 `check` is the drift guard: a dependency bump that imports a new framework
 symbol also fails the Linux link loudly (undefined symbol), and `check` names
 the stub to regenerate. Regenerate from the Mac-built binaries of one commit:
@@ -70,7 +73,18 @@ def imports(binary: str) -> dict[str, dict]:
     return libs
 
 
-def merged_imports(binaries: list[str]) -> dict[str, dict]:
+def tbd_symbols(path: Path | None) -> set[str]:
+    """Every quoted or bare `_name` a .tbd file lists (a libSystem stub here)."""
+    if path is None:
+        return set()
+    return set(re.findall(r"(?<![A-Za-z0-9_$])_[A-Za-z0-9_$.]+", path.read_text()))
+
+
+def merged_imports(binaries: list[str], system: Path | None = None) -> dict[str, dict]:
+    """Framework imports of the binaries. A routine that libSystem exports needs
+    no stub: the Linux link binds it to libSystem, whichever umbrella framework
+    a Mac link bound it to (macOS 15 SDK: CoreServices for log2)."""
+    exported_by_system = tbd_symbols(system)
     merged: dict[str, dict] = {}
     for binary in binaries:
         for install, lib in imports(binary).items():
@@ -80,7 +94,7 @@ def merged_imports(binaries: list[str]) -> dict[str, dict]:
             if (entry["current"], entry["compat"]) != (lib["current"], lib["compat"]):
                 raise SystemExit(f"{install}: two versions in the inputs ({entry['current']} and {lib['current']});"
                                  " generate from the binaries of one commit")
-            entry["symbols"] |= lib["symbols"]
+            entry["symbols"] |= lib["symbols"] - exported_by_system
     return merged
 
 
@@ -112,19 +126,19 @@ def read_stub(path: Path) -> tuple[str, set[str]]:
     return install.group(1), set(re.findall(r"'(_[^']*)'", text))
 
 
-def cmd_generate(stub_dir: Path, binaries: list[str]) -> int:
+def cmd_generate(stub_dir: Path, binaries: list[str], system: Path | None = None) -> int:
     stub_dir.mkdir(parents=True, exist_ok=True)
     for old in stub_dir.glob("*.tbd"):
         old.unlink()
-    for install, lib in sorted(merged_imports(binaries).items()):
+    for install, lib in sorted(merged_imports(binaries, system).items()):
         stub_file(stub_dir, install).write_text(render(install, lib))
         print(f"stub {short_name(install)}: {len(lib['symbols'])} symbols, current {lib['current']}")
     return 0
 
 
-def cmd_check(stub_dir: Path, binaries: list[str]) -> int:
+def cmd_check(stub_dir: Path, binaries: list[str], system: Path | None = None) -> int:
     status = 0
-    for install, lib in sorted(merged_imports(binaries).items()):
+    for install, lib in sorted(merged_imports(binaries, system).items()):
         path = stub_file(stub_dir, install)
         if not path.exists():
             print(f"FAIL stubs: {install} has no stub ({path})")
@@ -163,7 +177,8 @@ def main(argv: list[str]) -> int:
     command, stub_dir = argv[1], Path(argv[2])
     if command == "install":
         return cmd_install(stub_dir, Path(argv[3]))
-    return (cmd_generate if command == "generate" else cmd_check)(stub_dir, argv[3:])
+    system = Path(os.environ["MACOS_STUBS_SYSTEM_TBD"]) if os.environ.get("MACOS_STUBS_SYSTEM_TBD") else None
+    return (cmd_generate if command == "generate" else cmd_check)(stub_dir, argv[3:], system)
 
 
 if __name__ == "__main__":

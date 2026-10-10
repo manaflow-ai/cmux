@@ -28,6 +28,8 @@ struct NewTabPageHandler {
     var editShortcut: (AgentPaneTabKind) -> Void
     /// The page's "default: X" toggle wrote `tabs.newTabKind`.
     var setDefaultKind: (String) -> Void
+    /// The page's template dots picked a template, saved as `tabs.newTabTemplate`.
+    var setTemplate: (String) -> Void = { _ in }
     /// The page started a chat in place (Agent, Ask, or a recent session).
     var becameChat: () -> Void = {}
     /// The project picker fallback, resolved only when the user chooses Browse….
@@ -38,6 +40,14 @@ struct NewTabPageHandler {
     var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
+
+    /// The page's setting writes (`AgentPaneModel.onNewTabSetting`).
+    func write(_ setting: AgentPaneNewTabSetting) {
+        switch setting {
+        case .defaultKind(let kind): setDefaultKind(kind)
+        case .template(let template): setTemplate(template)
+        }
+    }
 }
 
 enum NewTabPage {
@@ -143,17 +153,21 @@ enum NewTabPage {
     static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
+        // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
+        let machine = NewTabPageMachine(services, selected: selected)
         return AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
-            hotkeys: hotkeys, cwd: selected?.cwd,
+            hotkeys: hotkeys, cwd: machine.cwd,
             omnibar: omnibar(services, excluding: selectedID),
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id)
+            home: machine.home, tools: tools(services, targetID: selected?.id),
+            template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 
@@ -163,7 +177,8 @@ enum NewTabPage {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
-            tools: tools(services)
+            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
 
@@ -183,6 +198,7 @@ enum NewTabPage {
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
+            setTemplate: { [weak services] template in if let services { setTemplate(template, services: services) } },
             becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
                 guard let services else { return nil }
@@ -227,6 +243,19 @@ enum NewTabPage {
         }
     }
 
+    /// The template dots: through the schema, as the Settings window writes it; an unknown
+    /// value from the page is ignored.
+    static func setTemplate(_ value: String, services: AppServices) {
+        guard let template = NewTabTemplate(rawValue: value), let settings = services.settings,
+              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
+        Task {
+            do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                    .error("new tab template write failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     static func editShortcut(_ kind: AgentPaneTabKind, services: AppServices) {
         guard let id = newActions[kind] else { return }
         services.palette.show(.keyboardShortcuts)
@@ -240,17 +269,20 @@ extension PaneController {
     /// (``NewTabPage/open(in:seed:)``).
     func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
 
-    /// Focus Location Bar: a browser tab's address bar; the field of a new tab
-    /// page already showing; anywhere else a new tab page, whose field takes
-    /// the keyboard. ⌃L stays the terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
+    /// page already showing (cx-e2aa; its field when it shows none); anywhere
+    /// else a new tab page, whose field takes the keyboard. ⌃L stays the
+    /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
-        if case .browser = currentContent {
-            _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
-        } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
+        let newTabKey = currentTabKey.flatMap { services.agentTabs.isNewTabPage($0) ? $0 : nil }
+        var showsBrowser = false
+        if case .browser = currentContent { showsBrowser = true }
+        switch NewTabPage.locationTarget(showsBrowser: showsBrowser, showsNewTabPage: newTabKey != nil) {
+        case .browserAddressBar: _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
+        case .newTabOmnibar:
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
-        } else {
-            newTabPage()
+            if let key = newTabKey, let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
+        case .openNewTabWithOmnibar: NewTabPage.open(in: self, seed: nil, omnibar: true)
         }
     }
 }
@@ -265,7 +297,7 @@ extension NewTabPage {
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
     /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
-    static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, omnibar: Bool = false) {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
@@ -276,13 +308,17 @@ extension NewTabPage {
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        guard let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane) else {
+        // Cmd-L (`omnibar`): the omnibar row is native and takes the keyboard in this turn, so no
+        // key waits for the page; any other open buffers keys until the page's field is ready.
+        let inputToken = omnibar ? nil : services.keyRouter.newTabInputCoordinator.begin(for: pane)
+        guard omnibar || inputToken != nil else {
             openingPanes.remove(openingKey)
             return
         }
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
         page.inputToken = inputToken
+        if omnibar { page.focusesField = false }
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
         }
@@ -302,8 +338,9 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil, services.presentation.showNow(pane) {
+        if spare != nil || omnibar, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            if omnibar, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) { _ = NewTabOmnibar.focus(in: view) }
         }
         BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
@@ -343,10 +380,10 @@ extension NewTabPage {
             let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search
                 ? resolver.searchEngine.searchURL(for: text)
-                : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
+                : ChromiumInternalURL(typed: text)?.url ?? resolver.commitTypoFix(for: text) ?? resolver.destination(for: request.text)?.url
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
-            if services.cache.browserTabs?.isAvailable() == true {
+            if services.cache.browserTabs.isAvailable(in: pane.pane) {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.

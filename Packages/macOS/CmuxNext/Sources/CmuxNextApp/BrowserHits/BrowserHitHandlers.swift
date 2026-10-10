@@ -60,7 +60,8 @@ enum BrowserHitHandlers {
             let services = context.services
             let profile = Self.page(invocation, context).flatMap { services.cache.key(of: $0) }.flatMap { services.cache.tabModel($0) }
                 .map { services.browserProfiles.profileID(ofTab: $0) }
-            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
+            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
+                                             byPerson: invocation.origin == .user, context: context)
         })
     }
 
@@ -114,7 +115,7 @@ enum BrowserHitHandlers {
         guard daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.frontendBrowserTabs))
         }
-        guard let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let address = url.absoluteString
         WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { connection, terminal in
             guard let pane = terminal.pane else { return }

@@ -194,10 +194,10 @@ final class ScreenContentView: NSView {
     func step(_ dt: Double) -> Bool {
         var moving = false
         for key in Array(paneFrames.keys) {
-            if paneFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+            if paneFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+            if dividerFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
         if stepRows(dt) { moving = true }
         if !isUserScrolling {
@@ -258,7 +258,11 @@ final class ScreenContentView: NSView {
     func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
-        let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder
+        let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
+            && style.focusIndicator.marksBorder
+            // Pointer and scroll focus should not leave a keyboard-only focus ring behind.
+            && context.model.lastFocusSource != .pointer
+            && context.model.lastFocusSource != .scroll
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused

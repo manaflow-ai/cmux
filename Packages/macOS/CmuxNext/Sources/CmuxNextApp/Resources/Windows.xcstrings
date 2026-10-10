@@ -393,6 +393,268 @@
           }
         }
       }
+    },
+    "about.credits.licenses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Third-Party Licenses"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تراخيص الجهات الخارجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licence trećih strana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tredjepartslicenser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lizenzen von Drittanbietern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licencias de terceros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licences tierces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licenze di terze parti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サードパーティライセンス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាជ្ញាប័ណ្ណភាគីទីបី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "타사 라이선스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tredjepartslisenser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licencje stron trzecich"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licenças de terceiros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лицензии третьих сторон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัญญาอนุญาตของบุคคลที่สาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üçüncü Taraf Lisansları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ліцензії третіх сторін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giấy phép của bên thứ ba"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第三方许可"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第三方授權"
+          }
+        }
+      }
+    },
+    "about.credits.remoteBrowserHostOptOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built without the remote browser host (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم البناء بدون مضيف المتصفح البعيد (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izgrađeno bez hosta udaljenog preglednika (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bygget uden fjernbrowserværten (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne den Remote-Browser-Host gebaut (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilado sin el host del navegador remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilé sans l’hôte du navigateur distant (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilato senza l’host del browser remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートブラウザホストなしでビルド (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្កើតដោយគ្មានម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយ (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 브라우저 호스트 없이 빌드됨 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bygget uten den eksterne nettleserverten (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zbudowano bez hosta zdalnej przeglądarki (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilado sem o host do navegador remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Собрано без хоста удалённого браузера (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์โดยไม่มีโฮสต์เบราว์เซอร์ระยะไกล (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak tarayıcı ana bilgisayarı olmadan derlendi (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зібрано без хоста віддаленого браузера (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được dựng mà không có máy chủ trình duyệt từ xa (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "构建时未包含远程浏览器主机 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建置時未包含遠端瀏覽器主機 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,0 +1,18 @@
+# Paths the base autofix never writes (shell globs, repository-relative; a
+# "!" line exempts a path from every freeze): the
+# permanent freezes and the settings slot. A regenerated file under one is
+# reported and left to its owner's pull request (Package.swift: the app FFI pin
+# goes through app-ffi-release.yml's app-ffi-repin pull request).
+cmux.xcodeproj/project.pbxproj
+Packages/macOS/CmuxNext/Package.swift
+plans/cmux-next/actions.md
+plans/cmux-next/action-surfaces.json
+schemas/settings/*
+Packages/macOS/CmuxNext/Sources/CmuxNextSettings/*
+webviews/src/pages/settings/*
+# Pure generator output (webviews/scripts/pages/gen-strings.mjs from the xcstrings
+# catalogs and the settings schema): the bot regenerates it (Leo, 2026-10-10).
+!webviews/src/pages/settings/generated/strings.json
+docs/mdm/*
+# The bot pushes with GITHUB_TOKEN, which cannot push workflow files.
+.github/workflows/*

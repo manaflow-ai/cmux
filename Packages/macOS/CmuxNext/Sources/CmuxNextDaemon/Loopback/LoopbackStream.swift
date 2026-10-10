@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Writes one line on the stream's daemon connection (id-less, no reply).
 protocol LoopbackLineSending: Sendable {
@@ -78,15 +78,15 @@ public final class LoopbackStream: Sendable {
     /// Sends `data` to the target in frames, waiting for daemon credit.
     /// Throws once the stream has ended or after `shutdownWrite()`.
     public func write(_ data: Data) async throws {
-        var offset = data.startIndex
-        while offset < data.endIndex {
-            let allowed = try await reserveCredit(upTo: min(Self.frameBytes, data.endIndex - offset))
-            let frame = data[offset..<(offset + allowed)]
+        var rest = data
+        while !rest.isEmpty {
+            let allowed = try await reserveCredit(upTo: min(Self.frameBytes, rest.count))
+            let frame = rest.prefix(allowed)
             guard sender.send(LoopbackForwardLine.data(stream: id, bytes: Data(frame))) else {
                 finish(.connectionLost("write failed"), notifyDaemon: false)
                 throw LoopbackStreamError.connectionLost("write failed")
             }
-            offset += allowed
+            rest = rest.dropFirst(allowed)
         }
     }
 

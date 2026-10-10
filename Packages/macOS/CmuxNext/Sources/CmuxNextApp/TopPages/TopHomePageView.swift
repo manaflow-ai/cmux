@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import Observation
@@ -58,17 +59,31 @@ final class TopHomePageView: NSView {
 
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
-        list.onSelect = { [weak self] id in self?.show(id) }
-        list.onSetPinned = { on, id in sidebar.setPinned(on, id) }
+        // Opening a conversation from the list reads it, so a Mark as Unread ends there.
+        list.onSelect = { [weak self] id in
+            sidebar.setMarkedUnread(false, id)
+            self?.show(id)
+        }
+        // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
+        list.onSetPinned = { [weak self] on, id in
+            sidebar.setPinned(on, id)
+            self?.list.update(sidebar.model())
+        }
+        list.onPlacePinned = { [weak self] id, index in
+            sidebar.place(id, at: index)
+            self?.list.update(sidebar.model())
+        }
         let home = services.home
         let registry = services.registry
-        // Mark as Read: the read cursor moves to the newest message.
+        // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
-            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return }
+            sidebar.setMarkedUnread(false, id)
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.unread > 0 else { return }
             let store = home.homeStore
             // task-owner: one op; ends with the owner's answer
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
+        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
         // Archive Chief on a Chief's row (the same action as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
@@ -99,7 +114,9 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _) in Observations({ (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins) }) {
+            for await (all, archived, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
@@ -110,7 +127,7 @@ final class TopHomePageView: NSView {
         // on a paired server (G6) replaces the local chief while the page shows the local one.
         chiefObservation = Task { [weak self] in
             var previous = Self.chief(home)
-            for await chief in Observations({ Self.chief(home) }) {
+            for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
                 if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
                 previous = chief
@@ -119,11 +136,11 @@ final class TopHomePageView: NSView {
         let auth = home.services.cloud.auth
         // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
         accountObservation = Task {
-            for await _ in Observations({ auth.user?.id }) { sidebar.reloadPins() }
+            for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
-            for await pending in Observations({ (home.pendingSelection, store.rows.map(\.id)) }) {
+            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
                 guard let self, let id = pending.0, pending.1.contains(id) else { continue }
                 home.pendingSelection = nil
                 show(id)

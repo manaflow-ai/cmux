@@ -88,17 +88,30 @@ extension PaneController {
     /// other callers (config commands, account logins) keep the pane's.
     /// `typingAhead` names a new tab page whose `!` type-ahead the shell
     /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
-    /// `then` runs once the new tab is selected.
+    /// `then` runs once the new tab is selected. `daemonResolvesCwd` (a
+    /// terminal opened from the docked agent chat) sends only an explicit
+    /// `cwd` and lets the daemon's resolver pick the rest
+    /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
-                        fromSelectedTab: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
+                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
-        let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
-        let cwd = cwd ?? selectedTab?.cwd
+        let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? selectedTab?.cwd
+        // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
+        if fromSelectedTab, text == nil, page == nil,
+           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
-        services.registry.track(Task {
+        // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
+        // that types its own text first keeps the keys where they are.
+        let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        services.registry.track(Task { [services] in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -109,6 +122,7 @@ extension PaneController {
                 }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                landed = true
                 then?(created.surface)
                 return nil
             } catch {
@@ -135,7 +149,7 @@ extension PaneController {
     /// again meanwhile. One tab, or an older daemon, takes one command per tab.
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
-        var commands: [(label: String, run: @Sendable (DaemonConnection) async throws -> Void)] = []
+        var commands: [(label: String, run: DaemonCommandBody)] = []
         var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
@@ -157,7 +171,7 @@ extension PaneController {
         let keys = Set(ids.map(\.rawValue))
         let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
-        services.registry.track(Task {
+        services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
@@ -195,13 +209,13 @@ extension PaneController {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
-        services.registry.track(Task {
+        services.registry.track(Task { [services] in
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
-            return ok ? nil : "set-tab-pinned failed (see the app log)"
+            return withExtendedLifetime(services) { ok ? nil : "set-tab-pinned failed (see the app log)" }
         })
     }
 
@@ -223,22 +237,30 @@ extension PaneController {
 
     // MARK: Context menus
 
+    /// A tab's menu, the same wherever it is opened (its strip, its row in
+    /// the sidebar): a browser tab drops what does not apply to a page.
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
+        let target = ActionTargetRef(kind: .tab, id: id)
+        // Home keeps its tabs: no promote entries.
+        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
+        guard let tab, tab.kind == .browser else {
+            // Hibernation discards a page; a terminal has none.
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab"]))
+            return registry.makeContextMenu(for: .tab, target: target, entries: entries)
+        }
+        // A browser tab offers the engine it is not on.
+        let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
+        // Terminal themes and keep-running do not apply to a page.
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"]))
+        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
+    }
+
     func contextMenu(for target: TabContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let id, _):
             select(id)
-            let target = ActionTargetRef(kind: .tab, id: id.rawValue)
-            guard let tab = tab(id), tab.kind == .browser else {
-                // Hibernation discards a page; a terminal has none.
-                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
-                return registry.makeContextMenu(for: .tab, target: target, entries: entries)
-            }
-            // A browser tab offers the engine it is not on.
-            let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            // Terminal themes and keep-running do not apply to a page.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
-            return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
+            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, registry: registry)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

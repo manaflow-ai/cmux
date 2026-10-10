@@ -192,6 +192,62 @@ fn accounts_list_warns_on_stderr_when_handles_are_not_stable() {
     }
 }
 
+/// The classic top-level discovery verbs that skills and agents still run
+/// (`cmux identify`, `cmux --id-format both identify --json`, `cmux ping`,
+/// `cmux capabilities`) reach the app's `system.*` methods instead of failing
+/// as an unknown resource scope (cx-4w47 D1: a Chief turn ran `cmux identify`).
+#[test]
+fn classic_discovery_verbs_ask_the_app() {
+    use std::io::{BufRead, BufReader, Write};
+    let cases: [(&[&str], &str); 5] = [
+        (&["identify"], "system.identify"),
+        (&["--id-format", "both", "identify", "--json"], "system.identify"),
+        (&["identify", "--id-format", "uuids"], "system.identify"),
+        (&["ping"], "system.ping"),
+        (&["capabilities", "--json"], "system.capabilities"),
+    ];
+    for (index, (args, method)) in cases.into_iter().enumerate() {
+        let names = Names::new(&format!("classic-{index}"));
+        let dir = cmux_unix_socket::short_test_dir("cmux-cls");
+        let socket = dir.path().join("app.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let app = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            let mut methods = Vec::new();
+            while reader.read_line(&mut line).unwrap() > 0 {
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                line.clear();
+                methods.push(request["method"].as_str().unwrap_or_default().to_owned());
+                let result = serde_json::json!({"app": "cmux-next", "method": request["method"]});
+                let reply = serde_json::json!({"id": request["id"], "ok": true, "result": result});
+                writeln!(writer, "{reply}").unwrap();
+            }
+            methods
+        });
+        let socket = socket.display().to_string();
+        let mut argv = vec!["--app-socket", socket.as_str()];
+        argv.extend_from_slice(args);
+        let output = names.run("cmux", &argv);
+        let methods = app.join().unwrap();
+        let stdout = text(&output.stdout);
+        let stderr = text(&output.stderr);
+        assert!(output.status.success(), "{args:?}: {stderr}");
+        assert!(!stderr.contains("unknown resource scope"), "{args:?}: {stderr}");
+        assert!(methods.iter().any(|sent| sent == method), "{args:?}: sent {methods:?}");
+        assert!(stdout.contains(method), "{args:?}: {stdout}");
+    }
+    let names = Names::new("classic-help");
+    for args in [&["identify", "--help"][..], &["help", "identify"][..]] {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains("cmux identify | ping | capabilities"), "{args:?}: {stdout}");
+    }
+}
+
 /// Each scope `cmux --help` lists answers `<scope> --help` and `help <scope>`
 /// with its own usage, never the root help (the app scopes route before the
 /// resource grammar; `window` is the app's windows, not a screen shorthand).
@@ -258,6 +314,31 @@ fn cmux_harness_is_acp_harness() {
     assert!(short.status.success(), "cmux harness guide: {}", text(&short.stderr));
     assert_eq!(text(&short.stdout), text(&long.stdout));
     assert!(text(&short.stdout).contains("cmux harness doctor"), "{}", text(&short.stdout));
+}
+
+/// `cmux chats …` and `cmux harness …` name themselves in usage and errors,
+/// not the long `cmux acp chats …` spelling.
+#[test]
+fn chats_and_harness_aliases_name_the_short_command_in_usage() {
+    let names = Names::new("alias-usage");
+    for (args, expected) in [
+        (&["chats", "--help"][..], "Usage: cmux chats"),
+        (&["chats", "open", "--help"][..], "Usage: cmux chats open"),
+        (&["harness", "--help"][..], "Usage: cmux harness"),
+    ] {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "{args:?} printed:\n{stdout}");
+        assert!(!stdout.contains("cmux acp"), "{args:?} printed:\n{stdout}");
+    }
+    let output = names.run("cmux", &["chats", "bogus"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("Usage: cmux chats"), "{stderr}");
+    assert!(!stderr.contains("cmux acp"), "{stderr}");
+    let long = names.run("cmux", &["acp", "chats", "--help"]);
+    assert!(text(&long.stdout).contains("Usage: cmux acp chats"), "{}", text(&long.stdout));
 }
 
 #[test]

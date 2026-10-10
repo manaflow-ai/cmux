@@ -12,7 +12,7 @@ import CmuxNextSettings
 /// winning drop target and the outcome a release would commit.
 enum DebugTabDrag {
     static func report(services: AppServices) -> JSONValue {
-        let session = services.dragSession!
+        let session = services.dragSession
         guard let drag = session.drag ?? session.landing else {
             return .object(["dragging": .bool(false), "strips": strips(services)])
         }

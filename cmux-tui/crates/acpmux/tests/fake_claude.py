@@ -10,7 +10,9 @@ the init reports the `--session-id`/`--resume` id, a conversation exists
 once a user message reached it, and `--resume` of one that does not exist
 fails the first prompt with Claude's own "No conversation found" line.
 FAKE_CLAUDE_DIE=1 dies on the first prompt before anything is stored (a
-launcher whose proxy is down).
+launcher whose proxy is down); FAKE_CLAUDE_DIE_IF=<path> does so while that
+file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
+is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl.
 """
 import json
 import os
@@ -28,6 +30,15 @@ if "--permission-mode" in sys.argv[:-1]:
     MODE = sys.argv[sys.argv.index("--permission-mode") + 1]
 
 STORE = os.environ.get("FAKE_CLAUDE_STORE")
+LAYOUT = None
+if not STORE and os.environ.get("CLAUDE_CONFIG_DIR"):
+    STORE = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects", "p")
+    LAYOUT = ".jsonl"
+    os.makedirs(STORE, exist_ok=True)
+
+
+def stored(sid):
+    return os.path.join(STORE, sid + (LAYOUT or ""))
 SESSION = "fake-claude-session"
 RESUME = None
 if STORE:
@@ -50,19 +61,33 @@ for line in sys.stdin:
             send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
                   "permissionMode": MODE, "tools": [], "mcp_servers": []})
     elif kind == "user":
-        if os.environ.get("FAKE_CLAUDE_DIE") == "1":
+        die_if = os.environ.get("FAKE_CLAUDE_DIE_IF")
+        if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
             sys.stderr.write("proxy down\n")
             sys.stderr.flush()
             sys.exit(1)
-        if STORE and RESUME and not os.path.exists(os.path.join(STORE, RESUME)):
+        if STORE and RESUME and not os.path.exists(stored(RESUME)):
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
         if STORE:
-            open(os.path.join(STORE, SESSION), "w").close()
+            open(stored(SESSION), "w").close()
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         text = json.dumps(sys.argv[1:])
+        documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
+        if said.strip() == "document-probe":
+            text = json.dumps({
+                "documents": [
+                    {
+                        "type": b.get("type"),
+                        "title": b.get("title"),
+                        "media_type": (b.get("source") or {}).get("media_type"),
+                        "data": (b.get("source") or {}).get("data"),
+                    }
+                    for b in documents
+                ]
+            }, sort_keys=True)
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process may query the keychain

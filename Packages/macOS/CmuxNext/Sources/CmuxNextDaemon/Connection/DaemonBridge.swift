@@ -1,6 +1,6 @@
 public import Foundation
 import Darwin
-import Synchronization
+import CmuxNextCompat
 
 /// A daemon connection through a child process instead of a socket
 /// (plans/cmux-next/server-reach.md 7 step 1): the app's own bundled `cmux`
@@ -49,7 +49,7 @@ public struct DaemonBridge: Hashable, Sendable {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         // Only stdin, stdout and stderr reach the child.
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setflags(&attributes, Int16(clamping: POSIX_SPAWN_CLOEXEC_DEFAULT))
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { for pointer in argv { free(pointer) } }
         var pid: pid_t = 0
@@ -75,7 +75,7 @@ public struct DaemonBridge: Hashable, Sendable {
     static func readLine(_ fd: Int32) throws(DaemonError) -> Data {
         var line: [UInt8] = []
         for _ in 0...(maxReplyBytes + 8) {
-            var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
             let ready = poll(&poller, 1, replyTimeoutMs)
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }

@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextWakeups
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
 /// connection carries control JSON and datagrams as `u8 type, u32 len`
@@ -216,6 +216,11 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             sendControl(.start(key: startKey, mode: control ? "control" : "view"))
             receiveNext()
         case .failed, .cancelled:
+            closed()
+        case .waiting:
+            // A loopback host that refuses the connection (no listener) only
+            // makes the connection wait for a path change that never comes:
+            // end the session so the viewer says why (cx-erey).
             closed()
         default:
             break

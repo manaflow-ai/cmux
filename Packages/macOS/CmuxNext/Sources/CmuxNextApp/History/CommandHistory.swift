@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
@@ -32,7 +33,7 @@ final class CommandHistory {
     func start(settings: SettingsController) {
         let machines = services.machines
         observation = Task { [weak self] in
-            for await state in Observations({ Self.state(settings: settings, daemons: machines.daemons) }) {
+            for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
                 self?.sync(state)
             }
         }
@@ -77,7 +78,8 @@ final class CommandHistory {
     /// the capability. Concurrent calls share one read.
     func refresh() async {
         if let refreshing { return await refreshing.value }
-        let task = Task { await readAll() }
+        // The owner's daemons are read before the first suspension, so a weak capture is enough.
+        let task = Task { [weak self] in _ = await self?.readAll() }
         refreshing = task
         await task.value
         refreshing = nil

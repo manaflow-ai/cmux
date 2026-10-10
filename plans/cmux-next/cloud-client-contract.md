@@ -175,7 +175,7 @@ nothing replays, so a stored answer can never hand a credential out twice; a ret
 Risk `execute`. Principals `install` only (no session). An agent (chief) token is refused
 (`auth.forbidden`, decision 2026-10-04): an agent can get a dial token later only through its
 owner's install principal with a confirmation, and that is a separate decision. Further rules: owner `cloud:CloudDO`, off MCP, hidden on
-the CLI, never in an app's `consumes.ops`. CloudDO audits every mint; a mint commits no stream event and
+the CLI, never in an app's `serves.ops` or `consumes.ops` (the daemon never routes it). CloudDO audits every mint; a mint commits no stream event and
 the token is never cached, logged or kept in a ledger row. Request `{host, services}` (`services`: 1 or 2 unique of `daemon`, `ssh`, a subset of
 what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`: `token` is a
 secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
@@ -282,12 +282,16 @@ The app supervisor starts `cmux-cloud` on demand. The page, the sidebar, the CLI
 Routing (D-ROUTE, accepted 2026-10-04): the backend catalog
 (`backend/catalog/cloud-operations.json`) is the single owner of the client-facing `cloud.*`
 names; the Cloud app's fragment declares none of them and names the ones it serves in
-`cmux-app.v2.json` `consumes.ops`. The host routes those consumed ops to `cmux-cloud`, never
-straight to the backend, so the projection, the ledger, the origin rules and the argument checks
-always run. The app types (`cmux-app.d.ts`) must come from `cmux-cloud`'s own schemas (what it
+`cmux-app.v2.json` `serves.ops` (2026-10-10, cx-t2rz: one meaning per field; `consumes.ops` stays
+"ops this app calls", as the integrations app uses it). The daemon routes each served op to
+`cmux-cloud`, never straight to the backend, so the projection, the ledger, the origin rules and the
+argument checks always run. Its policy comes only from the generated backend catalog: an op the
+catalog does not know is refused, `cloud.machine.link_token` is never routable, a money or
+destructive op or one with `mcp.expose: never` needs origin user (the person's confirmed gesture in
+the app), and every other op needs the scope its risk names (cmux-tui-core `apps/serves.rs`). The app types (`cmux-app.d.ts`) must come from `cmux-cloud`'s own schemas (what it
 answers: `{machine, revision}`, no `expected_revision`, no credential), not from the backend rows.
 OPEN: `gen-cmux-global.ts` types every backend row from the backend catalog and reads no
-`consumes`, so this needs a generator change (owner: app platform). The same generator gives
+`serves`, so this needs a generator change (owner: app platform). The same generator gives
 `cloud.machine.link_token` the app scope `cloud:execute` (its `scopeFor` reads only the risk, not
 `mcp.expose`, `principals` or "never consumed by an app"); it must be in the app global's `never`
 list before any route sends app `cloud.*` calls to the backend.
@@ -521,3 +525,15 @@ signed-in person, per-team limit). Snapshots stay after their machine is deleted
 taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
 machine's disk size when it was taken (Freestyle reports no snapshot size).
 
+
+### Calls from an install token: the Mac relay (cx-wb5.65, chief decisions 2026-10-08)
+
+The Mac relay (cx-wb5.57) calls Cloud with the Mac install token (grant read, mutate-own, mutate-shared, cloud-link). Agents and automations get none of the following.
+
+- `cloud.machine.pause` and `cloud.machine.start`: allowed for a non-agent install whose grant covers mutate-shared. An install starts at most 10 times per hour (`cloud.rate_limited`, retryable, `details.retry_after_ms`); a same-key replay and a person's start do not count. Each install pause and start is in the access audit with the install id.
+- `cloud.machine.create`, `cloud.machine.resize`, `cloud.machine.delete`, `cloud.snapshot.create`, `cloud.snapshot.delete`, `cloud.snapshot.restore`: money and destructive stay never grantable to an install. The call goes through the G8 approval path, the same one integrations use:
+  1. The first call answers `approval.pending` (retryable) with `details: {request: "apr_<32 hex>", expires_at}`. Nothing runs. The person gets an approve request in their feed (poster kind integration, label Cloud, scope `system:cloud:<team>`).
+  2. The person approves or denies in the web dashboard with their own session (`integration.approval.get` shows the exact op and params; installs cannot read or answer it). The approval expires after 24 hours.
+  3. Retry with the SAME idempotency key: `approval.pending` while waiting; after an approval, the op's own answer with `replayed: true` (a result, or the op's refusal such as `cloud.quota.exceeded`); after a denial `approval.denied`; after expiry `approval.expired`. A new key asks again. The same key with other params is `idempotency.conflict`.
+  4. The approved op runs once, as the install (re-checked at run time: a revoked install or a narrowed grant runs nothing and ends denied), and only if the person is still a team member.
+- At most 5 pending requests per install and 20 per team (`approval.too_many_pending`, retryable).

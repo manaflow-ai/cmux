@@ -4,8 +4,10 @@
 # artifact store (no network, no R2). Covers: the DEV layout (CEF symlink,
 # five helpers, signatures), Release embeds nothing and removes a stale host,
 # a sha256 mismatch fails the build (also from a damaged store copy), a CEF
-# pin mismatch warns and embeds nothing, no arm64 skips, and the standalone
-# bundle-remote-browser-host.sh still writes its layout. macOS only (codesign,
+# pin mismatch or an unavailable pinned binary fails the build naming the
+# artifact and digest, the explicit CMUX_NEXT_SKIP_RB_HOST=1 opt-out embeds
+# nothing and records itself in the app (About) and the log, no arm64 skips,
+# and the standalone bundle-remote-browser-host.sh still writes its layout. macOS only (codesign,
 # clang); run on a GUI host or fleet Mac, not a developer laptop.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -34,9 +36,11 @@ new_app() {
   rm -rf "$TMP/build"
   mkdir -p "$TMP/build/app.app/Contents/Frameworks/$FW" "$TMP/build/tmp"
 }
-run() { # <configuration> [ARCHS] -> sets out, rc
+run() { # <configuration> [ARCHS] [VAR=value...] -> sets out, rc
+  local config="$1" archs="${2:-arm64}"
+  shift; (( $# )) && shift
   set +e
-  out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" ARCHS="${2:-arm64}" CONFIGURATION="$1" \
+  out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" ARCHS="$archs" CONFIGURATION="$config" ${1+"$@"} \
     TARGET_BUILD_DIR="$TMP/build" TARGET_TEMP_DIR="$TMP/build/tmp" WRAPPER_NAME=app.app \
     CMUX_NEXT_RB_HOST_PIN="$TMP/pin.json" CMUX_NEXT_RB_HOST_CACHE_DIR="$TMP/cache" \
     CMUX_CEF_STORE_URL="file://$TMP/store" CMUX_RB_HOST_NO_R2=1 \
@@ -45,6 +49,7 @@ run() { # <configuration> [ARCHS] -> sets out, rc
   set -e
 }
 host="$TMP/build/app.app/Contents/Helpers/cmux-remote-browser-host.app"
+optout="$TMP/build/app.app/Contents/Resources/RemoteBrowserHostOptOut.txt"
 
 # 1. Debug: embeds the pinned binary with the CEF symlink and five signed helpers.
 write_pin "$sha" "$app_cef"; serve "$TMP/host"; new_app
@@ -79,21 +84,38 @@ serve "$TMP/host"; mkdir -p "$TMP/cache/$sha"; printf 'rot' > "$TMP/cache/$sha/c
 run Debug
 [[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "damaged cache was not repaired" "$out"
 
-# 4. CEF pin mismatch: warn and embed nothing.
+# 4. CEF pin mismatch: fails the build, naming both digests.
 write_pin "$sha" "0000000000000000000000000000000000000000000000000000000000000000"; new_app
 run Debug
-[[ $rc == 0 && ! -e "$host" ]] || fail "CEF pin mismatch embedded a host or failed" "$out"
+[[ $rc != 0 && ! -e "$host" ]] || fail "CEF pin mismatch did not fail the build" "$out"
 grep -q 'CEF pin mismatch' <<<"$out" || fail "CEF mismatch not reported" "$out"
+grep -q "$app_cef" <<<"$out" || fail "CEF mismatch does not name the app CEF digest" "$out"
 
 # 5. No arm64 in ARCHS: skip.
 write_pin "$sha" "$app_cef"; new_app
 run Debug x86_64
 [[ $rc == 0 && ! -e "$host" ]] || fail "x86_64-only build embedded a host" "$out"
 
-# 6. Unavailable binary (no store entry, no R2): warn and embed nothing.
+# 6. Unavailable binary (no store entry, no R2): fails the build, naming the
+# artifact and its pinned digest. A silent skip shipped DEV apps whose "Open
+# Remote Browser Tab" could not work (2026-10-09, controller store miss).
 rm -rf "$TMP/store" "$TMP/cache"; new_app
 run Debug
-[[ $rc == 0 && ! -e "$host" ]] || fail "unavailable binary did not skip" "$out"
+[[ $rc != 0 && ! -e "$host" ]] || fail "an unavailable pinned binary did not fail the build" "$out"
+grep -q "cmux-remote-browser-host-macos-arm64" <<<"$out" || fail "the failure does not name the artifact" "$out"
+grep -q "$sha" <<<"$out" || fail "the failure does not name the pinned digest" "$out"
+
+# 6b. The explicit opt-out embeds nothing, says so in the log and records it in
+# the app (Contents/Resources/RemoteBrowserHostOptOut.txt, shown in About).
+run Debug arm64 CMUX_NEXT_SKIP_RB_HOST=1
+[[ $rc == 0 && ! -e "$host" ]] || fail "the opt-out failed or embedded a host" "$out"
+grep -q 'CMUX_NEXT_SKIP_RB_HOST=1' <<<"$out" || fail "the opt-out is not in the build log" "$out"
+grep -q 'CMUX_NEXT_SKIP_RB_HOST=1' "$optout" 2>/dev/null || fail "the opt-out is not recorded in the app" "$out"
+
+# 6c. A later build with the host removes the opt-out record.
+serve "$TMP/host"
+run Debug
+[[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" && ! -e "$optout" ]] || fail "embedding did not clear the opt-out record" "$out"
 
 # 7. The standalone bundle script still writes the shared layout with its own CEF copy.
 mkdir -p "$TMP/cef/$FW/Resources"

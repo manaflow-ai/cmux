@@ -1,6 +1,7 @@
 public import AppKit
 public import QuartzCore
 import SwiftUI
+import CmuxNextWakeups
 
 /// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
 /// animation is retargetable: a new change starts from the view's current
@@ -18,6 +19,10 @@ extension Motion {
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
         let spring = self.spring(token)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
+        guard #available(macOS 15, *) else {
+            // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
+            return runTimed(self.duration(token), changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(animation, changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
@@ -27,6 +32,9 @@ extension Motion {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
+        guard #available(macOS 15, *) else {
+            return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
@@ -106,7 +114,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -116,7 +124,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     // MARK: Core Animation
@@ -194,7 +202,7 @@ extension Motion {
         guard MotionTrace.isEnabled else { return layer.add(animation, forKey: keyPath) }
         MotionTrace.begin(trace)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         layer.add(animation, forKey: keyPath)
         CATransaction.commit()
     }

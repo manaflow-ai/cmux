@@ -1,6 +1,6 @@
 // The composer's menus keep their own width in real engines (headless Chromium and WebKit from
-// Playwright). The Model and Effort chips are their menus' containing block (`position: relative`,
-// so useUiAnchor places the menu against the chip), and a chip is about 120px wide: the menu's
+// Playwright). The Model chip is its menu's containing block (`position: relative`,
+// so useUiAnchor places the menu against the chip), and the chip is about 120px wide: the menu's
 // width must come from its content and the viewport, never from the chip. The location menu is
 // portaled into a Base UI positioner on the body and must still get the pane's surface color.
 //
@@ -61,12 +61,6 @@ ${css}
       </div>
     </div>
   </span>
-  <span class="acpmux-picker acpmux-effort" style="position:relative">
-    <button class="acpmux-picker-button" style="width:90px">High</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-effort-pop" style="${ANCHORED}">
-      <div class="acpmux-effort-title">Reasoning</div>
-    </div>
-  </span>
 </div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
@@ -96,21 +90,15 @@ ${css}
 
       test("the Model menu is at least 220px wide, wider than its 120px chip", async () => {
         const page = await open(1000);
-        const menu = await box(page, ".acpmux-model .acpmux-menu");
+        const menu = await box(page, ".acpmux-model .acpmux-mp");
         expect(menu.width).toBeGreaterThanOrEqual(220);
         expect(menu.width).toBeLessThanOrEqual(520);
         await page.close();
       });
 
-      test("the Effort popover keeps its 255px width next to its 90px chip", async () => {
-        const page = await open(1000);
-        expect((await box(page, ".acpmux-effort .acpmux-menu")).width).toBe(255);
-        await page.close();
-      });
-
       test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
         const page = await open(200);
-        const menu = await box(page, ".acpmux-model .acpmux-menu");
+        const menu = await box(page, ".acpmux-model .acpmux-mp");
         expect(menu.width).toBeLessThanOrEqual(200 - 16);
         const columns = await page.$eval(".acpmux-mp-columns", (node) => {
           const element = node as HTMLElement;

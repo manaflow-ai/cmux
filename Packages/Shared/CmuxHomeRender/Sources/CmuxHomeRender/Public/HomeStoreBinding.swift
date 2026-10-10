@@ -139,6 +139,7 @@ public final class HomeStoreBinding {
         let id = conversation
         if Thread.isMainThread {
             let hooks = hooks
+            // main-proof: this branch runs only when Thread.isMainThread is true (checked above).
             MainActor.assumeIsolated {
                 store.close(id)
                 store.unregister(hooks)
@@ -166,8 +167,8 @@ public final class HomeStoreBinding {
         guard !stopped, controller != nil else { return }
         let id = conversation
         withObservationTracking {
-            _ = store.transcriptVersion[id]
-            _ = store.typing[id]
+            _ = store.transcriptVersion[id, default: 0]
+            _ = store.typing[id, default: []]
             _ = store.rows
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -194,9 +195,10 @@ public final class HomeStoreBinding {
                 controller.restoreDraft(for: intent.key)
                 if let self, !self.stopped { self.onAttachmentRefusal(intent, refusal) }
             } catch let rejection as HomeRejection {
-                // Refused before it reached the log (offline, nothing queues):
+                // Refused before it reached the log (a duplicate, or a stopped
+                // store; a send made offline waits for the reconnect instead):
                 // give the text back. A logged refusal stays as "Not Delivered".
-                guard case .sendMessage(let id, _) = intent.op else {
+                guard case .sendMessage(let id, _, _) = intent.op else {
                     if let self, !self.stopped { self.onRefusal(intent, rejection) }
                     return
                 }

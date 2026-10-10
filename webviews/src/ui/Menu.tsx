@@ -1,20 +1,32 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useRef,
+  useState,
+  type ComponentProps,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { isMousePress, trackPressRelease } from "./pressRelease";
 
 export interface MenuProps {
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
 }
 
 const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
 interface MenuContextValue {
+  isOpen: boolean;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
@@ -23,7 +35,7 @@ interface MenuContextValue {
 const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
-export function Menu({ open, onOpenChange, children }: MenuProps) {
+export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
@@ -33,8 +45,19 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
     onOpenChange?.(next);
   };
   const context: MenuContextValue = {
+    isOpen,
     beginPointer(event) {
-      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (!isMousePress(event)) return;
+      const wasOpen = isOpen;
+      pointerCleanup.current?.();
+      pointerCleanup.current = null;
+      session.current = null;
+      // A mouse press on an open trigger is a toggle. Base UI's click handler would
+      // otherwise see the outside press close the menu and reopen it on the same click.
+      if (wasOpen) {
+        setMenuOpen(false);
+        return;
+      }
       session.current = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -43,44 +66,17 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
         handled: false,
       };
       setMenuOpen(true);
-      pointerCleanup.current?.();
-      const doc = event.currentTarget.ownerDocument;
-      const move = (next: globalThis.PointerEvent) => {
-        if (next.pointerId !== event.pointerId) return;
-        const current = session.current;
-        if (!current) return;
-        if (!current.moved)
-          current.moved = Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
-        if (!current.moved) return;
-        const item = doc.elementFromPoint?.(next.clientX, next.clientY)?.closest<HTMLElement>('[role^="menuitem"]');
-        item?.focus({ preventScroll: true });
-      };
-      const up = (next: globalThis.PointerEvent) => {
-        if (next.pointerId !== event.pointerId) return;
-        const current = session.current;
-        const target = doc.elementFromPoint?.(next.clientX, next.clientY);
-        pointerCleanup.current?.();
-        pointerCleanup.current = null;
-        if (current?.moved && target instanceof HTMLElement && target.closest('[role^="menuitem"]')) {
-          const item = target.closest<HTMLElement>('[role^="menuitem"]');
-          if (item && !item.matches('[aria-disabled="true"]')) item.click();
-          setMenuOpen(false);
-        }
-        session.current = null;
-      };
-      const cancel = () => {
-        pointerCleanup.current?.();
-        pointerCleanup.current = null;
-        session.current = null;
-      };
-      doc.addEventListener("pointermove", move, true);
-      doc.addEventListener("pointerup", up, true);
-      doc.addEventListener("pointercancel", cancel, true);
-      pointerCleanup.current = () => {
-        doc.removeEventListener("pointermove", move, true);
-        doc.removeEventListener("pointerup", up, true);
-        doc.removeEventListener("pointercancel", cancel, true);
-      };
+      pointerCleanup.current = trackPressRelease(event, {
+        hover: (row) => row.focus({ preventScroll: true }),
+        // Base UI items act on the click.
+        pick: (row) => row.click(),
+        picked: () => setMenuOpen(false),
+        close: () => setMenuOpen(false),
+        end: () => {
+          pointerCleanup.current = null;
+          session.current = null;
+        },
+      });
     },
     movePointer(event) {
       const current = session.current;
@@ -98,13 +94,13 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
       return true;
     },
     endPointer() {
-      // Pointerup is handled by the document capture listener so the row remains selectable
-      // while the original trigger still owns pointer capture.
+      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
+      // remains selectable while the original trigger still owns pointer capture.
     },
   };
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen}>
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
         {children}
       </BaseMenu.Root>
     </MenuContext>
@@ -118,6 +114,8 @@ export interface MenuButtonProps {
   disabled?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
+  /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
+  "data-menu"?: string;
   children: ReactNode;
 }
 
@@ -127,6 +125,7 @@ export function MenuButton({
   disabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
+  "data-menu": dataMenu,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -136,6 +135,7 @@ export function MenuButton({
       aria-label={label}
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
+      data-menu={dataMenu}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -151,6 +151,11 @@ export function MenuButton({
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
       }}
+      onMouseDown={(event) => {
+        // WebKit dispatches a native mousedown after pointerdown. While an open trigger is
+        // closing the menu on press, cancel that follow-up so Base UI cannot reopen it on click.
+        if (context?.isOpen && event.button === 0) event.preventDefault();
+      }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
         // retain Base UI's native toggle behavior.
@@ -163,19 +168,54 @@ export function MenuButton({
 }
 
 export interface MenuPopupProps {
+  id?: string;
+  label?: string;
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  /** What the menu is placed against (default: the menu button). */
+  anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
+  /**
+   * Where focus goes when the menu closes (default: its trigger). A page whose keys live in one
+   * field (a picker's search) returns focus there.
+   */
+  finalFocus?: boolean | RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", children }: MenuPopupProps) {
+/// The surface class of the popup a submenu sits in, so the submenu wears the same surface (a themed
+/// menu never gets a bare, see-through submenu).
+const PopupSurface = createContext<string | undefined>(undefined);
+
+export function MenuPopup({
+  id,
+  label,
+  className,
+  side = "bottom",
+  align = "start",
+  anchor,
+  finalFocus,
+  children,
+}: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
-      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
-        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
+      <BaseMenu.Positioner
+        className="ui-positioner"
+        anchor={anchor}
+        side={side}
+        align={align}
+        sideOffset={UI_ANCHOR_GAP}
+      >
+        <BaseMenu.Popup
+          id={id}
+          aria-label={label}
+          className={cx("ui-popup ui-menu", className)}
+          finalFocus={finalFocus}
+        >
+          <PopupSurface value={className}>{children}</PopupSurface>
+        </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );
@@ -322,15 +362,17 @@ export interface SubmenuProps {
   children: ReactNode;
 }
 
-/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). */
+/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
+ * wears the parent popup's surface unless `popupClassName` names another. */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
+  const surface = use(PopupSurface);
   return (
     <BaseMenu.SubmenuRoot>
       <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName}>
+      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>

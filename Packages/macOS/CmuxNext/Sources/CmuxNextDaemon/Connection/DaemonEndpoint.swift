@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// Where the daemon listens, as printed by `server ensure`.
@@ -48,6 +48,11 @@ public struct DaemonCapabilities: Sendable {
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"
     public let notificationAck = "notification-ack-v1"
+    /// The daemon's local feed owner (plans/cmux-next/feed.md 9.1): every
+    /// notification is also a local feed item, selection never clears unread,
+    /// `ack-tab-notifications` reports `refused` items, and the
+    /// `feed-local-*` commands let the app hand items to the cloud owner.
+    public let feedLocalOwner = "feed-local-owner-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -73,6 +78,9 @@ public struct DaemonCapabilities: Sendable {
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
     /// `new-pane-right`; `cwd`/`env` on the last two (cmux-tui PR 15600).
     public let terminalPlacementEnv = "terminal-placement-env-v1"
+    /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
+    /// retries (plans/cmux-next/remote-state-ownership.md S1).
+    public let splitClientKeys = "split-client-keys-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -167,9 +175,15 @@ public struct DaemonCapabilities: Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     public let agentSessionTabs = "agent-session-tabs-v1"
+    /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
+    /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
+    /// "Agent session attach").
+    public let agentSessionAttach = "agent-session-attach-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
+    /// App workspaces (`workspace.ensure_app`, `Workspace.app`, `Tab.app`).
+    public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
@@ -206,6 +220,12 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// `palette_usage.get|record|import`: the user's palette usage history
+    /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
+    public let paletteUsage = "palette-usage-v1"
+    /// `project.list|observe|add|update|remove|sync`: the device project list
+    /// (plans/cmux-next/projects.md).
+    public let projectList = "project-list-v1"
     /// `move-tab-to-split` `respawn`: splitting a pane with its only tab
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
@@ -245,10 +265,10 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

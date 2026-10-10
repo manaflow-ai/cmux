@@ -1,6 +1,6 @@
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
@@ -71,12 +71,8 @@ import Synchronization
     /// The user's home folder: never a root or a filled cwd unless the user added it
     /// (``addedRoots``), so an inherited or default `~` never opens the whole home folder.
     public var homeFolder: String? = NSHomeDirectory()
-    /// Asks the user to add a refused folder as a root (a native sheet); the answer is true for
-    /// Add. Asked only after a real gesture, one at a time.
-    public var requestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Folders the user added or picked by a gesture: roots from then on.
     public internal(set) var addedRoots: [String] = []
-    private var askingRoot = false
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
@@ -96,6 +92,11 @@ import Synchronization
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
     private var socketPath: String?
+    /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
+    /// Archive). Replaced in tests.
+    public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
@@ -108,6 +109,10 @@ import Synchronization
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
+        }
+        tagSession = { [weak self] session, set, remove in
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
         harnessEnablePrompt = { [weak self] folder, id in
             guard let path = self?.socketPath else { return nil }
@@ -133,8 +138,8 @@ import Synchronization
         sentFirst = false
         let ids = AcpmuxRequestIds()
         requestIds = ids
-        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions,
-                                      ids: ids) { [weak self] in
+        let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
+                                      options: permissionOptions, sessions: sessions, ids: ids) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
@@ -195,19 +200,6 @@ import Synchronization
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
         return gestures.reserve(connection: current, intent: intent)
-    }
-
-    /// Offers the user to add `folder` as a root: only after a real gesture (which the offer uses),
-    /// one sheet at a time. True when the sheet is shown.
-    func offerRoot(_ folder: String) -> Bool {
-        guard !askingRoot, let requestRoot, gestures.consume() else { return false }
-        askingRoot = true
-        requestRoot(folder) { [weak self] add in
-            guard let self else { return }
-            self.askingRoot = false
-            if add, !self.addedRoots.contains(folder) { self.addedRoots.append(folder) }
-        }
-        return true
     }
 
     /// Closes the connection if it is the current one.

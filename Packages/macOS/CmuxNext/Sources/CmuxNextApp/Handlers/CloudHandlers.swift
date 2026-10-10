@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
@@ -11,7 +12,7 @@ import CmuxNextDaemon
 /// as a sheet (and in the log), refusals reach the control socket.
 enum CloudHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
@@ -61,7 +62,10 @@ enum CloudHandlers {
     static func run(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
         Task {
-            do { try await work() } catch {
+            do { try await work() } catch CloudMachineCreateFlow.Failure.declined {
+                // The person said no in the confirmation: nothing to report.
+                logger.info("\(label, privacy: .public): declined")
+            } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 CloudPresenter.failure(error, in: window(context))
             }
@@ -88,7 +92,7 @@ enum CloudHandlers {
 
     /// Shows `workspaceID` in the active window (or a new one).
     static func show(_ workspaceID: String, _ context: AppActionContext) {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 
@@ -123,7 +127,7 @@ enum CloudHandlers {
 
     @MainActor
     private static func waitForPaneController(_ pane: PaneModel, _ context: AppActionContext) async -> Bool {
-        for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready {
+        for await ready in ObservationStream({ context.services.paneController(for: pane) != nil }) where ready {
             return true
         }
         return false
@@ -182,7 +186,7 @@ enum CloudHandlers {
     }
 
     @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
-        for await ready in Observations({ anchor(id: id, on: session) != nil }) where ready { return true }
+        for await ready in ObservationStream({ anchor(id: id, on: session) != nil }) where ready { return true }
         return false
     }
 

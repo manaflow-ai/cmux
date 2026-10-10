@@ -18,13 +18,17 @@ usage() {
   sed -n '2,12p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path]
+Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+  --check-build-allowed  exit 0 when this host may build optchat-chief on a miss
 Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_ARCHS  arm64 and/or x86_64 (default: ARCHS, else the host)
   CMUX_NEXT_OPTCHAT_CHIEF_CACHE  cache root (default: <crate>/target/hosted)
 USAGE
 }
 
+# A build host may run Cargo on a miss: CI, a fleet build (CMUX_FLEET_BUILD_TAG)
+# or an nx-remote job on a build host (NX_JOB_ID). A developer Mac never does.
+build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 output=""
 cached_only=0
 print_path=0
@@ -33,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --output) output="${2:?missing path after --output}"; shift 2 ;;
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
+    --check-build-allowed) build_allowed; exit $? ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -76,8 +81,8 @@ if [[ "$cached_only" -eq 1 ]]; then
   [[ "$print_path" -eq 1 ]] || echo "error: no cached optchat-chief at $cache_bin" >&2
   exit 1
 fi
-[[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
-  echo "error: optchat-chief is not cached; build it on CI or the fleet (cargo never runs on a developer Mac)" >&2
+build_allowed || {
+  echo "error: optchat-chief is not cached; build it on CI, the fleet or nx-remote (cargo never runs on a developer Mac)" >&2
   exit 1
 }
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build optchat-chief" >&2; exit 1; }
@@ -86,6 +91,16 @@ command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build op
 # toolchain cmux-tui pins, which the fleet already has for acpmux.
 toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo_root/cmux-tui/rust-toolchain.toml")"
 [[ -n "$toolchain" ]] || { echo "error: cannot read cmux-tui/rust-toolchain.toml" >&2; exit 1; }
+fleet_target_helper=""
+if [[ "${CMUX_FLEET_WORKER_TRUSTED:-0}" == 1 ]]; then
+  fleet_target_helper="$repo_root/scripts/ci/fleet-rust-cache.sh"
+  [[ -r "$fleet_target_helper" ]] || {
+    echo "error: managed worker is missing the reviewed Rust target resolver" >&2
+    exit 78
+  }
+  # shellcheck disable=SC1090
+  source "$fleet_target_helper"
+fi
 targets=()
 for arch in $archs; do targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"); done
 if command -v rustup >/dev/null 2>&1; then
@@ -98,11 +113,16 @@ slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
   # A persistent target dir under the crate keeps later fleet builds incremental.
+  target_dir="$crate/target/app"
+  if [[ -n "$fleet_target_helper" ]]; then
+    target_dir="$(fleet_rust_target_dir chief "$target" "$repo_root/cmux-tui")"
+    mkdir -p "$target_dir"
+  fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$crate/target/app" \
+  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
-  slice="$crate/target/app/$target/release/optchat-chief"
+  slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")
 done

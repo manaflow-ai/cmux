@@ -102,6 +102,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             memory,
             log,
             ready_fd,
+            person_key_fd,
             allow_dev_origin,
             dev,
         }) => {
@@ -116,6 +117,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 ws_token: token,
                 memory,
                 ready_fd,
+                person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
             })
@@ -142,6 +144,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Route(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::route::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Harness(cmd)) => {
             let json_out = cli.json;
             match crate::cli::harness::run(cmd, json_out).await {
@@ -149,6 +158,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

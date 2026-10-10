@@ -55,6 +55,9 @@ public final class ThemeScope {
     public func setBackdropSelection(_ selection: BackdropSelection?) {
         guard selectedBackdropSelection != selection else { return }
         selectedBackdropSelection = selection
+        // Settings pick the art before the first window: start decoding it now, so that window
+        // finds it ready.
+        BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
     }
 
@@ -282,7 +285,8 @@ public final class ThemeScope {
         defer { ThemeContext.pop() }
         var result: T?
         appearance.performAsCurrentDrawingAppearance { result = body() }
-        return result!
+        // The block runs synchronously, so `result` is set; otherwise run `body` without the appearance.
+        return result ?? body()
     }
 
     /// A root view takes an explicit appearance only where its scope's

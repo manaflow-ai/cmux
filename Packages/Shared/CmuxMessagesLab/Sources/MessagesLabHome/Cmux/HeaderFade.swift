@@ -40,8 +40,10 @@ extension HeaderBackdropView {
 
     /// The top fade's strongest alpha (0 without one).
     var topFadeMaxAlpha: CGFloat {
-        guard let first = (topFade?.colors?.first).map({ $0 as! CGColor }) else { return 0 }
-        return first.alpha
+        guard let raw = topFade?.colors?.first else { return 0 }
+        let first = raw as AnyObject
+        guard CFGetTypeID(first) == CGColor.typeID else { return 0 }
+        return unsafeDowncast(first, to: CGColor.self).alpha
     }
 
     /// Shows or hides the top fade over `duration` (0: at once), easing.
@@ -96,6 +98,9 @@ extension MessagesLabHomeView {
         }
         if first { host.updateHeaderZone() }
     }
+
+    /// cmux: the name pill's own translucent capsule, always shown.
+    public func setHeaderPillBacking(_ color: NSColor) { controller.host.paneHeader.setPillBacking(color) }
 
     /// The header fade's opacity as set (0 hidden, 1 shown).
     public var headerFadeOpacity: Float { controller.host.headerBackdrop.revealOpacity }

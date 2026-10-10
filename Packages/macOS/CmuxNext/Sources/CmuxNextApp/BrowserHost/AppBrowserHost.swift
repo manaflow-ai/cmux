@@ -27,12 +27,28 @@ final class AppBrowserHost {
     private var inputObservation: ProviderInputObservation?
     private var inputLeaseObservation: ProviderLeaseObservation?
 
+    /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
+    /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
+    /// builds take `CMUX_NEXT_COOKIE_BACKUP_KEY_FILE` instead, so fleet tests
+    /// run without the Keychain; Release builds never read it.
+    static func cookieBackups(bundleID: String?) -> CookieBackups {
+        let directory = CookieBackups.defaultDirectory(bundleID: bundleID)
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_COOKIE_BACKUP_KEY_FILE"], !path.isEmpty {
+            return CookieBackups(directory: directory, keySource: FileCookieBackupKey(url: URL(filePath: path)))
+        }
+        #endif
+        return CookieBackups(directory: directory, keySource: KeychainCookieBackupKey(bundleID: bundleID))
+    }
+
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
         let tabs = AppBrowserHostTabs(services: services)
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
+        relay.renderWindows = tabs.renderWindows
         let driver = WebKitDriver(provider: tabs)
+        driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs
@@ -53,7 +69,7 @@ final class AppBrowserHost {
             })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
-            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs)
+            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, opener: tabs)
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }
@@ -61,10 +77,27 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        services.cache.pageRequests.downloads.onDownload = { [weak provider] item, tab in
+            Self.report(item, tab: tab, to: provider)
+        }
+        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider] child, opener in
+            guard let services, let provider, let tab = services.locateTab(surface: child),
+                  let parent = services.locateTab(surface: opener) else { return }
+            provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
+        }
         leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
-        inputObservation = provider.observeInputs { [inputBridge] event in
+        inputObservation = provider.observeInputs { [inputBridge, weak services] event in
+            // An agent's click, key or typing is a user gesture for the tab's
+            // automatic downloads, as a person's is.
+            if let target = Self.gestureTarget(of: event) {
+                switch services?.cache.existingBrowser(target)?.tab {
+                case let page as CEFTab: page.automaticDownloads.userGesture()
+                case let page as WebKitTab: page.automaticDownloads.userGesture()
+                default: break
+                }
+            }
             guard let data = try? JSONSerialization.data(withJSONObject: event.foundationValue) else { return }
             inputBridge.receive(data)
         }
@@ -170,5 +203,43 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     static func code(of error: any Error) -> String {
         if case DaemonError.command(_, _, let code?, _, _) = error { return code }
         return String(describing: type(of: error))
+    }
+}
+
+extension AppBrowserHost {
+    /// `automation.input` kinds that are a user gesture on their tab (each
+    /// starts with a mouse down or a key press).
+    static let gestureKinds: Set<String> = ["click", "double_click", "right_click", "drag", "key", "type"]
+
+    /// The tab an agent's input event is a user gesture on, nil for a move,
+    /// a scroll or an event without a tab.
+    static func gestureTarget(of event: DriverJSON) -> String? {
+        guard case .object(let fields) = event, case .string(let kind)? = fields["kind"], gestureKinds.contains(kind),
+              case .string(let target)? = fields["target_id"] else { return nil }
+        return target
+    }
+
+    /// Reports a download of tab `tab` to the host: its start now, its end
+    /// once (the saved file, or why it ended).
+    static func report(_ item: BrowserDownload, tab: String, to provider: BrowserHostProvider?) {
+        let id = item.id.uuidString.lowercased()
+        // Started once the engine knows the page's suggested name (WebKit
+        // learns it after the download began); always before the end.
+        item.onNamed { [weak provider] item in
+            provider?.reportDownloadStarted(targetID: tab, downloadID: id, url: item.sourceURL?.absoluteString ?? "",
+                                            suggestedFilename: item.suggestedFilename)
+        }
+        item.onFinish { [weak provider] item in
+            switch item.status {
+            case .finished:
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: item.destination?.path, error: item.destination == nil ? "the download has no file" : nil)
+            case .failed(let reason), .blocked(let reason):
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: nil, error: reason)
+            case .cancelled:
+                provider?.reportDownloadFinished(targetID: tab, downloadID: id, path: nil, error: "canceled")
+            case .inProgress:
+                break
+            }
+        }
     }
 }

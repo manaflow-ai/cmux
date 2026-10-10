@@ -43,11 +43,15 @@ export const LOCALES = [
 
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
-/** Every key a settings schema export names (titles, help, groups, default labels, choices). */
+/** Every key a settings schema export names (titles, help, groups, default labels, choices, page layout). */
 export function schemaKeys(schemaFile) {
   const schema = readJSON(schemaFile);
   const keys = new Set();
   for (const section of schema.sections ?? []) if (section.title?.key) keys.add(section.title.key);
+  for (const category of schema.page?.categories ?? []) {
+    if (category.title?.key) keys.add(category.title.key);
+    for (const group of category.groups ?? []) if (group.title?.key) keys.add(group.title.key);
+  }
   for (const row of schema.rows ?? []) {
     for (const field of ["title", "help", "group", "default_label"]) if (row[field]?.key) keys.add(row[field].key);
     for (const choice of row.choices ?? []) if (choice.title?.key) keys.add(choice.title.key);
@@ -111,6 +115,16 @@ export const PAGES = {
       },
     ],
   },
+  // Debug Settings shares the `debugSettings.` keys (and Reset) with the Swift window it replaces.
+  "debug-settings": {
+    out: "webviews/src/pages/debug-settings/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("debugSettings.") || key === "settingsWindow.reset"),
+      },
+    ],
+  },
   // The Keyboard Shortcuts page has its own table in the app's resources.
   keybindings: {
     out: "webviews/src/pages/keybindings/generated/strings.json",
@@ -140,6 +154,11 @@ export const PAGES = {
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
+  },
+  // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
+  "home-channels": {
+    out: "webviews/src/pages/home-channels/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {

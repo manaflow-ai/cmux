@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextFeed
 import Foundation
 
@@ -32,9 +33,7 @@ final class FeedService {
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
     static func apiBaseURL(auth: CloudAuth, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        // The override is for development only: a release build never sends its token to another origin.
-        if auth.configuration.isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
-        return URL(string: auth.configuration.isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+        auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
     init(auth: CloudAuth, showcase: Bool = false) {
@@ -56,7 +55,7 @@ final class FeedService {
         // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
         accountWatch = Task { [weak self] in
             await auth.awaitRestored()
-            for await signedIn in Observations({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
+            for await signedIn in ObservationStream({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
                 self?.accountChanged(signedIn)
             }
         }
@@ -73,7 +72,7 @@ final class FeedService {
             if forced == nil { source.checkAlive() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } }
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),

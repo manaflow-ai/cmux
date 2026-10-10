@@ -235,6 +235,11 @@ mod unix {
     }
 
     fn serve_command(options: &Options) -> i32 {
+        // No descriptor this process inherited reaches a browser it starts.
+        if let Err(error) = cmux_browser_host::server::seal_inherited_descriptors() {
+            eprintln!("cmux-browser-host: sealing inherited descriptors: {error}");
+            return 1;
+        }
         // The secret fd is read before anything else is opened, so a wrong
         // fd number cannot take the socket or its lock file.
         let secret = match options.provider_secret_fd.map(read_secret_fd).transpose() {

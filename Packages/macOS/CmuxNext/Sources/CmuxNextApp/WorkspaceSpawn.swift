@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
@@ -17,9 +18,15 @@ struct WorkspaceSpawn: Sendable {
     var profile: ProfileID?
     /// Browser profile of the workspace's new browser tabs; nil = its room's.
     var browserProfile: String?
-    /// Where the new workspace goes in its window's sidebar; nil leaves it
-    /// where the daemon puts it (after the loose rows).
+    /// Where the new workspace goes in its window's sidebar; nil puts it at
+    /// the `workspaces.newPlacement` slot (`NewWorkspaceDefaultSlot`).
     var slot: WorkspaceSlot?
+    /// False keeps the daemon's place when `slot` is nil: a caller that
+    /// places the workspace itself (into a personal group). The daemon puts
+    /// a workspace of its own session at `workspaces.newPlacement` too (with
+    /// `afterCurrent` after the session's active workspace, not the window's),
+    /// so a batch that must keep its order names a slot.
+    var placesBySetting = true
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
     var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
@@ -80,6 +87,16 @@ struct WorkspaceSpawn: Sendable {
     }
 }
 
+extension WorkspaceSpawn {
+    /// A person's new workspace always starts on the New Tab page (Lawrence 2026-10-10, cx-n0i9:
+    /// "cmd n and cmd t need to always be the new tab page"). The Terminal template dot no longer
+    /// skips the page: a saved `tabs.newTabTemplate: "terminal"` (the page's dots wrote it) stays
+    /// in cmux.json untouched and the page draws its default screen.
+    func honoring(_ template: NewTabTemplate?) -> WorkspaceSpawn {
+        self
+    }
+}
+
 extension WindowManager {
     /// Creates a workspace with one terminal, or on the New Tab page
     /// (`opensNewTabPage`), and returns its id. The terminal gets this app's
@@ -90,18 +107,16 @@ extension WindowManager {
     /// `windowID` claims the workspace for that window before the command
     /// is sent (`claimNew`), so it lands there, or opens that window, in the
     /// step that first mirrors it; nil leaves it to reconcile (the most
-    /// recent window).
+    /// recent window). It goes to `spawn.slot`, else by `workspaces.newPlacement`.
     func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                          frame: CGRect? = nil) async throws -> String {
         let daemon = daemon ?? services.daemon
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        if let windowID {
-            if spawn.slot != nil || spawn.onListed != nil {
-                pendingPlacements[key.rawValue] = PendingPlacement(window: windowID, slot: spawn.slot, then: spawn.onListed)
-            }
-            claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        }
+        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil
+        NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
+                                      then: windowID == nil ? nil : spawn.onListed, windows: self)
+        if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
         // The workspace is born in its window's room (or the one asked for):
         // pinned there in the home session before the create command, so no
@@ -127,7 +142,7 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
-        if let page = try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
+        if let page = try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(created), command: spawn.command, cwd: cwd,

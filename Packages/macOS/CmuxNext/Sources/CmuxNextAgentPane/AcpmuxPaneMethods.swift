@@ -24,7 +24,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status",
+        "_acpmux/status", "_acpmux/draft_get",
+        // Session-scoped draft writes are kept separate from the filtered replies above.
+        "_acpmux/draft_set",
+        // Withdraw a queued prompt of a session in the pane's scope (direct.ts removeQueued).
+        "_acpmux/queue_remove",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -143,14 +147,16 @@ nonisolated enum AcpmuxPaneMethods {
         return allowed ? .success(object) : refuse(.methodRefused, method, id)
     }
 
-    /// The first frame with the LocalApp token in `_meta.acpmux` (the host's own key; the page
-    /// never sees it).
+    /// The first frame with the LocalApp token and this launch's person key (``AcpmuxPersonKey``)
+    /// in `_meta.acpmux` (the host's own keys; the page never sees them). Any `personKey` the
+    /// page put there is replaced.
     static func withLocalAppToken(_ object: [String: Any], _ token: String) -> [String: Any] {
         var object = object
         var params = object["params"] as? [String: Any] ?? [:]
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
         acpmux["localAppToken"] = token
+        acpmux["personKey"] = AcpmuxPersonKey.current
         meta["acpmux"] = acpmux
         params["_meta"] = meta
         object["params"] = params
@@ -162,7 +168,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
@@ -183,7 +189,8 @@ nonisolated enum AcpmuxPaneMethods {
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
-    /// `rootRequested`: the host offered the user to add the refused folder as a root.
+    /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
+    /// a refused folder as a root, so it never sets it.
     public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }

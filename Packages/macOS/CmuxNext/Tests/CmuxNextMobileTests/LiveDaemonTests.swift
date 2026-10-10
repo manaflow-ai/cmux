@@ -11,6 +11,10 @@ enum LiveBinary {
     static let url: URL? = {
         if let override = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_BIN"],
            FileManager.default.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+        // `pin-cmux-tui.sh path`, resolved once by the suite runner.
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty {
+            return FileManager.default.isExecutableFile(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
         let process = Process()
@@ -81,10 +85,15 @@ enum LiveDaemon {
         return Set(String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { Int32($0) })
     }
 
+    /// `proc_pidinfo(PROC_PIDTBSDINFO)` fails with ESRCH for a zombie, so it
+    /// reported an exited, unreaped host as live; `sysctl(KERN_PROC_PID)`
+    /// still returns a zombie's `p_stat`.
     static func isZombie(_ pid: Int32) -> Bool {
-        var info = proc_bsdinfo()
-        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-        return size > 0 && info.pbi_status == UInt32(SZOMB)
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return false }
+        return Int32(info.kp_proc.p_stat) == SZOMB
     }
 }
 

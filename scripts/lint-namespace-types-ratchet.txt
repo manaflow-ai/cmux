@@ -15,7 +15,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityPageAddress.s
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityStrings.swift:AgentActivityPaneStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityTunables.swift:AgentActivityTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFileOpen.swift:AgentPaneFileOpen
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest.swift:AgentPaneReply
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReply.swift:AgentPaneReply
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Install/AppDefaultInstalls.swift:AppDefaultInstalls
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Install/AppPresenceFilter.swift:AppPresenceFilter
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Install/AppStateReducer.swift:AppStateReducer
@@ -23,7 +23,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Policy/AppGrantReducer.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Policy/AppPermissionPolicy.swift:AppPermissionPolicy
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppPlatformResources.swift:AppPlatformResources
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppsTunables.swift:AppsTunables
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Registry/AppBundleScanner.swift:AppBundleScanner
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/BookmarkStrings.swift:BookmarkStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Codec/NetscapeBookmarkReader.swift:NetscapeBookmarkReader
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Codec/NetscapeBookmarkWriter.swift:NetscapeBookmarkWriter

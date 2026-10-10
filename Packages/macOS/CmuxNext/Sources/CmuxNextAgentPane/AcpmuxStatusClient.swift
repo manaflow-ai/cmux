@@ -50,6 +50,13 @@ nonisolated enum AcpmuxStatusClient {
         ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
     }
 
+    /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
+    @concurrent static func tag(socketPath: String, sessionId: String, set: [String: String], remove: [String],
+                                deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/tag",
+                           params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
+    }
+
     /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
     /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
     /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
@@ -76,18 +83,21 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPaneHarnessEnablePrompt(result: result)
     }
 
-    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                             deadline: Duration) async throws -> [String: Any] {
+    /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
+    /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
+    static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+                     deadline: Duration, detailed: Bool = false) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection))
+            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed))
         }
         return box.value
     }
 
     /// `initialize`, then `method`; returns its result.
-    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection) async throws -> [String: Any] {
+    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
+                                 detailed: Bool) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -108,7 +118,8 @@ nonisolated enum AcpmuxStatusClient {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let reply = try reply(to: 2, in: Data(line)) { return reply }
+                let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
+                if let parsed { return parsed }
             }
             if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
         }
@@ -124,7 +135,15 @@ nonisolated enum AcpmuxStatusClient {
         return object["result"] as? [String: Any] ?? [:]
     }
 
-    private static func start(_ connection: NWConnection) async throws {
+    /// `reply(to:in:)` that keeps the error's JSON-RPC code and data (``AcpmuxRPCError``).
+    static func detailedReply(to id: Int, in line: Data) throws -> [String: Any]? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              (object["id"] as? NSNumber)?.intValue == id else { return nil }
+        if let error = object["error"] as? [String: Any] { throw AcpmuxRPCError(error) }
+        return object["result"] as? [String: Any] ?? [:]
+    }
+
+    static func start(_ connection: NWConnection) async throws {
         let gate = AgentPaneResumeOnce()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.stateUpdateHandler = { state in
@@ -143,7 +162,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func send(_ data: Data, on connection: NWConnection) async throws {
+    static func send(_ data: Data, on connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
@@ -151,7 +170,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func receive(on connection: NWConnection) async throws -> Data? {
+    static func receive(on connection: NWConnection) async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
                 if let data, !data.isEmpty {
@@ -179,12 +198,17 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
+    /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
+    var chiefMuxHome: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false) {
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+         chiefMuxHome: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chiefMuxHome = chiefMuxHome
     }
 
     init(_ result: [String: Any]) {
@@ -192,6 +216,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chiefMuxHome = result["chiefMuxHome"] as? String
     }
 
     /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.

@@ -3,7 +3,11 @@
 
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <cmux-remote-browser-host.app> [--out DIR]
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled [--out DIR]
+  scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled --edge [--out DIR]
 (--bundled: the host the DEV build embeds in Contents/Helpers, with CMUX_NEXT_RB_HOST unset)
+(--edge: only the popup edge check, in a short window: a date picker at the page's bottom-right
+edge shows in full in its own child panel (cx-3nbw), follows a window move, never becomes key,
+takes a click, and goes with its tab; a <select> there opens a native menu.)
 
 Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app
 (no activation, automation socket, CMUX_NEXT_RB_HOST=--host-app), serves a local test page,
@@ -13,7 +17,8 @@ loads (the omnibar path) and Back returns (rb.history); hover reports a pointer 
 (rb.cursor); the wheel scrolls the page; right-click opens a native menu; a <select> near the
 bottom edge opens a native menu and the chosen item reaches the page; a date input opens a
 popup surface; a target=_blank link opens a second remote tab on its own host (rb.open_tab);
-closing a tab stops its host. Ends with quitEndSessions and the tag teardown.
+closing a tab stops its host; an <input list> shows its datalist suggestions as an autofill
+surface (CEF API 21) and a click on a suggestion fills the field. Ends with quitEndSessions and the tag teardown.
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -25,6 +30,7 @@ parser.add_argument("--tag", required=True)
 host_source = parser.add_mutually_exclusive_group(required=True)
 host_source.add_argument("--host-app")
 host_source.add_argument("--bundled", action="store_true")
+parser.add_argument("--edge", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -54,12 +60,29 @@ a{display:block;margin:12px;font-size:20px} #sel{position:fixed;left:20px;bottom
 <script>addEventListener('scroll',()=>{document.title='rb scrolled '+Math.round(scrollY)})</script>
 </body></html>"""
 SIZE = "<!doctype html><html><head><title>rb size</title></head><body><script>document.title='rb size '+innerWidth+'x'+innerHeight+' @'+devicePixelRatio</script></body></html>"
+LIST = """<!doctype html><html><head><title>rb list</title></head><body style="margin:0;font:16px sans-serif">
+<input id="dl" list="fruits" autocomplete="off" style="position:fixed;left:40px;top:200px;width:240px;font-size:16px"
+ oninput="document.title='rb list '+this.value" onchange="document.title='rb list '+this.value">
+<datalist id="fruits"><option value="Apple"><option value="Apricot"><option value="Avocado"></datalist>
+</body></html>"""
+# The popup edge page: a date input and a select at the bottom-right edge. The title gives
+# their centers in page CSS pixels ("rb edge DX,DY,SX,SY"), then what happened.
+EDGE = """<!doctype html><html><head><title>rb edge loading</title><style>
+body{margin:0;font:16px sans-serif;background:#eef} #date{position:fixed;right:6px;bottom:6px}
+#sel{position:fixed;right:220px;bottom:6px}</style></head><body>
+<input id="date" type="date" onclick="try{this.showPicker()}catch(x){document.title='rb edge err '+x}"
+ onchange="document.title='rb edge date '+this.value">
+<select id="sel" onchange="document.title='rb edge selected '+this.value">
+<option value="a">Alpha</option><option value="b">Bravo</option><option value="c">Charlie</option></select>
+<script>function c(id){const r=document.getElementById(id).getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}
+document.title='rb edge '+c('date').concat(c('sel')).map(Math.round).join(',')</script>
+</body></html>"""
 PAGE2 = "<!doctype html><html><head><title>rb two</title></head><body style='background:#dfe'>page two</body></html>"
 
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = (SIZE if self.path.startswith("/size") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
+        body = (EDGE if self.path.startswith("/edge") else SIZE if self.path.startswith("/size") else LIST if self.path.startswith("/list") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -139,6 +162,103 @@ def shot(name):
     shots.append(path)
 
 
+def rect(text):
+    """"x,y WxH" -> (x, y, w, h)."""
+    origin, size = text.split(" ")
+    x, y = origin.split(",")
+    w, h = size.split("x")
+    return int(x), int(y), int(w), int(h)
+
+
+def edge(opened):
+    """cx-3nbw: a popup at the page's bottom-right edge shows in full in its own child panel."""
+    tab = opened and opened["tab"]
+    rb("navigate", tab=tab, url=BASE + "/edge")
+    loaded = wait(lambda: session_where(lambda s: s["tab"] == tab and len((s.get("title") or "").split(",")) == 4), 30)
+    step("the edge page loads", loaded, {"session": loaded})
+    if not loaded:
+        return
+    dx, dy, sx, sy = (int(v) for v in loaded["title"][len("rb edge "):].split(","))
+    page_w, page_h = (int(v) for v in loaded["frame"].split("x"))
+    windows = rpc("debug.window_list").get("windows") or []
+    main = next((w["id"] for w in windows if w.get("kind") == "main" and w.get("visible")), None)
+
+    def picker():
+        s = session_where(lambda s: s["tab"] == tab)
+        return next((i for i in (s or {}).get("surface_info") or [] if i.get("kind") == "page_popup"), None)
+
+    rb("click", tab=tab, x=dx, y=dy, button="left")
+    info = wait(picker, 15)
+    time.sleep(1.0)  # the picker's first frames, and Chromium ignores clicks in its first 500 ms
+    info = picker() or info
+    state = session_where(lambda s: s["tab"] == tab)
+    shot("edge-date")
+    panel = (info or {}).get("panel")
+    if panel:
+        path = os.path.join(opts.out, f"{len(shots):02d}-edge-date-panel.png")
+        report["panel_snapshot"] = rpc("debug.window_snapshot", {"window": str(panel["window_number"]), "path": path})
+        shots.append(path)
+    x, y, w, h = rect(info["frame"]) if info else (0, 0, 0, 0)
+    past_edge = x < 0 or y < 0 or x + w > page_w or y + h > page_h
+    in_panel = bool(panel and panel["visible"] and panel["parent"] == main and rect(panel["screen_frame"])[2:] == (w, h))
+    report["edge"] = {"page": [page_w, page_h], "anchor": [x, y, w, h], "past_page_edge": past_edge, "surface": info,
+                      "page_screen_frame": (state or {}).get("page_screen_frame")}
+    # A child view of the page clips what runs past the page; a child panel of the window does not.
+    # The page is shorter than the picker, so the picker runs past it: else the check proves nothing.
+    step("a date picker that runs past the page's bottom-right edge shows in full (child panel, never key)",
+         info and past_edge and in_panel and not panel.get("key"),
+         {"anchor": [x, y, w, h], "page": [page_w, page_h], "past_page_edge": past_edge, "panel": panel,
+          "key_window": (state or {}).get("key_window")})
+
+    # The panel sits at the anchor over the page, and follows a window move.
+    def placed():
+        s = session_where(lambda s: s["tab"] == tab)
+        i = picker()
+        if not s or not i or not i.get("panel") or not s.get("page_screen_frame"):
+            return None
+        px, py, _, ph = rect(s["page_screen_frame"])
+        fx, fy, fw, fh = rect(i["panel"]["screen_frame"])
+        ax, ay, aw, ah = rect(i["frame"])
+        # Whole points, each value cut to an integer: allow 1 point.
+        return (fx, fy) if abs(fx - (px + ax)) <= 1 and abs(fy + fh - (py + ph - ay)) <= 1 else None
+    before = placed()
+    frame = (rpc("debug.window_frame") or {}).get("frame") or []  # [x, y, width, height], screen points
+    moved_to = None
+    if before and len(frame) == 4:
+        moved_to = [frame[0] + 60, frame[1] + 40, frame[2], frame[3]]
+        rpc("debug.window_frame", {"frame": moved_to})
+    after = wait(lambda: (lambda p: p if p and p != before else None)(placed()), 10)
+    step("the popup panel sits at its anchor and follows a window move",
+         before and after and abs(after[0] - before[0] - 60) <= 1 and abs(after[1] - before[1] - 40) <= 1,
+         {"before": before, "after": after, "window": moved_to})
+
+    # A click in the panel reaches the picker (Today, bottom right of the picker).
+    if info:
+        rb("surface_click", tab=tab, surface=info["id"], x=max(10, w - 40), y=max(10, h - 18))
+    picked = wait(lambda: session_where(lambda s: s["tab"] == tab and (s.get("title") or "").startswith("rb edge date ")), 10)
+    shot("edge-date-picked")
+    step("a click in the popup panel picks a date", picked, {"session": picked})
+
+    # The select at the same edge: a native menu (never clipped).
+    rb("click", tab=tab, x=sx, y=sy, button="left")
+    menu = wait(lambda: session_where(lambda s: s["tab"] == tab and s.get("menu")), 15)
+    shot("edge-select")
+    chosen = rb("menu_choose", tab=tab, index=2) if menu else None
+    selected = wait(lambda: session_where(lambda s: s["tab"] == tab and s.get("title") == "rb edge selected c"), 15)
+    step("a <select> at the bottom-right edge opens a native menu and the choice reaches the page",
+         menu and selected, {"menu": menu and menu.get("menu"), "chosen": chosen})
+
+    # Closing the tab takes an open popup panel with it.
+    rb("click", tab=tab, x=dx, y=dy, button="left")
+    reopened = wait(picker, 15)
+    rpc("action.run", {"action": "closeTab"})
+    gone = wait(lambda: not any(w.get("kind") == "remote-browser-surface" and w.get("visible")
+                                for w in rpc("debug.window_list").get("windows") or []), 15)
+    step("closing the tab closes its popup panel",
+         reopened and (reopened.get("panel") or {}).get("visible") and gone,
+         {"reopened": reopened, "gone": gone})
+
+
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 config = os.path.join(opts.out, "cmux.json")
@@ -147,7 +267,8 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820"}
+       # --edge: a short window, so the page is shorter than a date picker.
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,330" if opts.edge else "40,40,1200,820"}
 if not opts.bundled:
     env["CMUX_NEXT_RB_HOST"] = os.path.abspath(opts.host_app)
 teardown = TagTeardown(APP)
@@ -178,125 +299,159 @@ try:
         step("the page viewport is the view's size", sized and size == sized.get("frame"),
              {"page": (sized or {}).get("title"), "view": (sized or {}).get("frame")})
         rb("navigate", tab=opened["tab"], url=BASE + "/")
-    first = wait(title_is("rb one"), 60)
-    state = rb("state")
-    hosts = state.get("local_hosts") or []
-    shot("page")
-    step("palette path opens a local host tab and the page renders (rb.page title)",
-         first and len(hosts) == 1, {"open": report["open"], "session": first, "hosts": hosts})
-    tab1 = first and first["tab"]
+    if opts.edge:
+        edge(opened)
+    else:
+        first = wait(title_is("rb one"), 60)
+        state = rb("state")
+        hosts = state.get("local_hosts") or []
+        shot("page")
+        step("palette path opens a local host tab and the page renders (rb.page title)",
+             first and len(hosts) == 1, {"open": report["open"], "session": first, "hosts": hosts})
+        tab1 = first and first["tab"]
 
-    # Another local process without the per-launch secret is refused before the welcome.
-    def raw_hello(port, token):
-        body = {"t": "hello", "user": "intruder", "install": "raw", "class": "c", "interactive": True,
-                "udp_port": None, "max_datagram": 1200, "token": token, "service": "rb/1", "caps": ["input.service"]}
-        payload = json.dumps(body).encode()
-        conn = socket.create_connection(("127.0.0.1", port), timeout=10)
-        conn.sendall(bytes([1]) + len(payload).to_bytes(4, "little") + payload)
-        data = b""
+        # Another local process without the per-launch secret is refused before the welcome.
+        def raw_hello(port, token):
+            body = {"t": "hello", "user": "intruder", "install": "raw", "class": "c", "interactive": True,
+                    "udp_port": None, "max_datagram": 1200, "token": token, "service": "rb/1", "caps": ["input.service"]}
+            payload = json.dumps(body).encode()
+            conn = socket.create_connection(("127.0.0.1", port), timeout=10)
+            conn.sendall(bytes([1]) + len(payload).to_bytes(4, "little") + payload)
+            data = b""
+            try:
+                while len(data) < 5 or len(data) < 5 + int.from_bytes(data[1:5], "little"):
+                    chunk = conn.recv(65536)
+                    if not chunk:
+                        break
+                    data += chunk
+            except OSError:
+                pass
+            conn.close()
+            return json.loads(data[5:5 + int.from_bytes(data[1:5], "little")]) if len(data) >= 5 else None
+
+        # The host takes one viewer at a time, so the refusal is checked on a second host started the
+        # way the app starts one (secret as the first lifeline line).
+        exe = os.path.join(os.path.abspath(opts.host_app), "Contents/MacOS/cmux-remote-browser-host")
+        secret = os.urandom(32).hex()
+        cache = tempfile.mkdtemp(prefix="rb-live-cache-")
+        probe_host = subprocess.Popen([exe, "--serve", "--listen", "127.0.0.1:0", "--lifeline"], stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                      env=dict(os.environ, CMUX_RB_CACHE_DIR=cache))
         try:
-            while len(data) < 5 or len(data) < 5 + int.from_bytes(data[1:5], "little"):
-                chunk = conn.recv(65536)
-                if not chunk:
-                    break
-                data += chunk
-        except OSError:
-            pass
-        conn.close()
-        return json.loads(data[5:5 + int.from_bytes(data[1:5], "little")]) if len(data) >= 5 else None
+            probe_host.stdin.write(secret + "\n")
+            probe_host.stdin.flush()
+            port = int(json.loads(probe_host.stdout.readline())["listening"].rsplit(":", 1)[1])
+            replies = {"none": raw_hello(port, None), "wrong": raw_hello(port, "00" * 32), "right": raw_hello(port, secret)}
+        finally:
+            probe_host.stdin.close()
+            try:
+                probe_host.wait(30)
+            except subprocess.TimeoutExpired:
+                probe_host.kill()
+        step("a local connection without the host's secret is refused; the secret is welcomed",
+             (replies["none"] or {}).get("t") == "refused" and (replies["wrong"] or {}).get("t") == "refused"
+             and (replies["right"] or {}).get("t") == "welcome", {"replies": replies})
 
-    # The host takes one viewer at a time, so the refusal is checked on a second host started the
-    # way the app starts one (secret as the first lifeline line).
-    exe = os.path.join(os.path.abspath(opts.host_app), "Contents/MacOS/cmux-remote-browser-host")
-    secret = os.urandom(32).hex()
-    cache = tempfile.mkdtemp(prefix="rb-live-cache-")
-    probe_host = subprocess.Popen([exe, "--serve", "--listen", "127.0.0.1:0", "--lifeline"], stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-                                  env=dict(os.environ, CMUX_RB_CACHE_DIR=cache))
-    try:
-        probe_host.stdin.write(secret + "\n")
-        probe_host.stdin.flush()
-        port = int(json.loads(probe_host.stdout.readline())["listening"].rsplit(":", 1)[1])
-        replies = {"none": raw_hello(port, None), "wrong": raw_hello(port, "00" * 32), "right": raw_hello(port, secret)}
-    finally:
-        probe_host.stdin.close()
-        try:
-            probe_host.wait(30)
-        except subprocess.TimeoutExpired:
-            probe_host.kill()
-    step("a local connection without the host's secret is refused; the secret is welcomed",
-         (replies["none"] or {}).get("t") == "refused" and (replies["wrong"] or {}).get("t") == "refused"
-         and (replies["right"] or {}).get("t") == "welcome", {"replies": replies})
+        # Hover over the pointer link: rb.cursor.
+        rb("move", tab=tab1, x=60, y=24)
+        hover = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("cursor") == "pointer"), 15)
+        step("hover reports the page's pointer cursor (rb.cursor)", hover, {"session": hover or session_where(lambda s: s["tab"] == tab1)})
+        rb("move", tab=tab1, x=600, y=500)
 
-    # Hover over the pointer link: rb.cursor.
-    rb("move", tab=tab1, x=60, y=24)
-    hover = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("cursor") == "pointer"), 15)
-    step("hover reports the page's pointer cursor (rb.cursor)", hover, {"session": hover or session_where(lambda s: s["tab"] == tab1)})
-    rb("move", tab=tab1, x=600, y=500)
+        # Wheel: the page scrolls and reports scrollY in its title.
+        rb("scroll", tab=tab1, x=600, y=400, dy=-400)
+        scrolled = wait(title_is("rb scrolled"), 15)
+        shot("scrolled")
+        step("the wheel scrolls the page", scrolled, {"session": scrolled})
 
-    # Wheel: the page scrolls and reports scrollY in its title.
-    rb("scroll", tab=tab1, x=600, y=400, dy=-400)
-    scrolled = wait(title_is("rb scrolled"), 15)
-    shot("scrolled")
-    step("the wheel scrolls the page", scrolled, {"session": scrolled})
+        # Right-click: a native menu with the page's items.
+        rb("click", tab=tab1, x=600, y=300, button="right")
+        menu = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
+        shot("context-menu")
+        rb("menu_cancel", tab=tab1)
+        closed = wait(lambda: session_where(lambda s: s["tab"] == tab1 and not s.get("menu")), 15)
+        step("right-click opens a native menu (rb.menu) and Escape closes it", menu and closed,
+             {"menu": menu and menu.get("menu"), "closed": bool(closed)})
+        # Back to the top, so the links are where the page put them.
+        rb("scroll", tab=tab1, x=600, y=400, dy=400)
+        wait(title_is("rb scrolled 0"), 15)
 
-    # Right-click: a native menu with the page's items.
-    rb("click", tab=tab1, x=600, y=300, button="right")
-    menu = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
-    shot("context-menu")
-    rb("menu_cancel", tab=tab1)
-    closed = wait(lambda: session_where(lambda s: s["tab"] == tab1 and not s.get("menu")), 15)
-    step("right-click opens a native menu (rb.menu) and Escape closes it", menu and closed,
-         {"menu": menu and menu.get("menu"), "closed": bool(closed)})
-    # Back to the top, so the links are where the page put them.
-    rb("scroll", tab=tab1, x=600, y=400, dy=400)
-    wait(title_is("rb scrolled 0"), 15)
+        # Select near the bottom edge: a native menu; choosing Charlie reaches the page.
+        height = int(((first or {}).get("frame") or "0x600").split("x")[1])
+        rb("click", tab=tab1, x=60, y=height - 22, button="left")
+        select = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
+        report["after_select_click"] = session_where(lambda s: s["tab"] == tab1)
+        shot("select")
+        chosen = rb("menu_choose", tab=tab1, index=2) if select else None
+        picked = wait(title_is("rb selected c"), 15)
+        step("a <select> near the bottom edge opens a native menu and the choice reaches the page",
+             select and picked, {"menu": select and select.get("menu"), "chosen": chosen, "session": picked})
 
-    # Select near the bottom edge: a native menu; choosing Charlie reaches the page.
-    height = int(((first or {}).get("frame") or "0x600").split("x")[1])
-    rb("click", tab=tab1, x=60, y=height - 22, button="left")
-    select = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
-    report["after_select_click"] = session_where(lambda s: s["tab"] == tab1)
-    shot("select")
-    chosen = rb("menu_choose", tab=tab1, index=2) if select else None
-    picked = wait(title_is("rb selected c"), 15)
-    step("a <select> near the bottom edge opens a native menu and the choice reaches the page",
-         select and picked, {"menu": select and select.get("menu"), "chosen": chosen, "session": picked})
+        # Date input: a popup surface on its own stream.
+        rb("click", tab=tab1, x=300, y=130, button="left")
+        popup = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("surfaces")), 15)
+        shot("date-picker")
+        step("a date input opens a popup surface (rb.surface.show)", popup, {"surfaces": popup and popup.get("surfaces")})
+        rb("click", tab=tab1, x=900, y=600, button="left")
 
-    # Date input: a popup surface on its own stream.
-    rb("click", tab=tab1, x=300, y=130, button="left")
-    popup = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("surfaces")), 15)
-    shot("date-picker")
-    step("a date input opens a popup surface (rb.surface.show)", popup, {"surfaces": popup and popup.get("surfaces")})
-    rb("click", tab=tab1, x=900, y=600, button="left")
+        # Typed URL (the omnibar's BrowserTab.load) and Back.
+        rb("navigate", tab=tab1, url=BASE + "/two")
+        two = wait(title_is("rb two"), 30)
+        shot("navigated")
+        back = rb("history", tab=tab1, op="back")
+        returned = wait(title_is("rb "), 30) and wait(lambda: session_where(
+            lambda s: s["tab"] == tab1 and (s.get("title") or "").startswith("rb") and s.get("title") != "rb two"), 30)
+        step("a typed URL loads (rb.navigate) and Back returns (rb.history)", two and returned,
+             {"two": two, "back": back, "after": returned})
 
-    # Typed URL (the omnibar's BrowserTab.load) and Back.
-    rb("navigate", tab=tab1, url=BASE + "/two")
-    two = wait(title_is("rb two"), 30)
-    shot("navigated")
-    back = rb("history", tab=tab1, op="back")
-    returned = wait(title_is("rb "), 30) and wait(lambda: session_where(
-        lambda s: s["tab"] == tab1 and (s.get("title") or "").startswith("rb") and s.get("title") != "rb two"), 30)
-    step("a typed URL loads (rb.navigate) and Back returns (rb.history)", two and returned,
-         {"two": two, "back": back, "after": returned})
+        # target=_blank: a second remote tab on its own host.
+        rb("click", tab=tab1, x=60, y=60, button="left")
+        second = wait(lambda: len(sessions()) >= 2 and len(rb("state").get("local_hosts") or []) >= 2, 60)
+        state = rb("state")
+        shot("new-tab")
+        step("a target=_blank link opens a remote tab on its own host (rb.open_tab)", second,
+             {"sessions": state.get("sessions"), "hosts": state.get("local_hosts")})
 
-    # target=_blank: a second remote tab on its own host.
-    rb("click", tab=tab1, x=60, y=60, button="left")
-    second = wait(lambda: len(sessions()) >= 2 and len(rb("state").get("local_hosts") or []) >= 2, 60)
-    state = rb("state")
-    shot("new-tab")
-    step("a target=_blank link opens a remote tab on its own host (rb.open_tab)", second,
-         {"sessions": state.get("sessions"), "hosts": state.get("local_hosts")})
+        # Closing the focused (new) tab stops its host.
+        before = state.get("local_hosts") or []
+        rpc("action.run", {"action": "closeTab"})
+        after = wait(lambda: (lambda h: h if len(h) < len(before) else None)(rb("state").get("local_hosts") or []), 30)
+        gone = [h for h in before if h not in (after or [])]
+        exited = gone and wait(lambda: subprocess.run(["/bin/kill", "-0", str(gone[0]["pid"])],
+                                                      capture_output=True).returncode != 0, 30)
+        step("closing a tab stops its host (stdin lifeline)", after is not None and exited,
+             {"before": before, "after": after, "stopped": gone})
 
-    # Closing the focused (new) tab stops its host.
-    before = state.get("local_hosts") or []
-    rpc("action.run", {"action": "closeTab"})
-    after = wait(lambda: (lambda h: h if len(h) < len(before) else None)(rb("state").get("local_hosts") or []), 30)
-    gone = [h for h in before if h not in (after or [])]
-    exited = gone and wait(lambda: subprocess.run(["/bin/kill", "-0", str(gone[0]["pid"])],
-                                                  capture_output=True).returncode != 0, 30)
-    step("closing a tab stops its host (stdin lifeline)", after is not None and exited,
-         {"before": before, "after": after, "stopped": gone})
+        # <input list>: typing shows the datalist suggestions (an autofill surface, CEF API 21) and
+        # a click on the first suggestion fills the field.
+        tab1 = (session_where(lambda s: True) or {}).get("tab")
+        rb("navigate", tab=tab1, url=BASE + "/list")
+        wait(title_is("rb list"), 30)
+        rb("click", tab=tab1, x=120, y=210, button="left")
+        time.sleep(0.5)
+        rb("type", tab=tab1, text="a")
+
+        def autofill():
+            s = session_where(lambda s: s["tab"] == tab1)
+            return next((i for i in (s or {}).get("surface_info") or [] if i.get("kind") == "autofill"), None)
+        suggestions = wait(autofill, 15)
+        shot("datalist")
+        filled = None
+        for _ in range(3):
+            if not suggestions or filled:
+                break
+            # Chromium ignores clicks on a popup in its first 500 ms; the first row is ~30 CSS px down.
+            time.sleep(1.0)
+            suggestions = autofill() or suggestions
+            width = int(suggestions["frame"].split(" ")[1].split("x")[0])
+            rb("surface_click", tab=tab1, surface=suggestions["id"], x=max(10, width // 2), y=30)
+            filled = wait(lambda: session_where(lambda s: s["tab"] == tab1 and (s.get("title") or "") in (
+                "rb list Apple", "rb list Apricot", "rb list Avocado")), 5)
+            suggestions = suggestions if filled else autofill()
+        if suggestions:
+            shot("datalist-filled")
+        step("an <input list> shows its suggestions (autofill surface) and a click fills the field",
+             suggestions and filled, {"surface": suggestions, "session": filled or session_where(lambda s: s["tab"] == tab1)})
 finally:
     report["final_state"] = rb("state")
     host_pids = [h["pid"] for h in (report["final_state"].get("local_hosts") or [])] \

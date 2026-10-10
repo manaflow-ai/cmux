@@ -1,7 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The shared Home core's `HomeSource` over the local daemon's conversation
 /// owner (`local-conversations-v1`, plans/cmux-next/home-mac.md 1). The owner
@@ -53,7 +53,12 @@ nonisolated final class DaemonHomeSource: HomeSource {
 
     func publish(_ event: HomeEvent) {
         let targets = state.withLock { state -> [AsyncStream<HomeEvent>.Continuation] in
-            if case .connection = event { state.lastEvent = [event] } else if case .inbox = event { state.lastEvent.append(event) }
+            if case .connection = event {
+                state.lastEvent = [event]
+            } else if case .inbox = event {
+                // Replay keeps the connection and the newest inbox only.
+                state.lastEvent = state.lastEvent.filter { if case .inbox = $0 { false } else { true } } + [event]
+            }
             return Array(state.continuations.values)
         }
         for target in targets { target.yield(event) }
@@ -95,6 +100,14 @@ nonisolated final class DaemonHomeSource: HomeSource {
         return connection
     }
 
+    /// The connection for a write: without one nothing is sent
+    /// (`HomeOwnerOffline`), so the store keeps the send waiting for the
+    /// owner instead of counting it as possibly delivered.
+    func requireOwner() throws -> DaemonConnection {
+        guard let connection = state.withLock({ $0.connection }) else { throw HomeOwnerOffline() }
+        return connection
+    }
+
     func inbox() async throws -> InboxSnapshot {
         let list = try await Self.mapped { try await ConversationClient(self.requireConnection()).list() }
         let rev = list.map(\.rev).max() ?? 0
@@ -124,12 +137,19 @@ nonisolated final class DaemonHomeSource: HomeSource {
             }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
+        if case .createGroup(let title, let participants) = intent.op {
+            return try await createChannel(title: title, participants: participants, key: intent.key)
+        }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {
             throw HomeRejection.invalid("unsupported_on_local_owner")
         }
         let request = ConversationOpRequest(conversation: mapped.conversation, idempotencyKey: intent.key.rawValue,
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
-        let result = try await Self.mapped { try await ConversationClient(self.requireConnection()).op(request) }
+        let connection = try requireOwner()
+        let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
+        if case .sendMessage = intent.op, let seq = result.seq, !result.replayed {
+            readThrough(seq, in: mapped.conversation, on: connection)
+        }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))
     }
 

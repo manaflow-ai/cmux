@@ -79,27 +79,11 @@ extension AppControl {
         #if DEBUG
         service?.router.register([
             .mainActor("debug.update_indicator") { call in
-                updater.debugIndicatorPhase = Self.indicatorPhase(call.params)
+                updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
                 return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))
             },
         ])
         #endif
-    }
-
-    /// `debug.update_indicator {phase, version?, progress?, text?}`: a fixed
-    /// rail update circle for screenshots; `phase: "live"` (or none) follows
-    /// the updater again.
-    static func indicatorPhase(_ params: [String: JSONValue]) -> UpdateIndicatorPhase? {
-        switch params["phase"]?.stringValue {
-        case "hidden": .hidden
-        case "checking": .checking
-        case "downloading": .downloading(progress: params["progress"]?.doubleValue)
-        case "available": .available(version: params["version"]?.stringValue)
-        case "ready": .ready(version: params["version"]?.stringValue)
-        case "installing": .installing
-        case "note": .note(params["text"]?.stringValue ?? "", isError: params["error"]?.boolValue == true)
-        default: nil
-        }
     }
 
     static func json(_ status: UpdaterStatus, log: [String]) -> JSONValue {
@@ -123,8 +107,11 @@ extension AppControl {
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
             "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
             "card": status.card.map { card in
-                .object(["kind": .string(card.kind), "title": .string(card.presentation.title),
-                         "detail": card.presentation.detail.map(JSONValue.string) ?? .null])
+                let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
+                return .object(["kind": .string(card.kind), "title": .string(shown.title),
+                                "detail": shown.detail.map(JSONValue.string) ?? .null,
+                                "lines": .array(shown.lines.map(JSONValue.string)),
+                                "actions": .array(shown.actions.map { .string($0.rawValue) })])
             } ?? .null,
             "badge": status.badge.map(JSONValue.string) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),

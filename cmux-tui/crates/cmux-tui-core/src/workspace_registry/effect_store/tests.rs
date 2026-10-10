@@ -33,7 +33,8 @@ fn scale_input_outcome(index: usize) -> ResourceEffectOutcome {
 }
 
 fn insert_committed_input_receipts(registry: &mut WorkspaceRegistry, start: usize, count: usize) {
-    let tx = registry.connection.transaction().unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     for index in start..start + count {
         let key = format!("scale-input-{index:08}");
         let operation = scale_input_operation(index);
@@ -58,6 +59,7 @@ fn insert_committed_input_receipts(registry: &mut WorkspaceRegistry, start: usiz
 fn uncorrelated_committed_input_count(registry: &WorkspaceRegistry) -> usize {
     let count = registry
         .connection
+        .get()
         .query_row(
             &format!(
                 "SELECT COUNT(*)
@@ -344,6 +346,7 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
             &patch,
             &result,
             &deltas,
+            false,
         )
         .unwrap();
     assert_eq!(commit.revision, 1);
@@ -560,6 +563,7 @@ fn prepared_creation_rechecks_its_execution_precondition() {
     );
     registry
         .connection
+        .get()
         .execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", [])
         .unwrap();
 
@@ -669,7 +673,7 @@ fn definite_failure_rebinds_but_old_attempt_replays_exact_failure() {
         Some(ResourceCreationPreparation::Failed { error: failure, revision: 0 })
     );
     assert_eq!(
-        read_creation_record(&registry.connection, "correlation").unwrap().unwrap().attempt,
+        read_creation_record(&registry.connection.get(), "correlation").unwrap().unwrap().attempt,
         2
     );
     assert!(matches!(
@@ -845,6 +849,7 @@ fn input_receipt_retention_is_bounded_and_preserves_nonterminal_and_correlated_r
 
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_effect_receipts(
                    idempotency_key, operation, fingerprint, intent_json, state,
@@ -856,6 +861,7 @@ fn input_receipt_retention_is_bounded_and_preserves_nonterminal_and_correlated_r
         .unwrap();
     registry
         .connection
+        .get()
         .execute(
             "INSERT INTO resource_creation_receipts(
                    correlation_key, operation, fingerprint, idempotency_key, intent_json,
@@ -879,6 +885,7 @@ fn input_receipt_retention_is_bounded_and_preserves_nonterminal_and_correlated_r
     ] {
         let state: String = reopened
             .connection
+            .get()
             .query_row(
                 "SELECT state FROM resource_effect_receipts WHERE idempotency_key = ?1",
                 [key],
@@ -951,14 +958,14 @@ fn input_receipt_pruning_reuses_database_pages_at_steady_state() {
     let wave = RESOURCE_INPUT_RECEIPT_CAPACITY + RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL;
     insert_committed_input_receipts(&mut registry, 0, wave);
     let pages_after_first_wave: i64 =
-        registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+        registry.connection.get().query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
 
     insert_committed_input_receipts(&mut registry, wave, wave);
     let pages_after_second_wave: i64 =
-        registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+        registry.connection.get().query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
     insert_committed_input_receipts(&mut registry, wave * 2, wave);
     let pages_after_third_wave: i64 =
-        registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+        registry.connection.get().query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
 
     assert_eq!(uncorrelated_committed_input_count(&registry), RESOURCE_INPUT_RECEIPT_CAPACITY);
     assert!(

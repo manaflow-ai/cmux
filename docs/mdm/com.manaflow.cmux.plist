@@ -111,6 +111,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.</string>
+			<key>pfm_name</key>
+			<string>app.startAgentGlobalHotKey</string>
+			<key>pfm_title</key>
+			<string>Start Agent from Any App</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>page</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
@@ -127,6 +139,27 @@
 			</array>
 			<key>pfm_title</key>
 			<string>New Tab Opens</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>default</string>
+			<key>pfm_description</key>
+			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabTemplate</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>composer</string>
+				<string>threads</string>
+				<string>console</string>
+				<string>classic</string>
+				<string>terminal</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Template</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -208,8 +241,6 @@
 		<dict>
 			<key>pfm_default</key>
 			<true/>
-			<key>pfm_description</key>
-			<string>Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.</string>
 			<key>pfm_name</key>
 			<string>app.warnBeforeClosingTab</string>
 			<key>pfm_title</key>
@@ -220,8 +251,6 @@
 		<dict>
 			<key>pfm_default</key>
 			<true/>
-			<key>pfm_description</key>
-			<string>Ask before closing a terminal tab whose agent is still working.</string>
 			<key>pfm_name</key>
 			<string>app.warnBeforeClosingAgentSession</string>
 			<key>pfm_title</key>
@@ -282,13 +311,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>auto</string>
+			<string>system</string>
 			<key>pfm_description</key>
 			<string>A thin bar under the columns that shows and moves the visible range.</string>
 			<key>pfm_name</key>
 			<string>layout.stripScrollbar</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>system</string>
 				<string>auto</string>
 				<string>always</string>
 				<string>off</string>
@@ -474,6 +504,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>legacy</string>
+			<key>pfm_description</key>
+			<string>Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.</string>
+			<key>pfm_name</key>
+			<string>computerUse.driver</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>legacy</string>
+				<string>upstream</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Computer Use Driver</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -619,6 +666,36 @@
 			<string>layout.tileBrowsers</string>
 			<key>pfm_title</key>
 			<string>Split for Browsers Too</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>top</string>
+			<key>pfm_description</key>
+			<string>Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.</string>
+			<key>pfm_name</key>
+			<string>workspaces.newPlacement</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>top</string>
+				<string>afterCurrent</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Workspace Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupByComputer</string>
+			<key>pfm_title</key>
+			<string>Group Workspaces by Computer</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -913,6 +990,12 @@
 				<string>met-woman-man-casement-436896</string>
 				<string>met-women-picking-olives-436536</string>
 				<string>met-sunflowers-436524</string>
+				<string>nga-degas-halevy-standing-66489</string>
+				<string>nga-degas-dancer-from-behind-32137</string>
+				<string>nga-carpaccio-groups-of-male-figures-73858</string>
+				<string>nga-perino-del-vaga-figure-studies-57613</string>
+				<string>nga-rubens-battle-of-nude-men-63034</string>
+				<string>nga-teniers-market-figures-62615</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -923,17 +1006,24 @@
 			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
-			<string>Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.</string>
+			<string>Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.</string>
 			<key>pfm_name</key>
 			<string>appearance.background</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
+				<string>nga-degas-halevy-standing-66489</string>
+				<string>nga-degas-dancer-from-behind-32137</string>
+				<string>nga-carpaccio-groups-of-male-figures-73858</string>
+				<string>nga-perino-del-vaga-figure-studies-57613</string>
+				<string>nga-rubens-battle-of-nude-men-63034</string>
+				<string>nga-teniers-market-figures-62615</string>
 				<string>wheat-field-with-cypresses</string>
 				<string>met-saint-catherine-436908</string>
 				<string>met-woman-man-casement-436896</string>
 				<string>met-women-picking-olives-436536</string>
 				<string>met-sunflowers-436524</string>
+				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Background</string>
@@ -1935,15 +2025,40 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
-			<string>Shows the device-wide Chats section in the sidebar.</string>
+			<string>Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.</string>
 			<key>pfm_name</key>
 			<string>sidebar.showChats</string>
 			<key>pfm_title</key>
-			<string>Show Chats</string>
+			<string>Show All Chats</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>sidebar.showProjects</string>
+			<key>pfm_title</key>
+			<string>Show Projects</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>none</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupBy</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>folder</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Projects By</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2007,6 +2122,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Spaces Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>hover</string>
+			<key>pfm_description</key>
+			<string>On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.</string>
+			<key>pfm_name</key>
+			<string>sidebar.spacesVisibility</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>hover</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Show Spaces</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3381,7 +3513,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>confirm</string>
+			<string>open</string>
 			<key>pfm_description</key>
 			<string>What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.</string>
 			<key>pfm_name</key>
@@ -3461,6 +3593,34 @@
 			<string>Edited Files Card Covers</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The ring beside the model that fills as the chat uses its context window.</string>
+			<key>pfm_name</key>
+			<string>agentPane.showContextUsage</string>
+			<key>pfm_title</key>
+			<string>Show Context Usage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>The display size for agent chat. Cmd-0 resets it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.zoom</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.5</real>
+			<key>pfm_title</key>
+			<string>Agent Chat Zoom</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -3577,6 +3737,16 @@
 			<string>DisableAutoUpdate</string>
 			<key>pfm_title</key>
 			<string>DisableAutoUpdate</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).</string>
+			<key>pfm_name</key>
+			<string>DisableTelemetry</string>
+			<key>pfm_title</key>
+			<string>DisableTelemetry</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

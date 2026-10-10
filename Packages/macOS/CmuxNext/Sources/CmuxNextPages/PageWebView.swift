@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import CmuxNextCompat
 import Observation
 import os
 public import WebKit
@@ -28,18 +29,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: PageWKWebView
-    /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
-    /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
     let bridge: any PageHostBridge
+    /// Delivers router envelopes in order, rendering large ones off the main actor.
+    let scripts: PageScriptPipeline
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
+    public var additionalZoom: Double = 1 {
+        didSet { if additionalZoom != oldValue { applyUIScale() } }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -173,7 +177,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.inputReadiness = inputReadiness
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
-        bridge = WebKitPageHostBridge(webView: webView)
+        let webKitBridge = WebKitPageHostBridge(webView: webView)
+        bridge = webKitBridge
+        scripts = PageScriptPipeline { script in webKitBridge.evaluate(script) }
         super.init(frame: .zero)
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         wantsLayer = true
@@ -190,14 +196,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.isInspectable = true
         #endif
         webView.navigationDelegate = self
+        webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
         observeUIScale()
         PageRegistry.add(self)
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
+        let scripts = scripts
+        router.send = { envelope in scripts.send(envelope) }
+        router.didClose = { scripts.reset() }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
         #if DEBUG
@@ -207,7 +215,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
-            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+            guard let self else { return }
+            paintedUptime = ProcessInfo.processInfo.systemUptime
+            let waiters = paintWaiters
+            paintWaiters = []
+            waiters.forEach { $0() }
         }
         bridge.install { [weak self] message in
             await self?.receive(message)
@@ -226,7 +238,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -235,8 +247,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Keeps first-party pages proportional to native chrome as the live
     /// interface scale changes.
-    private func applyUIScale() {
-        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+    func applyUIScale() {
+        webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -301,17 +313,30 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public private(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
+    /// Callbacks for the current document's first frame (`whenPainted`).
+    var paintWaiters: [() -> Void] = []
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
             return nil
         }
+        // The message conversion stays here: `handle` must start in the order the page posted, and
+        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
         guard let body = JSONValue(foundation: message.body) else { return nil }
         let reply = await router.handle(body)
-        return reply.isNull ? nil : reply.foundationObject
+        // The reply reaches the page after the events sent before it and before the events sent
+        // after it (a subscribe's reply names the sub its first events use). A gate holds the
+        // script FIFO here while those earlier events drain and a large reply converts off main.
+        let large = !reply.isNull && !reply.fits(PageScriptPipeline.inlineBudget)
+        let gate = scripts.gate(always: large)
+        defer { gate?.open() }
+        await gate?.reached()
+        if reply.isNull { return nil }
+        guard large else { return reply.foundationObject }
+        return await PageReplyObject.convert(reply).object
     }
 
     // MARK: Theme
@@ -369,25 +394,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         case .cancel:
             return .cancel
         }
-    }
-
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // A new document: the old one's subscriptions and host calls end with it, and it has not
-        // painted yet.
-        router.reset()
-        _ = claimState.end()
-        loaded = false
-        paintedUptime = nil
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
-    }
-
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        loaded = true
-        applyUIScale()
-        applyTheme(force: true)
-        applyLiveDocumentAttributes()
-        resumeLoadWaiters()
     }
 
 }

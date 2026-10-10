@@ -12,7 +12,8 @@ use crate::{NODE, STEP_MESSAGE, TRIES};
 /// starting "[id] "). A compaction sends the same prompt as a turn, so it
 /// reads it from the turns' cache entry. Credit:
 /// <https://github.com/VictorTaelin/OptMem> grew into it.
-pub const TAELIN_PROMPT: &str = "You are {agent}, an AI agent that works for one user in a single chat that never
+pub const TAELIN_PROMPT: &str =
+    "You are {agent}, an AI agent that works for one user in a single chat that never
 ends. Each call to you is a turn or a compaction: the view below is followed by
 the user's new message, or by a task starting \"Compaction:\".
 
@@ -29,6 +30,7 @@ Each message has a kind:
 - tool: {agent}'s tool calls
 - echo: tool results
 - work: an agent's report, starting \"[id]\" (logged as a user message)
+- ai: another AI's replies and tool calls, from an imported chat; not yours
 - note: memories from before this chat
 
 The summaries form a binary tree: each message is compressed into a line (a
@@ -155,7 +157,9 @@ impl CompactPrompt {
     pub fn text(&self, agent: &str) -> String {
         let template = match self {
             CompactPrompt::Taelin => system_prompt(agent, MIDRUN),
-            CompactPrompt::Cmux => format!("{}{CMUX_PROMPT_ADDITIONS}", system_prompt(agent, MIDRUN)),
+            CompactPrompt::Cmux => {
+                format!("{}{CMUX_PROMPT_ADDITIONS}", system_prompt(agent, MIDRUN))
+            }
             CompactPrompt::Custom(text) => text.clone(),
         };
         template.replace("{agent}", agent)
@@ -193,6 +197,9 @@ pub struct CompactRequest {
     /// starts with, saying how much of the message the call did not show
     /// (`finish_line` puts it there). None: the step holds it whole.
     pub cut: Option<String>,
+    /// The node is on the imported side (its last message was imported):
+    /// the host lets the chat's own nodes go first for a model session.
+    pub imported: bool,
 }
 
 /// A node the call needs is built but its text is not in the store: the
@@ -245,7 +252,8 @@ pub fn compact_request(
             let total = text.chars().count();
             let head = format!(
                 "Compaction: compress message {} into one line of at most {NODE} bytes\n\
-                 (about 70 words), the length of this ruler:\n{RULER}\n",
+                 (about 70 words; aim for about 400 bytes, well inside the limit), the\n\
+                 limit is the length of this ruler:\n{RULER}\n",
                 node.i
             );
             if total > STEP_MESSAGE {
@@ -273,15 +281,19 @@ pub fn compact_request(
             let tb = store.node(b).ok_or(MissingNode(b))?;
             format!(
                 "Compaction: merge lines {} and {}, adjacent, into one line of at most\n\
-                 {NODE} bytes (about 70 words), the length of this ruler:\n{RULER}\n\
+                 {NODE} bytes (about 70 words; aim for about 400 bytes, well inside the limit),\n\
+                 the limit is the length of this ruler:\n{RULER}\n\
                  <chat> may hold their messages, {} to {}, in more detail: take details\n\
                  of them from there too.\n<input>\n{}\n{}\n</input>",
                 a.name(),
                 b.name(),
                 node.start(),
                 node.end() - 1,
-                view_line(a, Some(&ta)),
-                view_line(b, Some(&tb))
+                // The texts alone, as the reference client sends them
+                // (Memory.flat): with `id+n|` heads the model copied the
+                // first input, head and all, and cut the second.
+                ta.replace('\n', " "),
+                tb.replace('\n', " ")
             )
         }
     };
@@ -291,6 +303,7 @@ pub fn compact_request(
         context,
         step,
         cut,
+        imported: memory.is_imported(node.end() - 1),
     })
 }
 
@@ -338,6 +351,28 @@ pub fn size_check(tries: &[String]) -> SizeCheck {
 /// `size_check` against `limit` bytes: a cut message's reply gets its
 /// request's `room()`, so the line still fits once the prefix is added.
 pub fn size_check_in(tries: &[String], limit: usize) -> SizeCheck {
+    size_check_for(tries, limit, "")
+}
+
+/// A reply shorter than this share of the limit, for an input over the
+/// limit, is a fragment, not a summary: the line of a long input cannot be
+/// this short. Kept
+/// memory of the 9f851bd1dfb9 import: merge 288+32 of two 500-byte lines
+/// came back as "Tests fail on pool.rs" (21 bytes).
+pub const FRAGMENT_DIVISOR: usize = 8;
+
+/// The size loop's decision for `tries` (the replies so far, oldest first)
+/// of a call whose input is `input` (the step's `<input>`, for choosing
+/// between tries that do not fit).
+///
+/// - A fragment (under `limit / FRAGMENT_DIVISOR` bytes) is retried while
+///   tries are left, and never kept over a real try.
+/// - A reply that fits ends the loop: of the real tries that fit, the
+///   longest is kept (it keeps the most).
+/// - When the tries run out with none fitting, the real try that keeps the
+///   most of the input's words is kept (not simply the shortest: the
+///   shortest drops the most), the shortest at a tie.
+pub fn size_check_for(tries: &[String], limit: usize, input: &str) -> SizeCheck {
     let clean: Vec<&str> = tries.iter().map(|t| strip_head(t.trim())).collect();
     let Some(&last) = clean.last() else {
         return SizeCheck::Fail;
@@ -345,22 +380,65 @@ pub fn size_check_in(tries: &[String], limit: usize) -> SizeCheck {
     if last.is_empty() {
         return SizeCheck::Fail;
     }
-    if last.len() <= limit || tries.len() >= TRIES {
-        let shortest = clean
+    // Only against an input over the limit: a probe or a short input may
+    // have a short line.
+    let long_input = input.len() > limit;
+    let fragment = |t: &str| long_input && t.len() * FRAGMENT_DIVISOR < limit;
+    let real: Vec<&str> = clean
+        .iter()
+        .copied()
+        .filter(|t| !t.is_empty() && !fragment(t))
+        .collect();
+    let fitting = real.iter().copied().filter(|t| t.len() <= limit);
+    if let Some(best) = fitting.max_by_key(|t| t.len()) {
+        if !fragment(last) || tries.len() >= TRIES {
+            return SizeCheck::Accept(best.to_string());
+        }
+    }
+    if tries.len() >= TRIES {
+        let words = input_words(input);
+        let kept = |t: &str| {
+            let w = input_words(t);
+            words.iter().filter(|x| w.contains(*x)).count()
+        };
+        let best = real
             .iter()
             .copied()
-            .filter(|t| !t.is_empty())
-            .min_by_key(|t| t.len())
-            .unwrap_or(last);
-        return SizeCheck::Accept(shortest.to_string());
+            .max_by(|a, b| kept(a).cmp(&kept(b)).then(b.len().cmp(&a.len())))
+            .unwrap_or_else(|| {
+                clean
+                    .iter()
+                    .copied()
+                    .filter(|t| !t.is_empty())
+                    .max_by_key(|t| t.len())
+                    .unwrap_or(last)
+            });
+        return SizeCheck::Accept(best.to_string());
+    }
+    if fragment(last) {
+        return SizeCheck::Retry(format!(
+            "Too short: your last line for this <input> was {} bytes, a fragment.\n\
+             Write the whole line again: one line that summarizes all of <input>,\n\
+             using the space up to the {limit}-byte limit.",
+            last.len()
+        ));
     }
     SizeCheck::Retry(format!(
-        "Too long: your line is {} bytes, over the {limit}-byte limit. Write\n\
-         the whole line again for the same <input>, cutting just enough of the\n\
-         least valuable items to fit before this cut:\n{}| ← LIMIT",
+        "Too long: your last line for this <input> was {} bytes,\n\
+         over the {limit}-byte limit. Write the whole line again, cutting just\n\
+         enough of the least valuable items to fit before this cut:\n{}| ← LIMIT",
         last.len(),
         cut_at_bytes(last, limit)
     ))
+}
+
+/// The distinct words of `text` that carry content (names, numbers, paths:
+/// four or more characters), lowercased.
+fn input_words(text: &str) -> std::collections::BTreeSet<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || "_.:/-".contains(c)))
+        .filter(|w| w.chars().count() >= 4)
+        .map(str::to_lowercase)
+        .collect()
 }
 
 /// A reply without the `id+n|` head a model may copy from the view (the
@@ -369,14 +447,12 @@ pub fn strip_head(line: &str) -> &str {
     let Some((name, rest)) = line.split_once('|') else {
         return line;
     };
-    let is_name = name
-        .split_once('+')
-        .is_some_and(|(id, n)| {
-            !id.is_empty()
-                && !n.is_empty()
-                && id.bytes().all(|b| b.is_ascii_digit())
-                && n.bytes().all(|b| b.is_ascii_digit())
-        });
+    let is_name = name.split_once('+').is_some_and(|(id, n)| {
+        !id.is_empty()
+            && !n.is_empty()
+            && id.bytes().all(|b| b.is_ascii_digit())
+            && n.bytes().all(|b| b.is_ascii_digit())
+    });
     if is_name {
         rest.trim_start()
     } else {

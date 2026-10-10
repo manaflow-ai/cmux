@@ -212,6 +212,10 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
+    /// How harnesses reach their model provider: list, add, edit, test and
+    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
+    #[command(subcommand)]
+    Route(crate::cli::route::RouteCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -224,6 +228,10 @@ pub enum Command {
     /// Serve the local CodeRouter in a separate process.
     #[command(subcommand)]
     Router(RouterCmd),
+    /// The cmux Computer Use helper v2 bridge: an MCP stdio server for one
+    /// agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    CuaMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -327,6 +335,11 @@ pub enum Command {
         /// inherited file descriptor once the socket and listen address are bound.
         #[arg(long)]
         ready_fd: Option<i32>,
+        /// Read this launch's person key (64 hex characters) from this
+        /// inherited file descriptor, then close it. Only the cmux app passes
+        /// it, and only an unsigned daemon takes it (`hub/person.rs`).
+        #[arg(long)]
+        person_key_fd: Option<i32>,
         /// A loopback page dev server origin the web listener also accepts
         /// (`http://127.0.0.1:<port>` or `http://localhost:<port>`). Only a
         /// Debug app passes it, for its agent pane dev server; it is not saved.
@@ -364,6 +377,32 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a
+        /// profile that starts it at the registry's pinned version (its
+        /// installed program, else npx, else uvx).
+        #[arg(long, conflicts_with_all = ["command", "example"])]
+        registry: bool,
+    },
+    /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
+    /// for Claude Code). `--status` checks it; `--list` shows the methods.
+    Login {
+        id: String,
+        /// The sign-in method id (default: the harness's first browser or
+        /// terminal sign-in).
+        #[arg(long)]
+        method: Option<String>,
+        /// Show the sign-in methods and whether the harness is signed in.
+        #[arg(long)]
+        list: bool,
+        /// Only check whether the harness is signed in.
+        #[arg(long)]
+        status: bool,
+    },
+    /// The ACP Registry's agents and how each can start here.
+    Registry {
+        /// Fetch the registry now instead of reading the cached copy.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.
@@ -420,6 +459,11 @@ pub enum HarnessCmd {
     /// Print the guide an agent follows to integrate a harness (schema,
     /// doctor loop, examples, security rules).
     Guide,
+    /// Move a profile file from your harness folder to a backup
+    /// (~/.acpmux/harness-backups); `restore` brings it back.
+    Remove { id: String },
+    /// Move a backup that `remove` made back into your harness folder.
+    Restore { backup: String },
 }
 
 #[derive(Subcommand)]
@@ -456,14 +500,17 @@ pub enum SessionCmd {
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
-    /// Answer a pending permission request.
+    /// Answer a pending permission request. The daemon accepts an allow
+    /// only from the cmux app (approve it on the Mac app); a deny option
+    /// works from here.
     Allow { session: String, option: Option<String> },
     /// Reject a pending permission request.
     Deny { session: String },
     /// Answer a pending agent question: one --answer per question, keyed by
     /// question text, id or header; the choice is option labels or ids
     /// (comma-separated for multi-select) or your own text. With no
-    /// --answer, print the questions and the command.
+    /// --answer, print the questions and the command. An answer is an
+    /// allow: only the cmux app may send it.
     Answer {
         session: String,
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
@@ -536,6 +583,11 @@ pub enum DaemonCmd {
         /// inherited file descriptor once the socket and listen address are bound.
         #[arg(long)]
         ready_fd: Option<i32>,
+        /// Read this launch's person key (64 hex characters) from this
+        /// inherited file descriptor, then close it. Only the cmux app passes
+        /// it, and only an unsigned daemon takes it (`hub/person.rs`).
+        #[arg(long)]
+        person_key_fd: Option<i32>,
         /// A loopback page dev server origin the web listener also accepts
         /// (`http://127.0.0.1:<port>` or `http://localhost:<port>`). Only a
         /// Debug app passes it, for its agent pane dev server; it is not saved.
@@ -688,9 +740,25 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
-            DaemonCmd::Run { listen, token, memory, log, ready_fd, allow_dev_origin, dev } => {
-                Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin, dev }
-            }
+            DaemonCmd::Run {
+                listen,
+                token,
+                memory,
+                log,
+                ready_fd,
+                person_key_fd,
+                allow_dev_origin,
+                dev,
+            } => Command::DaemonRun {
+                listen,
+                token,
+                memory,
+                log,
+                ready_fd,
+                person_key_fd,
+                allow_dev_origin,
+                dev,
+            },
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start => Command::DaemonStart,
             DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },

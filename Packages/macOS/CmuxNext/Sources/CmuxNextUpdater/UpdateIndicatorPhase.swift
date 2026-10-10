@@ -22,9 +22,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     case ready(version: String?)
     /// Installing and relaunching: a spinning ring and the Installing pill.
     case installing
-    /// A short note beside the circle (up to date, check failed), which
-    /// hides itself.
-    case note(String, isError: Bool)
+    /// A check's result with nothing to install (up to date, check failed);
+    /// the notice card shows it after the user asked.
+    case note(UpdateNote)
 
     /// An update was found: downloading, downloaded and waiting, or
     /// installing (the Settings item's badge).
@@ -57,9 +57,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
             // installs accept every other found update at once.
             self = .available(version: available.appcastItem.displayVersionString)
         case .notFound:
-            self = .note(UpdaterStrings.upToDate, isError: false)
+            self = .note(.upToDate)
         case .error:
-            self = .note(UpdaterStrings.checkFailed, isError: true)
+            self = .note(.checkFailed)
         case .startingDownload:
             self = .downloading(progress: nil)
         case .downloading(let downloading):
@@ -78,12 +78,13 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         if probing {
             self = .checking
         } else if error != nil {
-            self = .note(UpdaterStrings.checkFailed, isError: true)
+            self = .note(.checkFailed)
         } else if let probe {
             switch probe.outcome {
-            case .upToDate: self = .note(UpdaterStrings.upToDate, isError: false)
-            case .updateAvailable(let item): self = .note(UpdaterStrings.available(item.displayVersion), isError: false)
-            case .requiresNewerSystem(_, let required): self = .note(UpdaterStrings.needsNewerMacOS(required.description), isError: false)
+            case .upToDate: self = .note(.upToDate)
+            case .updateAvailable(let item): self = .note(.found(version: item.displayVersion))
+            case .requiresNewerSystem(let item, let required):
+                self = .note(.needsNewerMacOS(version: item.displayVersion, required: required.description))
             }
         } else {
             self = .hidden
@@ -102,7 +103,7 @@ extension UpdateIndicatorPhase {
         case .ready, .available(nil): UpdaterStrings.availableNoVersion + "\n" + UpdaterStrings.install
         case .available(let version?): UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
         case .installing: UpdaterStrings.installing
-        case .note(let text, _): text
+        case .note(let note): note.text
         }
     }
 
@@ -110,7 +111,7 @@ extension UpdateIndicatorPhase {
     public var pillText: String? {
         switch self {
         case .installing: UpdaterStrings.installing
-        case .note(let text, _): text
+        case .note(let note): note.text
         case .hidden, .checking, .available, .downloading, .ready: nil
         }
     }

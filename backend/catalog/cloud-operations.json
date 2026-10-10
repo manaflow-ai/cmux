@@ -3594,6 +3594,28 @@
               "name": "string"
             }
           }
+        },
+        "orphaned": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "former_owner": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -3745,7 +3767,8 @@
         "cli",
         "daemon",
         "web",
-        "vm"
+        "vm",
+        "team-vm"
       ]
     },
     "IntegrationProvider": {
@@ -4374,6 +4397,183 @@
         "dead"
       ]
     },
+    "RunWithBody": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "RunId"
+          }
+        },
+        "automation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AutomationId"
+          }
+        },
+        "automation_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "trigger": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "TriggerId"
+                  }
+                }
+              },
+              "type": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "scheduled_at": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "delivery_id": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "parent_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "root_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "depth": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "RunState"
+          }
+        },
+        "step": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "started_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "finished_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "RunError"
+            }
+          }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "goal_met": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "summary": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Body"
+          }
+        }
+      }
+    },
     "ServerCapability": {
       "kind": "primitive",
       "name": "string",
@@ -4737,6 +4937,70 @@
         }
       ]
     },
+    "TeamAuditEntry": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "actor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "category": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "admin",
+              "billing"
+            ]
+          }
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "detail": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "json"
+          }
+        },
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
     "TeamDomain": {
       "kind": "object",
       "fields": {
@@ -4937,12 +5201,8 @@
         "role": {
           "required": true,
           "type": {
-            "kind": "enum",
-            "values": [
-              "owner",
-              "admin",
-              "member"
-            ]
+            "kind": "ref",
+            "name": "TeamRole"
           }
         },
         "display_name": {
@@ -5774,6 +6034,52 @@
         }
       }
     },
+    "TeamRole": {
+      "kind": "enum",
+      "values": [
+        "owner",
+        "admin",
+        "member",
+        "billing",
+        "guest"
+      ]
+    },
+    "TeamVmAccountUser": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "uid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "class": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SshCertClass"
+          }
+        },
+        "principals": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "TeamVmError": {
       "kind": "object",
       "fields": {
@@ -5806,6 +6112,59 @@
       "min_length": 1,
       "max_length": 64
     },
+    "TeamVmRetired": {
+      "kind": "object",
+      "fields": {
+        "vm": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "epoch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pausing",
+              "paused"
+            ]
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "by": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "tainted_by": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "TeamVmStatus": {
       "kind": "enum",
       "values": [
@@ -5817,6 +6176,55 @@
         "failed"
       ],
       "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+    },
+    "TeamVmTaint": {
+      "kind": "object",
+      "fields": {
+        "epoch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "users": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "accepted_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "accepted_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
     },
     "TeamVmView": {
       "kind": "object",
@@ -5906,6 +6314,33 @@
           "type": {
             "kind": "primitive",
             "name": "int64"
+          }
+        },
+        "taint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamVmTaint"
+            }
+          }
+        },
+        "retired": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "TeamVmRetired"
+            }
+          }
+        },
+        "no_owner": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
           }
         }
       }
@@ -6438,6 +6873,49 @@
         }
       }
     },
+    "UserTeam": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "personal",
+              "stack"
+            ]
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamRole"
+          }
+        },
+        "sso_required": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      }
+    },
     "WgPublicKey": {
       "kind": "primitive",
       "name": "string",
@@ -6505,6 +6983,9 @@
       "retryable": false
     },
     "auth.forbidden": {
+      "retryable": false
+    },
+    "team.not_member": {
       "retryable": false
     },
     "owner.unreachable": {
@@ -9654,7 +10135,23 @@
       ],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
         "extra": false
       },
       "result": {
@@ -9677,6 +10174,36 @@
               "items": {
                 "kind": "ref",
                 "name": "Automation"
+              }
+            }
+          },
+          "automation_count": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "next_cursor": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
               }
             }
           },
@@ -9716,12 +10243,22 @@
         "expose": "default",
         "group": "automation"
       },
-      "docs": "List the automations of the caller's team.",
+      "docs": "List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).",
       "since": "cloud-1",
       "input_json_schema": {
-        "not": {
-          "type": "null"
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
         },
+        "additionalProperties": true,
         "$defs": {}
       },
       "output_json_schema": {
@@ -9742,6 +10279,31 @@
             "items": {
               "$ref": "#/$defs/Automation"
             }
+          },
+          "automation_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "revision": {
             "type": "string"
@@ -15178,6 +15740,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -15218,7 +15784,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -15555,6 +16121,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -15591,7 +16161,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -17578,6 +18148,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -17619,7 +18193,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19178,6 +19752,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19217,7 +19795,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19373,6 +19951,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19410,7 +19992,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19674,6 +20256,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19714,7 +20300,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -34400,6 +34986,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -36194,7 +36796,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36625,7 +37228,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36685,7 +37289,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -36956,7 +37561,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37211,7 +37817,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -37445,7 +38052,8 @@
               "cli",
               "daemon",
               "web",
-              "vm"
+              "vm",
+              "team-vm"
             ]
           },
           "Platform": {
@@ -43730,6 +44338,858 @@
         }
       }
     },
+    "run.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "run",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "run": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "RunId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "RunWithBody"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "run get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "automation"
+      },
+      "docs": "Read one kept run with the body of the automation version that fired it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/$defs/RunId"
+          }
+        },
+        "required": [
+          "run"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/RunWithBody",
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          },
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          },
+          "RunError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "Step": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "sleep"
+                    ]
+                  },
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31536000
+                  }
+                },
+                "required": [
+                  "type",
+                  "seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
+          },
+          "Body": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent_prompt"
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh"
+                    ]
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "fresh_worktree",
+                          "repo"
+                        ]
+                      },
+                      "repo": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ],
+                    "additionalProperties": true
+                  },
+                  "conversation": {
+                    "type": "string",
+                    "enum": [
+                      "fresh",
+                      "continue"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "instructions",
+                  "workspace",
+                  "conversation"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "steps"
+                    ]
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Step"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "type",
+                  "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "RunWithBody": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/RunId"
+              },
+              "automation": {
+                "$ref": "#/$defs/AutomationId"
+              },
+              "automation_version": {
+                "type": "integer"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "trigger": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/TriggerId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "scheduled_at": {
+                    "type": "integer"
+                  },
+                  "delivery_id": {
+                    "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RunError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "goal_met": {
+                        "type": "boolean"
+                      },
+                      "summary": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "goal_met"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "body": {
+                "$ref": "#/$defs/Body"
+              }
+            },
+            "required": [
+              "id",
+              "automation",
+              "automation_version",
+              "owner",
+              "trigger",
+              "state",
+              "step",
+              "created_at",
+              "started_at",
+              "finished_at",
+              "error",
+              "outcome",
+              "body"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "run.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "run",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "RunState"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "runs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Run"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "run list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "automation"
+      },
+      "docs": "Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "state": {
+            "$ref": "#/$defs/RunState"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Run"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runs",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          },
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          },
+          "RunError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "Run": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/RunId"
+              },
+              "automation": {
+                "$ref": "#/$defs/AutomationId"
+              },
+              "automation_version": {
+                "type": "integer"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "trigger": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/TriggerId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "scheduled_at": {
+                    "type": "integer"
+                  },
+                  "delivery_id": {
+                    "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RunError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "goal_met": {
+                        "type": "boolean"
+                      },
+                      "summary": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "goal_met"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "automation",
+              "automation_version",
+              "owner",
+              "trigger",
+              "state",
+              "step",
+              "created_at",
+              "started_at",
+              "finished_at",
+              "error",
+              "outcome"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "server.pair.approve": {
       "class": "mutation",
       "idempotency": "required",
@@ -45743,6 +47203,139 @@
         }
       }
     },
+    "team_vm.accounts": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "users": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamVmAccountUser"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "team_vm.stale_epoch"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ssh accounts",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamVmAccountUser"
+            }
+          }
+        },
+        "required": [
+          "team",
+          "users"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          },
+          "TeamVmAccountUser": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "integer"
+              },
+              "class": {
+                "$ref": "#/$defs/SshCertClass"
+              },
+              "principals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "user",
+              "uid",
+              "class",
+              "principals"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "team_vm.ensure_awake": {
       "class": "mutation",
       "idempotency": "required",
@@ -46648,6 +48241,485 @@
         }
       }
     },
+    "team_vm.rebuild": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "retired": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "team_vm.in_use",
+        "team_vm.not_configured",
+        "team_vm.not_in_ledger",
+        "team_vm.not_tainted",
+        "team_vm.plan_gate_missing",
+        "team_vm.retired_full",
+        "team_vm.stale_epoch",
+        "team_vm.stale_taint",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm rebuild",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "retired": {
+            "type": "string"
+          },
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retired",
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.retired.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "files_copied": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                true
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "vm": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "deleted": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "team_vm.in_use",
+        "team_vm.not_configured",
+        "team_vm.not_in_ledger",
+        "team_vm.not_tainted",
+        "team_vm.plan_gate_missing",
+        "team_vm.retired_files_unconfirmed",
+        "team_vm.retired_full",
+        "team_vm.stale_epoch",
+        "team_vm.stale_taint",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm retired delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "files_copied": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "vm",
+          "files_copied"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vm",
+          "deleted"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.retired.export": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "vm": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "path": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "files": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "bytes": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "archive_bytes": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "skipped": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "skipped_count": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "team_vm.export_no_files",
+        "team_vm.export_timeout",
+        "team_vm.export_too_large",
+        "team_vm.in_use",
+        "team_vm.not_configured",
+        "team_vm.not_in_ledger",
+        "team_vm.not_tainted",
+        "team_vm.plan_gate_missing",
+        "team_vm.provider_failed",
+        "team_vm.provider_refused",
+        "team_vm.retired_full",
+        "team_vm.retired_not_fenced",
+        "team_vm.stale_epoch",
+        "team_vm.stale_taint",
+        "team_vm.vm_missing",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm retired export",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "vm"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "archive_bytes": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skipped_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "vm",
+          "path",
+          "expires_at",
+          "files",
+          "bytes",
+          "archive_bytes",
+          "skipped",
+          "skipped_count"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "team_vm.ssh_ca": {
       "class": "read",
       "idempotency": "forbidden",
@@ -47052,6 +49124,7 @@
         "team_vm.ssh_presence_refused",
         "team_vm.ssh_presence_required",
         "team_vm.ssh_rate_limited",
+        "team_vm.tainted",
         "validation.invalid"
       ],
       "owner": "cloud:TeamDO",
@@ -47077,7 +49150,7 @@
         "expose": "opt_in",
         "group": "team"
       },
-      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash.",
+      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -47645,6 +49718,90 @@
             ],
             "additionalProperties": true
           },
+          "TeamVmTaint": {
+            "type": "object",
+            "properties": {
+              "epoch": {
+                "type": "integer"
+              },
+              "at": {
+                "type": "integer"
+              },
+              "users": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "accepted_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "accepted_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "epoch",
+              "at",
+              "users",
+              "accepted_by",
+              "accepted_at"
+            ],
+            "additionalProperties": true
+          },
+          "TeamVmRetired": {
+            "type": "object",
+            "properties": {
+              "vm": {
+                "type": "string"
+              },
+              "epoch": {
+                "type": "integer"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pausing",
+                  "paused"
+                ]
+              },
+              "at": {
+                "type": "integer"
+              },
+              "by": {
+                "type": "string"
+              },
+              "tainted_by": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "vm",
+              "epoch",
+              "state",
+              "at",
+              "by",
+              "tainted_by"
+            ],
+            "additionalProperties": true
+          },
           "TeamVmView": {
             "type": "object",
             "properties": {
@@ -47706,6 +49863,25 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "taint": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamVmTaint"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "retired": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TeamVmRetired"
+                }
+              },
+              "no_owner": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -47715,7 +49891,377 @@
               "epoch",
               "leases",
               "last_error",
-              "updated_at"
+              "updated_at",
+              "taint",
+              "retired"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team_vm.taint.accept": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "users": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "accepted_by": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "accepted_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "team_vm.in_use",
+        "team_vm.not_configured",
+        "team_vm.not_in_ledger",
+        "team_vm.not_tainted",
+        "team_vm.plan_gate_missing",
+        "team_vm.retired_full",
+        "team_vm.stale_epoch",
+        "team_vm.stale_taint",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm taint accept",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "epoch",
+          "users"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer"
+          },
+          "accepted_by": {
+            "type": "string"
+          },
+          "accepted_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "epoch",
+          "accepted_by",
+          "accepted_at"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team.audit.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "before": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamAuditEntry"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team audit",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Read the team's audit records, newest first (owners and admins: all; billing: billing records only).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "before": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamAuditEntry"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "entries",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamAuditEntry": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "at": {
+                "type": "integer"
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "billing"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "detail": {},
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "op",
+              "actor",
+              "at",
+              "category",
+              "summary",
+              "detail",
+              "hash"
             ],
             "additionalProperties": true
           }
@@ -48760,6 +51306,16 @@
             "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
           "TeamMember": {
             "type": "object",
             "properties": {
@@ -48767,12 +51323,7 @@
                 "$ref": "#/$defs/UserId"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "admin",
-                  "member"
-                ]
+                "$ref": "#/$defs/TeamRole"
               },
               "display_name": {
                 "type": "string"
@@ -48851,6 +51402,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -49754,6 +52321,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -49915,12 +52498,8 @@
           "role": {
             "required": false,
             "type": {
-              "kind": "enum",
-              "values": [
-                "owner",
-                "admin",
-                "member"
-              ]
+              "kind": "ref",
+              "name": "TeamRole"
             }
           }
         },
@@ -49964,6 +52543,33 @@
                   ]
                 }
               ]
+            }
+          },
+          "seat_count": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "no_owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "next_cursor": {
@@ -50030,12 +52636,7 @@
             "maximum": 200
           },
           "role": {
-            "type": "string",
-            "enum": [
-              "owner",
-              "admin",
-              "member"
-            ]
+            "$ref": "#/$defs/TeamRole"
           }
         },
         "additionalProperties": true,
@@ -50044,6 +52645,16 @@
             "type": "string",
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
+          },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
           }
         }
       },
@@ -50073,6 +52684,24 @@
                 ]
               }
             ]
+          },
+          "seat_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "no_owner": {
+            "type": "boolean"
           },
           "next_cursor": {
             "anyOf": [
@@ -50107,6 +52736,16 @@
             "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
           "TeamMember": {
             "type": "object",
             "properties": {
@@ -50114,12 +52753,7 @@
                 "$ref": "#/$defs/UserId"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "admin",
-                  "member"
-                ]
+                "$ref": "#/$defs/TeamRole"
               },
               "display_name": {
                 "type": "string"
@@ -50131,6 +52765,135 @@
               "display_name"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.members.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "user": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team members remove",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/UserId"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
           }
         }
       }
@@ -54394,6 +57157,59 @@
         }
       }
     },
+    "user.presence_key.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
     "user.presence_key.revoke": {
       "class": "mutation",
       "idempotency": "required",
@@ -54485,6 +57301,155 @@
       },
       "output_json_schema": {
         "$defs": {}
+      }
+    },
+    "user.teams.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "teams": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "UserTeam"
+              }
+            }
+          },
+          "incomplete": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "owner.unreachable"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "account teams",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/UserTeam"
+            }
+          },
+          "incomplete": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "teams",
+          "incomplete",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
+          "UserTeam": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "stack"
+                ]
+              },
+              "role": {
+                "$ref": "#/$defs/TeamRole"
+              },
+              "sso_required": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "display_name",
+              "kind",
+              "role",
+              "sso_required"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "user.text_confirm.get": {

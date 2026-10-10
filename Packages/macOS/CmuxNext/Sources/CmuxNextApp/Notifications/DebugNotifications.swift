@@ -6,6 +6,8 @@ import CmuxNextSettings
 /// each window draws, banners asked for, the arrival and dismissal log, and
 /// the live preferences. `{"action": "click", "surface": <handle>}` runs the
 /// banner click path (`DesktopNotifier.open`), for windows no one can click.
+/// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
+/// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
     @MainActor
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -15,6 +17,11 @@ enum DebugNotifications {
             center.desktop.open(id: params["id"]?.stringValue ?? "debug", surface: surface)
         }
         let store = services.daemon.store
+        // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
+        if params["action"]?.stringValue == "dismiss_highlight", let id = params["workspace"]?.stringValue,
+           let workspace = store.workspaces.first(where: { $0.id == id }) {
+            center.dismissHighlight(workspace)
+        }
         var unread: [JSONValue] = []
         for workspace in store.workspaces {
             for screen in workspace.screens {
@@ -43,20 +50,32 @@ enum DebugNotifications {
         return [
             "unread": .array(unread),
             "windows": .array(windows),
-            "banners": .array(center.desktop.posted.map { banner in
-                ["id": .string(banner.id), "title": .string(banner.title), "body": .string(banner.body),
-                 "surface": banner.surface.map { .number(Double($0)) } ?? .null]
-            }),
+            "banners": .array(center.desktop.posted.map(banner)),
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
-            "feed_log": .array((center.feedBridge?.log ?? []).map(JSONValue.string)),
+            "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
             "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
+            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),
                 "sound": .string(prefs.sound), "muted_workspaces": .array(prefs.mutedWorkspaces.sorted().map(JSONValue.string)),
                 "attention_style": .string(attention.style.rawValue), "attention_width": .number(Double(attention.width)),
                 "shows_on_tab": .bool(attention.showsOnTab), "shows_on_sidebar": .bool(attention.showsOnSidebar),
             ],
+        ]
+    }
+
+    /// One banner the app asked for, with its status badge (`attachment`:
+    /// byte count and the PNG as base64, null when the banner had none).
+    static func banner(_ banner: DesktopNotifier.Posted) -> JSONValue {
+        [
+            "id": .string(banner.id), "title": .string(banner.title),
+            "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
+            "surface": banner.surface.map { .number(Double($0)) } ?? .null,
+            "attachment": banner.attachment.map { data in
+                ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
+            } ?? .null,
         ]
     }
 }

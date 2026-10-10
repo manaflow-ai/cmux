@@ -9,6 +9,7 @@ import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_ROW } from "./subagents/subagentRows";
+import type { ComposerAttachment } from "./attachments";
 
 export type AcpmuxRow = {
   id: string;
@@ -26,6 +27,9 @@ export type AcpmuxRow = {
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// The originating prompt row, so Retry can restore image/PDF attachments.
+  retryRowId?: string;
+  retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
@@ -146,7 +150,7 @@ export type AcpmuxSnapshot = {
       name?: string;
       category?: string;
       currentValue?: string;
-      options: { value: string; name?: string }[];
+      options: { value: string; name?: string; description?: string }[];
     }[];
   };
   connection: string;
@@ -156,6 +160,9 @@ export type AcpmuxSnapshot = {
   origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
+  /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
+  /// events carry the peer's clock; unset when they share a clock or it is not known yet.
+  clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
   canHandoff?: boolean;
@@ -169,6 +176,8 @@ export type AcpmuxSnapshot = {
     id: string;
     name: string;
     models: AcpmuxCatalogModel[];
+    /** The configured harness login command, when its profile declares one. */
+    auth?: { login?: string };
     unavailable?: string;
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
@@ -194,6 +203,10 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** The outside chat this pane adopts is still open in another process (acpmux refused with
+   * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
+   * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
+  liveChat?: { canFork: boolean; command?: string };
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
@@ -339,6 +352,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
   if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // The render card: its 36px head over the frame before it reports a height, and 6px below.
+  if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -543,7 +558,8 @@ import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
-import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
+import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

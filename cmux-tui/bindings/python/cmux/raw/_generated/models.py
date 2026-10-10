@@ -791,6 +791,26 @@ class GuestUrlSubscribeResult:
 
 
 @dataclass(frozen=True)
+class HistorySearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchHit'
+    at_ms: int
+    highlights: List[HistorySearchRange]
+    key: str
+    kind: str
+    position: Union[int, None]
+    snippet: str
+    target: str
+    title: str
+
+
+@dataclass(frozen=True)
+class HistorySearchRange:
+    __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchRange'
+    end: int
+    start: int
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -1007,6 +1027,17 @@ class NotifyResult:
 class PaneNeighborResult:
     __cmux_schema_path__: ClassVar[str] = 'types/PaneNeighborResult'
     pane: Union[Id, None]
+
+
+@dataclass(frozen=True)
+class PaneSurfaceResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PaneSurfaceResult'
+    surface: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    replayed: Union[bool, None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1338,6 +1369,28 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsResourceProjection:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
+    commit_apply_us: ServerStatsHistogram
+    commit_journal_us: ServerStatsHistogram
+    commit_prune_us: ServerStatsHistogram
+    commit_us: ServerStatsHistogram
+    commits: int
+    crosscheck_mismatches: int
+    crosschecks: int
+    diff_us: ServerStatsHistogram
+    full_projections: int
+    index_us: ServerStatsHistogram
+    journaled_changes: ServerStatsHistogram
+    projected_changes: ServerStatsHistogram
+    projections: int
+    read_us: ServerStatsHistogram
+    scope_fallbacks: int
+    scoped_projections: int
+    written_changes: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResult'
     connections: ServerStatsConnections
@@ -1345,6 +1398,18 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePath:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePath'
+    effect_intent_batches: int
+    effect_intent_failures: int
+    effect_intents: int
+    request_effect_commits: int
+    writer_registry_locks: int
 
 
 @dataclass(frozen=True)
@@ -1791,6 +1856,12 @@ class Tree:
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ViewportPaneWidthResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewportPaneWidthResult'
+    width: float
 
 
 @dataclass(frozen=True)
@@ -2686,6 +2757,39 @@ class ExportLayoutRequest:
 
 
 @dataclass(frozen=True)
+class FeedLocalHandoffAbortRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-abort/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -2735,6 +2839,21 @@ class GetFrontendProjectionRequest:
 class GetSizeStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-size-state/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class HistorySearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/request'
+    query: str
+    kinds: Union[List[str], MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HistorySearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
+    hits: List[HistorySearchHit]
+    took_us: int
 
 
 @dataclass(frozen=True)
@@ -3157,8 +3276,10 @@ class NewPaneRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3171,8 +3292,10 @@ class NewPaneRightRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -3588,7 +3711,7 @@ class SendKeyRequest:
 @dataclass(frozen=True)
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
-    pass
+    include: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3835,8 +3958,10 @@ class SplitRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4961,6 +5086,8 @@ __all__ = [
     'GuestUrlClaimResult',
     'GuestUrlOpenResult',
     'GuestUrlSubscribeResult',
+    'HistorySearchHit',
+    'HistorySearchRange',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -4984,6 +5111,7 @@ __all__ = [
     'NotificationMarker',
     'NotifyResult',
     'PaneNeighborResult',
+    'PaneSurfaceResult',
     'PingResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
@@ -5014,7 +5142,9 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
@@ -5061,6 +5191,7 @@ __all__ = [
     'TerminalResources',
     'TerminalResourcesResult',
     'Tree',
+    'ViewportPaneWidthResult',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
@@ -5166,6 +5297,11 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffAbortRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -5174,6 +5310,8 @@ __all__ = [
     'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
+    'HistorySearchRequest',
+    'HistorySearchResult',
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',

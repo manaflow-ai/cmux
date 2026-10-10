@@ -78,8 +78,6 @@ nonisolated struct HomeBrainHost: Sendable {
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             // Constant links to the app that last opened Home (ChiefAppLinks):
             // the host outlives the app that started it.
-            "CMUX_SOCKET_PATH": ChiefAppLinks.controlLink(ChiefHome(root: muxHome, isolated: false)).path,
-            "CMUX_APP_DAEMON_SOCKET": ChiefAppLinks.daemonLink(ChiefHome(root: muxHome, isolated: false)).path,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
@@ -89,6 +87,7 @@ nonisolated struct HomeBrainHost: Sendable {
             // ...and its title (HomeChiefName.createRequest, localized).
             "MUX_CHIEF_TITLE": HomeStrings.chiefName,
         ]
+        variables.merge(ChiefAppLinks.hostEnvironment(ChiefHome(root: muxHome, isolated: false))) { $1 }
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
@@ -113,6 +112,37 @@ nonisolated struct HomeBrainHost: Sendable {
     /// The file that hands the mux's conversation token to the host (0600).
     var tokenFile: URL { muxHome.appendingPathComponent("agent-token") }
 
+    /// What `start` did.
+    enum StartOutcome: Equatable, Sendable {
+        /// A live host holds the home's lock and its token: no new token.
+        case reusedRunningHost
+        /// A token was minted and a host launched.
+        case launched
+    }
+
+    /// Starts the host for a Home that opened. `mintToken` replaces the
+    /// owner's agent_mux credential and revokes the binding of the host that
+    /// runs, so it is called only when the host must start.
+    @concurrent func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        // A Chief-home acpmux without this Chief home (an older build, or one an
+        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off; its next start
+        // has the right env (AcpmuxChiefHandoff).
+        if let acpmux { _ = await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale() }
+        // A live host reads the token file at each connect: keep its binding.
+        if runningHostHasToken { return .reusedRunningHost }
+        let token = try await mintToken()
+        await launch(agentToken: token)
+        return .launched
+    }
+
+    /// Whether a host holds this home's lock (`state/host.lock`) and the
+    /// token file it reconnects with is there.
+    var runningHostHasToken: Bool {
+        // concurrency-allow: a small local file read, off the main actor in `start`
+        let token = (try? String(contentsOf: tokenFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !token.isEmpty && ChiefMigration.lockHeld(at: muxHome.appendingPathComponent("state/host.lock"))
+    }
+
     @concurrent func launch(agentToken: String) async {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
         do {
@@ -128,6 +158,11 @@ nonisolated struct HomeBrainHost: Sendable {
             shell.executableURL = URL(fileURLWithPath: "/bin/sh")
             shell.arguments = arguments
             shell.environment = childEnvironment
+            // LAUNCH-NO-TCC-PROMPTS: the host and what it starts without a
+            // folder of its own (its acpmux daemon) run in the Chief home,
+            // never the app's folder (`/`) or the home folder, where an
+            // agent reads Downloads, Documents and Desktop at once.
+            shell.currentDirectoryURL = muxHome
             shell.standardInput = FileHandle.nullDevice
             shell.standardOutput = FileHandle.nullDevice
             shell.standardError = FileHandle.nullDevice

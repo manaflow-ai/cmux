@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextCompat
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
@@ -21,14 +22,15 @@ public final class SidebarContainerView: NSView {
     public let sidebarView: SidebarView
     public let model: SidebarModel
     /// The width constraint this view drives. Do not add another.
-    public private(set) var widthConstraint: NSLayoutConstraint!
+    /// Built in init (lazy because it anchors self; no IUO).
+    public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
-    private var panelWidth: NSLayoutConstraint!
+    private lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
     let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
@@ -64,8 +66,6 @@ public final class SidebarContainerView: NSView {
         clip.addSubview(panel)
         addSubview(clip)
         addSubview(handle)
-        widthConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
-        panelWidth = panel.widthAnchor.constraint(equalToConstant: model.width)
         NSLayoutConstraint.activate([
             widthConstraint,
             panelWidth,
@@ -181,7 +181,7 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border) in Observations({
+            for await (_, _, defaultWidth, border) in ObservationStream({
                 // The default width token is tracked so a settings change
                 // resizes live.
                 (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)
@@ -200,6 +200,14 @@ public final class SidebarContainerView: NSView {
         defer { lastDefaultWidth = value }
         guard let last = lastDefaultWidth, last != value else { return }
         model.width = value
+    }
+
+    /// The width animation lays the sidebar out each frame and a hide ends
+    /// it: views slide or hide under a still pointer, and hover follows
+    /// (cx-3wu5).
+    override public func layout() {
+        super.layout()
+        PointerHover.refresh(in: window)
     }
 
     /// Sets every constraint and visibility for the model without animating.
@@ -241,6 +249,7 @@ public final class SidebarContainerView: NSView {
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
             self.panel.isHidden = true
+            PointerHover.refresh(in: self.window)
         })
     }
 }
@@ -257,7 +266,9 @@ final class SidebarResizeHandle: NSView {
 
     var onDrag: ((Phase) -> Void)?
     private(set) var isDragging = false { didSet { updateLine() } }
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false { didSet { updateLine() } }
+    private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
 
@@ -286,13 +297,18 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .columnResize)
+        if #available(macOS 15, *) {
+            addCursorRect(bounds, cursor: .columnResize)
+        } else {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
     }
 
     override func layout() {
@@ -322,16 +338,18 @@ final class SidebarResizeHandle: NSView {
         needsLayout = true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    func setHovered(_ hovered: Bool) { isHovered = hovered }
+
+    /// Hidden with the sidebar under a still pointer: no exit comes.
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerHover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    func setHovered(_ hovered: Bool) { isHovered = hovered }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerHover?.refresh()
+    }
 
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0

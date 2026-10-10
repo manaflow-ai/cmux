@@ -12,8 +12,8 @@ import Observation
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. Nothing asks: updates
-/// download in the background and wait as the rail's update circle
-/// (``indicatorPhase``), and a check that finds nothing leaves a short note.
+/// download in the background and wait as the staged update card, and a
+/// check's progress and result show on the sidebar's notice card (``card``).
 /// The update sheet (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
 @Observable
@@ -41,6 +41,12 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// The found update whose notice the user dismissed ("" without a version).
+    public internal(set) var dismissedAvailableVersion: String?
+    /// The notice whose timeout is pending, and its one-shot deadline on the
+    /// injected clock (no `asyncAfter`).
+    @ObservationIgnored var expiringCard: UpdateCard?
+    @ObservationIgnored let cardTimer: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
@@ -124,8 +130,10 @@ public final class UpdaterService {
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
-                now: @escaping () -> Date = Date.init) {
+                now: @escaping () -> Date = Date.init,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
+        cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -198,6 +206,13 @@ public final class UpdaterService {
             return nil
         case nil:
             guard let controller else { return nil }
+            syncFlowPhase()
+            if case .ready = flow.phase {
+                // Sparkle ignores a check while an update waits; the staged
+                // update card answers instead (``readyCard``).
+                log.append("check while an update waits: showing the staged update")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
             return nil
@@ -317,6 +332,7 @@ public final class UpdaterService {
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
             card: card,
+            cardPresentation: cardPresentation,
             badge: footerPill?.title
         )
     }

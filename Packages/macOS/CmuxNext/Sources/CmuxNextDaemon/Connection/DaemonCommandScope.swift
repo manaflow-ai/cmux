@@ -1,6 +1,6 @@
 import CryptoKit
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///
@@ -163,7 +163,7 @@ public final class DaemonCommandScope: Sendable {
         let ordinal = state.withLock { state -> Int? in
             guard !state.closed else { return nil }
             state.derived[kind, default: 0] += 1
-            return state.derived[kind]
+            return state.derived[kind, default: 0]
         }
         return ordinal.map { Self.derivedUUID(key: key, kind: kind, ordinal: $0) }
     }

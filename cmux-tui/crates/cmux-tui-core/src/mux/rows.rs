@@ -9,6 +9,7 @@
 //! commits like `set-column-dock` and records one layout-undo entry.
 
 use super::*;
+use crate::Actor;
 use crate::model::{LayoutMutationKey, LayoutResizeOwner, ROW_HEIGHT_PERMILLE};
 use cmux_layout_reducer::{LayoutOp, LayoutOpKind, Reject};
 
@@ -151,8 +152,9 @@ impl Mux {
     /// permille below the row of `target`. On a split screen the tree becomes
     /// the first row of one column. The screen's `screen-changed` delta after
     /// the commit echoes `transaction` (mutation-echo).
-    pub fn new_row_with_options(
+    pub fn new_row_with_options_as(
         self: &Arc<Self>,
+        actor: &Actor,
         target: PaneId,
         height: u64,
         spawn: TerminalSpawnOptions,
@@ -170,7 +172,8 @@ impl Mux {
         ]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(
+            actor,
             ResourceOperation::PaneSplit,
             selectors,
             fields,
@@ -190,8 +193,9 @@ impl Mux {
     /// `set-row-heights`: every row height of one column at once. The row
     /// set must be exactly the column's rows; `fit` requires a sum of 1000.
     /// `transaction` coalesces undo entries like viewport resizes.
-    pub fn set_row_heights(
+    pub fn set_row_heights_as(
         self: &Arc<Self>,
+        actor: &Actor,
         column: SplitId,
         heights: &[(SplitId, u64)],
         fit: bool,
@@ -231,7 +235,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::daemon_local("cmux-tui-row-heights"),
+                &WorkspaceMutation::local("cmux-tui-row-heights", actor.clone()),
                 ROW_HEIGHTS_OPERATION,
                 &fingerprint,
                 None,

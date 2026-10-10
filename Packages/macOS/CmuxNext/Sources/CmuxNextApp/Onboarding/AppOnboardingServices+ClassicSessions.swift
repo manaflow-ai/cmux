@@ -7,24 +7,31 @@ extension AppOnboardingServices {
         FileManager.default.fileExists(atPath: ClassicSessionImporter().fileURL.path)
     }
 
-    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
-        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
+        try await owner.scanClassicSessions()
     }
 
     /// Recreates local workspace shells and terminal tabs. Classic commands,
     /// scrollback, and remote panels are intentionally ignored.
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {
-        guard let windows = services.windows else { return }
+        let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
+        // Read before the task: after a suspension the onboarding service may be gone.
+        let machines = services.machines, logger = services.daemon.logger
         Task { @MainActor [weak self] in
             guard let self else { return }
             for saved in workspaces {
                 do {
-                    let id = try await windows.createWorkspace(WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name), into: target)
-                    guard let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
+                    // Recreated in their saved order: each one after the last loose row. An
+                    // explicit slot, because the daemon itself puts a new workspace at the
+                    // `workspaces.newPlacement` slot (top by default).
+                    var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
+                    spawn.slot = .bottom(anchor: nil)
+                    let id = try await windows.createWorkspace(spawn, into: target)
+                    guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
                     try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
                 }
-                catch { services.daemon.logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
+                catch { logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
             }
         }
     }

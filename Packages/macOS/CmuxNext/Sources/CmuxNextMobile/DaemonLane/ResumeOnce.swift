@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// Runs the first `resume` body only; later calls are dropped. Guards a
 /// continuation that several callbacks may try to finish.

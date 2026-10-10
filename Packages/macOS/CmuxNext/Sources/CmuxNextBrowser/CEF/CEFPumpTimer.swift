@@ -32,7 +32,7 @@ final class CEFRunLoopPumpTimer: CEFPumpTimer {
         let timer = CFRunLoopTimerCreateWithHandler(
             kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + Self.parkedInterval, Self.parkedInterval, 0, 0
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onFire?() }
+            MainActor.assumeIsolated { self?.onFire?() } // main-proof: the timer is added only to CFRunLoopGetMain() (below)
         }
         CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .commonModes)
         self.timer = timer

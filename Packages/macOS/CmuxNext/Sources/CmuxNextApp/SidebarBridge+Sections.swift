@@ -78,25 +78,25 @@ extension SidebarBridge {
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
-        let apps = services.apps.registry
+        let apps = services.apps.client
         let store = services.machines.local.store
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
-            // Also observed: the app registry, the unread count, the built-ins' shortcuts (tooltips), the Chats
-            // setting and the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, shortcuts, showChats, workspaces) in Observations({
-                () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool, [LayoutItemRef: SidebarItemInfo]) in
+            // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips) and
+            // the workspaces tiles and top rows name. The selected item comes from the one selection.
+            for await (layout, unread, shortcuts, workspaces) in Observations({
+                () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
-                        DesignSettings.shared.sidebarSections.showChats, SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
+                        SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
-                guard let self else { return }
-                let visibleLayout = layout.chatsLayout(enabled: showChats)
-                if model.layout != visibleLayout { model.layout = visibleLayout }
-                self.chatsMount.show(showChats, services: self.services)
+                // The window closed: the bridge is gone, stop observing.
+                guard self != nil else { return }
+                // `model.layout` is written with the rows it projects (SidebarBridge.show).
+                let visibleLayout = layout.withoutChats
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
-                                          app: { SidebarAppItemInfo.info($0, registry: apps) }, shortcut: { shortcuts[$0] },
+                                          app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
                                           workspace: { workspaces[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
@@ -144,11 +144,11 @@ extension SidebarBridge {
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
     /// the layout owner; a refusal shows in the refusal HUD.
-    /// The right-click menu of a section: Hide only on an app section.
+    /// The right-click menu of a section: Hide only on an app section, Hide
+    /// Section only on Recents (`SidebarHiddenSections`).
     func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
         let isApp = model.layout.section(id)?.owningAppID != nil
-        let menus = ContextMenuCatalog.shared
-        let entries = isApp ? menus.entries(for: .sidebarSection) : menus.entries(for: .sidebarSection, removing: ["sidebar.item.hideApp"])
+        let entries = ContextMenuCatalog.shared.entries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
         return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
                                                  entries: entries)
     }

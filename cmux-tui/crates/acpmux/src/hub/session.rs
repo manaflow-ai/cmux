@@ -25,9 +25,15 @@ pub struct Session {
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
     pub(super) rehydrate: AtomicBool,
+    /// The chat's route changed during a turn: restart the harness on it when
+    /// the turn ends (`route_switch.rs`).
+    pub(super) route_switch: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// The answer of a steer that ended its turn, with the turn's id: the
+    /// turn's other prompts take it (`steer_end.rs`, codex-acp).
+    pub(super) steer_end: tokio::sync::watch::Sender<Option<(String, Value)>>,
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,

@@ -730,13 +730,16 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_subscribe_reports_tree_changed(&server);
 }
 
-/// `history clear` on a shell without prompt marks keeps the visible screen
-/// (a pending command line included) and drops the scrollback (cx-6so.48).
-/// Deterministic on purpose: bash without rc files and a fixed one-cell
-/// prompt, so neither a long user prompt nor a resize redraw can wrap the
-/// pending line, and every step waits for the screen it needs.
+/// `history clear` (Cmd-K) on a shell without prompt marks keeps only the
+/// cursor's line (the pending command line) and drops every row above it and
+/// the scrollback, like Ghostty's clear_screen away from a prompt (cx-6so.55;
+/// before, only the scrollback went and Cmd-K looked like it did nothing).
+/// Deterministic on purpose: bash without rc files, a fixed one-cell prompt
+/// and no resize, so only the typed line itself wraps (on purpose, to cover
+/// the soft-wrapped rows), and every step waits for the screen it needs.
+#[cfg(unix)]
 #[test]
-fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
+fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
     let server = HeadlessServer::start_without_shell_integration("history-clear");
     let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
     assert_success(&created);
@@ -772,9 +775,11 @@ fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
     let marker = format!("history_clear_marker_{}", std::process::id());
     write(&format!("echo {marker}\r"));
     wait_until("the marker", &|text| text.contains(&format!("{marker}\n$")));
-    let pending = format!("echo prompt_kept_{}", std::process::id());
+    // Longer than the 80-column screen: the kept line includes its soft wraps.
+    let pending = format!("echo prompt_kept_{}_{}", std::process::id(), "x".repeat(100));
+    let unwrapped = |text: &str| text.replace('\n', "");
     write(&pending);
-    wait_until("the pending line", &|text| text.contains(&pending));
+    wait_until("the pending line", &|text| unwrapped(text).contains(&pending));
 
     // `old_1` exactly (not `old_10`): the first line, long scrolled off.
     let history_has_old_1 = || {
@@ -789,12 +794,74 @@ fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
     let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
     assert_success(&cleared);
     assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
-    let cleared_screen = screen();
+    // Wait for the result: a hosted terminal applies the clear on its own
+    // reader, and the old screen must not pass by being read too early.
+    let cleared_screen =
+        wait_until("the clear", &|text| !text.contains(&marker) && !text.contains("old_"));
     assert!(
-        cleared_screen.contains(&marker) && cleared_screen.contains(&pending),
-        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+        unwrapped(cleared_screen.trim_start()).starts_with(&format!("$ {pending}")),
+        "clear-history did not move the whole wrapped pending line to the top row: {cleared_screen:?}"
     );
     assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
+
+    // The journal records the clear (a local terminal: `screen_cleared`; a
+    // hosted one: the resync's `host_reconnect`), so a restore or respawn
+    // starts after it instead of bringing the old text back.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let reasons = journal_gap_reasons(&server.socket, &terminal);
+        if reasons.iter().any(|reason| reason == "screen_cleared" || reason == "host_reconnect") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no journal gap after the clear: {reasons:?}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// `terminal.output.gap` reasons the session journal holds for `terminal`.
+#[cfg(unix)]
+fn journal_gap_reasons(socket: &std::path::Path, terminal: &str) -> Vec<String> {
+    use std::io::{BufRead, BufReader, Write};
+    let stream = UnixStream::connect(socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "clear-gaps",
+        "operation": "session.journal.subscribe",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_33333333333343338333333333333333",
+            "start": "beginning",
+            "filter": {"kinds": ["terminal.output.gap"], "max_sensitivity": "sensitive"},
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+    let mut reasons = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).is_err() || line.is_empty() {
+            break;
+        }
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let ours = record["subjects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|subject| subject["kind"] == "terminal" && subject["id"] == terminal);
+        if ours {
+            reasons.push(record["payload"]["reason"].as_str().unwrap_or_default().to_string());
+        }
+    }
+    reasons
 }
 
 #[test]

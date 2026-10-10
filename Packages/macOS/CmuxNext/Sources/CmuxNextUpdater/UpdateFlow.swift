@@ -76,15 +76,18 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         return [.install]
     }
 
-    /// The card above the footer, or nil: only what the user asked for (a
-    /// check, its download, its result). A found, staged or installing
-    /// update is never a card (``footerPill(preferences:)``).
+    /// The notice card's update status, or nil: what the user asked for (a
+    /// check, its download, its result), and a found update that waits for
+    /// a click (`updates.downloadAutomatically` off), which needs no check.
+    /// A staged or installing update is never this card (the staged update
+    /// card, ``footerPill(preferences:)``).
     public var card: UpdateCard? {
+        if case .available(let version) = phase { return .available(version: version) }
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
         case .downloading(let progress): return .downloading(progress: progress)
-        case .note(let text, let isError): return .note(text, isError: isError)
+        case .note(let note): return .note(note)
         case .hidden, .available, .ready, .installing: return nil
         }
     }

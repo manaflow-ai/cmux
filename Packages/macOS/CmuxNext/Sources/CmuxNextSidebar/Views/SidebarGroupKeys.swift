@@ -60,7 +60,7 @@ import AppKit
             return true
         case .carriageReturn?, .enter?:
             guard let group = list.focusedGroup else { return false }
-            list.inlineRename.begin(.group(group))
+            list.groupEditing.open(group)
             return true
         default:
             return false
@@ -80,12 +80,16 @@ import AppKit
     }
 
     /// Moves keyboard focus to `group` (nil: back to the workspaces) and
-    /// draws the ring on its header.
-    func setFocus(_ group: GroupID?) {
+    /// draws the ring on its header when the keyboard moved it (`ring`); a
+    /// mouse click sets the focus without a ring.
+    func setFocus(_ group: GroupID?, ring: Bool = true) {
         let old = list.focusedGroup
         list.focusedGroup = group
+        // Kept on the list, not only on the view: a header view made later
+        // (reuse, scrolling, a reload that dropped it) draws the ring too.
+        list.showsFocusRing = ring && group != nil
         for key in [old, group].compactMap({ $0 }) {
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = key == group
+            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = list.showsFocusRing && key == group
         }
     }
 

@@ -158,9 +158,16 @@ impl ConversationTabRecord {
                 );
             }
             Self::AgentSession { host, session, harness, host_name } => {
+                // `install:<id>`: the machine whose acpmux runs the session;
+                // `chief:<home id>`: the Chief home on that app's machine whose
+                // own acpmux runs it (a Chief subagent).
+                let chief = host.strip_prefix("chief:").is_some_and(|id| {
+                    id.len() == 8
+                        && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                });
                 anyhow::ensure!(
-                    host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
-                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-'"
+                    chief || host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
+                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
                 );
                 if let Some(session) = session {
                     validate_session(session)?;
@@ -295,6 +302,7 @@ pub(crate) fn delete_closed_browser_rows(
         transaction
             .execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         transaction.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
+        transaction.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
     }
     Ok(())
 }
@@ -304,11 +312,13 @@ impl crate::workspace_registry::WorkspaceRegistry {
     /// creation failed.
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
         crate::resource::BrowserPublicId::parse(browser_id.to_string())?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(tx.commit()?)
     }
 }
@@ -672,6 +682,24 @@ mod tests {
                 host_name: None,
             };
             assert!(record.validate().is_err(), "{host} {session:?}");
+        }
+    }
+
+    /// A Chief subagent's tab names the Chief home whose acpmux runs it
+    /// (`chief:<home id>`, 8 lowercase hex), so the app attaches it there.
+    #[test]
+    fn an_agent_session_host_may_be_a_chief_home() {
+        let record = |host: &str| ConversationTabRecord::AgentSession {
+            host: host.into(),
+            session: Some("s1".into()),
+            harness: None,
+            host_name: None,
+        };
+        assert!(record("chief:0a1b2c3d").validate().is_ok());
+        for host in
+            ["chief:", "chief:0A1B2C3D", "chief:0a1b2c3", "chief:0a1b2c3d4", "chief:zzzzzzzz"]
+        {
+            assert!(record(host).validate().is_err(), "{host}");
         }
     }
 

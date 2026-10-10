@@ -55,18 +55,51 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
-    /// Show the machine header even when only one machine is listed,
-    /// titled "Projects" (the sidebar list sets it). Off in bare layouts.
+    /// With `sidebar.groupByComputer`, show the machine header even when
+    /// only one machine is listed, titled "Projects" (the sidebar list sets
+    /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
+    /// One workspace list (`sidebar.groupByComputer` off): machine sections
+    /// show no header and no gap between them, and a row of a computer other
+    /// than this Mac names it (and a failed connection) on its second line.
+    public var flattensMachines = false
+    /// In one list, the status a computer's rows name after its name when it
+    /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
+    /// Localized by the model, so the layout stays nonisolated.
+    public var machineStatusLabels: [MachineID: String] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
+    /// and marks, whatever `workspaceRow` shows (`rowContent`).
+    public var minimal = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
+    /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
+    public var hidesWorkspaces = false
+    /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
+    /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
+    public var groupsByFolder = false
 
     public init() {}
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Icon only: the name and the unread mark always draw (minimal mode).
+    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon]))
+
+    /// What `ws`'s row draws under these options. Minimal mode drops the
+    /// second line (including another computer's name and a machine's
+    /// stage), counts, badges and the working dots; attention states
+    /// (waiting, error) still show, like the unread mark.
+    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
+        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
+        content.detail = nil
+        return content
+    }
 }

@@ -17,6 +17,9 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--person-key-fd`: this launch's person key from the app that
+    /// spawned the daemon (`hub/person.rs`); read and closed at once.
+    pub person_key_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
@@ -41,6 +44,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
+    // Before anything is spawned: the key never reaches a child.
+    let person_key = opts.person_key_fd.and_then(read_person_key);
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -72,6 +77,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
+    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
+    // `local-coderouter` routes read its port and mint keys from it. Opt-in
+    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1): test daemons in temporary
+    // homes must not leave detached routers behind.
+    if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
+        ensure_router();
+    }
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
@@ -168,6 +180,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    if let Some(key) = person_key {
+        // A Team-signed daemon takes the key only from the signed app's
+        // `_acpmux/person_enroll`: a same-uid process could restart it with
+        // a key of its own.
+        if cmux_link::app_caller::signed_app_build() {
+            tracing::warn!(
+                "--person-key-fd ignored: a signed daemon enrolls the app by its signature"
+            );
+        } else if let Err(e) = hub.person.install_spawn_key(&key) {
+            tracing::warn!("--person-key-fd: {e}");
+        }
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
@@ -176,6 +200,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
+    }
+    // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
+    // that changes which installed agents are harnesses reloads them (and
+    // only then: a reload restarts pooled sessions).
+    // `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
+    if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+            let before = installed().await.ok();
+            match crate::registry::refresh(&home()).await {
+                Ok(true) if installed().await.ok() != before => {
+                    if let Err(e) = hub.reload_catalog().await {
+                        tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
+            }
+        });
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -196,6 +240,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
+    // harnesses (the Chief lists the ones it uses); unset, every harness.
+    hub.set_probe_only(Hub::probe_only_from_env(
+        std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
+    ));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
@@ -261,8 +310,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
+    // The stop signals are registered before the ready line: a launcher may
+    // stop the daemon as soon as it reads the line, and a signal that came
+    // before registration would end the daemon by the default action
+    // (no shutdown path: the token, pid file and socket would stay).
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+    };
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
+    }
+    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon
+    // right after the ready line, so integration tests can stop it in that
+    // window. Bounded; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
@@ -284,14 +353,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let shutdown = async {
-        let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = ctrl_c => {},
-                _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
+                _ = next_signal(term.as_mut()) => {},
+                _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
         }
@@ -321,6 +388,43 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The next delivery of a registered signal; never, if registration failed.
+#[cfg(unix)]
+async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Read the person key (one line, at most 128 bytes) from an inherited
+/// descriptor and close it. The key is never logged.
+fn read_person_key(fd: i32) -> Option<String> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    if fd <= 2 {
+        tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
+        return None;
+    }
+    // SAFETY: the launcher passed this descriptor for us to read and close;
+    // `File` owns and closes it here.
+    let f = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut buf = Vec::with_capacity(80);
+    if let Err(e) = f.take(128).read_to_end(&mut buf) {
+        tracing::warn!("--person-key-fd {fd}: {e}");
+        return None;
+    }
+    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    if crate::hub::person::valid_key(&key) {
+        Some(key)
+    } else {
+        tracing::warn!("--person-key-fd {fd}: not a person key");
+        None
+    }
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
@@ -670,6 +774,57 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+/// Start `acpmux router serve` as a detached child unless a router already
+/// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
+/// streams keep running); a later daemon finds and reuses it.
+fn ensure_router() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    let socket = home().join("router").join("router.sock");
+    let ask = |line: &[u8]| -> std::io::Result<Value> {
+        let stream = UnixStream::connect(&socket)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut writer = stream.try_clone()?;
+        writer.write_all(line)?;
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer)?;
+        serde_json::from_str(&answer).map_err(std::io::Error::other)
+    };
+    let build = crate::hub::BUILD;
+    if let Ok(status) = ask(b"{\"op\":\"status\"}\n") {
+        if status.get("build").and_then(Value::as_str) == Some(build) {
+            return;
+        }
+        // Another build: it stops; the new router waits on router.lock until
+        // the old one has exited, so no sleep is needed here.
+        let _ = ask(b"{\"op\":\"shutdown\"}\n");
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", build)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Its own session: a daemon exit or a terminal hangup does not stop it.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
 }
 

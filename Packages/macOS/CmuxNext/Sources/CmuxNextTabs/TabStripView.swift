@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 import Observation
@@ -54,7 +55,7 @@ public final class TabStripView: NSView {
     let inlineRename = TabInlineRename()
     // MARK: Views
 
-    var glassView: NSGlassEffectView?
+    var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
     let fadeMask = CAGradientLayer()
@@ -69,6 +70,7 @@ public final class TabStripView: NSView {
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
+    let windowMain = WindowMainObserver()
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
@@ -225,6 +227,7 @@ public final class TabStripView: NSView {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this strip's card only.
         hoverCards.unregister(hoverCard)
+        windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         if window != nil {
             hoverCards.register(hoverCard)
             applyTokens(animated: false)
@@ -275,7 +278,7 @@ public final class TabStripView: NSView {
         guard observationTask == nil else { return }
         let model = model
         observationTask = Task { [weak self] in
-            let changes = Observations {
+            let changes = ObservationStream {
                 ModelSnapshot(
                     tabs: model.tabs,
                     groups: model.groups,
@@ -297,7 +300,7 @@ public final class TabStripView: NSView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = Observations { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
+            let changes = ObservationStream { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
             for await snapshot in changes {
                 guard let self else { return }
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {

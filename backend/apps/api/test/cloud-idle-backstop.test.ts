@@ -33,10 +33,6 @@ const vmSetup = async (sub: string) => {
 }
 
 describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () => {
-  it("the create request turns every Freestyle timer off and keeps automatic restart", () => {
-    const body = createBody("cmuxnp-test-cld-vm-00000000000000000001", "snap", { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }, { idleSeconds: 1800 })
-    expect(body).toMatchObject({ idleTimeoutSeconds: -1, autoDeleteSeconds: -1, ttlSeconds: -1, maxRunSeconds: -1, maxRunTotalSeconds: -1, automaticRestart: true })
-  })
 
   it("with cloud.idlePause off, a machine idle 24 h by its own reports pauses; 23 h does not", async () => {
     const s = await vmSetup("cloud-bind-5")

@@ -16,6 +16,11 @@ public struct SidebarDebugRow: Sendable {
     public var selected: Bool
     /// The workspace is muted (`notifications.mutedWorkspaces`): its row draws the mark.
     public var muted: Bool
+    /// The workspace row's merged status (`StatusIndicatorState`), e.g.
+    /// `success` for an unseen done, nil for other rows.
+    public var activity: String? = nil
+    /// The workspace row's icon kind (`symbol`, `swatch`, `emoji`, `favicon`), nil without one.
+    public var icon: String? = nil
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -72,16 +77,28 @@ extension SidebarView {
             let view = list.rowViews[row.key]
             var title: String?
             var muted = false
+            var activity: String?
+            var icon: String?
             if case let .workspace(id) = row.key, let workspace = model.workspace(id) {
                 title = workspace.title
                 muted = workspace.muted
+                activity = String(describing: workspace.activity)
+                icon = workspace.icon.map { icon in
+                    switch icon {
+                    case .symbol: "symbol"
+                    case .swatch: "swatch"
+                    case .emoji: "emoji"
+                    case .favicon: "favicon"
+                    }
+                }
             }
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
-                                   suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted)
+                                   suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
+                                   activity: activity, icon: icon)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

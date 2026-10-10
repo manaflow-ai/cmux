@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
 import Foundation
@@ -100,6 +101,7 @@ final class HomeService {
         // daemon carries only the cloud proxy's events (its own conversation
         // store is the old per-tag one, which Home no longer shows).
         chief.onEvent = { [weak self] event in self?.handle(event) }
+        showLocalChiefRow()
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .cloudConversations = event { self?.handle(event) }
         }
@@ -114,7 +116,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in Observations({
+            for await (connection, _) in ObservationStream({
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
@@ -125,7 +127,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
-            for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
@@ -158,7 +160,7 @@ final class HomeService {
 
     /// Home opened in a window: start the Chief home's brain host once per
     /// launch. Its lock keeps one host per home, so a host another build
-    /// started keeps running and this launch's exits at once.
+    /// started keeps running, with its token: no new token revokes its binding.
     func homeDidOpen() {
         if !homeWasOpened {
             homeWasOpened = true
@@ -175,8 +177,8 @@ final class HomeService {
             startedBrainHost = true
             // The mux proves its principal with a token this (user) connection mints.
             do {
-                let token = try await ConversationClient(connection).agentToken(for: HomeService.mux.id)
-                await host.launch(agentToken: token)
+                let outcome = try await host.start { try await ConversationClient(connection).agentToken(for: HomeService.mux.id) }
+                logger.info("mux host: \(String(describing: outcome), privacy: .public)")
             } catch {
                 startedBrainHost = false
                 logger.error("mux agent token: \(String(describing: error), privacy: .public)")

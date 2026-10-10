@@ -19,6 +19,7 @@
 //! The materialized table is authoritative for restoration, so a restore
 //! preview never counts these records as unsupported required state.
 
+mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -105,6 +106,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
@@ -265,6 +267,10 @@ pub struct PresentationSnapshot {
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// The app of every live app workspace, by workspace key (`app-screens-v1`).
+    pub app_workspaces: HashMap<String, String>,
+    /// App tab records, by public browser id (`app-screens-v1`).
+    pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -682,6 +688,7 @@ pub(crate) fn append_presentation_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     Ok(())
@@ -822,98 +829,6 @@ pub(crate) fn write_workspace_presentation(
 }
 
 impl WorkspaceRegistry {
-    /// Groups in order plus the presentation of every live workspace.
-    pub fn presentation_snapshot(&self) -> anyhow::Result<PresentationSnapshot> {
-        let groups = read_groups(&self.connection)?;
-        let mut statement = self.connection.prepare(
-            "SELECT p.workspace_key, p.group_id, p.color, p.icon, p.title, p.pinned,
-                    p.marked_unread
-             FROM workspace_presentation AS p
-             JOIN workspaces AS w ON w.workspace_key = p.workspace_key
-             WHERE w.tombstoned = 0",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                WorkspacePresentationRecord {
-                    group: row.get(1)?,
-                    color: row.get(2)?,
-                    icon: row.get(3)?,
-                    title: row.get(4)?,
-                    pinned: row.get::<_, i64>(5)? != 0,
-                    marked_unread: row.get::<_, i64>(6)? != 0,
-                },
-            ))
-        })?;
-        let mut workspaces = HashMap::new();
-        for row in rows {
-            let (key, mut record) = row?;
-            if record.group.as_deref().is_some_and(|id| !groups.iter().any(|g| g.id == id)) {
-                record.group = None;
-            }
-            if !record.is_empty() {
-                workspaces.insert(key, record);
-            }
-        }
-        let pinned_tabs = self
-            .connection
-            .prepare(
-                "SELECT p.tab_id FROM tab_presentation AS p
-                 JOIN resource_tabs AS t ON t.public_id = p.tab_id
-                 WHERE p.pinned = 1 AND t.deleted_revision IS NULL",
-            )?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
-        let mut frontend_browsers = HashMap::new();
-        {
-            let mut statement = self.connection.prepare(
-                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id, f.owner
-                 FROM frontend_browser_tabs AS f
-                 WHERE NOT EXISTS (
-                   SELECT 1 FROM resource_browsers AS b
-                   WHERE b.public_id = f.browser_id AND b.lifecycle = 'tombstoned'
-                 )",
-            )?;
-            let rows = statement.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    FrontendBrowserRecord {
-                        engine: row.get(1)?,
-                        url: row.get(2)?,
-                        title: row.get(3)?,
-                        favicon_url: row.get(4)?,
-                        profile_id: row.get(5)?,
-                        owner: row.get(6)?,
-                    },
-                ))
-            })?;
-            for row in rows {
-                let (browser_id, record) = row?;
-                frontend_browsers.insert(browser_id, record);
-            }
-        }
-        let tab_groups = read_tab_group_state(&self.connection)?;
-        let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
-        let screens = super::screen_store::read_screen_state(&self.connection)?;
-        let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
-        let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
-        let conversation_tabs = read_conversation_tabs(&self.connection)?;
-        let home_workspace = crate::state::home_store::live_home(&self.connection)?.map(|h| h.1);
-        Ok(PresentationSnapshot {
-            groups,
-            workspaces,
-            pinned_tabs,
-            frontend_browsers,
-            conversation_tabs,
-            home_workspace,
-            tab_groups,
-            saved_tab_groups,
-            screens,
-            saved_screen_groups,
-            kept_tabs,
-        })
-    }
-
     /// Create a group at `index` (default: last). Creating an id that
     /// already exists with the same name is an idempotent retry and returns
     /// the stored group with `false`.
@@ -930,7 +845,8 @@ impl WorkspaceRegistry {
         if let Some(color) = color {
             validate_presentation_color(color)?;
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(existing) = read_group(&tx, id)? {
             anyhow::ensure!(
                 existing.name == name,
@@ -978,7 +894,8 @@ impl WorkspaceRegistry {
         if let Some(Some(color)) = color {
             validate_presentation_color(color)?;
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut group =
             read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown workspace group {id}"))?;
         if let Some(name) = name {
@@ -1007,7 +924,8 @@ impl WorkspaceRegistry {
     /// Delete a group. Its workspaces stay in place and become ungrouped; their keys are returned.
     pub fn delete_workspace_group(&mut self, id: &str) -> anyhow::Result<Vec<String>> {
         validate_workspace_group_id(id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         anyhow::ensure!(read_group(&tx, id)?.is_some(), "unknown workspace group {id}");
         let members = {
             let mut statement = tx.prepare(
@@ -1042,7 +960,8 @@ impl WorkspaceRegistry {
     /// same insertion-point semantics as `move-workspace`. Returns the final index.
     pub fn move_workspace_group(&mut self, id: &str, index: usize) -> anyhow::Result<usize> {
         validate_workspace_group_id(id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
         let old_index = order
             .iter()
@@ -1072,7 +991,8 @@ impl WorkspaceRegistry {
             tab_id.starts_with("tab_") && tab_id.len() <= 64,
             "bad request: invalid tab id {tab_id}"
         );
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let live = tx
             .query_row(
                 "SELECT 1 FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
@@ -1127,7 +1047,8 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         validate_browser_public_id(browser_id)?;
         record.validate()?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let exists = tx
             .query_row("SELECT 1 FROM resource_browsers WHERE public_id = ?1", [browser_id], |_| {
                 Ok(())
@@ -1171,7 +1092,8 @@ impl WorkspaceRegistry {
         favicon_url: Option<Option<&str>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let before = read_frontend_browser(&tx, browser_id)?
             .ok_or_else(|| anyhow::anyhow!("browser {browser_id} is not frontend-rendered"))?;
         let mut record = before.clone();
@@ -1207,63 +1129,18 @@ impl WorkspaceRegistry {
     /// Notification ids acknowledged as read on the shared console. A
     /// restart restores an unread marker only for unacknowledged ones.
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
-        let mut statement =
-            self.connection.prepare("SELECT notification_id FROM notification_acks")?;
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
         let ids = statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<HashSet<_>, _>>()?;
         Ok(ids)
     }
 
-    /// Durably acknowledge notifications, then drop acknowledgements of
-    /// notifications no longer retained by committed receipts. Returns how
-    /// many ids were newly acknowledged.
-    pub fn ack_notifications_durable(
-        &mut self,
-        notification_ids: &[String],
-        acked_at_ms: u64,
-        subjects: Vec<JournalSubject>,
-    ) -> anyhow::Result<usize> {
-        if notification_ids.is_empty() {
-            return Ok(0);
-        }
-        let tx = self.connection.transaction()?;
-        let mut added = 0;
-        for id in notification_ids {
-            anyhow::ensure!(
-                id.starts_with("notification_") && id.len() <= 64,
-                "bad request: invalid notification id {id}"
-            );
-            added += tx.execute(
-                "INSERT OR IGNORE INTO notification_acks(notification_id, acked_at_ms)
-                 VALUES(?1, ?2)",
-                params![id, i64::try_from(acked_at_ms)?],
-            )?;
-        }
-        tx.execute(
-            "DELETE FROM notification_acks WHERE notification_id NOT IN (
-               SELECT json_extract(outcome_json, '$.value.id')
-               FROM resource_effect_receipts
-               WHERE operation = 'notification.create' AND state = 'committed'
-                 AND json_extract(outcome_json, '$.value.id') IS NOT NULL
-             )",
-            [],
-        )?;
-        if added > 0 {
-            append_presentation_record(
-                &tx,
-                "notification.acknowledged",
-                subjects,
-                &json!({"notification_ids": notification_ids, "acked_at_ms": acked_at_ms}),
-            )?;
-        }
-        tx.commit()?;
-        Ok(added)
-    }
-
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
     pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         write_tab_group_state(&tx, state)?;
         tx.commit()?;
         Ok(())
@@ -1272,7 +1149,8 @@ impl WorkspaceRegistry {
     /// Create or replace a saved tab group, keeping its bar position and
     /// room (new records go last).
     pub fn put_saved_tab_group(&mut self, record: &SavedTabGroupRecord) -> anyhow::Result<()> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         put_saved_tab_group_in(&tx, record)?;
         tx.commit()?;
         Ok(())
@@ -1280,7 +1158,8 @@ impl WorkspaceRegistry {
 
     /// Delete a saved tab group. Returns whether it existed.
     pub fn delete_saved_tab_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let removed = delete_saved_tab_group_in(&tx, saved_id)?;
         tx.commit()?;
         Ok(removed)

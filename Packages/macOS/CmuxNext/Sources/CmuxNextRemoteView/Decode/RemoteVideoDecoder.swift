@@ -1,7 +1,7 @@
 public import CoreGraphics
 public import CoreVideo
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import VideoToolbox
 
 /// One decoded picture: an IOSurface-backed NV12 pixel buffer (full range,

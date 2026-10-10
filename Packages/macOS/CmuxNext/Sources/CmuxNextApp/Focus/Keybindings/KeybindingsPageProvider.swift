@@ -27,7 +27,8 @@ final class KeybindingsPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.keybindings.list":
-            return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry)
+            return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry,
+                                             heldElsewhere: services.globalHotKeys.conflicts)
         case "cmux.keybindings.record.start":
             startRecording()
             return .object([:])

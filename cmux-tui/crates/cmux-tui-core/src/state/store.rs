@@ -81,11 +81,18 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
     super::closed_history_store::create_closed_history_schema(transaction)?;
+    // Archives of closed terminals (ARCHIVE-1): after closed_groups, whose
+    // triggers drop an archive with its group.
+    crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
+    super::agent_message_store::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
+    super::projects_store::create_projects_schema(transaction)?;
+    super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
+    super::app_workspaces::create_app_tabs_schema(transaction)?;
     super::conversation_tabs_store::create_conversation_tabs_schema(transaction)?;
     super::frontend_browser_keys::create_frontend_browser_keys_schema(transaction)?;
     Ok(())
@@ -223,7 +230,8 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed.into());
         }
@@ -280,7 +288,7 @@ impl WorkspaceRegistry {
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        read(&self.connection)
+        read(&self.connection.get())
     }
 }
 

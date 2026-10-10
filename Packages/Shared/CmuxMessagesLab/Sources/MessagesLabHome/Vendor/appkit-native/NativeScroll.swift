@@ -58,11 +58,17 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         documentView = document
         verticalScroller = SequenceScroller()
         let nc = NotificationCenter.default
-        nc.addObserver(self, selector: #selector(clipMoved(_:)), name: NSView.boundsDidChangeNotification, object: clip)
-        nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) }
-        nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) }
+        // cmux: a block observer on queue: .main (inline for the clip's post on main), not a selector:
+        // a selector into this main-actor view trapped on a post off main (crash program). Tokens kept and removed.
+        observers = [
+            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
+            nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
+            nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) },
+        ]
     }
     required init?(coder: NSCoder) { fatalError() }
+    private var observers: [NSObjectProtocol] = []  // cmux
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
 
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
@@ -121,7 +127,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
 
     // MARK: Clip view -> model
 
-    @objc private func clipMoved(_ n: Notification) {
+    private func clipMoved(_ n: Notification) {  // cmux: no selector
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
         let y = clip.bounds.origin.y - shift
@@ -138,7 +144,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         applyingClip = false
         // The list rounds to the pixel grid; keep the clip view on it too.
         if cv.contentOffset.y != y { pushOffset() }
-        if let sel = document.controller?.selection, !sel.isEmpty { sel.refresh() }
+        if let sel = document.controller?.selection, sel.showsHighlight { sel.refresh() }
     }
 
     // MARK: Model -> clip view
@@ -222,6 +228,118 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         i.top -= dt
         i.bottom -= db
         scrollerInsets = i
+    }
+
+    // MARK: Track-click page
+
+    /// A track click pages one view (the visible height less 40 pt, as the Page keys do).
+    /// Messages animates it (scrollbar-track-click-take2): rows and thumb slide over 0.21 s
+    /// with an ease-in-out curve (`scroll.page` in springs.json). Here the offset jumps at
+    /// once, so the click's commit already lays out the landing view (no layout or page load
+    /// in the frames of the motion), and one render-server animation on the transcript layer
+    /// (`addPageMotion`) and one on the drawn thumb (`slideKnob`) show the slide. A second
+    /// click while one runs adds its page to the landing offset and restarts the slide from
+    /// where the rows and the thumb show, with a fresh `scroll.page` to the new end (Messages:
+    /// scrollbar-track-chain-take1, two clicks 85 ms apart, fits this at 0.9 pt rms against
+    /// 2.1 pt for two motions that add up; `--page-chain-additive` keeps the old rule). A
+    /// wheel or trackpad scroll, or a knob press, stops the slide where it shows (`stopPage`).
+    static let chainAdditive = ProcessInfo.processInfo.arguments.contains("--page-chain-additive")
+    func page(_ dir: Int, event: NSEvent?) {
+        guard let demo else { return }
+        let el = Springs.element("scroll.page")
+        let begin = Animate.now(demo.layer) - SequenceScroller.sinceInput(event)
+        let from = clip.bounds.origin
+        var to = from
+        to.y += CGFloat(dir) * max(40, clip.bounds.height - 40)
+        to = clip.constrainBoundsRect(NSRect(origin: to, size: clip.bounds.size)).origin
+        let s = window?.backingScaleFactor ?? 2
+        to.y = (to.y * s).rounded() / s
+        guard abs(to.y - from.y) > 0.01 else { return }
+        let scroller = verticalScroller as? SequenceScroller
+        let bar = scroller?.barRect
+        CATransaction.begin()
+        // When the slide ends (event-driven: its animations completed or a scroll removed them),
+        // the selection highlight drops the rows that only the slide showed.
+        CATransaction.setCompletionBlock { [weak self] in
+            if let sel = self?.document.controller?.selection, sel.showsHighlight { sel.refresh() }
+        }
+        // A chained click: the running slide stops where it shows (rows and thumb), and one new
+        // slide goes from there to the new end.
+        var shown = from.y
+        var barFrom = bar
+        if !Self.chainAdditive, demo.hasPageMotion {
+            shown -= demo.cancelPageMotions(at: begin)
+            if let top = scroller?.takeSlide(), var b = barFrom {
+                let s = window?.backingScaleFactor ?? 2
+                b.origin.y = (top * s).rounded() / s
+                barFrom = b
+            }
+        }
+        // The motion first: the jump's layout pass keeps the rows it starts from (overscan).
+        demo.addPageMotion(to.y - shown, el, begin: begin)
+        clip.scroll(to: to)
+        reflectScrolledClipView(clip)
+        // The list rounds to its own grid: the motion covers what the offset really moved.
+        let moved = clip.bounds.origin.y - from.y
+        if abs(moved - (to.y - from.y)) > 0.01 { demo.addPageMotion(moved - (to.y - from.y), el, begin: begin) }
+        if let scroller, let barFrom { scroller.slideKnob(from: barFrom, el, begin: begin) }
+        CATransaction.commit()
+        prerenderPage(beyond: dir)
+        watchPageInput()
+    }
+
+    /// The pointer entered the scroller strip (a track click may follow): cells for eight viewports
+    /// of rows (three chained clicks keep about four on screen, the pool keeps the rest for the
+    /// next click before the motions end) and the bitmaps of one page above and below, made now,
+    /// a batch per run-loop pass and off main, not in the click's frames.
+    func preparePaging() {
+        demo?.reservePageCells(screens: 8)
+        prerenderPage(beyond: -1)
+        prerenderPage(beyond: 1)
+    }
+
+    /// The next page in the direction of the move gets its row bitmaps off main now: the rows a
+    /// following click (or a scroll) shows first are ready when it comes.
+    private func prerenderPage(beyond dir: Int) {
+        guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
+        let b = r.bounds, h = b.height
+        let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
+        let n = r.layout.model.count
+        for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
+            guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // cmux: checked
+            switch spec.kind { case .receipt, .typing: continue; default: break }
+            if !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec) }
+        }
+    }
+
+    private var pageInputMonitor: Any?
+    /// While a page slides: a wheel or trackpad scroll in this window stops it first (a local
+    /// monitor sees the event before the scroll view applies it). Removed when nothing slides.
+    private func watchPageInput() {
+        guard pageInputMonitor == nil else { return }
+        pageInputMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+            guard let self else { return e }
+            if e.window === self.window { self.stopPage() }
+            return e
+        }
+    }
+    /// Stops a sliding page where it shows: the offset takes the presented translation and the
+    /// motions go, in one transaction (no frame shows a jump). Also the end of the input watch.
+    /// `at`: the layer time to stop at (bench; default now).
+    func stopPage(at time: CFTimeInterval? = nil) {
+        if let m = pageInputMonitor { NSEvent.removeMonitor(m); pageInputMonitor = nil }
+        guard let demo, demo.hasPageMotion else { demo?.cancelPageMotions(); return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let scroller = verticalScroller as? SequenceScroller
+        let thumbShown = scroller?.presentedBarTop
+        let rest = demo.cancelPageMotions(at: time)
+        if abs(rest) > 0.01, let cv = collection {
+            // On the device-pixel grid, as the list keeps it (at most half a pixel from where it showed).
+            let s = window?.backingScaleFactor ?? 2
+            scroll(toModelOffset: ((cv.contentOffset.y - rest) * s).rounded() / s)
+        }
+        if let scroller, let thumbShown { scroller.stopSlide(shownTop: thumbShown) }
+        CATransaction.commit()
     }
 
     /// Scroll to a shared offset through the clip view (bench, audit, keys).
@@ -424,6 +542,7 @@ final class SequenceScroller: NSScroller {
     override func mouseEntered(with event: NSEvent) {
         pointerInside = true
         guard shown else { return }
+        (superview as? TranscriptScrollView)?.preparePaging()
         cancelHide()
         if !legacy, alphaValue < 1, showTimer?.isValid != true { alphaValue = 1 }
         guard !expanded else { return }
@@ -534,8 +653,122 @@ final class SequenceScroller: NSScroller {
         return NSRect(x: barRight - w, y: top, width: w, height: h)
     }
     override func drawKnob() {
-        guard shown else { return }
+        guard shown else { slide?.isHidden = true; return }
+        if slide != nil { placeSlide(); return }
+        drawBar(barRect)
+    }
+
+    // MARK: Page slide
+
+    /// While a track click's page slides, the drawn bar is a view of its own (the same drawing) at
+    /// the model position, with an additive render-server animation from where the bar was: the
+    /// track stays in the scroller's drawing, only the bar moves. At the end the scroller draws it
+    /// again and the view goes, in one transaction.
+    private final class SlideBar: NSView {
+        weak var scroller: SequenceScroller?
+        var yDown = true
+        override var isFlipped: Bool { yDown }
+        override var isOpaque: Bool { false }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func draw(_ dirtyRect: NSRect) { scroller?.drawBar(bounds.insetBy(dx: 1, dy: 1)) }
+    }
+    private var slide: SlideBar?
+    private var slideGeneration = 0
+    private var slideKeys: [String] = []
+    /// The live slides (view points the bar starts away from the model bar, timing, begin): the
+    /// bar's shown place in closed form (no presentation layer: a stop reads it in its own commit).
+    private var slideMotions: [(CGFloat, SpringElement, CFTimeInterval)] = []
+    func slideKnob(from old: NSRect, _ el: SpringElement, begin: CFTimeInterval) {
+        guard shown, window != nil else { return }
         let bar = barRect
+        guard abs(old.minY - bar.minY) > 0.01 else { return }
+        if slide == nil {
+            let v = SlideBar(frame: bar.insetBy(dx: -1, dy: -1))
+            v.scroller = self
+            v.yDown = isFlipped
+            v.wantsLayer = true
+            v.layerContentsRedrawPolicy = .onSetNeedsDisplay
+            addSubview(v)
+            slide = v
+            needsDisplay = true   // the bar leaves the scroller's own drawing
+        }
+        guard let v = slide, let l = v.layer else { return }
+        // Where AppKit puts the layer for the old and the new bar (no assumption about the flip).
+        v.setFrameOrigin(old.insetBy(dx: -1, dy: -1).origin)
+        let from = l.position.y
+        placeSlide()
+        let to = l.position.y
+        slideGeneration += 1
+        let gen = slideGeneration
+        // Ends when this animation ends, unless a later click added one (its own end then).
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, self.slideGeneration == gen else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            self.endSlide()
+            CATransaction.commit()
+        }
+        slideKeys += Animate.scalar(l, "position.y", from: Double(from), to: Double(to), el, begin: begin)
+        slideMotions.append((old.minY - bar.minY, el, begin))
+        CATransaction.commit()
+    }
+    /// The drawn bar's top as it shows now (bench: the slide's presented layer while it slides).
+    var presentedBarTop: CGFloat {
+        guard slide != nil, let l = layer else { return barRect.minY }
+        let now = Animate.now(l)
+        return barRect.minY + slideMotions.reduce(0) { $0 + $1.0 * CGFloat(1 - $1.1.value(now - $1.2, from: 0, to: 1)) }
+    }
+    /// The slide's view follows the model bar (a value or width change while it slides).
+    private func placeSlide() {
+        guard let v = slide else { return }
+        v.isHidden = false
+        let f = barRect.insetBy(dx: -1, dy: -1)
+        if v.frame.size != f.size { v.setFrameSize(f.size); v.needsDisplay = true }
+        if v.frame.origin != f.origin { v.setFrameOrigin(f.origin) }
+    }
+    /// A chained track click restarts the slide: the bar's running animations go (the slide view
+    /// stays) and the next `slideKnob` starts from where the bar shows now, which this returns.
+    func takeSlide() -> CGFloat? {
+        guard let v = slide, !slideMotions.isEmpty else { return nil }
+        let top = presentedBarTop
+        slideKeys.forEach { v.layer?.removeAnimation(forKey: $0) }
+        slideKeys = []
+        slideMotions = []
+        return top
+    }
+    /// A scroll stopped the page: the bar leaves where it shows (`shownTop`) for the bar of the
+    /// offset where the rows stopped. The thumb follows the message sequence, not the points, so
+    /// the two differ by a few points mid-slide; a short ease-out covers that instead of a jump.
+    func stopSlide(shownTop: CGFloat) {
+        guard let v = slide else { return }
+        slideKeys.forEach { v.layer?.removeAnimation(forKey: $0) }
+        slideKeys = []
+        slideMotions = []
+        let bar = barRect
+        guard abs(shownTop - bar.minY) >= 0.25, let s = window?.backingScaleFactor else { endSlide(); return }
+        var from = bar
+        from.origin.y = (shownTop * s).rounded() / s
+        guard let clockLayer = layer ?? v.layer else { endSlide(); return } // cmux: no force unwrap
+        slideKnob(from: from, Self.slideStop, begin: Animate.now(clockLayer))
+        if slideKeys.isEmpty { endSlide() }
+    }
+    /// The stop's ease-out (not measured: Messages' stop of a sliding page has no reference take).
+    static let slideStop = SpringElement(name: "scroller.slideStop", from: 0, to: 1, components: [
+        .init(delay: 0, spring: Spring(duration: 0.12, bounce: 0), delta: 1, curve: Curve(x1: 0, y1: 0, x2: 0.58, y2: 1, duration: 0.12))])
+    /// The bar is drawn by the scroller again (now, in this transaction) and the slide view goes.
+    func endSlide() {
+        guard let v = slide else { return }
+        slideKeys.forEach { v.layer?.removeAnimation(forKey: $0) }
+        slideKeys = []
+        slideMotions = []
+        slide = nil
+        slideGeneration += 1
+        needsDisplay = true
+        displayIfNeeded()
+        v.removeFromSuperview()
+    }
+
+    fileprivate func drawBar(_ bar: NSRect) {
         let r = bar.width / 2
         NSColor(white: 0, alpha: 0.2).setFill()
         let edge = NSBezierPath(roundedRect: bar.insetBy(dx: -0.5, dy: -0.5), xRadius: r + 0.5, yRadius: r + 0.5)
@@ -553,10 +786,16 @@ final class SequenceScroller: NSScroller {
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         let knob = rect(for: .knob)
-        if knob.insetBy(dx: -4, dy: 0).contains(p) || !rect(for: .knobSlot).contains(p) && knob.minY <= p.y && p.y <= knob.maxY {
+        let jump = UserDefaults.standard.bool(forKey: "AppleScrollerPagingBehavior") != event.modifierFlags.contains(.option)
+        let onKnob = knob.insetBy(dx: -4, dy: 0).contains(p) || !rect(for: .knobSlot).contains(p) && knob.minY <= p.y && p.y <= knob.maxY
+        // A knob press or a jump stops a sliding page where it shows (the knob is then where it is drawn).
+        if onKnob || jump, slide != nil, let sv = superview as? TranscriptScrollView {
+            sv.stopPage()
+            return mouseDown(with: event)
+        }
+        if onKnob {
             track(event, grab: p.y - knob.minY); return
         }
-        let jump = UserDefaults.standard.bool(forKey: "AppleScrollerPagingBehavior") != event.modifierFlags.contains(.option)
         if jump {
             dragBegan(at: p.y, grab: knob.height / 2)
             dragMoved(to: p.y)
