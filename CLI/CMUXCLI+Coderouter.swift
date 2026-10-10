@@ -394,7 +394,10 @@ extension CMUXCLI {
         let outputPipe = Pipe()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: scriptPath)
-        process.arguments = ["-q", "/dev/null", "/usr/bin/env", "claude", "setup-token"]
+        // `claude setup-token` hard-wraps at the terminal width, and a 108-character
+        // token wraps in most terminals; the regex would then keep only its first
+        // line. Widen the PTY so the token always prints on one line.
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", "stty cols 1000 2>/dev/null; exec claude setup-token"]
         process.standardInput = FileHandle.standardInput
         process.standardOutput = outputPipe
         process.standardError = FileHandle.standardError
