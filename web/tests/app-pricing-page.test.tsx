@@ -115,7 +115,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
@@ -244,11 +244,11 @@ describe("app pricing page", () => {
     expect(html).toContain("$60/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    // Max ignores the annual selector: still $200 /mo, never billed yearly.
+    // Max follows the annual selector just like Pro.
     expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toContain("$160");
+    expect(html).toContain("Yearly");
+    expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).not.toContain("appearance=dark&amp;interval=month");
@@ -274,7 +274,7 @@ describe("app pricing page", () => {
     expect(html).not.toMatch(/billed yearly, save/);
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
-    expect(html).not.toMatch(/plan%253D(go|max|team)[^"]*interval%253Dyear/);
+    expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

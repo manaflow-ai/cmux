@@ -1,5 +1,6 @@
 import CMUXDebugLog
 import CmuxAuthRuntime
+import CmuxCloudResizeCore
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -310,7 +311,9 @@ public struct VMSummary: Sendable {
         cmuxTuiContract: String? = nil,
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil,
-        createAttach: VMCmuxRemoteEndpoint? = nil
+        createAttach: VMCmuxRemoteEndpoint? = nil,
+        resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -329,6 +332,8 @@ public struct VMSummary: Sendable {
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
         self.createAttach = createAttach
+        self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -349,7 +354,9 @@ public struct VMSummary: Sendable {
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
             agentUpdates: agentUpdates,
-            createAttach: createAttach
+            createAttach: createAttach,
+            resourceReservation: resourceReservation,
+            resourcePoolClaim: resourcePoolClaim
         )
     }
 
@@ -387,6 +394,13 @@ public struct VMSummary: Sendable {
     public var agentUpdates: CloudAgentUpdates?
     /// A create-only dial receipt from snapshot-v2. List and status responses leave this nil.
     public var createAttach: VMCmuxRemoteEndpoint?
+    /// The machine's server-recorded compute reservation for shared-pool math.
+    /// This remains separate from live guest stats, which can be stale or absent.
+    public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to `limits.used*`. Legacy rows may claim the
+    /// provider maximum until reconciliation records a measured reservation.
+    /// It is never used as the live grow-only shape.
+    public var resourcePoolClaim: CloudVMResourceReservation?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -413,6 +427,9 @@ public struct VMPlanLimits: Sendable {
         freeAccessWindowDays: Int,
         freeAccessExpiresAt: Int64? = nil,
         memoryOptionsMb: [Int] = [],
+        maxDiskMb: Int? = nil,
+        maxMemoryMb: Int? = nil,
+        maxVcpus: Int? = nil,
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
@@ -426,6 +443,9 @@ public struct VMPlanLimits: Sendable {
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.memoryOptionsMb = memoryOptionsMb
+        self.maxDiskMb = maxDiskMb
+        self.maxMemoryMb = maxMemoryMb
+        self.maxVcpus = maxVcpus
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
@@ -445,6 +465,12 @@ public struct VMPlanLimits: Sendable {
     public var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     public var memoryOptionsMb: [Int] = []
+    /// Maximum disk size accepted by the caller's current plan.
+    public var maxDiskMb: Int? = nil
+    /// Maximum memory size accepted by the caller's current plan.
+    public var maxMemoryMb: Int? = nil
+    /// Maximum vCPU count accepted by the caller's current plan.
+    public var maxVcpus: Int? = nil
     /// Ladder sizes the plan cannot start (`[65536]` on Pro, `[]` on
     /// Max); nil when the control plane predates the field and the client
     /// mirror decides.
@@ -1572,6 +1598,21 @@ public actor VMClient {
         return object.compactMapValues { decodeIntArray([$0]).first }
     }
 
+    /// A positive integer plan ceiling; malformed or absent values are nil so
+    /// older control planes remain readable and the server remains authoritative.
+    static func decodePositiveInt(_ raw: Any?) -> Int? {
+        decodeIntArray([raw as Any]).first
+    }
+
+    /// `vms[].resources` carries the server's pool claim. Malformed values are
+    /// ignored so live stats remain the fallback for older APIs.
+    static func decodeResourceReservation(_ raw: Any?) -> CloudVMResourceReservation? {
+        guard let object = raw as? [String: Any],
+              let vcpus = decodePositiveInt(object["vcpus"]),
+              let memoryMb = decodePositiveInt(object["memoryMb"]) else { return nil }
+        return CloudVMResourceReservation(vcpus: vcpus, memoryMb: memoryMb, diskMb: decodePositiveInt(object["diskMb"]))
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
@@ -1662,6 +1703,8 @@ public actor VMClient {
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             summary.createAttach = Self.decodeCreateAttach(obj["attach"])
+            summary.resourceReservation = Self.decodeResourceReservation(obj["resources"])
+            summary.resourcePoolClaim = Self.decodeResourceReservation(obj["resourcePoolClaim"] ?? obj["resource_pool_claim"])
             machineCache.record(hasAnyMachine: true)
             return summary
         }

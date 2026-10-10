@@ -438,6 +438,14 @@ from pathlib import Path
 
 workflow = open(sys.argv[1], encoding="utf-8").read()
 
+sign_job = re.search(
+    r"^  build-sign-notarize-nightly:\n(.*?)(?=^  [A-Za-z0-9_-]+:)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+).group(1)
+assert "setup-bun@" not in sign_job
+assert "actions/setup-node@" in sign_job
+
 def step(name):
     match = re.search(
         rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|^  [A-Za-z0-9_-]+:)",
@@ -468,13 +476,23 @@ prepare_recovery = step("Prepare pending notarization recovery artifact")
 assert "steps.notarize-nightly.outputs.submission_pending == 'true'" in prepare_recovery
 assert "submission_id" in prepare_recovery and "dmg_sha256" in prepare_recovery
 assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in recovery
-assert "NIGHTLY_DMG_RELEASE" in recovery
-assert ".notarization.state" in recovery
-assert ".notarization.log" in recovery
+assert "cmux-nightly-notarization-recovery-staging/*" in recovery
 assert "CHANNEL_APP_PATH" in prepare_recovery
+assert "NIGHTLY_DMG_RELEASE" in prepare_recovery
+assert ".notarization.state" in prepare_recovery
+assert ".notarization.log" in prepare_recovery
+assert "computer-use-helper" in prepare_recovery
+assert "helper_state_path" in prepare_recovery
+assert "recovery-staging" in prepare_recovery
 assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
-assert "cmux-nightly-notarization-recovery.json" in recovery
 assert "if-no-files-found: error" in recovery
+assert "compression-level: 0" in recovery
+metadata = step("Upload notarization polling metadata")
+assert "steps.prepare-notarization-recovery.outcome == 'success'" in metadata
+assert "-notarization-metadata-" in metadata
+assert "cmux-nightly-notarization-metadata-staging/*" in metadata
+assert "tar.gz" not in metadata and "NIGHTLY_DMG_RELEASE }}\n" not in metadata
+assert "retention-days: 14" in metadata
 
 notarize_timeout = re.search(
     r"^      - name: Notarize app ticket through final DMG\n(.*?)(?=^      - name:)",
@@ -482,8 +500,10 @@ notarize_timeout = re.search(
     re.MULTILINE | re.DOTALL,
 )
 assert notarize_timeout, "missing notarization step"
-assert "timeout-minutes: 50" in notarize_timeout.group(1)
+assert "timeout-minutes: 90" in notarize_timeout.group(1)
+assert "timeout-minutes: 50" not in notarize_timeout.group(1)
 assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
+assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
 assert "CMUX_NOTARY_WAIT_TIMEOUT" not in notarize_timeout.group(1)
 
 fast_package = step("Package signed fast dogfood DMG")
@@ -496,21 +516,35 @@ assert "if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.sh
 
 resume = Path(sys.argv[1]).with_name("resume-nightly-notarization.yml").read_text(encoding="utf-8")
 assert "workflow_dispatch:" in resume
-assert "gh run download \"$SOURCE_RUN_ID\"" in resume
+assert "gh run download \"$artifact_run_id\"" in resume
+assert "ARTIFACT_RUN_ID" in resume
 assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
 assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
 assert "scripts/ci/resume-nightly-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
+assert "verify_computer_use_helper" in resume_script
+assert "standalone_helper" in resume_script
 assert "notarytool submit" not in resume_script
 assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
+assert "run_with_timeout.py" in resume_script
+assert "CMUX_NOTARY_LOG_TIMEOUT_SECONDS" in resume_script
 assert "SYSPOLICY_TOOL" in resume_script
 assert "refusing to staple or publish" in resume_script
 resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-recovery.py").read_text(encoding="utf-8")
 assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
 assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
 auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "resume-helper-notarization.sh" in auto
+assert "Install recovered DMG packaging tools" in auto
+assert "Import signing certificate for recovered DMG" in auto
+assert "Prepare outer DMG recovery after bounded wait" in auto
+assert "runner.temp" not in auto.split("  wait-and-staple:", 1)[1].split("  poll-outer:", 1)[0]
+assert 'outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"' in auto
+assert "poll-outer:" in auto and "staple-outer:" in auto
+assert "outer-notarization-metadata-" in auto
+assert "fromJSON(needs.poll-outer.outputs.outer_variants)" in auto
 generate_deltas = re.search(
     r"^  generate-deltas:\n(.*?)(?=^  republish-deltas:)",
     auto,
@@ -532,6 +566,7 @@ assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
+assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m" in auto
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto
@@ -540,9 +575,11 @@ assert "publish-release-assets.py" in auto
 assert "--replace-feeds" in auto
 assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
+assert "fetch-depth: 0" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
-assert 'branch not in {"main", "nightly-next"}' in auto
+# nightly-next continues on its own track (tests/test_nightly_resume_tracks.py).
+assert 'if branch == "nightly-next":' in auto and "nightly-next-continues-on-its-own-track" in auto
 assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto
@@ -879,12 +916,16 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
   job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
+  job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
   step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  END { exit !(saw_cold_gate && saw_dsym_gate) }
+  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
+  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
   exit 1
 fi
 
