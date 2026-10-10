@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -75,7 +76,7 @@ enum DaemonClosedHistory {
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
                     undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for await present in Observations({ inStore() }) where present {
+                    for await present in ObservationStream({ inStore() }) where present {
                         undo?.noteReopenTabsArrived(start.duration(to: clock.now))
                         return
                     }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextTabs
@@ -43,7 +44,7 @@ final class ScreenBarController {
         apply(snapshot())
         observation = Task { [weak self] in
             guard let content = self?.content else { return }
-            for await snapshot in Observations({ Self.snapshot(content) }) { self?.apply(snapshot) }
+            for await snapshot in ObservationStream({ Self.snapshot(content) }) { self?.apply(snapshot) }
         }
     }
 

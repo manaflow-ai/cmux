@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextSidebar
@@ -124,7 +125,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
