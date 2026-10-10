@@ -99,6 +99,7 @@ public final class SocketTasksSource: TasksSource {
         }
         let length = socklen_t(MemoryLayout<sockaddr_un>.size)
         let result = withUnsafePointer(to: &address) {
+            // concurrency-allow: a local Unix socket connect returns at once (accepted or ECONNREFUSED); the descriptor turns O_NONBLOCK below. Moving this client off the main actor is cx-9c8m.
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(socket, $0, length) }
         }
         guard result == 0 else {
@@ -170,6 +171,7 @@ public final class SocketTasksSource: TasksSource {
 
     private func readAvailable() {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        // concurrency-allow: O_NONBLOCK descriptor read from its readable dispatch source; EAGAIN returns at once.
         let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
         if n < 0, errno == EAGAIN || errno == EINTR { return }
         guard n > 0 else {
@@ -214,6 +216,7 @@ public final class SocketTasksSource: TasksSource {
     /// Write what the socket takes now; wait for writable space for the rest.
     private func flush() {
         while !outbox.isEmpty {
+            // concurrency-allow: O_NONBLOCK descriptor; a full socket returns EAGAIN and the write source resumes it.
             let n = outbox.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
             if n > 0 {
                 outbox.removeSubrange(outbox.startIndex..<outbox.startIndex + n)
