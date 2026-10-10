@@ -11,8 +11,9 @@ fills a terminal with a link on every row, Cmd-clicks the pane's center through 
 (the real event path: AppKit event, TerminalSurfaceView, libghostty hit testing, `open_url`) and
 reads the main-thread watchdog (`debug.hangs`) over the click. Two cases:
   - web URL: a browser tab opens in the pane; no main-thread stall over 50 ms during the click.
-  - file path (`--file`): the system opens a .txt (TextEdit launches); no main-thread stall over
-    50 ms. TextEdit is quit through its quit path afterwards only when this script launched it.
+  - file path (`--file`): the system opens a .txt, which must show as a TextEdit document (the
+    .txt handler on a fresh mini; TextEdit launches); no main-thread stall over 50 ms. Afterwards
+    the note is closed, and TextEdit is quit through its quit path only when this run launched it.
 
 On exit it quits the app with quitEndSessions, stops the tag's cmux-tui session and kills any
 process left from the tag's bundle by exact PID.
@@ -28,7 +29,7 @@ parser.add_argument("--file", action="store_true", help="also Cmd-click a file p
 parser.add_argument("--budget-ms", type=float, default=50, help="longest main-thread stall allowed during a click")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
-TAG, APP = opts.tag, opts.app.rstrip("/")
+TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 # The bundle's executable (MacOS/ also holds the debug and preview dylibs).
@@ -40,10 +41,15 @@ open(CONFIG, "w").write("{}\n")
 ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 ROWS = []
-# Rows longer than the pane is wide, so the pane's center is always on a link.
-URL = "http://127.0.0.1:9/cx-7xss/" + "a" * 160
-NOTE_DIR = os.path.join(SCRATCH, "cx-7xss-" + "p" * 140)
-NOTE = os.path.join(NOTE_DIR, "note.txt")
+# The shell pads each link to exactly two terminal widths (`tput cols`), so every row of the
+# screen is a link and the pane's center is always on one.
+URL_SHELL = 'c=$(tput cols); t="http://127.0.0.1:9/cx-7xss/"; while [ ${#t} -lt $((2*c)) ]; do t="${t}a"; done'
+URL_PREFIX = "http://127.0.0.1:9/cx-7xss/"
+NOTE_DIR = os.path.join(SCRATCH, "cx-7xss")
+# The note's name pads its path to a multiple of the terminal width (ending in .txt).
+NOTE_SHELL = (f'c=$(tput cols); t="{NOTE_DIR}/n"; while [ $(((${{#t}}+4)%c)) -ne 0 ]; do t="${{t}}x"; done; '
+              't="$t.txt"; echo cx-7xss > "$t"')
+LAUNCHED = []
 
 
 def run(*args, timeout=30):
@@ -111,10 +117,23 @@ def textedit_pids():
     return {int(line.split(None, 1)[0]) for line in ps.splitlines() if "/TextEdit.app/Contents/MacOS/TextEdit" in line}
 
 
-def click_check(label, pane_key, ref, text, opened):
-    """Fill the terminal with `text` on every row, Cmd-click the pane's center, read the watchdog."""
-    run("terminal", ref, "write", "--text", f"clear; for i in $(seq 1 80); do echo '{text}'; done\n")
-    if not wait(lambda: viewport(pane_key).count(text[:40]) > 10, 15):
+def textedit(script):
+    """AppleScript to TextEdit, only while it runs (asking would launch it)."""
+    if not textedit_pids():
+        return ""
+    return subprocess.run(["osascript", "-e", f'tell application "TextEdit" to {script}'],
+                          capture_output=True, text=True, timeout=20).stdout
+
+
+def note_open():
+    """The note is a document of a running TextEdit (the system's .txt handler on a fresh mini)."""
+    return "cx-7xss" in textedit("get path of every document")
+
+
+def click_check(label, pane_key, ref, shell, prefix, opened):
+    """Fill every row with the link `shell` sets in $t, Cmd-click the pane's center, read the watchdog."""
+    run("terminal", ref, "write", "--text", f"{shell}; clear; for i in $(seq 1 80); do printf '%s\\n' \"$t\"; done\n")
+    if not wait(lambda: viewport(pane_key).count(prefix) > 10, 15):
         row(f"{label}: links shown", "the terminal shows the rows", viewport(pane_key)[-200:], False)
         return
     rpc("debug.hangs", {"clear": True})
@@ -143,8 +162,8 @@ app = None
 
 def cleanup():
     print("cleanup", flush=True)
-    if os.environ.get("CMDCLICK_E2E_KEEP"):
-        return
+    if os.environ.get("CMDCLICK_E2E_KEEP") or not LAUNCHED:
+        return  # never another run's app (the fresh-tag guard exits before launching)
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     if app:
         try:
@@ -181,6 +200,7 @@ def main():
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    LAUNCHED.append(app.pid)
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         print("debug.surfaces:", json.dumps(rpc("debug.surfaces"))[:800], flush=True)
@@ -200,7 +220,7 @@ def main():
     # number until the new one (its tab) shows.
     for index in range(1, 10):
         rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
-        if wait(lambda: any(p.get("selected_tab") == (tab and tab.group(1)) for p in panes()), 3):
+        if wait(lambda: any(tab and p.get("selected_tab") == tab.group(1) for p in panes()), 3):
             print("new workspace is number", index, flush=True)
             break
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
@@ -217,7 +237,7 @@ def main():
         now = next((p for p in panes() if p.get("pane") == pane_key), {})
         return now.get("selected_tab") not in (None, term_tab)
 
-    click_check("web URL", pane_key, ref, URL, tab_opened)
+    click_check("web URL", pane_key, ref, URL_SHELL, URL_PREFIX, tab_opened)
     if not opts.file:
         return
     # Back to the terminal tab for the file case.
@@ -226,11 +246,17 @@ def main():
         row("file path: back to the terminal", term_tab, (focused_pane() or {}).get("selected_tab"), False)
         return
     os.makedirs(NOTE_DIR, exist_ok=True)
-    open(NOTE, "w").write("cx-7xss\n")
     before = textedit_pids()
-    click_check("file path", pane_key, ref, NOTE, lambda: textedit_pids() - before or before)
-    if not before and textedit_pids():
-        subprocess.run(["osascript", "-e", 'tell application "TextEdit" to quit saving no'], capture_output=True, timeout=20)
+    if note_open():
+        row("file path: setup", "the note is not open yet", "TextEdit already shows it", False)
+        return
+    try:
+        click_check("file path", pane_key, ref, NOTE_SHELL, NOTE_DIR, note_open)
+    finally:
+        # Only what this run opened: its note, or TextEdit when this run launched it.
+        textedit('close (every document whose path contains "cx-7xss") saving no')
+        if not before and textedit_pids():
+            textedit("quit saving no")
 
 
 try:
