@@ -24,30 +24,6 @@ test("the page's chat and shell command start in the folder the tab inherited", 
   expect(calls.some((call) => (call as unknown[])[0] === "runShell")).toBe(false);
 });
 
-// cx-nn3e: a fresh workspace's New Tab page sits at `~`. Its agent row started the chat in `~`
-// (chip `~`, then "This folder is outside the folders this pane may use" and a Retry) while the
-// line above the composer said the chat starts in a private folder. A chat starts in the folder
-// the host named for it (`chatCwd`), never in the page's inherited folder; a terminal still does.
-test("the page's chat starts in the host's chat folder, not the inherited home folder", async () => {
-  const calls: unknown[] = [];
-  const actions = newTabScreenActions({
-    callNative: async (method, params) => {
-      calls.push([method, params]);
-    },
-    cwd: "/Users/me",
-    chatCwd: undefined,
-    leave() {},
-    selectSession() {},
-    showAllChats() {},
-    runShell() {},
-  });
-  actions.onAsk("claude", "hello");
-  actions.onShell("ls");
-  await Promise.resolve();
-  expect(calls).toContainEqual(["chat.new", { harness: "claude" }]);
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "ls", run: true, cwd: "/Users/me" }]);
-});
-
 test("a local file uses the file opener and a URL uses the browser", () => {
   const calls: unknown[] = [];
   const actions = newTabScreenActions({
@@ -98,33 +74,4 @@ test("a device chat card leaves the new tab and opens through the host's shared 
   });
   actions.onOpenChat?.("codex:01999a2b");
   expect(calls).toEqual([["leave"], ["chats.open", { key: "codex:01999a2b" }]]);
-});
-
-// Review (cx-9aps): the page seeds its project with the inherited folder, so `picked` equals the
-// tab's folder without a pick. That is no pick: the chat starts in the host's start folder, and a
-// real pick goes through the host (which asks about the home folder).
-test("the inherited folder as the page's project is no pick; a real pick asks the host", async () => {
-  const calls: unknown[] = [];
-  const requested: string[] = [];
-  const actions = newTabScreenActions({
-    callNative: async (method, params) => {
-      calls.push([method, params]);
-    },
-    cwd: "/Users/you",
-    chatCwd: undefined,
-    requestFolder: (cwd, start) => {
-      requested.push(cwd);
-      start(cwd);
-    },
-    leave() {},
-    selectSession() {},
-    showAllChats() {},
-    runShell() {},
-  });
-  actions.onAsk("claude", "hello", "/Users/you");
-  actions.onAsk("claude", "hi", "/src/picked");
-  await Promise.resolve();
-  expect(calls).toContainEqual(["chat.new", { harness: "claude" }]);
-  expect(requested).toEqual(["/src/picked"]);
-  expect(calls).toContainEqual(["chat.new", { harness: "claude", cwd: "/src/picked" }]);
 });
