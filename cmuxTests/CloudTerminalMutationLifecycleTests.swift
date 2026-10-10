@@ -51,7 +51,10 @@ struct CloudTerminalMutationLifecycleTests {
         let task = Task {
             try await queue.runCommitted {
                 started.resolve(true)
-                let response = Task { await release.result ?? "missing" }
+                // Model the transport waiter: it remains alive after the queue
+                // turn is cancelled so a committed daemon response can still
+                // be adopted or compensated by the caller.
+                let response = Task.detached { await release.result ?? "missing" }
                 return await response.value
             }
         }

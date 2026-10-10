@@ -10054,7 +10054,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let creationPermittedWhileDisabled = creationPolicy.permitsCreationWhenBrowserDisabled
             && !BrowserAvailabilitySettings.isManagedByPolicy
         guard browserEnabled || creationPermittedWhileDisabled else {
-            if cloudVMBinding == nil, allowsExternalBrowserFallback,
+            let hasCloudMachineBinding = cloudVMBinding.map {
+                SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil
+            } ?? false
+            if !hasCloudMachineBinding, allowsExternalBrowserFallback,
                let externalURL = externalBrowserFallbackURL(
                 url: url,
                 initialRequest: initialRequest
@@ -10214,7 +10217,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let creationPermittedWhileDisabled = creationPolicy.permitsCreationWhenBrowserDisabled
             && !BrowserAvailabilitySettings.isManagedByPolicy
         guard browserEnabled || creationPermittedWhileDisabled else {
-            if cloudVMBinding == nil, allowsExternalBrowserFallback,
+            let hasCloudMachineBinding = cloudVMBinding.map {
+                SurfaceMachineID(rawValue: $0.vmID).cloudMachineID != nil
+            } ?? false
+            if !hasCloudMachineBinding, allowsExternalBrowserFallback,
                let externalURL = externalBrowserFallbackURL(
                 url: url,
                 initialRequest: initialRequest

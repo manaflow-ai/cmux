@@ -136,10 +136,30 @@ extension Workspace {
         catalog: SurfaceCatalog
     ) async {
         guard let view = resource.remoteViews?.first else { return }
-        let activeProvider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider ?? provider
+        // A replacement is eligible only when it still represents the same
+        // machine ownership scope. Never use a provider from a different team
+        // to close a committed tab or remove its catalog row.
+        let activeProvider = [
+            catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
+            provider,
+        ].compactMap { $0 }.first {
+            $0.ownerTeamID == provider.ownerTeamID && !$0.hasLostAccess
+        }
+        guard let activeProvider else { return }
         let cleanup = Task { @MainActor in
-            try? await activeProvider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
+            do {
+                try await activeProvider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
+            } catch {
+                // Keep the receipt and optimistic row so the next refresh or
+                // reconnect still has a handle to reconcile and close. Dropping
+                // it here would orphan a daemon browser after a transient close
+                // failure.
+                activeProvider.publishPendingMutationMetadata()
+                activeProvider.scheduleRefresh(force: true)
+                return
+            }
             activeProvider.pendingRemoteCreations.removeValue(forKey: resource.id)
+            activeProvider.publishPendingMutationMetadata()
             catalog.remove(resource.id, from: activeProvider)
         }
         _ = await cleanup.result

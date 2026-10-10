@@ -28,7 +28,11 @@ extension CmuxTuiSurfaceProvider {
             // provider replacement can cancel this queue turn while the
             // receipt is still in flight, so keep the transport waiter alive
             // long enough to adopt or compensate for the committed tab.
-            let request = Task { @MainActor in
+            // The queue turn may be cancelled while the daemon has already
+            // committed the tab. Keep the transport waiter independent of
+            // that local cancellation so the receipt can be adopted or
+            // compensated below.
+            let request = Task.detached { @MainActor in
                 try await link.run(arguments: CloudTuiRequests.createBrowserArguments(
                     socketPath: connected.socketPath,
                     workspaceID: remoteWorkspaceID,
