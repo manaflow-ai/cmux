@@ -54,20 +54,21 @@ import Testing
         #expect(abs(ConversationReplyMotion.step(easing: 0.89, frameDuration: 1.0 / 60) - 0.11) < 0.0001)
     }
 
-    /// Messages on an iPhone 17 Pro Max (956 pt tall, 60 fps recording): a
-    /// 62 pt bubble whose thread slot is centred at y 530 covers 12.5 % of
-    /// its remaining trip per frame going in and 16.9 % coming back, at
-    /// every point of the trip (the easing is fixed by the slot, paced from
-    /// the middle of the whole view).
-    @Test func threadEasingIsFixedByTheSlotAndPacedFromTheViewMiddle() {
-        let frame = 1.0 / 60
-        let into = ConversationReplyMotion.threadEasing(slotCenterY: 530, itemHeight: 62, viewHeight: 956, animatingOut: false)
-        let back = ConversationReplyMotion.threadEasing(slotCenterY: 530, itemHeight: 62, viewHeight: 956, animatingOut: true)
-        #expect(abs(ConversationReplyMotion.step(easing: into, frameDuration: frame) - 0.125) < 0.006)
-        #expect(abs(ConversationReplyMotion.step(easing: back, frameDuration: frame) - 0.169) < 0.006)
-        // The bottom bubble (43 pt, slot centred at 540) measured 12.3 %.
-        let bottom = ConversationReplyMotion.threadEasing(slotCenterY: 540, itemHeight: 43, viewHeight: 956, animatingOut: false)
-        #expect(abs(ConversationReplyMotion.step(easing: bottom, frameDuration: frame) - 0.123) < 0.006)
+    /// Messages on an iPhone 17 Pro Max (956 pt tall, 60 fps recording):
+    /// every row covers a constant share of its remaining trip per frame,
+    /// set by where it starts. A 62 pt bubble leaving the transcript at
+    /// y 401 covered 12.5 % per frame and 16.9 % coming back from its thread
+    /// slot at y 527; the 44 pt bottom bubble (y 543 -> 539) 12.3 % in and
+    /// 17 % back.
+    @Test func threadEasingIsFixedWhereTheTripStartsAndPacedFromTheViewMiddle() {
+        func perFrame(_ center: CGFloat, _ height: CGFloat, out: Bool) -> CGFloat {
+            let easing = ConversationReplyMotion.threadEasing(startCenterY: center, itemHeight: height, viewHeight: 956, animatingOut: out)
+            return ConversationReplyMotion.step(easing: easing, frameDuration: 1.0 / 60)
+        }
+        #expect(abs(perFrame(401, 62, out: false) - 0.125) < 0.002)
+        #expect(abs(perFrame(527, 62, out: true) - 0.169) < 0.002)
+        #expect(abs(perFrame(543, 44, out: false) - 0.123) < 0.002)
+        #expect(abs(perFrame(539, 44, out: true) - 0.170) < 0.003)
     }
 
     /// Going in a row lands within 0.25 px of its slot; coming back Messages
