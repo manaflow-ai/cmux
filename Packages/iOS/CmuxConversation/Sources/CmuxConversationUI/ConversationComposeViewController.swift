@@ -208,7 +208,7 @@ public final class ConversationComposeViewController: UIViewController {
     // MARK: Sending
 
     private func sendFirstMessage() {
-        let images = composer.attachments.map { attachment in
+        let images = composer.attachments.filter { $0.file == nil }.map { attachment in
             ConversationComposeImage(
                 data: attachment.data,
                 width: Int(attachment.image.size.width * attachment.image.scale),

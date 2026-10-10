@@ -3,12 +3,28 @@ import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
 
-/// A picked image waiting in the composer.
+/// A picked image (or, with `file`, a document) waiting in the composer.
 struct ComposerAttachment {
     let id = UUID()
     var image: UIImage
     var data: Data
     var mimeType: String
+    /// A document picked in Files: sent as a file. `image` is its rendered
+    /// document chip, so the attachment card shows it like any preview.
+    var file: ConversationPendingFile? = nil
+
+    init(image: UIImage, data: Data, mimeType: String) {
+        self.image = image
+        self.data = data
+        self.mimeType = mimeType
+    }
+
+    init(file: ConversationPendingFile, chip: UIImage) {
+        self.image = chip
+        self.data = file.data
+        self.mimeType = file.info.mimeType
+        self.file = file
+    }
 }
 
 @MainActor

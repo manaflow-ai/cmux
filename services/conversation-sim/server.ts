@@ -7,6 +7,7 @@ import { editedText, imageSize, mentionText, messageText, pick, pollContent, ran
 import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
 import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
 import { INTL_PEOPLE, intlHistory, intlText } from "./intl";
+import { ADMIN_FILE_KINDS, FILE_KINDS, type FileKind, fileMeta, proceduralFile } from "./files";
 import { CONTACTS, handleKey, lookupHandle, searchContacts, type Contact, type Service } from "./directory";
 
 // ---------------------------------------------------------------- types
@@ -74,9 +75,13 @@ interface Conversation {
 const MAX_PINNED = Number(process.env.MAX_PINNED ?? 9);
 interface AttachmentRef {
   id: string;
-  kind: "image" | "audio";
+  kind: "image" | "audio" | "file";
   width: number;
   height: number;
+  // file only
+  name?: string;
+  mimeType?: string;
+  size?: number; // bytes
   // audio only
   durationMs?: number;
   waveform?: number[]; // peak levels 0-100, evenly spaced
@@ -178,6 +183,7 @@ interface MediaEntry {
   mime: string;
   bytes?: Uint8Array; // uploads only; procedural media is generated on demand
   audio?: { durationMs: number; waveform: number[]; transcript?: string };
+  file?: { name: string; size: number };
 }
 
 // ---------------------------------------------------------------- config
@@ -1131,6 +1137,25 @@ function randomTextRuns(rng: Rng, text: string): TextRun[] | undefined {
   return [{ start: w.index!, length: w[0].length, styles: TEXT_STYLES.filter((x) => styles.includes(x)) }];
 }
 
+/** Extension for a file's media URL: the name's, else "bin". */
+function fileExt(name: string): string {
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  return /^[a-z0-9]{1,10}$/.test(ext) ? ext : "bin";
+}
+
+function fileRef(id: string): AttachmentRef {
+  const e = media.get(id)!;
+  return { id, kind: "file", width: 0, height: 0, name: e.file!.name, mimeType: e.mime, size: e.file!.size };
+}
+
+/** A procedural document a participant sends (bots and /admin/file). */
+function makeFileAttachment(id: string, kind: FileKind, rng: Rng): AttachmentRef {
+  const meta = fileMeta(kind, rng);
+  const size = proceduralFile(id, meta.name).length;
+  media.set(id, { width: 0, height: 0, ext: meta.ext, mime: meta.mime, file: { name: meta.name, size } });
+  return fileRef(id);
+}
+
 function wireAttachments(list: AttachmentRef[], base: string) {
   return list.map((a) => ({ ...a, url: `${base}/media/${a.id}.${media.get(a.id)?.ext ?? "png"}` }));
 }
@@ -1371,7 +1396,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
         next = rest;
         if (attachmentId) {
           const entry = media.get(attachmentId);
-          if (!entry || entry.audio) throw invalid("background.attachmentId");
+          if (!entry || entry.audio || entry.file) throw invalid("background.attachmentId");
           next.photo = { id: attachmentId, width: entry.width, height: entry.height };
         }
       }
@@ -1435,6 +1460,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   const attachments: AttachmentRef[] = attachmentIds.map((id) => {
     const e = media.get(id)!;
     if (e.audio) return { id, kind: "audio", width: 0, height: 0, ...e.audio, expiresAt: Date.now() + AUDIO_EXPIRY_MS };
+    if (e.file) return fileRef(id);
     return { id, kind: "image", width: e.width, height: e.height };
   });
   const m = store.create(ME.id, poll ? poll.question : text, {
@@ -1496,8 +1522,9 @@ async function handleScheduleSend(conn: Conn, p: any): Promise<Scheduled> {
     scheduledAt,
     text,
     replyToId: p?.replyToId || undefined,
-    attachments: attachmentIds.map((id) => {
+    attachments: attachmentIds.map((id): AttachmentRef => {
       const e = media.get(id)!;
+      if (e.file) return fileRef(id);
       return { id, kind: "image" as const, width: e.width, height: e.height };
     }),
     ...(mentions.length ? { mentions } : {}),
@@ -1815,6 +1842,11 @@ function randomBotMessage(store: Store, bot?: Participant): { text: string; opts
     return { text: "", opts };
   }
   if (!store.speak && R() < knobs.botLinkRate) return { text: pick(R, LINK_MESSAGES), opts };
+  if (!store.speak && R() < 0.02) {
+    // Now and then a document: a PDF, a ZIP archive or a text file.
+    opts.attachments = [makeFileAttachment(`file_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`, pick(R, FILE_KINDS), R)];
+    return { text: "", opts };
+  }
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
@@ -1924,7 +1956,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
   }
   if (path === "/healthz") return new Response("ok");
 
-  const mediaMatch = path.match(/^\/media\/([A-Za-z0-9_\-]+)\.([a-z]+)$/);
+  const mediaMatch = path.match(/^\/media\/([A-Za-z0-9_\-]+)\.([a-z0-9]+)$/);
   if (mediaMatch && req.method === "GET") {
     const [, id] = mediaMatch;
     const entry = media.get(id);
@@ -1932,18 +1964,34 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     await sleep(lat(200, 1500));
     let bytes = entry.bytes ?? pngCache.get(id);
     if (!bytes) {
-      bytes = entry.audio ? proceduralWAV(id, entry.audio.durationMs) : proceduralPNG(id, entry.width, entry.height);
+      bytes = entry.file
+        ? proceduralFile(id, entry.file.name)
+        : entry.audio
+          ? proceduralWAV(id, entry.audio.durationMs)
+          : proceduralPNG(id, entry.width, entry.height);
       pngCache.set(id, bytes);
       if (pngCache.size > PNG_CACHE_CAP) pngCache.delete(pngCache.keys().next().value!);
     }
     vlog(`media ${id} ${bytes.length}B`);
-    return new Response(bytes, { headers: { "content-type": entry.mime, "cache-control": "public, max-age=86400" } });
+    const headers: Record<string, string> = { "content-type": entry.mime, "cache-control": "public, max-age=86400" };
+    if (entry.file) headers["content-disposition"] = `inline; filename*=UTF-8''${encodeURIComponent(entry.file.name)}`;
+    return new Response(bytes, { headers });
   }
 
   if (path === "/upload" && req.method === "POST") {
     const bytes = new Uint8Array(await req.arrayBuffer());
     if (!bytes.length) return json({ error: "empty body" }, 400);
     const uploadType = req.headers.get("content-type") ?? "application/octet-stream";
+    if (url.searchParams.get("kind") === "file") {
+      // Any bytes, kept verbatim with their name and type.
+      const name = (url.searchParams.get("name") ?? "").trim().replaceAll("/", "-");
+      if (!name) return json({ error: "name required" }, 400);
+      const ext = fileExt(name);
+      const id = `up_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+      media.set(id, { width: 0, height: 0, ext, mime: uploadType, bytes, file: { name, size: bytes.length } });
+      log(`upload id=${id} ${bytes.length}B file ${JSON.stringify(name)} ${uploadType}`);
+      return json({ attachment: { ...fileRef(id), url: `${base}/media/${id}.${ext}` } });
+    }
     if (url.searchParams.get("kind") === "audio" || uploadType.startsWith("audio/")) {
       const durationMs = Number(url.searchParams.get("durationMs")) || sniffWAVDurationMs(bytes) || 0;
       if (!(durationMs > 0)) return json({ error: "durationMs required" }, 400);
@@ -2035,6 +2083,19 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     }
     log(`admin audio conv=${conv} sender=${bot.id} count=${count}`);
     return json({ ok: true, conversation: conv, sender: bot.id, messageIds: created });
+  }
+  if (path === "/admin/file" && req.method === "POST") {
+    // A participant sends a document now: kind=pdf|zip|txt|png (default pdf).
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const kind = (url.searchParams.get("kind") ?? "pdf") as FileKind;
+    if (!ADMIN_FILE_KINDS.includes(kind)) return json({ error: `unknown kind ${kind}` }, 400);
+    const bot = store.bots().find((b) => b.id === url.searchParams.get("sender")) ?? pick(R, store.bots());
+    const attachment = makeFileAttachment(`file_${conv}_admin_${crypto.randomUUID().slice(0, 8)}`, kind, R);
+    const m = store.create(bot.id, url.searchParams.get("text") ?? "", { attachments: [attachment] });
+    log(`admin file conv=${conv} sender=${bot.id} ${attachment.name}`);
+    return json({ ok: true, conversation: conv, sender: bot.id, messageId: m.id, attachment: { ...attachment, url: `${base}/media/${attachment.id}.${media.get(attachment.id)!.ext}` } });
   }
   if (path === "/admin/say" && req.method === "POST") {
     // One message from a participant, now. Params come from a JSON body

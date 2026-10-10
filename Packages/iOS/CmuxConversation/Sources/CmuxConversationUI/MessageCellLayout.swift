@@ -64,6 +64,8 @@ struct MessageCellLayout {
     var poll: PollCellLayout? = nil
     /// The translation caption ("Show Original") under a translated bubble.
     var translationFrame: CGRect? = nil
+    /// Document balloons (tail area excluded, like `bubbleFrame`), one per file.
+    var fileFrames: [CGRect] = []
 }
 
 @MainActor
@@ -296,6 +298,18 @@ extension MessageCellLayout {
         if !imageFrames.isEmpty {
             y += message.text.isEmpty ? -imageSpacing : t.groupedSpacing - imageSpacing
         }
+        // Documents follow the photos as fixed-size balloons (ChatKit's
+        // attachmentBalloonSize), 4 pt apart like photos.
+        var fileFrames: [CGRect] = []
+        for _ in message.fileAttachments {
+            if fileFrames.isEmpty, !imageFrames.isEmpty { y += imageSpacing }
+            let size = ConversationFileBubbleLayout.size
+            fileFrames.append(bubbleRect(bodyWidth: size.width, y: y, height: size.height))
+            y += size.height + imageSpacing
+        }
+        if !fileFrames.isEmpty {
+            y += message.text.isEmpty ? -imageSpacing : t.groupedSpacing - imageSpacing
+        }
 
         var linkCardFrame: CGRect?
         var linkCard: ConversationLinkCardLayout?
@@ -375,11 +389,11 @@ extension MessageCellLayout {
         if model.linkSplit?.cardFirst == false { placeLinkCard() }
         let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
 
-        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
-        let firstContent = imageFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
+        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? fileFrames.last ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
+        let firstContent = imageFrames.first ?? fileFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
         // Body rect (no tail) of the first content block.
         let firstBody: CGRect = {
-            guard bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty else { return firstContent }
+            guard bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty || !fileFrames.isEmpty else { return firstContent }
             var body = firstContent
             body.size.width -= t.tailWidth
             if !model.isOutgoing { body.origin.x += t.tailWidth }
@@ -471,11 +485,12 @@ extension MessageCellLayout {
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if let linkCardFrame { content = content.union(linkCardFrame) }
+        content = fileFrames.reduce(content) { $0.union($1) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
         // A photo-only row (no text bubble, no emoji) tails its last photo; the
         // tail hangs below the full-height photo (Messages), so reserve it.
-        let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && !imageFrames.isEmpty
+        let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && (!imageFrames.isEmpty || !fileFrames.isEmpty)
         var tailOverhang: CGFloat = 0
         if model.showsTail, bubbleFrame != nil || linkCardFrame != nil || tailedImage {
             let tailBottom = primary.maxY + t.tailDrop
@@ -508,7 +523,8 @@ extension MessageCellLayout {
             linkCardFrame: linkCardFrame,
             linkCard: linkCard,
             linkCardIsLast: linkCardIsLast,
-            translationFrame: translationFrame
+            translationFrame: translationFrame,
+            fileFrames: fileFrames
         )
     }
 }

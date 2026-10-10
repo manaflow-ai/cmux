@@ -680,10 +680,11 @@ public final class ConversationStore {
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
         linkPreview: ConversationLinkPreview? = nil,
-        effect: ConversationMessageEffect? = nil
+        effect: ConversationMessageEffect? = nil,
+        files: [ConversationPendingFile] = []
     ) -> String? {
         let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
-        guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
+        guard (!trimmed.isEmpty || !images.isEmpty || !files.isEmpty), let meID else { return nil }
         let leading = text.prefix { $0.isWhitespace || $0.isNewline }.utf16.count
         let clientID = makeClientMessageID()
         let attachments = images.enumerated().map { offset, image in
@@ -694,6 +695,16 @@ public final class ConversationStore {
                 height: image.height,
                 url: nil,
                 localData: image.data
+            )
+        } + files.enumerated().map { offset, file in
+            ConversationAttachment(
+                id: "local:\(clientID):file:\(offset)",
+                kind: .file,
+                width: 0,
+                height: 0,
+                url: nil,
+                localData: file.data,
+                file: file.info
             )
         }
         let pending = ConversationMessage(
@@ -715,7 +726,7 @@ public final class ConversationStore {
         sortAndReindexAfterAppend()
         notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
         setLocalTyping(false)
-        transmit(clientID: clientID, images: images)
+        transmit(clientID: clientID, images: images, files: files)
         return pending.rowID
     }
 
@@ -733,14 +744,18 @@ public final class ConversationStore {
         sortAndReindex()
         notify(.live(insertedRowIDs: [], sentByMe: true))
         let images = message.attachments.compactMap { attachment -> (data: Data, width: Int, height: Int, mimeType: String)? in
-            guard let data = attachment.localData else { return nil }
+            guard attachment.kind == .image, let data = attachment.localData else { return nil }
             return (data, attachment.width, attachment.height, "image/jpeg")
         }
         let audio = message.audioAttachment.flatMap { attachment -> PendingAudio? in
             guard let data = attachment.localData, let info = attachment.audio else { return nil }
             return PendingAudio(data: data, mimeType: Self.audioMimeType(data), info: info)
         }
-        transmit(clientID: clientID, images: message.audioAttachment == nil ? images : [], audio: audio)
+        let files = message.fileAttachments.compactMap { attachment -> ConversationPendingFile? in
+            guard let data = attachment.localData, let info = attachment.file else { return nil }
+            return ConversationPendingFile(data: data, info: info)
+        }
+        transmit(clientID: clientID, images: message.audioAttachment == nil ? images : [], audio: audio, files: files)
     }
 
     /// Removes a failed local send (never acknowledged by the server).
@@ -776,7 +791,7 @@ public final class ConversationStore {
     /// For each failed send, the newest stored seq when it failed.
     private var failedAnchorSeq: [String: Int] = [:]
 
-    private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)], audio: PendingAudio? = nil) {
+    private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)], audio: PendingAudio? = nil, files: [ConversationPendingFile] = []) {
         let previous = sendTail
         sendTail = Task { [weak self] in
             await previous?.value
@@ -789,6 +804,10 @@ public final class ConversationStore {
                 }
                 for image in images {
                     let uploaded = try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    attachmentIDs.append(uploaded.id)
+                }
+                for file in files {
+                    let uploaded = try await self.backend.uploadFile(file.data, info: file.info)
                     attachmentIDs.append(uploaded.id)
                 }
                 guard let current = self.message(id: "local:\(clientID)") ?? self.messages.first(where: { $0.clientMessageID == clientID }) else { return }

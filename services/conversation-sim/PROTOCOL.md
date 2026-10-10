@@ -202,10 +202,12 @@ LinkPreview {
   image?: {url, width, height}, icon?: {url, width, height}
 }
 Attachment {
-  id, kind: "image"|"audio", width, height, url,
+  id, kind: "image"|"audio"|"file", width, height, url,
   // audio only:
   durationMs, waveform: [Int 0-100] (peak levels, evenly spaced),
   transcript?, expiresAt? (epoch ms; absent = kept), kept?
+  // file only (width and height are 0):
+  name, mimeType, size (bytes)
 }
 Mention { participantId, location, length }      // UTF-16 range of text, sorted, non-overlapping
 TextRun = { start, length, styles?: [TextStyle], effect?: TextEffect }
@@ -214,7 +216,7 @@ TextEffect = "big"|"small"|"shake"|"nod"|"explode"|"ripple"|"bloom"|"jitter"
 Scheduled {
   id ("sched_<conversation>_<n>"), clientMessageId, senderId, createdAt (epoch ms),
   scheduledAt (epoch ms), text, replyToId?,
-  attachments: [{id, kind: "image", width, height, url}],
+  attachments: [{id, kind: "image", width, height, url} | file Attachment],
   mentions?, textRuns?, effect?,   // as on send; the sent message carries them
   state: "scheduled"|"failed", error?
 }
@@ -257,6 +259,14 @@ edit without `textRuns` clears the formatting.
   (`audio/wav` or `audio/mp4`) and optional `X-Transcript` (percent-encoded);
   a WAV's duration is read from the bytes when `durationMs` is omitted. Sending
   it makes an audio message that expires 2 minutes later unless kept.
+  Any file: `POST /upload?kind=file&name=<percent-encoded file name>` with the
+  bytes and their `Content-Type`; the server keeps them verbatim and returns a
+  `kind: "file"` attachment with `name`, `mimeType` and `size`. Clients decide
+  whether a picked file is a photo (upload it as an image) or a document.
+- `GET /media/<id>.<ext>` for a file returns its bytes with its `Content-Type`
+  and `Content-Disposition: inline; filename*=UTF-8''<name>`. Bot documents
+  (about 2% of live bot messages: a one-page PDF, a stored ZIP of two text
+  files, or a text file) are generated from the id on demand.
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
@@ -267,6 +277,9 @@ edit without `textRuns` clears the formatting.
   may include my own messages, which real traffic never does). Boot leaves the
   last `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) messages unread, all from
   others.
+- `POST /admin/file?conversation=<id>&kind=pdf|zip|txt|png[&sender=<participantId>][&text=<caption>]`:
+  a participant sends one document now (`png`: a photo sent as a file);
+  returns `{messageId, attachment}`.
 - `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
   one participant sends `n` audio messages back to back (auto-play testing).
 - `POST /admin/say?conversation=<id>&sender=<id>&text=<s>&effect=<Effect>`: a

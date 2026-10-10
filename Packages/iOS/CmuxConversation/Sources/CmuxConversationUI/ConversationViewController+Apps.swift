@@ -356,24 +356,88 @@ extension ConversationViewController {
         overlay.present()
     }
 
-    /// Opens a photo full screen. On iOS 18+ it zooms out of its bubble and
-    /// back, and swiping down dismisses interactively, as in Messages.
+    /// Opens a photo full screen, as Messages does: it flies out of its
+    /// bubble (the outline morphing to the square photo), and Close or a
+    /// drag down flies it back into the bubble's rounded, tailed shape.
     func presentPhotoViewer(from imageView: UIImageView) {
         guard let image = imageView.image else { return }
+        let cell = sequence(first: imageView as UIView, next: { $0.superview }).lazy.compactMap { $0 as? MessageCell }.first
+        let model = cell?.model
+        let index = cell?.imageViews.firstIndex(of: imageView) ?? 0
+        let tailed = model.map {
+            $0.showsTail && index == (cell?.cellLayout?.imageFrames.count ?? 0) - 1 && $0.message.text.isEmpty && $0.message.fileAttachments.isEmpty
+        } ?? false
+        presentPhoto(image, source: ConversationPhotoSource(view: imageView, side: model?.isOutgoing == false ? .leading : .trailing, tailed: tailed), model: model)
+    }
+
+    /// A document's bubble was tapped: a photo sent as a file opens in the
+    /// photo viewer; anything else opens in Quick Look.
+    func openFile(_ attachment: ConversationAttachment, from fileView: ConversationFileBubbleView, model: MessageRowModel) {
+        guard attachment.file?.isImage == true else {
+            presentAttachment(attachment, from: fileView.thumbnailView)
+            return
+        }
+        let tailed = model.showsTail && model.message.text.isEmpty && fileView === fileViews(of: model.rowID).last
+        Task { @MainActor [weak self, weak fileView] in
+            let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: 2400)
+            guard let self, let fileView, fileView.window != nil else { return }
+            guard let image else {
+                self.presentAttachment(attachment, from: fileView.thumbnailView)
+                return
+            }
+            self.presentPhoto(image, source: ConversationPhotoSource(view: fileView, side: model.isOutgoing ? .trailing : .leading, tailed: tailed), model: model)
+        }
+    }
+
+    private func fileViews(of rowID: String) -> [ConversationFileBubbleView] {
+        visibleCell(rowID: rowID)?.fileViews.filter { !$0.isHidden } ?? []
+    }
+
+    private func presentPhoto(_ image: UIImage, source: ConversationPhotoSource, model: MessageRowModel?) {
+        guard presentedViewController == nil else { return }
         dismissPhotoDrawer()
         view.endEditing(true)
         let viewer = ConversationPhotoViewerController(image: image)
-        viewer.modalPresentationStyle = .fullScreen
-        if #available(iOS 18.0, *) {
-            let options = UIViewController.Transition.ZoomOptions()
-            options.interactiveDismissShouldBegin = { [weak viewer] _ in viewer?.allowsInteractiveDismiss ?? true }
-            options.alignmentRectProvider = { [weak viewer] context in
-                guard let viewer else { return .zero }
-                return viewer.photoView.convert(viewer.photoView.bounds, to: context.zoomedViewController.view)
+        if let model, model.message.seq != nil {
+            let message = model.message
+            viewer.onReply = { [weak self] in self?.enterReplyMode(for: message) }
+            viewer.onTapback = { [weak self] in
+                guard let self, let cell = self.visibleCell(rowID: model.rowID), let current = cell.model else { return }
+                self.presentActions(for: current, cell: cell, mode: .tapbacks)
             }
-            viewer.preferredTransition = .zoom(options: options) { [weak imageView] _ in imageView }
         }
+        let transition = ConversationPhotoZoomTransition(source: source)
+        photoTransition = transition
+        viewer.modalPresentationStyle = .overFullScreen
+        viewer.transitioningDelegate = transition
         present(viewer, animated: true)
+    }
+
+    private func visibleCell(rowID: String) -> MessageCell? {
+        collectionView.visibleCells.lazy.compactMap { $0 as? MessageCell }.first { $0.model?.rowID == rowID }
+    }
+
+    /// Quick Look for any attachment: photos open titled "Photo", documents
+    /// by their file name. `sourceView` is the bubble it zooms from.
+    func presentAttachment(_ attachment: ConversationAttachment, from sourceView: UIView) {
+        guard quickLookPresenter == nil else { return }
+        dismissPhotoDrawer()
+        let title = attachment.file?.name ?? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)
+        let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: title), sourceView: nil)
+        quickLookPresenter = placeholder
+        Task { @MainActor [weak self, weak sourceView] in
+            let url = await ConversationImageLoader.shared.fileURL(for: attachment)
+            guard let self else { return }
+            guard let url, let sourceView, sourceView.window != nil else {
+                self.quickLookPresenter = nil
+                return
+            }
+            self.view.endEditing(true)
+            let presenter = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: url, title: title), sourceView: sourceView)
+            presenter.onDismiss = { [weak self] in self?.quickLookPresenter = nil }
+            self.quickLookPresenter = presenter
+            self.present(presenter.makeController(), animated: true)
+        }
     }
 
     func presentPhotoDrawer() {
@@ -470,9 +534,9 @@ extension ConversationViewController {
         )
     }
 
-    /// Files: the system document picker, for an image to attach.
+    /// Files: the system document picker, for any file to attach.
     private func presentFilePicker() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .package], asCopy: true)
         picker.delegate = cameraDelegate
         present(picker, animated: true)
     }
@@ -495,9 +559,24 @@ final class ConversationMediaDelegate: NSObject, UIImagePickerControllerDelegate
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         for url in urls {
-            guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { continue }
-            self.controller?.composer.addAttachment(ComposerAttachment(image: image, data: data, mimeType: url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg"))
+            Task { @MainActor [weak self] in
+                guard let traits = self?.controller?.traitCollection,
+                      let attachment = await Self.composerAttachment(for: url, traits: traits) else { return }
+                self?.controller?.composer.addAttachment(attachment)
+            }
         }
+    }
+
+    /// A picked file: a photo becomes a photo attachment (as from Photos);
+    /// anything else (or an image UIKit cannot decode) is sent as a file.
+    static func composerAttachment(for url: URL, traits: UITraitCollection) async -> ComposerAttachment? {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        let file = ConversationPendingFile(data: data, name: url.lastPathComponent)
+        if file.info.isImage, let image = UIImage(data: data) {
+            return ComposerAttachment(image: image, data: data, mimeType: file.info.mimeType)
+        }
+        let chip = await ComposerFileChip.render(file: file.info, url: url, traits: traits)
+        return ComposerAttachment(file: file, chip: chip)
     }
 }
 #endif

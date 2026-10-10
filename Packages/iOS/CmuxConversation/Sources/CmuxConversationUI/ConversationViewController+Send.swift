@@ -35,18 +35,20 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let textFrame = composer.textFrame(in: view)
         let replyTo = replyTarget?.id
         let linkPreview = composer.linkPreview.sendablePreview
-        let images = attachments.map { attachment in
+        let photos = attachments.filter { $0.file == nil }
+        let images = photos.map { attachment in
             (data: attachment.data, width: Int(attachment.image.size.width * attachment.image.scale), height: Int(attachment.image.size.height * attachment.image.scale), mimeType: attachment.mimeType)
         }
+        let files = attachments.compactMap(\.file)
         // Create the flight before the row exists so the row inserts hidden.
-        let flight = SendFlight(text: text, attachments: attachments.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
+        let flight = SendFlight(text: text, attachments: photos.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
         // A bubble effect replaces the flight: the bubble makes its entrance in place.
         let flies = effect?.kind != .bubble
         pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview, effect: effect) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview, effect: effect, files: files) else {
             pendingFlight = nil
             return
         }

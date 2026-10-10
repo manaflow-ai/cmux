@@ -389,6 +389,27 @@ async function main() {
   const withImg = await l.call("send", { clientMessageId: `img-${crypto.randomUUID()}`, text: "", attachmentIds: [up.attachment.id] });
   check(withImg.message.attachments[0]?.id === up.attachment.id, "send with attachmentIds attaches the upload");
 
+  console.log("files");
+  const doc = new TextEncoder().encode("any bytes at all \u0000\u0001 not an image");
+  const upf = await fetch(`${base}/upload?kind=file&name=${encodeURIComponent("Plan v2.pdf")}`, { method: "POST", body: doc, headers: { "content-type": "application/pdf" } }).then((x) => x.json());
+  check(upf.attachment.kind === "file" && upf.attachment.name === "Plan v2.pdf" && upf.attachment.mimeType === "application/pdf" && upf.attachment.size === doc.length && upf.attachment.url.endsWith(".pdf"), "file upload keeps name, type and size");
+  const fileRes = await fetch(upf.attachment.url);
+  const fileBack = new Uint8Array(await fileRes.arrayBuffer());
+  check(fileRes.headers.get("content-type") === "application/pdf" && (fileRes.headers.get("content-disposition") ?? "").includes("Plan%20v2.pdf"), "file served with its type and name");
+  check(fileBack.length === doc.length && fileBack.every((b, i) => b === doc[i]), "uploaded file bytes served back verbatim");
+  check((await fetch(`${base}/upload?kind=file`, { method: "POST", body: doc })).status === 400, "file upload needs a name");
+  const withFile = await l.call("send", { clientMessageId: `file-${crypto.randomUUID()}`, text: "the plan", attachmentIds: [upf.attachment.id] });
+  const sentFile = withFile.message.attachments[0];
+  check(sentFile?.kind === "file" && sentFile.name === "Plan v2.pdf" && sentFile.size === doc.length, "send attaches the file with its details");
+  for (const kind of ["pdf", "zip", "txt", "png"]) {
+    const made = await post(`/admin/file?conversation=group&kind=${kind}`);
+    const fbytes = new Uint8Array(await (await fetch(made.attachment.url)).arrayBuffer());
+    check(made.attachment.kind === "file" && made.attachment.name.endsWith(`.${kind}`) && made.attachment.size === fbytes.length, `bot ${kind} has a name and its real size (${fbytes.length}B)`);
+    const magic = kind === "pdf" ? [0x25, 0x50, 0x44, 0x46] : kind === "zip" ? [0x50, 0x4b, 0x03, 0x04] : kind === "png" ? [...PNG_SIGNATURE] : null;
+    if (magic) check(magic.every((b, i) => fbytes[i] === b), `bot ${kind} bytes start with the ${kind} signature`);
+  }
+  check((await l.raw("setBackground", { background: { kind: "photo", attachmentId: upf.attachment.id, luminance: 0.4 } })).error?.code === -32602, "a file is not a photo background");
+
   console.log("read state");
   const r1 = await Client.connect("group");
   const r2 = await Client.connect("group");

@@ -355,7 +355,7 @@ extension ConversationViewController {
     /// Send Later is off.
     func sendLaterIfNeeded(_ composer: ConversationComposerView) -> Bool {
         guard let date = composer.sendLaterDate else { return false }
-        let images = composer.attachments.map { attachment in
+        let images = composer.attachments.filter { $0.file == nil }.map { attachment in
             (data: attachment.data, width: Int(attachment.image.size.width * attachment.image.scale), height: Int(attachment.image.size.height * attachment.image.scale), mimeType: attachment.mimeType)
         }
         let text = composer.text

@@ -132,6 +132,10 @@ public final class ConversationViewController: UIViewController {
     var textSelection: BubbleTextSelectionView?
     var photoDrawer: ConversationPhotoGridView?
     var pickedAssets: [String: UUID] = [:]
+    /// The open Quick Look preview's data source (photos and documents).
+    var quickLookPresenter: ConversationQuickLookPresenter?
+    /// The photo viewer's zoom transition (the presented viewer holds it weakly).
+    var photoTransition: ConversationPhotoZoomTransition?
     var drawerHeightConstraint: NSLayoutConstraint?
     /// Keyboard-relative base line of the composer (see `composerBottomConstraint`).
     let composerBase = UILayoutGuide()
