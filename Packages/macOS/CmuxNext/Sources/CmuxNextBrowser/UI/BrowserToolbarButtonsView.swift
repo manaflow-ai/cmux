@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): design mode,
 /// profile, theme, DevTools and More. Engine-neutral: the states come from
@@ -35,7 +36,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         translatesAutoresizingMaskIntoConstraints = false
         setHuggingPriority(.required, for: .horizontal)
         for button in BrowserToolbarButton.allCases {
-            let view = ChromeIconButton(symbol: "circle", label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
+            let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
             view.setAccessibilityIdentifier(button.identifier)
             view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
             buttons[button] = view
@@ -132,7 +133,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             guard states[button] != state else { continue }
             states[button] = state
             guard let view = buttons[button] else { continue }
-            view.setSymbol(state.symbol, label: state.label)
+            view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive
         }

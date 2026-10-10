@@ -6540,9 +6540,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "offered",
+      "context_menu" : "duplicateOfDefault",
       "context_menus" : [
-        "tab"
+
       ],
       "default_aliases" : [
 
@@ -6554,7 +6554,7 @@
           "cmd"
         ]
       },
-      "id" : "newTab.sameKind",
+      "id" : "newTab.default",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -6566,7 +6566,34 @@
       },
       "palette_suggested" : 0,
       "title" : "New Tab",
-      "title_key" : "action.newTab.sameKind",
+      "title_key" : "action.newTab.default",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-of-kind",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.ofKind",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab of the Same Kind",
+      "title_key" : "action.newTab.ofKind",
       "title_table" : "ActionCatalog"
     },
     {
@@ -30648,7 +30675,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.sameKind",
+          "id" : "newTab.ofKind",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
