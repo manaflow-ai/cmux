@@ -28,6 +28,9 @@ final class CEFMediaBridge {
         let channel = BrowserMediaState.channel
         let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
         let calls: [(String, [String: Any])] = [
+            // Blink runs new-document scripts only while the Page domain is
+            // on; its events are a few per navigation.
+            ("Page.enable", [:]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": observer, "worldName": BrowserMediaState.world, "runImmediately": true]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
             Self.binding,
