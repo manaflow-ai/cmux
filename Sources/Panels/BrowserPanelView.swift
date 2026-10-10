@@ -3859,6 +3859,15 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
     case .bufferChanged(let newValue):
         let bufferChanged = state.buffer != newValue
         state.buffer = newValue
+        if bufferChanged {
+            // Suggestion rows belong to the query that produced them. Clear
+            // them at the transition so a row for the previous query cannot
+            // remain actionable while an async refresh is in flight.
+            state.suggestions = []
+            state.selectedSuggestionIndex = 0
+            state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
+        }
         if state.isFocused {
             state.isUserEditing = (newValue != state.currentURLString)
             state.selectedSuggestionIndex = 0
