@@ -113,8 +113,7 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, group: row.group?.rawValue,
-                                   shownFrame: view.map { $0.layer?.presentation()?.frame ?? $0.frame }, clips: view?.clipsToBounds == true)
+                                   activity: activity, icon: icon, group: row.group?.rawValue, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

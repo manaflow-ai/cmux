@@ -102,6 +102,9 @@ class SidebarRowView: NSView {
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
 
+    /// The frame as drawn now: the presentation mid-animation (debug).
+    var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
+
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
     var targetSize: NSSize? {
