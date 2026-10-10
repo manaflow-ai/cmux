@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad } from "../lib/hooks"
-import { mutate, read, type OpResponse } from "../lib/server"
+import type { OpResponse } from "../lib/server"
+import { useTeamApi } from "../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../lib/session"
 
 export const Route = createFileRoute("/automations")({ component: Automations })
@@ -44,9 +45,10 @@ const triggerLabel = (t: Trigger) =>
 
 function Automations() {
   const signedIn = useSignedIn()
+  const { read, mutate, team } = useTeamApi()
   const [last, setLast] = useState<OpResponse | null>(null)
   const [hook, setHook] = useState<{ path: string; secret: string } | null>(null)
-  const data = useLoad<{ automations: Array<Automation>; runs: Array<Run> }>(signedIn ? "automations" : null, async () => {
+  const data = useLoad<{ automations: Array<Automation>; runs: Array<Run> }>(signedIn ? `automations:${team ?? "personal"}` : null, async () => {
     // The personal team (the scheduler's owner) exists once the user exists.
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)

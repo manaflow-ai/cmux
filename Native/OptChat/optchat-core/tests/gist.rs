@@ -132,8 +132,9 @@ fn the_most_due_pair_at_t_10_is_8_and_9() {
 }
 
 /// Spec 3.2, when: each message only appends its line; once the view passes
-/// the budget, one batch merges down to half of it. Building a node never
-/// merges.
+/// the budget, one batch merges down to half of it. Building a node merges
+/// only a view past its budget, and only as one whole batch down to half,
+/// as the reference client fits its views after each stored node.
 #[test]
 fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
     let budget = 20_000;
@@ -157,11 +158,15 @@ fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
         }
         let view = memory.view().to_vec();
         drain(&mut memory, &store);
-        assert_eq!(
-            memory.view(),
-            &view[..],
-            "building nodes changed the view at {k}"
-        );
+        // Building turns placeholders into lines, so the view can pass its
+        // budget while nodes are built; a merge then is one whole batch.
+        if memory.view() != &view[..] {
+            assert!(
+                memory.view_size() <= budget / 2,
+                "building nodes merged less than a whole batch at {k}: {}",
+                memory.view_size()
+            );
+        }
     }
     assert!(batches >= 10, "only {batches} batches");
 }
@@ -274,8 +279,8 @@ fn up_to_ahead_message_nodes_run_and_merges_start_when_both_halves_are_built() {
         })
         .collect();
     assert_eq!(first, (0..a).map(|i| NodeId::new(0, i)).collect::<Vec<_>>());
-    // 1..AHEAD finish while 0 runs: one unbuilt line before AHEAD..2*AHEAD-1,
-    // so they start (AHEAD - 1 slots), and the merges of built pairs too.
+    // 1..AHEAD finish while 0 runs: one unbuilt line before the next leaves,
+    // so they may start, and the merges of built pairs too.
     for i in 1..a {
         let n = NodeId::new(0, i);
         store.nodes.borrow_mut().insert(n, summary(n));
@@ -289,12 +294,16 @@ fn up_to_ahead_message_nodes_run_and_merges_start_when_both_halves_are_built() {
             Work::Free { .. } => None,
         })
         .collect();
-    assert_eq!(
-        models,
-        (a..2 * a - 1)
-            .map(|i| NodeId::new(0, i))
-            .collect::<Vec<_>>()
-    );
+    // The reference client's order: by position (a merge at its end), so
+    // the level-2 merges of the built region (2+1 .. 2+a/4-1; 2+0 waits for
+    // message 0) go before the next leaves, which take the slots left.
+    let merges: Vec<NodeId> = (1..a / 4).map(|i| NodeId::new(2, i)).collect();
+    let leaves = (JOBS - 1 - merges.len()) as u64;
+    let expected: Vec<NodeId> = merges
+        .into_iter()
+        .chain((a..a + leaves).map(|i| NodeId::new(0, i)))
+        .collect();
+    assert_eq!(models, expected);
     let free: Vec<NodeId> = work
         .iter()
         .filter_map(|w| match w {
@@ -410,7 +419,8 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         request.step,
         format!(
             "Compaction: compress message 2 into one line of at most 512 bytes\n\
-             (about 70 words), the length of this ruler:\n{RULER}\n<input>\n\
+             (about 70 words; aim for about 400 bytes, well inside the limit), the\n\
+             limit is the length of this ruler:\n{RULER}\n<input>\n\
              echo: message 2 {}\n</input>",
             "x".repeat(700)
         )
@@ -436,12 +446,18 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         .unwrap();
     let (a, b) = merge.children().unwrap();
     let request = compact_request(&memory, &store, merge, "SYSTEM".into()).unwrap();
-    let line = |n: NodeId| view_line(n, store.node(n).as_deref());
+    // The two lines' texts as they are, without their `id+n|` heads, as the
+    // reference client sends them (Memory.flat): with the heads, the model
+    // copied the first input (head and all) and cut the second, and facts
+    // of the right half were lost (context slices: kestrel kept to 32, 16, 8
+    // with heads; 128, 128, 32 without).
+    let line = |n: NodeId| store.node(n).unwrap().replace('\n', " ");
     assert_eq!(
         request.step,
         format!(
             "Compaction: merge lines {} and {}, adjacent, into one line of at most\n\
-             512 bytes (about 70 words), the length of this ruler:\n{RULER}\n\
+             512 bytes (about 70 words; aim for about 400 bytes, well inside the limit),\n\
+             the limit is the length of this ruler:\n{RULER}\n\
              <chat> may hold their messages, {} to {}, in more detail: take details\n\
              of them from there too.\n<input>\n{}\n{}\n</input>",
             a.name(),
@@ -459,9 +475,9 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
     assert_eq!(
         retry,
         format!(
-            "Too long: your line is 600 bytes, over the 512-byte limit. Write\n\
-             the whole line again for the same <input>, cutting just enough of the\n\
-             least valuable items to fit before this cut:\n{}| ← LIMIT",
+            "Too long: your last line for this <input> was 600 bytes,\n\
+             over the 512-byte limit. Write the whole line again, cutting just\n\
+             enough of the least valuable items to fit before this cut:\n{}| ← LIMIT",
             "y".repeat(512)
         )
     );

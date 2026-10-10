@@ -12,6 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)
@@ -107,7 +108,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)

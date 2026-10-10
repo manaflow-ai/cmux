@@ -46,8 +46,34 @@ impl Brain {
             harness,
             model,
             effort,
+            speed,
+            compactor_speed,
         } = request
         {
+            // A speed the target harness has (the turns' after this set;
+            // the compactor's when acpmux says its family).
+            let s = &self.settings;
+            let turn_harness = harness
+                .as_deref()
+                .map(str::trim)
+                .filter(|h| !h.is_empty() && *h != "default")
+                .map(str::to_owned)
+                .or_else(|| choice.harness.clone())
+                .unwrap_or_else(|| s.harness.clone());
+            let compactor_harness = choice
+                .compactor_harness
+                .clone()
+                .unwrap_or_else(|| turn_harness.clone());
+            for (value, target) in [
+                (&speed, &turn_harness),
+                (&compactor_speed, &compactor_harness),
+            ] {
+                if let Some(v) = value.as_deref()
+                    && let Err(reason) = crate::engine::check_speed(v, self.family_of(target))
+                {
+                    return error("invalid_speed", reason);
+                }
+            }
             if let Some(h) = harness.as_deref().map(str::trim)
                 && !h.is_empty()
                 && h != "default"
@@ -73,9 +99,18 @@ impl Brain {
                     format!("effort {e} is not one of default, {}", EFFORTS.join(", ")),
                 );
             }
+            // acpmux probed only the harnesses the Chief used at its start
+            // (ACPMUX_PROBE_HARNESSES): a new turn harness is probed now.
+            let probe = harness
+                .as_deref()
+                .map(str::trim)
+                .filter(|h| !h.is_empty() && *h != "default")
+                .map(str::to_owned);
             apply(&mut choice.harness, harness);
             apply(&mut choice.model, model);
             apply(&mut choice.effort, effort);
+            apply(&mut choice.speed, speed);
+            apply(&mut choice.compactor_speed, compactor_speed);
             if let Err(e) = crate::engine::save(&file, &choice) {
                 return error("write_failed", format!("{}: {e}", file.display()));
             }
@@ -83,6 +118,11 @@ impl Brain {
                 "engine set: {}",
                 serde_json::to_string(&choice).unwrap_or_default()
             ));
+            if let Some(h) = probe.as_deref()
+                && let Err(e) = self.agents.probe_models(h)
+            {
+                (self.log)(&format!("engine set: asking acpmux to probe {h}: {e}"));
+            }
         }
         self.engine_answer(&choice)
     }
@@ -106,6 +146,8 @@ impl Brain {
                 "effort": engine.effort,
                 "compactor_harness": choice.compactor_harness,
                 "compactor_model": choice.compactor_model,
+                "speed": engine.speed.as_deref().unwrap_or("default"),
+                "compactor_speed": choice.compactor_speed.as_deref().unwrap_or("default"),
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),

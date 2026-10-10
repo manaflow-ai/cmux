@@ -73,6 +73,9 @@ public struct DaemonCapabilities: Sendable {
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
     /// `new-pane-right`; `cwd`/`env` on the last two (cmux-tui PR 15600).
     public let terminalPlacementEnv = "terminal-placement-env-v1"
+    /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
+    /// retries (plans/cmux-next/remote-state-ownership.md S1).
+    public let splitClientKeys = "split-client-keys-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -210,6 +213,12 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// `palette_usage.get|record|import`: the user's palette usage history
+    /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
+    public let paletteUsage = "palette-usage-v1"
+    /// `project.list|observe|add|update|remove|sync`: the device project list
+    /// (plans/cmux-next/projects.md).
+    public let projectList = "project-list-v1"
     /// `move-tab-to-split` `respawn`: splitting a pane with its only tab
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
@@ -251,7 +260,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
 
     /// App code waiting for a daemon half that no branch has yet. Each

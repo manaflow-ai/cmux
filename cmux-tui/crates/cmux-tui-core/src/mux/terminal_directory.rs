@@ -12,7 +12,7 @@ impl Mux {
     ) -> anyhow::Result<bool> {
         let Some(id) = source.terminal_public_id() else { return Ok(true) };
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(true);

@@ -39,11 +39,16 @@ public struct CloudAPIClient: Sendable {
 
     /// `POST /api/vm`. The server provisions for up to 600 s; the key makes a
     /// retry after a lost response return the same machine.
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
+    /// `onSent` runs once the request goes on the wire (sign-in token and
+    /// team resolved), so a caller can tell its request stage from the
+    /// server's create.
+    public func createMachine(displayName: String?, memoryMb: Int? = nil, idempotencyKey: String = UUID().uuidString,
+                              onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
         var body: [String: any Sendable] = [:]
         if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
         if let memoryMb { body["memoryMb"] = memoryMb }
-        return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620), as: CloudMachine.self)
+        return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
+                              onSent: onSent, as: CloudMachine.self)
     }
 
     public func renameMachine(_ id: String, to name: String?) async throws {
@@ -260,7 +265,8 @@ public struct CloudAPIClient: Sendable {
     struct Ignored: Decodable {}
 
     func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
-                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
+                            timeout: Duration = .seconds(20), onSent: (@Sendable () async -> Void)? = nil,
+                            as type: T.Type) async throws -> T {
         let (access, refresh): (String, String)
         do { (access, refresh) = try await tokens() } catch { throw CloudAPIError.notSignedIn }
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
@@ -280,6 +286,7 @@ public struct CloudAPIClient: Sendable {
         }
         let data: Data
         let response: URLResponse
+        await onSent?()
         do {
             let session = session, prepared = request
             (data, response) = try await withDeadline(timeout, label: "\(method) \(path)") { try await session.data(for: prepared) }

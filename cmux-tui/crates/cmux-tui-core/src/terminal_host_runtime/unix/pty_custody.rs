@@ -57,7 +57,7 @@ pub(super) fn decode_pty_custody(payload: &[u8]) -> anyhow::Result<(u32, u32)> {
 }
 
 /// Host side: answer an authenticated `FLAG_PTY_CUSTODY` hello, then close.
-pub(super) fn serve(
+pub(crate) fn serve(
     host: &HostShared,
     mut stream: UnixStream,
     hello_frame: &Frame,
@@ -201,27 +201,6 @@ impl HostAttachment {
     pub(crate) fn take_pty_custody(&mut self) -> Option<PtyCustody> {
         self.pty_custody.take()
     }
-}
-
-/// The durable owner token a host record names.
-pub(crate) fn record_owner_token(record: &TerminalHostRecord) -> anyhow::Result<CapabilityToken> {
-    Ok(CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?))
-}
-
-/// The live host that replaced the dead host `dead` of the same terminal
-/// incarnation at `record_path`, if one is published.
-pub(crate) fn live_successor_record(
-    record_path: &Path,
-    dead: &TerminalHostRecord,
-) -> Option<TerminalHostRecord> {
-    let record: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path).ok()?).ok()?;
-    let successor = record.terminal_id == dead.terminal_id
-        && record.incarnation == dead.incarnation
-        && record.owner_token == dead.owner_token
-        && record.host_start_nonce != dead.host_start_nonce
-        && terminal_host_record_liveness(record_path, &record).ok()
-            == Some(TerminalHostLiveness::Live);
-    successor.then_some(record)
 }
 
 /// An aligned control buffer for one descriptor.

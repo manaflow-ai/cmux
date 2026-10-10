@@ -11,7 +11,7 @@ fn mark(mux: &Arc<Mux>) -> (i64, i64) {
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT (SELECT COALESCE(MAX(rowid), 0) FROM resource_mutations),
                       (SELECT COALESCE(MAX(rowid), 0) FROM resource_effect_receipts)";
-    registry.connection.query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap()
+    registry.connection.get().query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap()
 }
 
 /// The actors of the `operation` rows of either ledger written after `mark`.
@@ -20,7 +20,8 @@ fn actors_since(mux: &Arc<Mux>, mark: (i64, i64), operation: &str) -> Vec<String
     let sql = "SELECT actor FROM resource_mutations WHERE rowid > ?1 AND operation = ?3
                UNION ALL
                SELECT actor FROM resource_effect_receipts WHERE rowid > ?2 AND operation = ?3";
-    let mut statement = registry.connection.prepare(sql).unwrap();
+    let db = registry.connection.get();
+    let mut statement = db.prepare(sql).unwrap();
     statement
         .query_map(rusqlite::params![mark.0, mark.1, operation], |row| row.get::<_, String>(0))
         .unwrap()
@@ -129,7 +130,7 @@ fn newest_notification_actor(mux: &Arc<Mux>) -> Option<String> {
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM resource_effect_receipts
                WHERE operation = 'notification.create' ORDER BY rowid DESC LIMIT 1";
-    registry.connection.query_row(sql, [], |row| row.get::<_, String>(0)).ok()
+    registry.connection.get().query_row(sql, [], |row| row.get::<_, String>(0)).ok()
 }
 
 #[test]
@@ -155,7 +156,7 @@ fn a_keyed_bookmark_op_records_its_connection() {
     assert_eq!(reply["ok"], true, "{reply}");
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM bookmark_mutations WHERE mutation_id = 'bookmark-1'";
-    let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
+    let actor = registry.connection.get().query_row(sql, [], |row| row.get::<_, String>(0));
     assert_eq!(actor.ok().as_deref(), Some("peer:websocket"));
 }
 
@@ -170,7 +171,8 @@ fn terminal_ledger_rows_of_a_creation_are_the_callers() {
     assert_eq!(created["ok"], true, "{created}");
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM terminal_mutations";
-    let mut statement = registry.connection.prepare(sql).unwrap();
+    let db = registry.connection.get();
+    let mut statement = db.prepare(sql).unwrap();
     let actors = statement
         .query_map([], |row| row.get::<_, Option<String>>(0))
         .unwrap()

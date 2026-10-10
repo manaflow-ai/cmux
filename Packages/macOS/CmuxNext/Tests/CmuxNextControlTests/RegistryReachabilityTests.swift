@@ -28,7 +28,7 @@ import Testing
     }
 
     static func runParams(_ action: ControlActionInfo, name: String) -> [String: JSONValue] {
-        // Reachability only: answer once the handler ran (`wait` is ActionRunContractTests').
+        // Reachability only: answer once the handler ran.
         var params: [String: JSONValue] = ["action": .string(name), "args": sampleArguments(action), "wait": false]
         if let kind = action.targets.first { params["target"] = .string("\(kind):target1") }
         return params

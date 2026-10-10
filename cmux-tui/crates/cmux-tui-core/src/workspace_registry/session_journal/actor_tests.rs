@@ -33,7 +33,7 @@ fn actor_of(mux: &crate::Mux, key: &str) -> Option<String> {
         .find(|record| record.correlation_id.as_deref() == Some(key))
         .unwrap_or_else(|| panic!("no journal record for {key}"));
     let registry = mux.workspace_registry.lock().unwrap();
-    journal_actor(&registry.connection, record.sequence).unwrap()
+    journal_actor(&registry.connection.get(), record.sequence).unwrap()
 }
 
 #[test]
@@ -70,14 +70,14 @@ fn archive_by_hand(registry: &WorkspaceRegistry, records: &Value, actors_json: O
     let compressed = encoder.finish().unwrap();
     let length = i64::try_from(uncompressed.len()).unwrap();
     match actors_json {
-        None => registry.connection.execute(
+        None => registry.connection.get().execute(
             "INSERT INTO journal_segments(
                segment_id, start_sequence, end_sequence, record_count, codec, content,
                uncompressed_bytes, sha256, sealed_at_ms
              ) VALUES('segment_by_hand', 1, 1, 1, 'gzip-json-v1', ?1, ?2, ?3, 1)",
             params![compressed, length, digest.as_slice()],
         ),
-        Some(actors) => registry.connection.execute(
+        Some(actors) => registry.connection.get().execute(
             "INSERT INTO journal_segments(
                segment_id, start_sequence, end_sequence, record_count, codec, content,
                uncompressed_bytes, sha256, sealed_at_ms, actors_json
@@ -88,6 +88,7 @@ fn archive_by_hand(registry: &WorkspaceRegistry, records: &Value, actors_json: O
     .unwrap();
     registry
         .connection
+        .get()
         .execute_batch(
             "DROP TRIGGER session_journal_reject_delete;
              DELETE FROM session_journal;
@@ -100,8 +101,9 @@ fn archive_by_hand(registry: &WorkspaceRegistry, records: &Value, actors_json: O
 
 /// A registry with one resource record (sequence 1) and its JSON.
 fn one_record(label: &str) -> (WorkspaceRegistry, Value) {
-    let mut registry = WorkspaceRegistry::in_memory(label).unwrap();
-    let tx = registry.connection.transaction().unwrap();
+    let registry = WorkspaceRegistry::in_memory(label).unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
     append_resource_journal_record(
         &tx,
@@ -118,6 +120,7 @@ fn one_record(label: &str) -> (WorkspaceRegistry, Value) {
     tx.commit().unwrap();
     let records = registry.session_journal_after(0, 10).unwrap().records;
     let json = serde_json::to_value(&records).unwrap();
+    drop(db);
     (registry, json)
 }
 
@@ -127,7 +130,7 @@ fn a_segment_without_actors_reads_as_legacy() {
     archive_by_hand(&registry, &records, None);
     let records = registry.session_journal_after(0, 10).unwrap().records;
     assert_eq!(records.len(), 1);
-    assert_eq!(journal_actor(&registry.connection, records[0].sequence).unwrap(), None);
+    assert_eq!(journal_actor(&registry.connection.get(), records[0].sequence).unwrap(), None);
 }
 
 #[test]
@@ -136,10 +139,10 @@ fn actors_for_sequences_outside_the_segment_are_ignored() {
     archive_by_hand(&registry, &records, Some(r#"{"1":"user:user_local","99":"peer:remote"}"#));
     let records = registry.session_journal_after(0, 10).unwrap().records;
     assert_eq!(records.len(), 1);
-    let actor = journal_actor(&registry.connection, records[0].sequence).unwrap();
+    let actor = journal_actor(&registry.connection.get(), records[0].sequence).unwrap();
     assert_eq!(actor.as_deref(), Some("user:user_local"));
     // The entry for sequence 99 names no record of this segment: never read.
-    assert_eq!(journal_actor(&registry.connection, 99).unwrap(), None);
+    assert_eq!(journal_actor(&registry.connection.get(), 99).unwrap(), None);
 }
 
 #[test]
@@ -156,8 +159,9 @@ fn a_segment_record_with_an_unknown_field_still_decodes() {
 /// legacy `resource_events` history moves into the journal at open.
 #[test]
 fn legacy_history_migrates_before_the_ledgers_have_actor_columns() {
-    let mut registry = WorkspaceRegistry::in_memory("legacy-actorless").unwrap();
-    let tx = registry.connection.transaction().unwrap();
+    let registry = WorkspaceRegistry::in_memory("legacy-actorless").unwrap();
+    let db = registry.connection.get();
+    let tx = db.unchecked_transaction().unwrap();
     tx.execute_batch(
         "DROP TABLE session_journal;
          ALTER TABLE resource_mutations DROP COLUMN actor;
@@ -182,7 +186,7 @@ fn legacy_history_migrates_before_the_ledgers_have_actor_columns() {
     tx.commit().unwrap();
     let records = registry.session_journal_after(0, 10).unwrap().records;
     assert_eq!(records.len(), 2);
-    assert_eq!(journal_actor(&registry.connection, records[1].sequence).unwrap(), None);
+    assert_eq!(journal_actor(&registry.connection.get(), records[1].sequence).unwrap(), None);
 }
 
 /// The actor stays out of the sealed record JSON (older daemons decode it).
@@ -196,8 +200,8 @@ fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
     let through = checkpoint.checkpoint.source_sequence;
     mux.seal_journal_segments(through, "client_test", "segment_1").unwrap();
     let registry = mux.workspace_registry.lock().unwrap();
-    let mut statement =
-        registry.connection.prepare("SELECT content FROM journal_segments").unwrap();
+    let db = registry.connection.get();
+    let mut statement = db.prepare("SELECT content FROM journal_segments").unwrap();
     let contents = statement.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap();
     for content in contents {
         let mut json = String::new();
@@ -206,6 +210,7 @@ fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
         assert!(!json.contains("\"actor\""), "a sealed record carries an actor field");
     }
     drop(statement);
+    drop(db);
     drop(registry);
     mux.shutdown();
     let _ = fs::remove_dir_all(root);

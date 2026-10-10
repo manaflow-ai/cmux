@@ -46,6 +46,8 @@ pub use clipboard_read::{
 mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
+mod clear_history;
+
 mod program_status;
 pub use program_status::{
     ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState,
@@ -69,22 +71,6 @@ const _: () = assert!(
 );
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
-
-#[cfg(test)]
-thread_local! {
-    static KITTY_REPLAY_IMAGE_ENCODINGS: std::cell::Cell<usize> =
-        const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn reset_kitty_replay_image_encodings() {
-    KITTY_REPLAY_IMAGE_ENCODINGS.set(0);
-}
-
-#[cfg(test)]
-fn kitty_replay_image_encodings() -> usize {
-    KITTY_REPLAY_IMAGE_ENCODINGS.get()
-}
 
 /// Per-terminal Kitty resource limits that every byte-stream emulator must
 /// share to make admission and eviction deterministic.
@@ -916,85 +902,6 @@ impl Terminal {
         let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
         let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
         Some((x, y))
-    }
-
-    /// Clear retained history and complete rows before the active prompt
-    /// without writing bytes to the child process.
-    ///
-    /// OSC 133 identifies the full prompt when available. Without shell
-    /// metadata, only scrollback is cleared because visible rows may contain
-    /// hard-newline input whose boundary cannot be inferred. Cursor movement
-    /// is skipped when pending-wrap or origin-mode state cannot be restored
-    /// exactly. If preserved content begins in scrollback, or the persistent
-    /// VT parser is inside a partial sequence or UTF-8 code point, no mutation
-    /// is applied.
-    pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
-        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
-
-        if self.active_screen() == Screen::Alternate {
-            return ClearHistoryOutcome::Unchanged;
-        }
-        if !self.vt_boundary.is_safe() {
-            return ClearHistoryOutcome::Blocked;
-        }
-
-        let mut clear = CLEAR_SCROLLBACK.to_vec();
-        let Some((cursor_x, cursor_y)) = self.cursor_position() else {
-            return ClearHistoryOutcome::Unchanged;
-        };
-        let prompt_semantic = self.prompt_semantic.semantic(Screen::Primary);
-        let cursor_is_at_prompt = self.cursor_is_at_prompt();
-        let prompt_start_y =
-            cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
-        let preserve_from_y = if cursor_is_at_prompt {
-            prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
-        } else if prompt_semantic == PromptSemantic::Unknown {
-            Some(0)
-        } else {
-            self.active_logical_line_start_row(cursor_y)
-        };
-        let Some(preserve_from_y) = preserve_from_y else {
-            return ClearHistoryOutcome::Unchanged;
-        };
-        let history_rows = self.history_rows();
-        let prompt_may_begin_in_history = cursor_is_at_prompt
-            && match prompt_start_y {
-                None => true,
-                // Some shells mark every hard-newline prompt row. Row zero is
-                // only a true boundary when the adjacent history row is not
-                // another prompt row.
-                Some(0) if history_rows > 0 => self
-                    .history_row_prompt_semantic(history_rows - 1)
-                    .map(|semantic| semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE)
-                    .unwrap_or(true),
-                Some(0) => false,
-                Some(_) => false,
-            };
-        if history_rows > 0
-            && (prompt_may_begin_in_history
-                || (preserve_from_y == 0
-                    && !cursor_is_at_prompt
-                    && self.active_row_wrap_continuation(0).unwrap_or(true)))
-        {
-            return ClearHistoryOutcome::Unchanged;
-        }
-        if self.cursor_pending_wrap() || self.mode(6, false) {
-            self.vt_write(&clear);
-            return ClearHistoryOutcome::Cleared(clear);
-        }
-        if preserve_from_y == 0 {
-            self.vt_write(&clear);
-            return ClearHistoryOutcome::Cleared(clear);
-        }
-
-        for row in 0..preserve_from_y {
-            clear.extend_from_slice(format!("\x1b[{};1H\x1b[2K", u32::from(row) + 1).as_bytes());
-        }
-        clear.extend_from_slice(
-            format!("\x1b[{};{}H", u32::from(cursor_y) + 1, u32::from(cursor_x) + 1).as_bytes(),
-        );
-        self.vt_write(&clear);
-        ClearHistoryOutcome::Cleared(clear)
     }
 
     fn cursor_pending_wrap(&self) -> bool {
@@ -2693,17 +2600,6 @@ impl KittyReplayRowIndex {
     }
 }
 
-#[cfg(test)]
-impl FromIterator<u64> for KittyReplayRowIndex {
-    fn from_iter<T: IntoIterator<Item = u64>>(rows: T) -> Self {
-        let mut index = Self::default();
-        for row in rows {
-            index.insert(row, 1);
-        }
-        index.finish()
-    }
-}
-
 struct ReplayText {
     bytes: Vec<u8>,
     range: Option<ReplayRowRange>,
@@ -2759,8 +2655,6 @@ struct KittyReplayCatalog<'a> {
     placement_rows: KittyReplayRowIndex,
     cell_pixels: (u32, u32),
     terminal_rows: u16,
-    #[cfg(test)]
-    placement_grouping_visits: usize,
 }
 
 struct KittyReplayCandidate {
@@ -2781,13 +2675,7 @@ impl<'a> KittyReplayCatalog<'a> {
     fn new(snapshot: &'a KittyReplaySnapshot, cell_pixels: (u32, u32), terminal_rows: u16) -> Self {
         let mut placements_by_image = HashMap::<u32, Vec<KittyReplayPlacement<'a>>>::new();
         let mut placement_rows = KittyReplayRowIndex::default();
-        #[cfg(test)]
-        let mut placement_grouping_visits = 0;
         for placement in &snapshot.graphics.placements {
-            #[cfg(test)]
-            {
-                placement_grouping_visits += 1;
-            }
             let Some(anchor) = snapshot.anchors.get(&placement.key).copied() else {
                 continue;
             };
@@ -2810,14 +2698,7 @@ impl<'a> KittyReplayCatalog<'a> {
                 })
             })
             .collect();
-        Self {
-            images,
-            placement_rows: placement_rows.finish(),
-            cell_pixels,
-            terminal_rows,
-            #[cfg(test)]
-            placement_grouping_visits,
-        }
+        Self { images, placement_rows: placement_rows.finish(), cell_pixels, terminal_rows }
     }
 
     fn visible_anchor_start(&self) -> Option<u64> {
@@ -2976,8 +2857,6 @@ fn append_kitty_replay_image(bytes: &mut Vec<u8>, image: &KittyImage) {
     if image.data.is_empty() {
         return;
     }
-    #[cfg(test)]
-    KITTY_REPLAY_IMAGE_ENCODINGS.set(KITTY_REPLAY_IMAGE_ENCODINGS.get() + 1);
     let mut payload = [0_u8; KITTY_REPLAY_CHUNK];
     for (index, chunk) in image.data.chunks(KITTY_REPLAY_RAW_CHUNK).enumerate() {
         let more = usize::from((index + 1) * KITTY_REPLAY_RAW_CHUNK < image.data.len());
@@ -3052,16 +2931,6 @@ fn kitty_replay_placement_at(
     }
     let relative_row = i64::try_from(replay_start_row - anchor_row).ok()?.checked_neg()?;
     kitty_replay_placement_from_origin(placement, i64::from(anchor.col), relative_row, cell_pixels)
-}
-
-#[cfg(test)]
-fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -> Option<Vec<u8>> {
-    kitty_replay_placement_from_origin(
-        placement,
-        i64::from(placement.viewport_col),
-        i64::from(placement.viewport_row),
-        cell_pixels,
-    )
 }
 
 fn kitty_replay_placement_from_origin(
@@ -3258,7 +3127,3 @@ impl Drop for Terminal {
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
-
-#[cfg(test)]
-#[path = "terminal_tests.rs"]
-mod tests;

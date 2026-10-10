@@ -27,7 +27,7 @@ export interface LanguageOverride {
   formatOnSave?: boolean;
 }
 
-/** The resolved settings. `settings.test.ts` and README.md list the same keys and defaults. */
+/** The resolved settings. README.md lists the same keys and defaults. */
 export interface EditorSettings extends Required<Omit<LanguageOverride, "rulers">> {
   fontFamily: string | null;
   fontSize: number | null;

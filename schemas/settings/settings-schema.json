@@ -299,8 +299,8 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
-              "sidebar.allChatsRows",
               "sidebar.showProjects",
+              "sidebar.groupBy",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -451,6 +451,7 @@
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
+              "agentPane.showContextUsage",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -480,6 +481,7 @@
         },
         "trail" : [
           "harnesses",
+          "agentHarnesses",
           "computerUse"
         ]
       },
@@ -2064,6 +2066,7 @@
     },
     {
       "accepts" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -2071,6 +2074,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.stripScrollbarSystem",
+            "text" : "Follow System"
+          },
+          "value" : "system"
+        },
         {
           "title" : {
             "key" : "settings.choice.stripScrollbarAuto",
@@ -2096,7 +2106,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "system",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -9616,61 +9626,6 @@
     },
     {
       "accepts" : [
-        1,
-        50,
-        25.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 8,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.allChatsRows.help",
-        "text" : "How many chats the All chats section shows before it scrolls."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.allChatsRows",
-      "keywords" : [
-        "sidebar",
-        "chats",
-        "all chats",
-        "rows",
-        "count"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "allChatsRows"
-      ],
-      "range" : {
-        "max" : 50,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "count"
-      },
-      "refuses" : [
-        -48,
-        99,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.allChatsRows",
-        "text" : "All Chats Rows"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -9711,6 +9666,67 @@
       "title" : {
         "key" : "settings.sidebar.showProjects",
         "text" : "Show Projects"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "folder"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupByNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByFolder",
+            "text" : "Folder"
+          },
+          "value" : "folder"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupBy",
+      "keywords" : [
+        "sidebar",
+        "projects",
+        "group",
+        "folder",
+        "directory",
+        "cwd"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupBy"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.groupBy",
+        "text" : "Group Projects By"
       },
       "validation" : "portable"
     },
@@ -16536,6 +16552,55 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.showContextUsage.help",
+        "text" : "The ring beside the model that fills as the chat uses its context window."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.showContextUsage",
+      "keywords" : [
+        "context",
+        "usage",
+        "tokens",
+        "window",
+        "ring",
+        "composer",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "showContextUsage"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.showContextUsage",
+        "text" : "Show Context Usage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
         "cmux-browser"
       ],
       "default" : true,
@@ -17304,7 +17369,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "08bda11786ad5981022f57f2e2e93a67f34d71401a41b7ffe79d633a2dae17b9",
+  "schema_hash" : "4b8c0e8798b2f98d1c04bdb60bca4e23821d965561f03ea323742a18e630bc60",
   "sections" : [
     {
       "id" : "general",

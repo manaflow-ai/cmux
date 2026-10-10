@@ -46,38 +46,187 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
+# CMUX_SWIFT_TEST_DIRECT=1 runs each suite from the built test bundle the way
+# `swift test` runs it (run_swift_test_bundle.py), without a SwiftPM process per
+# suite: that process cost 1-2 s of startup per suite and opened .build/build.db,
+# where 8 parallel suites hit "database is locked". Fleet 2026-10-09
+# (CmuxNext at 2914cce3af0e, 1339 suites): the same suites passed both ways and
+# the summed suite time halved. 0 keeps one `swift test --skip-build --filter`
+# per suite (fallback until 2026-10-16).
+direct="${CMUX_SWIFT_TEST_DIRECT:-1}"
+if [ "$direct" != 0 ] && [ "$direct" != 1 ]; then
+  echo "CMUX_SWIFT_TEST_DIRECT must be 0 or 1 (got '$direct')" >&2
+  exit 2
+fi
+# CMUX_SWIFT_TEST_SHARD=i/n (1-based) splits one package's suites across n
+# fleet steps: each shard builds, then runs every n-th suite of the sorted list,
+# starting at the i-th. Round-robin over a sorted list is deterministic and keeps
+# shard sizes within one suite of each other.
+shard_index=1 shard_count=1
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SHARD" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+    || [ "${BASH_REMATCH[1]}" -gt "${BASH_REMATCH[2]}" ]; then
+    echo "CMUX_SWIFT_TEST_SHARD must be i/n with 1 <= i <= n (got '$CMUX_SWIFT_TEST_SHARD')" >&2
+    exit 2
+  fi
+  shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
+fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
+# same debug-info option, so the suites reuse the list build.
+# shellcheck source=scripts/ci/swift-test-debug-info.sh
+source "$script_dir/swift-test-debug-info.sh" || exit 2
+debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
+# prints "ci-phase <name> <seconds>s" for the one it ended; `phase` with no
+# name ends the last one. phase_table prints them all (the step log is the
+# only record a fleet step keeps of where its time went).
+phase_name="" phase_started=$SECONDS phase_rows=()
+echo "ci-phase start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+phase() {
+  if [ -n "$phase_name" ]; then
+    phase_rows+=("$(printf '%-14s %5ss' "$phase_name" "$((SECONDS - phase_started))")")
+    echo "ci-phase $phase_name $((SECONDS - phase_started))s"
+  fi
+  phase_name="${1:-}" phase_started=$SECONDS
+}
+phase_table() {
+  phase
+  echo "Fixed-cost phases (seconds, total ${SECONDS}s):"
+  printf '  %s\n' ${phase_rows[@]+"${phase_rows[@]}"}
+}
 # The cmux-next web bundles are build output (cx-vn5) that the package reads at
 # test time: without them AgentPaneView.init returns nil and the pane suites crash.
 case "$(cd "$package_path" && pwd -P)" in
   */Packages/macOS/CmuxNext)
+    phase web-bundles
     (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
+    # The live-daemon suites find this tree's hosted cmux-tui through
+    # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s) and fetch a
+    # missing build (20-50 s for an unpublished tree), once in every suite
+    # process. Resolve and fetch once for the run, in the background while
+    # the suites are listed; the tests read CMUX_NEXT_TUI_TREE_PATH and
+    # never fetch again. They never wait for an unpublished tree.
+    if [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ]; then
+      (
+        cd "$script_dir/../.." || exit 0
+        export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
+          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
+            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        fi
+        printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
+      ) &
+      tree_path_job=$!
+    fi
     ;;
 esac
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
-swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+# A warm fleet slot keeps .build between steps; name the commit it last built,
+# so a long "warm" build shows how far the tree moved since.
+built_ref_file="$package_path/.build/.cmux-ci-built-ref"
+if [ -f "$built_ref_file" ]; then
+  previous_ref="$(cat "$built_ref_file")"
+  changed="$(git diff --name-only "$previous_ref" HEAD -- 2>/dev/null | wc -l | tr -d ' ')" || changed='?'
+  echo "ci-phase .build last built at ${previous_ref:0:12}; ${changed:-?} files differ from HEAD"
+else
+  echo "ci-phase .build has no earlier build of this script (cold or first use)"
+fi
+phase build-and-list
+swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+[ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
+phase filters
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
+bin_path=""
+if [ "$direct" -eq 1 ]; then
+  # The build products folder, asked once: the catalog compile below gets it
+  # and asks SwiftPM nothing, so it runs beside the XCTest list.
+  phase bin-path
+  bin_path="$(swift build ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --show-bin-path)"
+  # Which listed tests are XCTest (the rest are Swift Testing), in the
+  # background while the catalogs compile (hq11 2026-10-09: 7-17 s and 5-12 s
+  # one after the other).
+  swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --skip-build --disable-swift-testing \
+    > "$evidence_dir/xctest-tests.txt" < /dev/null &
+  xctest_list_job=$!
+fi
 # swift build copies String Catalogs into the resource bundles uncompiled; without
 # the compiled <lang>.lproj tables, localization suites fail (cmux-next.yml and
 # package-test-lane.sh run the same step after their build).
+catalog_status=0
 if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/null)" ]; then
+  phase catalogs
   compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
-  (cd "$package_path" && "$compile_catalogs")
+  (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs") || catalog_status=$?
+fi
+if [ -n "${xctest_list_job:-}" ]; then
+  phase xctest-list
+  xctest_list_status=0
+  wait "$xctest_list_job" || xctest_list_status=$?
+  if [ "$xctest_list_status" -ne 0 ]; then
+    echo "error: swift test list --disable-swift-testing exited $xctest_list_status" >&2
+    exit "$xctest_list_status"
+  fi
+fi
+if [ "$catalog_status" -ne 0 ]; then
+  echo "error: the string catalog compile exited $catalog_status" >&2
+  exit "$catalog_status"
+fi
+if [ -n "${tree_path_job:-}" ]; then
+  phase tui-tree-wait
+  wait "$tree_path_job" || true
+  tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
+  [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+fi
+if [ "$direct" -eq 1 ]; then
+  # Everything else the suites need from the toolchain, resolved once: the
+  # test bundle, and the two runners with the platform paths SwiftPM sets.
+  phase direct-tools
+  bundles=()
+  for candidate in "$bin_path"/*.xctest; do
+    [ -d "$candidate" ] && bundles+=("$candidate")
+  done
+  if [ "${#bundles[@]}" -ne 1 ]; then
+    echo "error: expected one .xctest bundle in $bin_path, found ${#bundles[@]}; no .xctest bundle to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+    exit 1
+  fi
+  test_bundle="${bundles[0]}"
+  xctest_tool="$(xcrun --find xctest)"
+  testing_helper="$(dirname "$(xcrun --find swift-test)")/../libexec/swift/pm/swiftpm-testing-helper"
+  platform_path="$(xcrun --sdk macosx --show-sdk-platform-path)"
+  sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+  for tool in "$xctest_tool" "$testing_helper"; do
+    if [ ! -x "$tool" ]; then
+      echo "error: $tool is not executable; cannot run suites directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+      exit 1
+    fi
+  done
+  package_dir="$(cd "$package_path" && pwd -P)"
+  echo "Running suites directly from $test_bundle (CMUX_SWIFT_TEST_DIRECT=1)."
 fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
+phase suites
 suites=()
+position=0
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
-  suites+=("$suite")
-done < "$evidence_dir/filters.txt"
+  if [ $((position % shard_count + 1)) -eq "$shard_index" ]; then
+    suites+=("$suite")
+  fi
+  position=$((position + 1))
+done < <(if [ "$shard_count" -eq 1 ]; then cat "$evidence_dir/filters.txt"; else LC_ALL=C sort -u "$evidence_dir/filters.txt"; fi)
 suite_count=${#suites[@]}
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  echo "Swift test shard $shard_index/$shard_count: $suite_count of $position suites"
+fi
 
 # attempt_suite SUITE EXECUTION_LOG SINK...: one watchdog-guarded swift test of
 # SUITE. The output replaces EXECUTION_LOG (the --log check reads the last
@@ -90,11 +239,21 @@ attempt_suite() {
   # scheduler's completion pipe out of the test processes. On a stall the
   # watchdog names the tests still running, samples them, and also kills
   # swiftpm-testing-helper, which runs in its own process group.
+  local command
+  if [ "$direct" -eq 1 ]; then
+    command=(python3 "$script_dir/run_swift_test_bundle.py"
+      --bundle "$test_bundle" --xctest "$xctest_tool" --helper "$testing_helper"
+      --platform "$platform_path" --sdk "$sdk_path" --cwd "$package_dir"
+      --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
+      --filter "$suite")
+  else
+    command=(swift test ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --skip-build
+      ${lock_args[@]+"${lock_args[@]}"} --filter "$suite")
+  fi
   python3 "$script_dir/hung_test_watchdog.py" \
     --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
     --label "$suite" \
-    -- swift test --package-path "$package_path" --skip-build \
-    ${lock_args[@]+"${lock_args[@]}"} --filter "$suite" \
+    -- "${command[@]}" \
     < /dev/null 3>&- 2>&1 | tee "$execution" | "$@"
 }
 
@@ -190,6 +349,7 @@ failed=0
 for result in ${results[@]+"${results[@]}"}; do
   [[ "$result" == PASS* ]] || failed=$((failed + 1))
 done
+phase_table
 echo "Swift test suites: $(( ${#results[@]} - failed )) passed, $failed failed"
 for result in ${results[@]+"${results[@]}"}; do
   echo "  $result"

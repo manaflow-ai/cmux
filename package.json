@@ -1,6 +1,5 @@
 {
   "scripts": {
-    "agent-session-web:test": "bun test webviews/src/agent-session/shared/*.test.ts",
     "biome:check": "biome check .",
     "feed-tui": "bun Resources/feed-tui/index.ts",
     "iroh:relay-catalog:check": "bun web/tools/generate-managed-iroh-relay-catalog.ts --check",

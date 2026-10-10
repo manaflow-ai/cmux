@@ -252,6 +252,11 @@ const REPLY: f64 = 1.1;
 /// read its entry. Returns the seconds until every node is built and the
 /// compactions' cache rate.
 fn burst(n: u64, release: f64) -> (f64, Rate) {
+    burst_sized(n, release, summary)
+}
+
+/// `burst` with the summaries `line` writes.
+fn burst_sized(n: u64, release: f64, line: fn(NodeId) -> String) -> (f64, Rate) {
     let system = CompactPrompt::default().text("Chief");
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
@@ -301,7 +306,7 @@ fn burst(n: u64, release: f64) -> (f64, Rate) {
             end = end.max(now + release + REPLY);
         }
         for node in built {
-            let text = summary(node);
+            let text = line(node);
             store.nodes.borrow_mut().insert(node, text.clone());
             memory.complete(node, &text).unwrap();
         }
@@ -328,4 +333,150 @@ fn an_import_burst_settles_fast_and_reads_the_writers_entry() {
     assert!((rate.pct() - rate_reply.pct()).abs() < 0.01);
     assert!(rate.pct() >= 90.0, "compactions read {:.2}%", rate.pct());
     assert!(at_start <= 40.0, "the burst took {at_start:.1} s");
+}
+
+/// Soak at 64d57f35a20f: after the import fix, each compactor node of a
+/// 2,020-message import still wrote ~15k tokens (its whole context): the
+/// compaction view merged at almost every node, so its head changed and
+/// no node read the previous one's entry. The reference client applies a
+/// merge batch only when it brings the view down far enough, so its head
+/// holds between batches. An import's compactions read most of their
+/// prefix from the cache.
+#[test]
+fn an_import_reads_most_of_its_compaction_prefix_from_the_cache() {
+    // Lines as the model writes them: 400-512 bytes (the 400-byte aim).
+    fn full(node: NodeId) -> String {
+        let mut h = DefaultHasher::new();
+        node.hash(&mut h);
+        let len = 400 + (h.finish() % 112) as usize;
+        let mut s = format!("sum {}: ", node.name());
+        while s.len() < len {
+            s.push_str("item; ");
+        }
+        s.truncate(len);
+        s
+    }
+    let (_, rate) = burst_sized(2_000, START, full);
+    eprintln!("2,000-message import: compactions read {:.2}%", rate.pct());
+    assert!(rate.pct() >= 90.0, "compactions read {:.2}%", rate.pct());
+}
+
+/// Soak at d12ad2ce42e8: the first turn after a 2,020-message import saw
+/// the whole unmerged import (400 KB) and wrote 179k tokens. With the chat's
+/// view merged in whole batches as nodes are built, turns during an import
+/// see a view near the budget, and after it their cached prefix changes
+/// only when a batch merges (once per batch, never at every node). During
+/// the import a turn's view shows built lines only, as the reference
+/// client's: an unbuilt imported line is left out, not a placeholder, so
+/// the view ends at the build front and the turn's mark stays within the
+/// cache's lookback of the last turn's (with placeholders, 6.22% read).
+#[test]
+fn turns_during_and_after_an_import_keep_a_small_view_and_their_cache() {
+    let system = format!(
+        "{}\n\n# Instructions\n\n{}",
+        CompactPrompt::Taelin.text("Chief"),
+        "The user's own instructions. ".repeat(140)
+    );
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    let mut cache = Cache::default();
+    let mut rng = Rng(0x51_7CC1_B727_220A);
+    for k in 0..2_000u64 {
+        let len = rng.range(700, 3_000) as usize;
+        store
+            .messages
+            .borrow_mut()
+            .push((Kind::Echo, format!("imported {k} {}", "x".repeat(len))));
+        let id = memory.append();
+        memory.mark_imported(id);
+    }
+    let (mut during, mut after) = (Rate::default(), Rate::default());
+    let (mut largest, mut churns, mut batches) = (0usize, 0usize, 0usize);
+    let mut now = 0.0f64;
+    let mut done = 0usize;
+    let mut running: std::collections::VecDeque<NodeId> = Default::default();
+    let mut last_view: Vec<NodeId> = memory.view().to_vec();
+    let turn = |memory: &Memory, rate: &mut Rate, now: f64, cache: &mut Cache| -> f64 {
+        let view = render_view(memory, &store).text;
+        let r = Request::new(&blocks(&system, &view, &["user asks"]));
+        let read = cache.send(&r, now);
+        rate.read += read;
+        rate.prefix += system.len() + view.len();
+        read as f64 / (system.len() + view.len()) as f64
+    };
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => running.push_back(node),
+            }
+        }
+        let Some(node) = running.pop_front() else {
+            break;
+        };
+        let text = summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete(node, &text).unwrap();
+        done += 1;
+        now += 0.1;
+        if done.is_multiple_of(100) {
+            largest = largest.max(memory.view_size());
+            turn(&memory, &mut during, now, &mut cache);
+        }
+    }
+    assert!(memory.settled());
+    // After the import: a chat, one message per turn, each turn's view
+    // rendered before its message; a turn's cache misses only at a batch.
+    for k in 0..300u64 {
+        now += 20.0;
+        let hit = turn(&memory, &mut after, now, &mut cache);
+        let view = memory.view().to_vec();
+        let appended =
+            view.len() == last_view.len() + 1 && view[..last_view.len()] == last_view[..];
+        if !appended && k > 0 {
+            batches += 1;
+        }
+        if hit < 0.5 && k > 0 {
+            churns += 1;
+        }
+        last_view = view;
+        store
+            .messages
+            .borrow_mut()
+            .push((Kind::User, format!("user line {k} {}", "y".repeat(600))));
+        memory.append();
+        loop {
+            let work = memory.pump(&store);
+            if work.is_empty() {
+                break;
+            }
+            for w in work {
+                let node = match w {
+                    Work::Free { node, text } => {
+                        store.nodes.borrow_mut().insert(node, text);
+                        continue;
+                    }
+                    Work::Model { node } => node,
+                };
+                let text = summary(node);
+                store.nodes.borrow_mut().insert(node, text.clone());
+                memory.complete(node, &text).unwrap();
+            }
+        }
+    }
+    eprintln!(
+        "import turns: largest view {largest} B, read {:.2}%; after: read {:.2}%, {churns} misses, {batches} view batches",
+        during.pct(),
+        after.pct()
+    );
+    assert!(largest <= 2 * VIEW, "a turn saw a {largest}-byte view");
+    assert!(
+        during.pct() >= 50.0,
+        "turns during the import read {:.2}%",
+        during.pct()
+    );
+    assert!(churns <= batches + 1, "{churns} misses, {batches} batches");
+    assert!(after.pct() >= 95.0, "turns read {:.2}%", after.pct());
 }

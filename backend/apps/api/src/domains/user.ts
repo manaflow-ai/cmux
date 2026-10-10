@@ -3,6 +3,7 @@ import { isMachineInstallKind } from "../machine-installs.ts"
 import type { Domain, OutboxItem, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
+import { ROLES } from "./team-roles.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
@@ -13,7 +14,7 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 /** Most teams one user's index holds (the user head is one SQLite row). */
 export const MAX_TEAM_INDEX = 1_000
-const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
+const TEAM_ROLES: ReadonlySet<string> = new Set(ROLES)
 const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
@@ -61,6 +62,8 @@ const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(
 /** Stable public ids derived from the Stack identity, so routing needs no lookup. */
 export const userIdFor = (stackProjectId: string, stackUserId: string) => `user_${hex20(`stack:${stackProjectId}:${stackUserId}`)}`
 export const personalTeamIdFor = (userId: string) => `team_${hex20(`personal:${userId}`)}`
+/** A Stack (shared) team's cmux id (cx-3bi.43): the Stack webhook and x-cmux-team use it. */
+export const stackTeamIdFor = (stackProjectId: string, stackTeamId: string) => `team_${hex20(`stack-team:${stackProjectId}:${stackTeamId}`)}`
 
 /** RFC 7638 thumbprint of an EC P-256 JWK. */
 export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: string }) =>
@@ -243,7 +246,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           email: p.email ?? null,
           email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
-          personal_team: p.team
+          // Derived from the user, never the request's team (x-cmux-team names a shared team; cx-3bi.43 review P1-1).
+          personal_team: personalTeamIdFor(p.user)
         }
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
@@ -428,7 +432,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           const { [v.team]: _gone, ...rest } = state.team_index ?? {}
           return { ok: true, state: { ...state, team_index: rest }, value: null }
         }
-        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be owner, admin or member; kind personal or stack")
+        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be a team role (owner, admin, member, billing, guest); kind personal or stack")
         const role = v.role as string
         const kind = v.kind as string
         if (cur && cur.role === role && cur.kind === kind) return { ok: true, state, value: cur, changed: false }

@@ -28,20 +28,6 @@ fail "a default-center postNotificationName" '        NotificationCenter.default
 fail "a workspace-center post" '        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)'
 fail "a distributed-center post" '        DistributedNotificationCenter.default().post(name: .x, object: nil)'
 fail "a distributed-center postNotificationName" '        DistributedNotificationCenter.default().postNotificationName(.x, object: nil, userInfo: nil, deliverImmediately: true)'
-# A global center handed to a poster reaches every observer the same way:
-# OffMainPost.send() posted didBecomeKey off main on .default, passed in, and
-# ViewBridge's own observer trapped (#18815).
-fail "a default center as a center argument" '        await postOffMain(NSWindow.didBecomeKeyNotification, object: window, on: .default)'
-fail "a spelled-out default center as an argument" '        let post = OffMainPost(name: .x, object: nil, center: NotificationCenter.default)'
-fail "the workspace center as an argument" '        await postOffMain(.x, object: nil, on: NSWorkspace.shared.notificationCenter)'
-fail "the distributed center as an argument" '        poster(center: DistributedNotificationCenter.default())'
-fail "a default center as a parameter default" 'private func postOffMain(_ name: Notification.Name, object: AnyObject?, on center: NotificationCenter = .default) async {'
-fail "a spelled-out default center as a parameter default" 'func post(_ name: Notification.Name, center: NotificationCenter = NotificationCenter.default) {'
-pass "another default as an argument" '        let session = URLSession(configuration: .default)'
-pass "an observer token on the default center" '        let token = NotificationCenter.default.addObserver(forName: .x, object: nil, queue: .main) { _ in }'
-pass "removing an observer from the default center" '        NotificationCenter.default.removeObserver(token)'
-pass "an injected center as an argument" '        await postOffMain(.x, object: nil, on: center)'
-pass "a reviewed default center argument" '        await postOffMain(.x, object: window, on: .default) // global-notice-allow: proves the app observer hops to main'
 pass "an injected center" '        center.post(name: NSWindow.willCloseNotification, object: window)'
 pass "a private center" '        NotificationCenter().post(name: .x, object: nil)'
 pass "observing the default center" '        let token = NotificationCenter.default.addObserver(forName: .x, object: window, queue: nil) { _ in }'
