@@ -353,7 +353,9 @@ enum Fixtures {
         // cmux: no force unwrap; a file: ref that does not parse resolves like any other ref.
         if ref.hasPrefix("file:"), let url = URL(string: ref) { return url }
         // Catalyst fixture assets (Fixtures/real, bundled as `real/`).
-        if ref.hasPrefix("real/") { return sharedDirectory.appendingPathComponent(ref) }
-        return sharedDirectory.appendingPathComponent("assets").appendingPathComponent(ref)
+        // isDirectory given: no file system lookup per call (a stat for every image row in each
+        // row derivation, 4 % of a live-resize frame on main).
+        if ref.hasPrefix("real/") { return sharedDirectory.appendingPathComponent(ref, isDirectory: false) }
+        return sharedDirectory.appendingPathComponent("assets", isDirectory: true).appendingPathComponent(ref, isDirectory: false)
     }
 }

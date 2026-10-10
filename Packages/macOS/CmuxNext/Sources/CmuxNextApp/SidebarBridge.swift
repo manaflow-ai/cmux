@@ -92,6 +92,7 @@ final class SidebarBridge {
         let pageTabs = services.agentTabs.pageTabs
         let notifications = services.notifications
         let creations = services.cloud.creations
+        let services = services
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
@@ -107,7 +108,7 @@ final class SidebarBridge {
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
-                    top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
+                    top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace)
                 return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
                         SidebarRows.visibleLayout(layout.document))
             }) {
@@ -123,7 +124,7 @@ final class SidebarBridge {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
                               hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
                               newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
-                              top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue))
+                              top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace)
             }
         }
         let state = windowState
@@ -222,9 +223,9 @@ final class SidebarBridge {
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
                              window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], muted: Set<String> = [],
-                             top: SidebarTopProjection = .legacy) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             top: SidebarTopProjection = .legacy, pageFace: PageFace = { _, _ in nil }) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
-                                     selection: window.selection, newTabPages: newTabPages, muted: muted, top: top)
+                                     selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
@@ -244,15 +245,19 @@ final class SidebarBridge {
     /// `newTabPages` are the New Tab page tabs (`AgentTabs.pageTabs`); `muted` rows draw the muted mark.
     static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init(),
-                         newTabPages: Set<String> = [], muted: Set<String> = [], top: SidebarTopProjection = .legacy) -> [SidebarRowSection] {
+                         newTabPages: Set<String> = [], muted: Set<String> = [], top: SidebarTopProjection = .legacy,
+                         pageFace: PageFace = { _, _ in nil }) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection,
-                                                         newTabPages: newTabPages, muted: muted), members: Set(visible))
+                                                         newTabPages: newTabPages, muted: muted, pageFace: pageFace), members: Set(visible))
         return top.apply(to: filtered, machines: machines)
     }
 
     /// Whether the workspace list leaves the home workspace out: only while
     /// a Home item shows it, so it is never unreachable from the sidebar.
+    /// The page face of a browser workspace's front tab (`AppServices.sidebarPageFace`).
+    typealias PageFace = (WorkspaceModel, TabModel) -> SidebarMapping.PageFace?
+
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
         layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
     }
@@ -270,27 +275,28 @@ final class SidebarBridge {
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
     static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
-                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = []) -> [SidebarRowSection] {
+                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = [],
+                         pageFace: PageFace = { _, _ in nil }) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
-                                               newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
+                                               newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace)
         for session in machines.cloud {
             let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
-                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines), muted: muted, selectedTab: selectedTab,
-                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace)
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab)
+                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab, pageFace: pageFace)
         }
         return sections
     }
