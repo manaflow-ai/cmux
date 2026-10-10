@@ -326,7 +326,9 @@ fn host_link_get_answers_from_the_link_registration() {
 /// A registration that names a live process which does not serve the
 /// socket is not a link: the daemon answers no hub socket, so a process
 /// cannot point first-party apps at a socket it serves by naming another
-/// process.
+/// process. Only where the system names the peer pid (Linux, macOS); the
+/// other BSDs check the uid only.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 #[test]
 fn host_link_get_refuses_a_socket_served_by_another_process() {
     let mut bystander = Command::new("sleep").arg("60").spawn().unwrap();
