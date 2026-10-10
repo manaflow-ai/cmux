@@ -46,6 +46,10 @@ nonisolated extension DeepLink {
         case "tab":
             guard segments.count == 1, fragment == nil, isResourceID(first, prefix: "tab_") else { return nil }
             return .tab(first)
+        case "chief":
+            guard segments.count == 3, segments[1] == "session", fragment == nil,
+                  isChiefHome(first), isToken(segments[2]) else { return nil }
+            return .chiefSession(home: first, session: segments[2])
         case "session":
             guard segments.count == 1, isToken(first) else { return nil }
             guard let fragment else { return .session(first, turn: nil) }
