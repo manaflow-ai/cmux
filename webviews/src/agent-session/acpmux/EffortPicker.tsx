@@ -44,6 +44,18 @@ export function EffortPicker({
   const fast = speed !== undefined && speed.current === speed.on;
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  // Base UI initially focuses the popup while it measures its anchor. Move focus to the selected
+  // reasoning row on the next frame, after the popup is mounted and positioned, so ArrowDown starts
+  // from the visible choice for both a click and automation opening by label.
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]')
+        ?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
       <span className="flex min-w-0 flex-1 flex-col">
