@@ -368,6 +368,10 @@ path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_memory_pressure_coalition.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_pr_watch_private_state.py"
 lane = "macos-shell"
 
