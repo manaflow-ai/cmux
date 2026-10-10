@@ -4,6 +4,8 @@
 //!
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
 //!   write validation per kind.
+//! - [`keybindings`]: keybindings.json (R59): entries with per-entry
+//!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
@@ -17,6 +19,7 @@ pub mod effective;
 pub mod fsio;
 pub mod guard;
 pub mod jsonc;
+pub mod keybindings;
 pub mod keypath;
 pub mod location;
 pub mod managed;
