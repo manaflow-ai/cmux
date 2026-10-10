@@ -565,3 +565,76 @@ the card frame from the content offset inside it. Our rect drives x, y, width
 and height from one progress value. A separate y spring would only be
 justified by a device recording of the frame edges. I have left it open until
 such a capture exists.
+
+## Round 7: the Tabs screen as the Mac's panes
+
+The Tabs screen (`TabsRoot`, wired into both shells) is now a canvas of the
+Mac's panes from `layout.v1`. `BrowserRoot` keeps the tab grid.
+
+**Canvas.** Each workspace is a region under its title, stacked vertically.
+Its panes are placed by their normalized rects, scaled to the phone's width
+with 6 pt gaps. If a pane would be narrower than 150 pt or shorter than
+190 pt, the workspace grows past the screen, so the canvas scrolls both ways.
+`PaneCanvasLayoutTests` covers cmux15's split: a 0.4-wide pane on the left
+widens the workspace to 390 pt. Each pane card shows its focused tab: a
+browser screenshot, a live terminal thumbnail, an agent's latest message, or
+a placeholder for a Mac-only tab. A count badge shows how many tabs the pane
+has. Tapping a pane zooms into its tab. The zoom lands on the pane's frame,
+read through the canvas's reported content origin. Before zooming out, the
+canvas jumps so the pane is fully on screen.
+
+**Press and hold** is a UIKit long press (0.35 s, 12 pt) with a medium haptic.
+A SwiftUI long-press-then-drag sequence stopped the canvas from scrolling when
+a drag started on a pane. The canvas blurs and dims, and the pane's tabs grow
+out of the pane's rect as a paged list. The animation uses the overview spring
+(0.37/0.875). Sliding scrubs at 72 pt per tab, with a selection haptic on each
+tab and a rubber band at the ends. Lifting after a slide calls
+`layout.focusTab` and zooms into that tab from its card. Lifting without a
+slide leaves the list open: swipe it (1:1, snapping at most one tab per
+flick) and tap a card to open it. Tapping outside folds the list back into
+the pane.
+
+![Canvas, hold, swipe, after picking](browser/pane-canvas-mock.png)
+
+Mock host recordings use the DEBUG driver
+(`CMUX_NEXT_BROWSER_HOLD=pane_a_left:-150`, drawn finger). They show: hold,
+the list grows from the pane, scrub to the third tab, release, zoom into the
+live agent session.
+
+![Hold, scrub, release (mock)](browser/hold-scrub-release-mock.png)
+
+Live on cmux15 (host with layout.v1, relayed over TURN, Tabs shell): three
+panes, with p3 0.4 wide on the left and two terminals stacked on the right.
+The canvas extends past the right edge. Holding p3 and scrubbing to its
+second tab opened it.
+
+![Hold, scrub, release (cmux15)](browser/hold-scrub-release-live.png)
+![Tabs shell, light and dark, and cmux15](browser/pane-canvas-shell-live.png)
+
+**Mac browser tabs.** A Mac-only tab opens a page with its title, address, a
+letter tile, and a Liquid Glass card. With `browser.macStatus` off, the card
+says "Turn on browser access on your Mac" and gives the exact setting path. It
+adds "Then restart cmux on <host>" when a restart is required, and shows a
+live "Waiting for <host>" line. When the host reports `on`, the tab becomes
+streamable and the page switches to the live view. The pane card shows a
+compact "Browser access off" pill. A Mac tab with `visibleOnMac:false`
+renders nothing on the Mac. Its card gets a glass "Show on Mac" button, and
+the opened tab dims its last frame under a card that explains the Mac's pane
+will switch to it. Settings › Browser "Bring tabs forward on Mac
+automatically" skips that tap, and `browser.attach` carries
+`bringForward:true`. Screenshots are in dark mode, light mode at Accessibility
+Medium text, and the opened hidden tab:
+
+![Access banner, pill, large text, Show on Mac](browser/mac-access-banners.png)
+
+**Tab shell.** In the tab shell the safe area ends at the status accessory.
+The floating toolbar, the collapsed pill and the overview bar keep a 10 pt gap
+above it. Hiding the tab bar on a page was tried and dropped: the accessory
+stays visible and covers the toolbar.
+
+**Open:** cmux15's Mac browser pane (p3) reports `kind:"other"` with no
+`reason`. The phone therefore shows the generic "Open on your Mac" card
+instead of the browser access banner. The host team needs to classify cmux-next
+browser panes as `browser` and fill in `reason`. Terminal card images keep
+the light or dark style from when they were requested until the next
+`show(_:)` call.
