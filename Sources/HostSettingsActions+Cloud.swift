@@ -71,6 +71,7 @@ extension HostSettingsActions {
 
     var cloudMachinesAccountID: String? {
         guard let flow = AppDelegate.shared?.auth?.accountFlow,
+              flow.isAuthenticated, !flow.isWorkingOnAuth,
               let accountID = flow.currentIdentity?.id else { return nil }
         // Include the active team so a team switch reruns entitlement lookup
         // even though the signed-in account remains unchanged.

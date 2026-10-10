@@ -6,6 +6,7 @@ import {
   FREE_PLAN_ID,
   PRO_PLAN_ID,
   resolveProPlanStatus,
+  type ProReconcileUser,
 } from "../../../../services/billing/pro";
 import {
   billingSeatsFromMetadata,
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
  * tell the client whether to offer checkout/portal actions or "ask an admin".
  */
 async function explicitTeamPlanResponse(
-  user: TeamBillingAccessUser & { readonly isAnonymous?: boolean },
+  user: TeamBillingAccessUser & ProReconcileUser,
   teamId: string,
   billingAvailable: boolean,
 ) {
@@ -125,10 +126,20 @@ async function explicitTeamPlanResponse(
   if (!access.ok) {
     return jsonResponse({ error: access.error }, teamBillingAccessStatus(access.error));
   }
+  const personalStatus = await resolveProPlanStatus(user);
   const teamStatus = await teamPlanStatusForTeam(access.team);
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
+    // Explicit team reads carry the personal answer as well. Installed clients
+    // combine it with the requested team's answer so a personal Pro grant is
+    // never hidden by a free team.
+    planId: personalStatus.isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    subscriptionPlanId: personalStatus.planId,
+    isPro: personalStatus.isPro,
+    billingManagement: personalStatus.billingManagement,
+    billingSource: personalStatus.billingSource,
+    manageUrl: personalStatus.manageUrl,
     teamId: access.team.id,
     teamPlanId: teamStatus.planId,
     teamBillingManagement: teamStatus.billingManagement,
