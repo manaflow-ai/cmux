@@ -41,6 +41,9 @@ final class NotificationCenterService {
     @ObservationIgnored var dockBadgeLabel: String?
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
+    /// Agent permission prompts to the person's feed, while
+    /// `feed.agentPermissionPrompts` is on (cx-aocz).
+    @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -74,6 +77,7 @@ final class NotificationCenterService {
         tasks.append(Task {
             for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
         })
+        tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0

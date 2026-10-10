@@ -54,7 +54,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可"
           }
         },
@@ -185,7 +185,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "閉じる"
           }
         },
@@ -316,7 +316,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "このリクエストはもう開いていません。"
           }
         },
@@ -447,7 +447,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "コマンド"
           }
         },
@@ -578,7 +578,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "この電話は {time} から承認できます。それまでは Mac で承認してください。"
           }
         },
@@ -709,7 +709,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒否"
           }
         },
@@ -840,7 +840,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "承認用の鍵を設定できませんでした。"
           }
         },
@@ -971,7 +971,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "この電話の承認用の鍵を読み取れませんでした。"
           }
         },
@@ -1102,7 +1102,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "承認にはこの電話の鍵が必要です。設定後、24時間後から承認できます。"
           }
         },
@@ -1233,7 +1233,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "送信されませんでした。リクエストはまだ開いています。"
           }
         },
@@ -1364,7 +1364,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "再試行"
           }
         },
@@ -1495,7 +1495,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可"
           }
         },
@@ -1626,7 +1626,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "1回"
           }
         },
@@ -1757,7 +1757,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "このセッション中"
           }
         },
@@ -1888,7 +1888,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可しました。"
           }
         },
@@ -2019,7 +2019,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒否しました。"
           }
         },
@@ -2150,7 +2150,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "この電話で承認を設定"
           }
         },
@@ -2281,7 +2281,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可には Face ID、Touch ID、またはパスコードが必要です。Mac はこの電話で署名された許可だけを受け付けます。"
           }
         },
@@ -2412,7 +2412,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "概要"
           }
         },
@@ -2543,7 +2543,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "エージェントの許可"
           }
         },
@@ -2674,7 +2674,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ツール"
           }
         },

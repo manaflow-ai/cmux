@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextFeed
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import os
@@ -37,7 +38,6 @@ import os
 /// CUA and dialog rules cover what else such an agent could do.
 @MainActor
 final class AcpmuxPermissionFeedBridge {
-    static var shared: AcpmuxPermissionFeedBridge?
 
     /// What one posted feed item stands for.
     struct Posted: Equatable {
@@ -114,11 +114,11 @@ final class AcpmuxPermissionFeedBridge {
     /// `initialize` with this launch's person key (the connection's first
     /// request), then `_acpmux/watch` over every session.
     static var hello: Data {
-        let initialize: [String: Any] = [
+        let initialize = AcpmuxEnvironment.withPersonKey([
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
-                       "clientCapabilities": [:], "_meta": ["acpmux": [AcpmuxPersonKey.field: AcpmuxPersonKey.current]]],
-        ]
+                       "clientCapabilities": [String: Any]()],
+        ])
         let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
         var payload = Data()
         for request in [initialize, watch] {

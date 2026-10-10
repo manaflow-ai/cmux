@@ -16,5 +16,10 @@ public nonisolated struct FeedMirrorPreferences: Hashable, Sendable {
     /// Notices from agents, agent hooks and `cmux notify`.
     public var agents = true
     public var terminal: FeedTerminalMirror = .off
+    /// `feed.agentPermissionPrompts`: each pending agent permission request
+    /// (its tool and command summary) goes to the person's own feed, so the
+    /// iPhone can answer it (cx-aocz). Off by default: it sends prompt text
+    /// to the Cloud feed and pushes once per prompt.
+    public var agentPermissionPrompts = false
     public init() {}
 }

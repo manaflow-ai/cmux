@@ -33,9 +33,13 @@ enum NotificationConfigParser {
         return prefs
     }
 
-    /// `feed.mirrorNotifications.{agents, terminal}`.
+    /// `feed.mirrorNotifications.{agents, terminal}` and `feed.agentPermissionPrompts`.
     static func feedMirror(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> FeedMirrorPreferences {
         var mirror = FeedMirrorPreferences()
+        if var feed = ConfigFieldReader(root, at: ["feed"], diagnostics: &diagnostics) {
+            if let value = feed.bool("agentPermissionPrompts") { mirror.agentPermissionPrompts = value }
+            diagnostics += feed.diagnostics
+        }
         guard var reader = ConfigFieldReader(root, at: ["feed", "mirrorNotifications"], diagnostics: &diagnostics) else { return mirror }
         if let value = reader.bool("agents") { mirror.agents = value }
         if let value = reader.choice("terminal", FeedTerminalMirror.self) { mirror.terminal = value }

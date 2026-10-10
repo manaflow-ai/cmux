@@ -32358,6 +32358,268 @@
         }
       }
     },
+    "settings.feed.agentPermissionPrompts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの許可リクエストをフィードに送信"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Berechtigungsanfragen von Agenten an den Feed senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar solicitudes de permiso de agentes al feed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer les demandes d’autorisation des agents au flux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia le richieste di autorizzazione degli agenti al feed"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 권한 요청을 피드로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar solicitações de permissão dos agentes ao feed"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлять запросы разрешений агентов в ленту"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send Agent Permission Requests to the Feed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将代理权限请求发送到动态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將代理權限請求傳送到動態"
+          }
+        }
+      }
+    },
+    "settings.feed.agentPermissionPrompts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リクエストのツールとコマンドの概要があなた自身の cmux フィードに送られ、iPhone から応答できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Werkzeug und Befehlsübersicht jeder Anfrage gehen in deinen eigenen cmux-Feed, damit dein iPhone antworten kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La herramienta y el resumen del comando de cada solicitud van a tu propio feed de cmux, para que tu iPhone pueda responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’outil et le résumé de la commande de chaque demande vont dans votre propre flux cmux, pour que votre iPhone puisse répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo strumento e il riepilogo del comando di ogni richiesta vanno nel tuo feed cmux, così l’iPhone può rispondere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 요청의 도구와 명령 요약이 내 cmux 피드로 전송되어 iPhone에서 응답할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A ferramenta e o resumo do comando de cada solicitação vão para o seu próprio feed do cmux, para que o iPhone possa responder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инструмент и сводка команды каждого запроса попадают в вашу ленту cmux, чтобы iPhone мог ответить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个请求的工具和命令摘要会发送到你自己的 cmux 动态，以便 iPhone 回应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個請求的工具與命令摘要會傳送到你自己的 cmux 動態，讓 iPhone 可以回應。"
+          }
+        }
+      }
+    },
     "settings.feed.mirrorAgents.help": {
       "extractionState": "manual",
       "localizations": {
