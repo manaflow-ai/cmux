@@ -1,4 +1,6 @@
 import type { Principal } from "@cmux/ownership"
+import { withGrantClasses } from "./auth.ts"
+import { roleHas } from "./domains/team-roles.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
@@ -46,6 +48,24 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   // Its own code (cx-5xew review): clients tell "not a member" apart from a role or op refusal inside the team.
   if (!role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
   return { ok: true, principal: { ...p, team } }
+}
+
+/**
+ * The principal an owner other than UserDO gets (cx-3bi.4): the install's grant classes, and in a
+ * shared team only while the user's role holds the team.resources grant. Guests and the billing
+ * role pass team selection (TeamDO answers them, by grant), but no team-keyed owner (TeamVmDO,
+ * CloudDO, SchedulerDO, ConnectionDO...) acts for them. TeamDO checks every grant itself. Asks
+ * TeamDO again, so a demotion in Stack takes effect on the next request. undefined: install
+ * revoked or grant invalid.
+ */
+export const principalForOwner = async (env: Env, owner: string, p: Principal): Promise<Principal | { refused: string } | undefined> => {
+  const shared = owner !== "cloud:TeamDO" && p.user && p.team && p.team !== personalTeamIdFor(p.user) && !(p.kind === "install" && isMachineInstallKind(p.install_kind))
+  if (shared) {
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
+    const role = await stub.memberRole(p.team!, p.user!)
+    if (!roleHas(role ?? undefined, "team.resources")) return { refused: role ? `the ${role} role has no access to this team's resources` : "not a member of this team" }
+  }
+  return withGrantClasses(env, p)
 }
 
 /** user.teams.list lives beside the selection it mirrors (user-teams.ts). */

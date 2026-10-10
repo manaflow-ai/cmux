@@ -2572,3 +2572,62 @@ fn warm_sessions_end_after_the_compactor_is_idle_for_a_while() {
     timer.advance(Duration::from_secs(300));
     assert!(ended("s3"), "{:?}", agents.inner.lock().unwrap().ended);
 }
+
+/// Soak on cmux-lawrence-2: its Claude Code 2.1.287 does not know
+/// claude-haiku-5-5, so it priced the model at its default rates (20x) and
+/// checked it with one more request (max_tokens 1) in every session. The
+/// probe says so, warn-only: one host.log line and one
+/// `compactor.model_unknown` trace event, and the probe still passes.
+#[test]
+fn the_probe_warns_when_the_harness_does_not_know_the_compactor_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |version: &str| {
+        let traces = dir.path().join(format!("traces-{version}"));
+        let v = version.to_owned();
+        let agents = FakeAgents::new(Box::new(move |_, _| {
+            let mut events = vec![update(
+                "session_info_update",
+                json!({"title": null, "_meta": {"claude": {
+                    "tools": [], "mcp_servers": [], "model": "claude-haiku-5-5", "version": v
+                }}}),
+            )];
+            events.extend(answer("user: ping"));
+            events
+        }));
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let mut spec = spec(dir.path());
+        spec.model = Some("claude-haiku-5-5".into());
+        let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+            .with_log(Arc::new(move |l: &str| {
+                sink.lock().unwrap().push(l.to_owned())
+            }))
+            .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+        assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+        let mut events = Vec::new();
+        for entry in std::fs::read_dir(&traces).into_iter().flatten().flatten() {
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            events.extend(
+                text.lines()
+                    .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                    .filter(|e| e["ev"] == "compactor.model_unknown"),
+            );
+        }
+        let lines = lines.lock().unwrap().clone();
+        (lines, events)
+    };
+    let (lines, events) = run("2.1.287");
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["harness"], "claude-sr");
+    assert_eq!(events[0]["cc_version"], "2.1.287");
+    assert_eq!(events[0]["model"], "claude-haiku-5-5");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("2.1.287") && l.contains("claude-haiku-5-5")),
+        "{lines:?}"
+    );
+    let (lines, events) = run("2.1.295");
+    assert!(events.is_empty(), "{events:?}");
+    assert!(!lines.iter().any(|l| l.contains("2.1.295")), "{lines:?}");
+}

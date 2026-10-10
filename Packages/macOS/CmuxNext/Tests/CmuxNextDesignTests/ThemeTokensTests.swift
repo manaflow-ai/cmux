@@ -25,6 +25,15 @@ import Testing
         #expect(t.textTertiary.contrast(with: t.stripBackground.withAlpha(1)) >= 3.0, "\(name) tertiary")
     }
 
+    /// The strip step is the design token (design-tokens.json theme.stripStep): black at 0.22 over a dark
+    /// theme, 0.05 over a light one. Strips paint stripBackground (the window ground), not this step; the
+    /// sidebar's space marks soften toward it.
+    @Test(arguments: ThemeFixtures.all.map(\.0))
+    func theStripStepIsTheDesignToken(_ name: String) {
+        let t = ThemeTokens.derive(from: theme(name))
+        #expect(t.stripStep == ThemeRGB.black.withAlpha(t.isDark ? 0.22 : 0.05), "\(name)")
+    }
+
     /// Only the sidebar retains a tonal step; strips add none.
     @Test(arguments: ThemeFixtures.all.map(\.0))
     func theStepsCompositeToTheChromeSurfaces(_ name: String) {
@@ -34,7 +43,7 @@ import Testing
         func close(_ a: ThemeRGB, _ b: ThemeRGB) -> Bool {
             abs(a.red - b.red) < 0.002 && abs(a.green - b.green) < 0.002 && abs(a.blue - b.blue) < 0.002
         }
-        #expect(t.stripStep.alpha == 0 && t.sidebarStep.alpha < 1, "\(name)")
+        #expect(t.sidebarStep.alpha < 1, "\(name)")
         #expect(close(t.sidebarStep.composited(over: bg), bg.mixed(toward: input.foreground, 0.04)), "\(name) sidebar")
     }
 

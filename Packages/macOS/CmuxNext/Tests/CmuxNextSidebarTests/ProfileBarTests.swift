@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 @testable import CmuxNextSidebar
 
@@ -101,5 +102,24 @@ import Testing
     @Test func emojiIconsAreDetected() {
         #expect(SidebarProfile(id: a, name: "x", icon: "🚀").iconIsEmoji)
         #expect(!SidebarProfile(id: a, name: "x", icon: "briefcase.fill").iconIsEmoji)
+    }
+
+    /// The space marks soften toward the strip step token (design-tokens.json theme.stripStep: black at
+    /// 0.22 dark, 0.05 light) by painting the step over the mark: the result is opaque and darker by the
+    /// token's alpha (a quarter of it for the current space). GPUI parity found them blending toward black
+    /// at alpha 0, which made inactive marks 20% transparent.
+    @MainActor @Test(arguments: [0.22, 0.05])
+    func marksPaintTheStripStepOverTheirColor(_ stepAlpha: Double) {
+        let base = NSColor(srgbRed: 0.9, green: 0.5, blue: 0.2, alpha: 1)
+        let step = NSColor(srgbRed: 0, green: 0, blue: 0, alpha: stepAlpha)
+        func rgba(_ color: NSColor) -> [Double] {
+            let c = color.usingColorSpace(.sRGB)!
+            return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent].map(Double.init)
+        }
+        func close(_ a: [Double], _ b: [Double]) -> Bool { zip(a, b).allSatisfy { abs($0 - $1) < 0.002 } }
+        let inactive = rgba(ProfileBarView.markColor(base: base, step: step, active: false))
+        #expect(close(inactive, [0.9, 0.5, 0.2].map { $0 * (1 - stepAlpha) } + [1]), "inactive \(inactive)")
+        let active = rgba(ProfileBarView.markColor(base: base, step: step, active: true))
+        #expect(close(active, [0.9, 0.5, 0.2].map { $0 * (1 - stepAlpha / 4) } + [1]), "active \(active)")
     }
 }
