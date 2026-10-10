@@ -1,53 +1,43 @@
+public import Atomics
+
 /// A value that threads read and change without a data race, with the API
 /// subset of `Synchronization.Atomic` (macOS 15) that cmux-next uses, so that
 /// cmux-next runs on macOS 14 (plans/cmux-next/macos-floor.md).
 ///
-/// Each operation takes an `os_unfair_lock` for a few instructions. That is
-/// at least as strong as every memory ordering, so the `ordering` arguments
-/// only keep the call sites the same as with the system type. The lock is not
-/// async-signal-safe: never touch an `Atomic` from a signal handler.
-public struct Atomic<Value: Sendable>: ~Copyable {
-    private let storage: LockedStorage<Value>
+/// It is lock-free and async-signal-safe: every operation is one hardware
+/// atomic instruction from Apple's swift-atomics package, with the memory
+/// ordering the call site names. The ordering types are the swift-atomics
+/// ones, which have the same spelling as the system types. One difference:
+/// ``add(_:ordering:)`` and ``subtract(_:ordering:)`` wrap on overflow
+/// instead of trapping.
+public struct Atomic<Value: AtomicValue>: ~Copyable {
+    private let raw: UnsafeAtomic<Value>
 
     /// Makes an atomic that holds `initialValue`.
     public init(_ initialValue: Value) {
-        storage = LockedStorage(initialValue)
+        raw = .create(initialValue)
+    }
+
+    deinit {
+        raw.destroy()
     }
 
     /// Returns the current value.
     public borrowing func load(ordering: AtomicLoadOrdering) -> Value {
-        storage.lock()
-        defer { storage.unlock() }
-        return storage.pointer.pointee
+        raw.load(ordering: ordering)
     }
 
     /// Replaces the current value.
     public borrowing func store(_ desired: Value, ordering: AtomicStoreOrdering) {
-        storage.lock()
-        defer { storage.unlock() }
-        storage.pointer.pointee = desired
+        raw.store(desired, ordering: ordering)
     }
 
     /// Replaces the current value and returns the value it replaced.
     @discardableResult
     public borrowing func exchange(_ desired: Value, ordering: AtomicUpdateOrdering) -> Value {
-        update { value in
-            let original = value
-            value = desired
-            return original
-        }
+        raw.exchange(desired, ordering: ordering)
     }
 
-    borrowing func update<Result>(_ body: (inout Value) -> Result) -> Result {
-        storage.lock()
-        defer { storage.unlock() }
-        return body(&storage.pointer.pointee)
-    }
-}
-
-extension Atomic: @unchecked Sendable {} // crash-allow: every operation holds the storage lock
-
-extension Atomic where Value: Equatable {
     /// Stores `desired` only when the current value equals `expected`.
     /// Returns whether it stored, and the value it found.
     @discardableResult
@@ -56,12 +46,7 @@ extension Atomic where Value: Equatable {
         desired: Value,
         ordering: AtomicUpdateOrdering
     ) -> (exchanged: Bool, original: Value) {
-        update { value in
-            let original = value
-            guard original == expected else { return (false, original) }
-            value = desired
-            return (true, original)
-        }
+        raw.compareExchange(expected: expected, desired: desired, ordering: ordering)
     }
 
     /// ``compareExchange(expected:desired:ordering:)`` with separate orderings
@@ -73,60 +58,53 @@ extension Atomic where Value: Equatable {
         successOrdering: AtomicUpdateOrdering,
         failureOrdering: AtomicLoadOrdering
     ) -> (exchanged: Bool, original: Value) {
-        compareExchange(expected: expected, desired: desired, ordering: successOrdering)
+        raw.compareExchange(
+            expected: expected,
+            desired: desired,
+            successOrdering: successOrdering,
+            failureOrdering: failureOrdering
+        )
     }
 
-    /// The same as ``compareExchange(expected:desired:ordering:)``; it never
-    /// fails spuriously.
+    /// Like ``compareExchange(expected:desired:ordering:)``, but it may fail
+    /// spuriously; use it in a retry loop.
     @discardableResult
     public borrowing func weakCompareExchange(
         expected: Value,
         desired: Value,
         ordering: AtomicUpdateOrdering
     ) -> (exchanged: Bool, original: Value) {
-        compareExchange(expected: expected, desired: desired, ordering: ordering)
+        raw.weakCompareExchange(expected: expected, desired: desired, ordering: ordering)
     }
 }
 
-extension Atomic where Value: FixedWidthInteger {
-    /// Adds `operand`; traps on overflow, like the system type.
+extension Atomic: @unchecked Sendable {} // crash-allow: every access is a hardware atomic operation, as in Synchronization.Atomic
+
+extension Atomic where Value: AtomicInteger {
+    /// Adds `operand` (wraps on overflow).
     @discardableResult
     public borrowing func add(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
-        update { value in
-            let old = value
-            value = old + operand
-            return (old, value)
-        }
+        wrappingAdd(operand, ordering: ordering)
     }
 
-    /// Subtracts `operand`; traps on overflow, like the system type.
+    /// Subtracts `operand` (wraps on overflow).
     @discardableResult
     public borrowing func subtract(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
-        update { value in
-            let old = value
-            value = old - operand
-            return (old, value)
-        }
+        wrappingSubtract(operand, ordering: ordering)
     }
 
     /// Adds `operand` with wraparound.
     @discardableResult
     public borrowing func wrappingAdd(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
-        update { value in
-            let old = value
-            value = old &+ operand
-            return (old, value)
-        }
+        let old = raw.loadThenWrappingIncrement(by: operand, ordering: ordering)
+        return (old, old &+ operand)
     }
 
     /// Subtracts `operand` with wraparound.
     @discardableResult
     public borrowing func wrappingSubtract(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
-        update { value in
-            let old = value
-            value = old &- operand
-            return (old, value)
-        }
+        let old = raw.loadThenWrappingDecrement(by: operand, ordering: ordering)
+        return (old, old &- operand)
     }
 }
 
@@ -134,44 +112,14 @@ extension Atomic where Value == Bool {
     /// Sets the value to `value || operand`.
     @discardableResult
     public borrowing func logicalOr(_ operand: Bool, ordering: AtomicUpdateOrdering) -> (oldValue: Bool, newValue: Bool) {
-        update { value in
-            let old = value
-            value = old || operand
-            return (old, value)
-        }
+        let old = raw.loadThenLogicalOr(with: operand, ordering: ordering)
+        return (old, old || operand)
     }
 
     /// Sets the value to `value && operand`.
     @discardableResult
     public borrowing func logicalAnd(_ operand: Bool, ordering: AtomicUpdateOrdering) -> (oldValue: Bool, newValue: Bool) {
-        update { value in
-            let old = value
-            value = old && operand
-            return (old, value)
-        }
+        let old = raw.loadThenLogicalAnd(with: operand, ordering: ordering)
+        return (old, old && operand)
     }
-}
-
-/// The memory ordering of an ``Atomic`` load. Same spelling as the system type.
-public enum AtomicLoadOrdering: Sendable {
-    case relaxed
-    case acquiring
-    case sequentiallyConsistent
-}
-
-/// The memory ordering of an ``Atomic`` store. Same spelling as the system type.
-public enum AtomicStoreOrdering: Sendable {
-    case relaxed
-    case releasing
-    case sequentiallyConsistent
-}
-
-/// The memory ordering of an ``Atomic`` read-modify-write operation. Same
-/// spelling as the system type.
-public enum AtomicUpdateOrdering: Sendable {
-    case relaxed
-    case acquiring
-    case releasing
-    case acquiringAndReleasing
-    case sequentiallyConsistent
 }
