@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 import Darwin
 import Foundation
 
