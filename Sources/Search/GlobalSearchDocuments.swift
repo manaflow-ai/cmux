@@ -126,12 +126,12 @@ enum GlobalSearchDocuments {
         panelID: UUID,
         location: String,
         source: AgentSessionSearchSource,
+        title: String,
         transcriptText: String
     ) -> SearchIndexDocument {
-        let text = cappedText([source.workingDirectory, transcriptText]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n"))
+        // The location already names the pane's directory, so the body is
+        // only what was said; a leading path would open every snippet.
+        let text = cappedText(transcriptText)
 
         return SearchIndexDocument(
             id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession),
@@ -139,7 +139,7 @@ enum GlobalSearchDocuments {
             workspaceID: workspaceID,
             panelID: panelID,
             kind: .agentSession,
-            title: source.title,
+            title: title,
             location: location,
             anchor: source.sessionID,
             text: text

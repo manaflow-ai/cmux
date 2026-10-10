@@ -20,7 +20,7 @@ final class GlobalSearchCoordinator {
         agentSessionSource: { context in
             TerminalController.shared.agentChatTranscriptService?.globalSearchSource(
                 surfaceID: context.panelID,
-                paneTitle: context.panelTitle
+                paneTitle: (context.panel as? TerminalPanel)?.title
             )
         }
     )

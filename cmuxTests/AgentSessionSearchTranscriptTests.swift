@@ -141,8 +141,8 @@ struct AgentSessionSearchTranscriptTests {
             sessionID: "s-1",
             agentKind: .claude,
             transcriptPath: url.path,
-            title: "Quinces",
-            workingDirectory: nil
+            paneTitle: "Quinces",
+            conversationTitle: nil
         )
         let transcripts = AgentSessionSearchTranscripts()
 
@@ -156,7 +156,8 @@ struct AgentSessionSearchTranscriptTests {
         let grown = try #require(grownRevision)
         #expect(grown != first)
         let text = await transcripts.text(forSessionID: "s-1")
-        #expect(text?.contains("and medlars") == true)
+        #expect(text?.document.contains("and medlars") == true)
+        #expect(text?.firstPrompt == "first ask about quinces")
 
         await transcripts.retainOnly(sessionIDs: [])
         let pruned = await transcripts.text(forSessionID: "s-1")

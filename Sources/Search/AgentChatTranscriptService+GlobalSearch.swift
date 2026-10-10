@@ -12,10 +12,10 @@ extension AgentChatTranscriptService {
     ///
     /// - Parameters:
     ///   - surfaceID: The terminal panel's ID.
-    ///   - paneTitle: The title the pane shows.
+    ///   - paneTitle: The title the agent set on the pane, nil when unset.
     /// - Returns: The session to index, or nil for panes without an open
     ///   session or a readable transcript.
-    func globalSearchSource(surfaceID: UUID, paneTitle: String) -> AgentSessionSearchSource? {
+    func globalSearchSource(surfaceID: UUID, paneTitle: String?) -> AgentSessionSearchSource? {
         guard let record = registry.liveSession(surfaceID: surfaceID.uuidString) else { return nil }
         switch record.agentKind {
         case .claude, .codex:
@@ -29,12 +29,8 @@ extension AgentChatTranscriptService {
             sessionID: record.sessionID,
             agentKind: record.agentKind,
             transcriptPath: path,
-            title: Self.globalSearchTitle(
-                paneTitle: paneTitle,
-                conversationTitle: record.title,
-                agentName: record.agentKind.displayName
-            ),
-            workingDirectory: record.workingDirectory
+            paneTitle: paneTitle,
+            conversationTitle: record.title
         )
     }
 
@@ -78,11 +74,13 @@ extension AgentChatTranscriptService {
     }
 
     /// The name a session's search row shows: the pane title the agent set
-    /// (what the tab shows), else the conversation title, else the agent name.
+    /// (what the tab shows), else the conversation title, else the first
+    /// prompt's opening line (Codex sets no title), else the agent name.
     /// Leading spinner glyphs the agents animate in their titles are dropped.
     nonisolated static func globalSearchTitle(
         paneTitle: String?,
         conversationTitle: String?,
+        firstPrompt: String? = nil,
         agentName: String
     ) -> String {
         for candidate in [paneTitle, conversationTitle] {
@@ -90,8 +88,19 @@ extension AgentChatTranscriptService {
             let cleaned = strippingLeadingSpinnerGlyphs(candidate)
             if !cleaned.isEmpty { return cleaned }
         }
+        if let line = firstPrompt?
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }) {
+            return line.count > promptTitleCharacterLimit
+                ? String(line.prefix(promptTitleCharacterLimit)) + "\u{2026}"
+                : line
+        }
         return agentName
     }
+
+    nonisolated static let promptTitleCharacterLimit = 80
 
     nonisolated private static func strippingLeadingSpinnerGlyphs(_ title: String) -> String {
         var remaining = Substring(title)

@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 import Testing
 
@@ -98,13 +99,13 @@ struct SearchIndexAgentSessionTests {
     }
 
     @Test
-    func agentSessionDocumentUsesTheSessionTitleAndLeadsWithTheDirectory() {
+    func agentSessionDocumentUsesTheSessionTitleAndOnlyTheConversationText() {
         let source = AgentSessionSearchSource(
             sessionID: "s-1",
             agentKind: .claude,
             transcriptPath: "/tmp/s-1.jsonl",
-            title: "Env linter eval cost estimate",
-            workingDirectory: "/Users/me/cc-sparta"
+            paneTitle: nil,
+            conversationTitle: "Env linter eval cost estimate"
         )
         let panelID = UUID()
         let document = GlobalSearchDocuments.agentSessionDocument(
@@ -113,6 +114,7 @@ struct SearchIndexAgentSessionTests {
             panelID: panelID,
             location: "Window 1 > research pod",
             source: source,
+            title: source.title(firstPrompt: "what would the eval cost"),
             transcriptText: "what would the eval cost"
         )
         #expect(document.id == SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession))
@@ -121,7 +123,7 @@ struct SearchIndexAgentSessionTests {
         #expect(document.title == "Env linter eval cost estimate")
         #expect(document.location == "Window 1 > research pod")
         #expect(document.anchor == "s-1")
-        #expect(document.text == "/Users/me/cc-sparta\nwhat would the eval cost")
+        #expect(document.text == "what would the eval cost")
     }
 
     @Test
@@ -130,8 +132,8 @@ struct SearchIndexAgentSessionTests {
             sessionID: "s-2",
             agentKind: .codex,
             transcriptPath: "/tmp/s-2.jsonl",
-            title: "Codex",
-            workingDirectory: nil
+            paneTitle: nil,
+            conversationTitle: nil
         )
         let document = GlobalSearchDocuments.agentSessionDocument(
             windowID: windowID,
@@ -139,6 +141,7 @@ struct SearchIndexAgentSessionTests {
             panelID: UUID(),
             location: "Window 1 > workspace",
             source: source,
+            title: "Codex",
             transcriptText: String(repeating: "x", count: GlobalSearchIndexingLimits.maxIndexedTextCharacters + 10)
         )
         #expect(document.text.count == GlobalSearchIndexingLimits.maxIndexedTextCharacters)
@@ -160,6 +163,41 @@ struct SearchIndexAgentSessionTests {
             agentName: "Claude"
         )
         #expect(title == expected)
+    }
+
+    @Test(arguments: [
+        ("why does the build fail\non CI only", "why does the build fail"),
+        ("\n  1+1  ", "1+1"),
+        (String(repeating: "a", count: 81), String(repeating: "a", count: 80) + "\u{2026}"),
+    ] as [(String, String)])
+    func untitledSessionsAreNamedByTheirFirstPromptsOpeningLine(firstPrompt: String, expected: String) {
+        let title = AgentChatTranscriptService.globalSearchTitle(
+            paneTitle: nil,
+            conversationTitle: nil,
+            firstPrompt: firstPrompt,
+            agentName: "Codex"
+        )
+        #expect(title == expected)
+    }
+
+    @Test
+    func codexRolloutIsFoundInTodaysSessionsDirectoryWithoutAPid() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 9)))
+        let day = home.appendingPathComponent("sessions/2026/10/10", isDirectory: true)
+        try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
+        let rollout = day.appendingPathComponent("rollout-2026-10-10T09-00-00-abc-123.jsonl")
+        try Data().write(to: rollout)
+        try Data().write(to: day.appendingPathComponent("rollout-2026-10-10T09-00-00-abc-1234.jsonl"))
+        let record = AgentChatSessionRecord(sessionID: "abc-123", agentKind: .codex, state: .idle, lastActivityAt: now)
+
+        let found = AgentChatTranscriptService.liveCodexRolloutPath(for: record, now: now, codexHome: home)
+
+        #expect(found == rollout.path)
     }
 
     // MARK: - Fixtures
