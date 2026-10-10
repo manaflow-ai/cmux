@@ -43,7 +43,14 @@ impl Mux {
             .unwrap_or_default();
         let value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let mut result = value.clone();
-        if let Some(change) = program_status_change {
+        if let Some(mut change) = program_status_change {
+            // The status claim can race the durable exit latch. Use the exact
+            // record list already committed in this terminal snapshot so a
+            // hook envelope cannot retain transient records after exit.
+            change["records"] = value
+                .pointer("/extra/program_status")
+                .cloned()
+                .unwrap_or_else(|| Value::Array(Vec::new()));
             result["program_status_change"] = change;
         }
         let deltas = serde_json::json!([{
