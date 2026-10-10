@@ -25,12 +25,14 @@ final class ConversationAvatarView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private(set) var initials = ""
+    private var usesMonogramGradient = false
 
     func configure(initials: String, colorHex: String?) {
         self.initials = initials
         label.text = initials
+        usesMonogramGradient = colorHex == nil
         guard let colorHex else {
-            gradient.colors = ConversationTheme.monogramGradient.map(\.cgColor)
+            applyMonogramGradient()
             return
         }
         let base = ConversationTheme.color(hex: colorHex)
@@ -40,6 +42,17 @@ final class ConversationAvatarView: UIView {
             UIColor(hue: h, saturation: s * 0.85, brightness: min(1, b * 1.12), alpha: 1).cgColor,
             UIColor(hue: h, saturation: s, brightness: b * 0.82, alpha: 1).cgColor,
         ]
+    }
+
+    private func applyMonogramGradient() {
+        gradient.colors = ConversationTheme.monogramGradient.map { $0.resolvedColor(with: traitCollection).cgColor }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if usesMonogramGradient, previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+            applyMonogramGradient()
+        }
     }
 
     override func layoutSubviews() {
