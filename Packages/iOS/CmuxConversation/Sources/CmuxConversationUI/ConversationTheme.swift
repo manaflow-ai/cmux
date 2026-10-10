@@ -245,12 +245,11 @@ enum ConversationTheme {
     static let background = UIColor.systemBackground
     static let secondaryText = UIColor { traits in
         if traits.isOverConversationBackdrop { return backdropCaption(traits) }
-        // Increase Contrast: Messages' captions use the system's high-contrast
-        // secondary label (99,99,105 on white, measured).
-        if traits.accessibilityContrast == .high { return UIColor.secondaryLabel.resolvedColor(with: traits) }
-        return traits.userInterfaceStyle == .dark
-            ? UIColor(red: 133 / 255, green: 132 / 255, blue: 136 / 255, alpha: 1)
-            : UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
+        // Every transcript caption attribute set in ChatKit (status, notices,
+        // availability, translation; iOS 26.5 and 27.0) uses the system
+        // secondary label: 60,60,67 / 235,235,245 at 60%, and its
+        // high-contrast variant with Increase Contrast.
+        return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
     static let tertiaryText = UIColor.tertiaryLabel
     static let notDelivered = UIColor.systemRed
