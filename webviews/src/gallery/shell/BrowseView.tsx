@@ -5,7 +5,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { browseFrameHref, filterBrowseItems, nextBrowseVariant, type BrowseKind } from "./browseModel";
+import {
+  browseFrameHref,
+  filterBrowseItems,
+  nextBrowseVariant,
+  resolveBrowseVariant,
+  type BrowseKind,
+} from "./browseModel";
 import { Stage } from "./Stage";
 
 export function BrowseView({
@@ -137,7 +143,11 @@ function BrowseCard({
     return () => observer.disconnect();
   }, [previewNode]);
   const variants = useMemo(() => Object.keys(entry.variants), [entry]);
-  const fixture = entry.variants[variant];
+  const selectedVariant = resolveBrowseVariant(variant, initialVariant, variants);
+  const fixture = selectedVariant ? entry.variants[selectedVariant] : undefined;
+  useEffect(() => {
+    if (selectedVariant && selectedVariant !== variant) setVariant(selectedVariant);
+  }, [selectedVariant, variant]);
   useEffect(() => {
     if (!cycle || variants.length < 2 || env.reducedMotion) return;
     const timer = window.setInterval(() => {
@@ -161,8 +171,8 @@ function BrowseCard({
           <button
             key={name}
             type="button"
-            aria-pressed={name === variant}
-            className={name === variant ? "active" : undefined}
+            aria-pressed={name === selectedVariant}
+            className={name === selectedVariant ? "active" : undefined}
             onClick={() => setVariant(name)}
           >
             {name}
@@ -173,27 +183,31 @@ function BrowseCard({
         )}
       </fieldset>
       <div ref={setPreviewNode} className="gallery-browse-preview">
-        <Stage
-          key={variant}
-          entry={entry}
-          state={variant}
-          env={env}
-          tune={tune}
-          available={{ width, height: Number.POSITIVE_INFINITY }}
-          thumbnail
-        />
+        {selectedVariant ? (
+          <Stage
+            key={selectedVariant}
+            entry={entry}
+            state={selectedVariant}
+            env={env}
+            tune={tune}
+            available={{ width, height: Number.POSITIVE_INFINITY }}
+            thumbnail
+          />
+        ) : (
+          <p className="gallery-empty">No variants available.</p>
+        )}
       </div>
       <footer className="gallery-browse-card-footer">
         <a
-          href={hrefFor(entry, variant)}
+          href={hrefFor(entry, selectedVariant ?? initialVariant)}
           onClick={(event) => {
             event.preventDefault();
-            onOpen(entry, variant);
+            if (selectedVariant) onOpen(entry, selectedVariant);
           }}
         >
           Open full view
         </a>
-        <a href={browseFrameHref(entry, variant, env, tune)} target="_blank" rel="noreferrer">
+        <a href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune)} target="_blank" rel="noreferrer">
           Open frame
         </a>
       </footer>

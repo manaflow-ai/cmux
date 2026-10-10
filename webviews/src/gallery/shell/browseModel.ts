@@ -20,6 +20,17 @@ export function nextBrowseVariant(current: string, variants: readonly string[]):
   return variants[(index + 1 + variants.length) % variants.length] ?? variants[0];
 }
 
+/** Keep a card on a real variant after a registry refresh removes its selected state. */
+export function resolveBrowseVariant(
+  current: string,
+  fallback: string | undefined,
+  variants: readonly string[],
+): string | undefined {
+  if (variants.includes(current)) return current;
+  if (fallback && variants.includes(fallback)) return fallback;
+  return variants[0];
+}
+
 /** The variant a contact-sheet card starts on: the recorded recommendation, otherwise the first. */
 export function browseVariant(entry: GalleryEntry): string | undefined {
   const variants = Object.keys(entry.variants);
