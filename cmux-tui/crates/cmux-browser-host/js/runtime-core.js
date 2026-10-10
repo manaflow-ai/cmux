@@ -32,7 +32,7 @@
   // The page-agent methods frame.observe allows (browser lead contract v1).
   // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
   // among them.
-  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1347,10 +1347,14 @@
 
     async _scrollIntoView(frame, handle) {
       await frame._agent("scrollIntoViewIfNeeded", handle);
-      // Bring each owner <iframe> into its parent's viewport too.
+      // Bring each owner <iframe> into its parent's viewport too. The owner
+      // is the one the child's place in window.frames names, else (a frame
+      // in a shadow tree) one found within the parent's node budget: the
+      // page sets the parent's size, so no action walks its whole DOM.
       for (let child = frame; child._parent; child = child._parent) {
         const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
+        const position = await child._agent("framePosition");
+        const iframes = (await parent._agent("iframeHandles", position)).handles;
         for (const h of iframes) {
           const f = await parent._contentFrame(h);
           if (f === child) {

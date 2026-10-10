@@ -2024,17 +2024,57 @@
     return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
   }
 
-  function iframeHandles() {
-    const out = [];
-    const walk = (root) => {
-      for (const el of root.querySelectorAll("*")) {
-        const tag = tagOf(el);
-        if (tag === "iframe" || tag === "frame") out.push(handleFor(el));
-        if (el.shadowRoot) walk(el.shadowRoot);
+  // This frame's place in its parent's window.frames, or -1 (the main
+  // frame, or a frame the parent does not list: WebKit leaves out frames in
+  // shadow trees). Only the engine's window objects are read.
+  function framePosition() {
+    const p = window.parent;
+    if (!p || p === window) return -1;
+    const length = p.length;
+    for (let i = 0; i < length; i++) if (p[i] === window) return i;
+    return -1;
+  }
+
+  // Candidates for the <iframe> (or <frame>) that shows the child frame at
+  // `position` in window.frames (framePosition() in the child), as handles,
+  // which the caller confirms with the driver: the light-DOM element whose
+  // window is that one; else (a frame in a shadow tree) the frames in
+  // shadow trees, found by a walk of the elements. Both count against one
+  // budget of at most MAX_NODES (the snapshot's), as the page sets their
+  // number: each light-DOM <iframe> and <frame> checked (read one at a time
+  // from the document's live collections, never listed whole), then each
+  // element walked. `truncated` says the lookup stopped at the budget.
+  function iframeHandles(position, maxNodes) {
+    const target = Number.isInteger(position) && position >= 0 && position < window.length ? window[position] : null;
+    let left = Math.min(MAX_NODES, maxNodes > 0 ? Math.floor(maxNodes) : MAX_NODES);
+    if (target) {
+      for (const tag of ["iframe", "frame"]) {
+        const owners = document.getElementsByTagName(tag);
+        for (let i = 0, el = owners[0]; el; el = owners[++i]) {
+          if (--left < 0) return { handles: [], truncated: true };
+          if (el.contentWindow === target) return { handles: [handleFor(el)], truncated: false };
+        }
       }
-    };
-    walk(document);
-    return out;
+    }
+    let truncated = false;
+    const out = [];
+    const roots = [document];
+    while (roots.length && !truncated) {
+      const root = roots.pop();
+      const walker = document.createTreeWalker(root, 1);
+      for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+        if (--left < 0) {
+          truncated = true;
+          break;
+        }
+        if (root !== document) {
+          const tag = tagOf(el);
+          if ((tag === "iframe" || tag === "frame") && (!target || el.contentWindow === target)) out.push(handleFor(el));
+        }
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    }
+    return { handles: out, truncated };
   }
 
   // Content box of an <iframe> in this frame's viewport coordinates.
@@ -2122,6 +2162,7 @@
     readAllBounded,
     slotAssigned,
     documentHTML,
+    framePosition,
     iframeHandles,
     contentBox,
     annotate,
