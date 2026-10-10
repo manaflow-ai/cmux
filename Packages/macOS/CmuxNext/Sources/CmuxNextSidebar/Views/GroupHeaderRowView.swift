@@ -147,9 +147,6 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = hidden
     }
 
-    /// Whether the more button shows: on hover, and while the editor is open.
-    private var showsMore: Bool { isHovered || isEditing }
-
     override func updateLayer() {
         performWithTheme {
             // Black or white text and glyphs, whichever reads better on the group's color.
@@ -200,19 +197,16 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronFrame = CGRect(x: b.width - pad * 0.75 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
-        // The more button fades in left of the chevron on hover; its slot is kept.
+        // The more button keeps a stable slot left of the chevron.
         moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
         moreButton.isHidden = false
-        moreButton.alphaValue = showsMore ? 1 : 0
-        // Shown to VoiceOver only when it shows; the header's custom action edits the group always.
-        moreButton.setAccessibilityElement(showsMore)
+        moreButton.alphaValue = 1
+        moreButton.setAccessibilityElement(true)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         addButton.frame.origin.x = max(pad, addButton.frame.minX)
         let offersAdd = onAdd != nil && !isEmpty
-        // Hidden, not only transparent, while it does not show: a click
-        // there before any hover collapses the group as before.
-        addButton.isHidden = !offersAdd || !showsMore
-        addButton.setAccessibilityElement(showsMore && offersAdd)
+        addButton.isHidden = !offersAdd
+        addButton.setAccessibilityElement(offersAdd)
         // The badge and activity keep their place whether or not the buttons show.
         var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
         if badge.state.isUnread {
