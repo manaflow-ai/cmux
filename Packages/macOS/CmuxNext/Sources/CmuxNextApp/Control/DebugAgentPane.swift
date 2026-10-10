@@ -29,7 +29,8 @@ import WebKit
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
-/// page; returns whether it is on). Every action first stops WebKit from
+/// page; returns whether it is on), or `inspector` (`open` sets its visibility;
+/// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
 @MainActor
@@ -45,6 +46,16 @@ enum DebugAgentPane {
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream",
     ]
+
+    /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
+    /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
+    /// pick or an answer as the user's, and automation reaches what a person sees (the trust
+    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder"]
+
+    static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
+        if userVerbs.contains(action) { gestures.record() }
+    }
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
@@ -67,6 +78,7 @@ enum DebugAgentPane {
         }
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
+        actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
             let selector = NSSelectorFromString("_webProcessIdentifier")
             guard view.webView.responds(to: selector),
@@ -92,8 +104,11 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
+        if action == "inspector" {
+            return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate or gesture_state")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -138,6 +153,26 @@ enum DebugAgentPane {
             }
             members["pane"] = .string(pane)
             return .object(members)
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        }
+    }
+
+    /// Calls the page bridge that Show ACP Inspector calls
+    /// (`AgentPaneView.toggleInspector`) and reads back whether it is open.
+    private static func toggleInspector(_ view: AgentPaneView, open: Bool?, pane: String) async -> JSONValue {
+        let script = """
+            const bridge = window.cmuxAcpmuxBridge;
+            return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
+            """
+        do {
+            let result = try await view.webView.callAsyncJavaScript(
+                script, arguments: ["open": open.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page
+            )
+            guard let isOpen = result as? Bool else {
+                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
+            }
+            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }

@@ -68,7 +68,8 @@ impl WorkspaceRegistry {
     /// orphan row behind.
     pub fn set_terminal_keep(&mut self, terminal_id: &str, keep: bool) -> anyhow::Result<()> {
         validate_terminal_identity("terminal id", terminal_id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let terminal = read_terminal(&tx, terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
         anyhow::ensure!(terminal.lifecycle != TerminalLifecycle::Tombstoned, "terminal_not_found");
@@ -87,7 +88,7 @@ impl WorkspaceRegistry {
     /// Whether one terminal is marked `keep`.
     pub fn terminal_keep(&self, terminal_id: &str) -> anyhow::Result<bool> {
         validate_terminal_identity("terminal id", terminal_id)?;
-        Ok(self.connection.query_row(
+        Ok(self.connection.get().query_row(
             "SELECT EXISTS(SELECT 1 FROM terminal_keep WHERE terminal_id = ?1)",
             [terminal_id],
             |row| row.get::<_, bool>(0),
@@ -96,7 +97,8 @@ impl WorkspaceRegistry {
 
     /// Every terminal id marked `keep`, including rows not yet pruned.
     pub fn kept_terminals(&self) -> anyhow::Result<std::collections::HashSet<String>> {
-        let mut statement = self.connection.prepare("SELECT terminal_id FROM terminal_keep")?;
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT terminal_id FROM terminal_keep")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         let mut kept = std::collections::HashSet::new();
         for row in rows {
@@ -108,7 +110,7 @@ impl WorkspaceRegistry {
     /// Delete `keep` rows whose terminal is tombstoned or no longer
     /// registered. Returns the number of rows removed.
     pub fn prune_terminal_keep(&mut self) -> anyhow::Result<usize> {
-        Ok(self.connection.execute(
+        Ok(self.connection.get().execute(
             "DELETE FROM terminal_keep
              WHERE terminal_id NOT IN (
                SELECT terminal_id FROM terminal_hosts WHERE lifecycle != 'tombstoned'

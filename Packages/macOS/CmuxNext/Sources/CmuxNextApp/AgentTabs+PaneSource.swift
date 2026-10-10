@@ -1,7 +1,8 @@
 import CmuxNextAgentPane
 import Foundation
 
-extension AgentTabStore {
+/// The agent tabs' pane page and acpmux host (outside AgentTabStore, which is at its size limit).
+@MainActor struct AgentTabPaneSource {
     /// The agent pane page and its acpmux host. Release loads only the
     /// bundled page; the dev server is for Debug and tagged builds
     /// (webviews/src/agent-session/acpmux/README.md). The page never opens a

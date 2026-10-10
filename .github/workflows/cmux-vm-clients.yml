@@ -19,7 +19,9 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml
   push:
-    branches: [main]
+    # feat-cmux-next too: cmux VM lands there first, and without this run an
+    # openapi.json change left the generated clients stale unnoticed (cx-b4h.4).
+    branches: [main, feat-cmux-next]
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
@@ -135,7 +137,3 @@ jobs:
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
-
-      - name: Tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun test

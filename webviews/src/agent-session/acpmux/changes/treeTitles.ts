@@ -5,12 +5,17 @@
 // section, and this layer measures which names are clipped (one read pass, then one write pass,
 // after each change of rows) and runs the marquee on the hovered or focused one.
 import { MOTION_SPRINGS, springCurve } from "../../../files-panel-motion";
-import { marqueeKeyframes, marqueeTiming, titleFade } from "../../../ui/titleFade";
+import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../../../ui/titleFade";
+import { tunableValue } from "../../../experiments/tunable";
+import { cssBezier } from "../../../ui/cubicBezier";
+import { treeMarqueeEasing, treeNameFadeCurve } from "./treeMotion.experiment";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';
 /** Padding before the first glyph that the marquee fades glyphs across (diffTheme.ts `--cmux-title-lead`). */
 export const TITLE_LEAD_PX = 4;
+/** Gap between a name and its +N -M counts that the fade reaches into (diffTheme.ts `--cmux-title-tail`). */
+export const TITLE_TAIL_PX = 6;
 /** The marquee is ambient: it never holds a gallery step (gallery/frame/experimentRunner.ts). */
 const MARQUEE_ID = "cmux-ambient:marquee";
 
@@ -23,6 +28,13 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   if (!host || !shadow) return () => {};
   host.style.setProperty("--cmux-title-fade", `${options.fadeWidth}px`);
   host.style.setProperty("--cmux-title-lead", `${TITLE_LEAD_PX}px`);
+  host.style.setProperty("--cmux-title-tail", `${TITLE_TAIL_PX}px`);
+  // The fade's curve and the scroll's easing are tunables (treeMotion.experiment.ts).
+  host.style.setProperty(
+    "--cmux-title-mask",
+    titleFadeMask(tunableValue(treeNameFadeCurve), "var(--cmux-title-lead, 0px)", "var(--cmux-title-fade, 20px)"),
+  );
+  const marqueeEasing = cssBezier(tunableValue(treeMarqueeEasing));
   let frame = 0;
   let active: { row: HTMLElement; path: string; text: HTMLElement; animation: Animation } | null = null;
   let hovered: HTMLElement | null = null;
@@ -39,10 +51,12 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
       const span = content.clientWidth - TITLE_LEAD_PX;
       const fade = titleFade({
         // The name's box, or what overflows the section (a flattened folder's segments).
-        textWidth: Math.max(text.getBoundingClientRect().width, content.scrollWidth - TITLE_LEAD_PX),
+        // The section's box runs to the counts: the name stays clear of the gap before them at
+        // rest, and a clipped name's fade spans that gap too.
+        textWidth: Math.max(text.getBoundingClientRect().width, content.scrollWidth - TITLE_LEAD_PX - TITLE_TAIL_PX),
         span,
-        visibleWidth: span,
-        trailingPadding: 0,
+        visibleWidth: span - TITLE_TAIL_PX,
+        trailingPadding: TITLE_TAIL_PX,
         fadeWidth: options.fadeWidth,
       });
       return [{ row, content, fade }];
@@ -92,7 +106,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     const travel = Number(content.dataset.cmuxTravel);
     const timing = marqueeTiming(travel, reducedMotion());
     if (!timing) return;
-    const { keyframes, duration } = marqueeKeyframes(travel, timing);
+    const { keyframes, duration } = marqueeKeyframes(travel, timing, marqueeEasing);
     active = {
       row,
       path,

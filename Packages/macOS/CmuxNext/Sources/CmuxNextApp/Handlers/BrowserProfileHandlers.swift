@@ -45,13 +45,16 @@ enum BrowserProfileHandlers {
         bind("browserProfile.setIcon") { invocation in
             let record = try context.browserProfile(invocation)
             let id = record.id
+            let history = IconHistory.browserProfile(context)
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                try profiles.setIcon(id, icon)
+                try history.change(id, from: record.icon, to: icon, origin: invocation.origin)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
                 context.services.iconPicker.pick(current: record.icon, target: "browserProfile:\(id)", at: anchor) { result in
+                    // The record is a value: read the icon the profile shows when the pick lands.
+                    let current = profiles.record(id)?.icon
                     switch result {
-                    case .set(let icon): try? profiles.setIcon(id, icon)
-                    case .clear: try? profiles.setIcon(id, nil)
+                    case .set(let icon): try? history.change(id, from: current, to: icon, origin: .user)
+                    case .clear: try? history.change(id, from: current, to: nil, origin: .user)
                     case .cancel: break
                     }
                 }
@@ -60,8 +63,8 @@ enum BrowserProfileHandlers {
             }
         }
         bind("browserProfile.clearIcon") { invocation in
-            let id = try context.browserProfile(invocation).id
-            try profiles.setIcon(id, nil)
+            let record = try context.browserProfile(invocation)
+            try IconHistory.browserProfile(context).change(record.id, from: record.icon, to: nil, origin: invocation.origin)
         }
         bind("browserProfile.delete") { invocation in
             let record = try context.browserProfile(invocation)

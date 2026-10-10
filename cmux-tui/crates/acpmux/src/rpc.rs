@@ -178,6 +178,9 @@ pub mod method {
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
@@ -207,10 +210,15 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Read or replace the unsent composer text for one session.
+    pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
+    pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Fork a session through its latest completed turn (`server/fork_through.rs`).
+    pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
     /// acpmux's own decision; `set` records the decision, never the agents' files.
     pub const ACP_TRUST_GET: &str = "acp.trust.get";
@@ -219,6 +227,15 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
+    // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
+    // restore and registry: also the local app. Never Web or peer.
+    pub const MUX_HARNESS_ADD: &str = "_acpmux/harness/add";
+    pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
+    pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
+    pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// The ACP Registry's agents and how each can start here.
+    pub const MUX_REGISTRY: &str = "_acpmux/registry";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";

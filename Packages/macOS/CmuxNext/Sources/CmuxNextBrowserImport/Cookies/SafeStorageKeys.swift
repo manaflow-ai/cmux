@@ -16,6 +16,12 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
     public init() {}
 
     public func password(service: String) throws(CookieImportError) -> SecretBytes {
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_SAFE_STORAGE_READ
+        // The cx-f58x notary test builds read no other browser's Keychain item
+        // (nightly.yml inputs notary_test_without_browser_data_import and
+        // notary_test_import_part=safe-storage).
+        throw .keychainDenied(service: service)
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -32,5 +38,6 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
         case errSecItemNotFound: throw .keyNotFound(service: service)
         default: throw .keychainDenied(service: service)
         }
+        #endif
     }
 }

@@ -28,7 +28,7 @@ extension AgentTabStore {
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-              linked: Bool = false, adopt: AgentPaneAdopt? = nil,
+              linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
               idempotencyKey: String = UUID().uuidString.lowercased()) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
@@ -36,7 +36,12 @@ extension AgentTabStore {
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
-        let record = AgentSessionRef(host: localHost, hostName: localHostName, session: session, harness: adopt?.harness)
+        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
+        if let host, host != chiefHost {
+            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+        }
+        let record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         let provisional = ProvisionalTab()
         let key = provisional.id
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: key),
@@ -89,10 +94,12 @@ extension AgentTabStore {
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
     /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
     /// Returns false when the pane cannot hold an agent tab.
+    /// `hidden`: the tab never shows in `pane`'s strip (a chat bound for a new chat dock).
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false,
+                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -104,9 +111,14 @@ extension AgentTabStore {
         }
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
+        if hidden {
+            pane.pendingDock.insert(pending.key)
+            pane.apply(pane.snapshot())
+        }
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
+                if hidden { pane.pendingDock.insert(created.key) }
                 then?(created.key)
                 return nil
             } catch {

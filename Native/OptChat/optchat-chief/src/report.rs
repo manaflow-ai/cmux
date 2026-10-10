@@ -294,10 +294,14 @@ pub fn timeline(events: &[Value]) -> String {
                 )
             }
             "request" => format!(
-                "  {who} request {} {}: {}",
+                "  {who} request {} {}: {}{}",
                 n(e, "n"),
                 e["model"].as_str().unwrap_or("?"),
-                tokens(&e["usage"])
+                tokens(&e["usage"]),
+                e["ttft_ms"]
+                    .as_u64()
+                    .map(|t| format!(", first token {t} ms"))
+                    .unwrap_or_default()
             ),
             "tool" => format!(
                 "  {who} tool {} {} {} ms, args {} B, result {} B{}",
@@ -564,6 +568,8 @@ pub fn stats(events: &[Value]) -> Value {
                     json!(hit_rate(&e["first_usage"])),
                 );
                 t.insert("cost_usd".into(), e["cost_usd"].clone());
+                t.insert("start_ms".into(), e["start_ms"].clone());
+                t.insert("ttft_ms".into(), e["ttft_ms"].clone());
             }
             "node" => {
                 nodes += 1;
@@ -599,13 +605,20 @@ pub fn stats(events: &[Value]) -> Value {
         .collect();
     let mut ms: Vec<u64> = rows.iter().filter_map(|r| r["ms"].as_u64()).collect();
     ms.sort_unstable();
-    let latency = |q: f64| -> Option<u64> {
-        (!ms.is_empty()).then(|| ms[((ms.len() - 1) as f64 * q).round() as usize])
+    let latency = |q: f64| -> Option<u64> { quantile(&ms, q) };
+    let spread = |key: &str| {
+        let mut v: Vec<u64> = rows.iter().filter_map(|r| r[key].as_u64()).collect();
+        v.sort_unstable();
+        json!({"p50": quantile(&v, 0.5), "p90": quantile(&v, 0.9), "max": v.last()})
     };
     json!({
         "turns": {
             "count": rows.len(),
             "latency_ms": {"p50": latency(0.5), "p90": latency(0.9), "max": ms.last()},
+            // Time to first token: the session's start, then the first
+            // request's first token (turns that record it).
+            "start_ms": spread("start_ms"),
+            "ttft_ms": spread("ttft_ms"),
             "totals": turn_sum.json(),
             "first_request": first_sum.json(),
             "view_prefix_unchanged_mean": (!unchanged.is_empty()).then(|| unchanged.iter().sum::<f64>() / unchanged.len() as f64),
@@ -631,6 +644,11 @@ pub fn stats(events: &[Value]) -> Value {
             "totals": sub_sum.json(),
         },
     })
+}
+
+/// The `q` quantile of sorted `v`.
+fn quantile(v: &[u64], q: f64) -> Option<u64> {
+    (!v.is_empty()).then(|| v[((v.len() - 1) as f64 * q).round() as usize])
 }
 
 fn sum_line(s: &Value) -> String {
@@ -675,6 +693,10 @@ pub fn stats_text(s: &Value, dir: &Path) -> String {
     out.push_str(&format!(
         "  latency ms: p50 {} p90 {} max {}\n",
         t["latency_ms"]["p50"], t["latency_ms"]["p90"], t["latency_ms"]["max"]
+    ));
+    out.push_str(&format!(
+        "  session start ms: p50 {} p90 {}; time to first token ms: p50 {} p90 {}\n",
+        t["start_ms"]["p50"], t["start_ms"]["p90"], t["ttft_ms"]["p50"], t["ttft_ms"]["p90"]
     ));
     out.push_str(&format!("  all requests: {}\n", sum_line(&t["totals"])));
     out.push_str(&format!(

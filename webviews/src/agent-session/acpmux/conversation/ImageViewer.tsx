@@ -22,6 +22,18 @@ const STEP = 2;
 type View = { scale: number; x: number; y: number };
 const FIT: View = { scale: 1, x: 0, y: 0 };
 
+/**
+ * Base UI can restore focus to a Dialog.Trigger, but the viewer is opened by a markdown or
+ * attachment button through ImageViewerContext and therefore has no Trigger of its own. Capture
+ * the active opener before the portaled dialog moves focus so closing the viewer remains a local,
+ * keyboard-friendly interaction.
+ */
+export function activeElementToRestore(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== document.body ? active : null;
+}
+
 /// `view` zoomed to `scale` about `point` (relative to the stage's center), so the pixel under
 /// the point stays there. Back at the fitted size the image is centered again.
 export function zoomAbout(view: View, scale: number, point: { x: number; y: number }): View {
@@ -62,6 +74,19 @@ export function ImageViewer({
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const count = images.length;
+  const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
+
+  useEffect(() => {
+    const target = restoreFocus.current;
+    return () => {
+      if (!target?.isConnected) return;
+      // The dialog portal and Base UI's focus guard unmount in the same commit. Queue the restore
+      // after that cleanup so focus does not briefly land on the document body.
+      queueMicrotask(() => {
+        if (target.isConnected) target.focus();
+      });
+    };
+  }, []);
 
   const shownSrc = useRef(image?.src);
   useEffect(() => {

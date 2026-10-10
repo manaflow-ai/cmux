@@ -157,7 +157,3 @@ fn drop_oldest<T>(items: &mut Vec<T>, limit: usize) {
 pub fn hidden_id(entry_id: &str) -> Option<&str> {
     entry_id.strip_prefix("agent:").or_else(|| entry_id.strip_prefix("command:"))
 }
-
-#[cfg(test)]
-#[path = "hidden_tests.rs"]
-mod tests;

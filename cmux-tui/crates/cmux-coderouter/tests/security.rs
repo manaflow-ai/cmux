@@ -159,3 +159,21 @@ fn panic_payload_is_discarded() {
     assert!(!stderr.contains("test-secret-canary"));
     assert!(stderr.contains("security.rs:"));
 }
+
+/// The data plane has no open mode: a request with no key, a key in another
+/// scheme, an empty bearer or a wrong key of the same install gets 401.
+#[tokio::test]
+async fn missing_or_wrong_keys_are_unauthorized() {
+    let (address, task, key) = running_install("missing").await;
+    let client = client();
+    let url = format!("http://{address}/v1/messages");
+    assert_eq!(client.post(&url).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    for authorization in
+        [format!("Basic {key}"), "Bearer ".to_owned(), key.clone(), format!("Bearer {key}x")]
+    {
+        let status =
+            client.post(&url).header("authorization", authorization).send().await.unwrap().status();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    task.abort();
+}

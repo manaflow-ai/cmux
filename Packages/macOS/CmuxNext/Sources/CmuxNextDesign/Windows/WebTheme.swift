@@ -51,6 +51,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
+            // The modal scrim (`Scrim`), the same as native dialogs'.
+            "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         self.scrollers = scrollers ?? SystemScrollers.pageValue

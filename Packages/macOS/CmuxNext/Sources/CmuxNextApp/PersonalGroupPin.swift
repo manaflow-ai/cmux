@@ -2,7 +2,8 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 
 /// Pinned (saved) personal workspace groups on the home session
-/// (`workspace-group-pin-v1`). Pin and Unpin write the group's pin. Close
+/// (`workspace-group-pin-v1`), and the group icon (`workspace-group-icon-v1`).
+/// Pin and Unpin write the group's pin; Set and Remove Group Icon its icon. Close
 /// All Workspaces in Group then decides the group's fate: a pinned group
 /// stays, empty and collapsed; an unpinned one goes with its workspaces
 /// (`SidebarIntent.closeGroup`), so it does not come back empty on the
@@ -25,6 +26,15 @@ struct PersonalGroupPin {
             }
             bridge.model.apply(intent)
             send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
+            return true
+        case let .setGroupIcon(group, icon):
+            guard bridge.statePersonal, home.supports(DaemonCapabilities.shared.workspaceGroupIcon) else {
+                bridge.resync()
+                return true
+            }
+            bridge.model.apply(intent)
+            let update: FieldUpdate<String> = icon.map { .set($0) } ?? .clear
+            send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
             return true
         case let .closeGroup(group):
             guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }

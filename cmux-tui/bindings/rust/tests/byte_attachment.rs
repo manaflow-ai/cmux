@@ -5,6 +5,8 @@
 //! attach events, so these tests pin the wire contract the real daemon
 //! expects (`spec/commands.md` attach-surface, send, resize-attached-view,
 //! release-attached-view-size, detach-attached-view, set-client-sizing).
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;

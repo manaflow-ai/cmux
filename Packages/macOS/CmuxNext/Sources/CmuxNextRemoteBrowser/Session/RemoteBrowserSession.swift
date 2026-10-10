@@ -36,6 +36,16 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     private var openGate = RemoteBrowserOpenGate()
     /// The last reducer reject or note, for the debug socket.
     public private(set) var lastNote: String?
+    /// Why the tab shows no page, once it failed (cx-erey).
+    public private(set) var failure: RemoteBrowserFailure?
+    /// The rd session reached streaming at least once.
+    private var hasStreamed = false
+    /// The hello carries a session token (the host's secret).
+    private let hasToken: Bool
+    /// The host address the failure text names.
+    private let address: String
+    /// The tab closed the session: its end is no failure.
+    private var isClosed = false
 
     /// A remote tab whose page streams from the loopback host at
     /// `endpoint`; `url` is the first page to load. Nil when the core cannot
@@ -43,7 +53,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     public static func makeTab(
         record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil
     ) -> RemoteBrowserTab? {
-        guard let session = RemoteBrowserSession(endpoint: record.endpoint, tabKey: id.rawValue, viewer: viewer,
+        guard let session = RemoteBrowserSession(endpoint: record.endpoint, address: record.address, tabKey: id.rawValue, viewer: viewer,
                                                  initialURL: record.initialURL, token: token) else { return nil }
         let tab = RemoteBrowserTab(id: id, profile: profile, url: record.initialURL ?? record.url, pane: session.pane, channel: session)
         session.tab = tab
@@ -55,13 +65,15 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         tab.channel as? RemoteBrowserSession
     }
 
-    private init?(endpoint: RemoteRdLoopbackEndpoint, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
+    private init?(endpoint: RemoteRdLoopbackEndpoint, address: String, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
         guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer, token: token),
               let client = RbClient() else { return nil }
         self.transport = transport
         self.client = client
         self.tabKey = tabKey
         self.initialURL = initialURL
+        self.address = address
+        hasToken = token?.isEmpty == false
         profileName = "remote"
         pane = RemoteBrowserPane(source: transport)
         nativeUI = RemoteBrowserNativeUI(view: pane.view)
@@ -78,7 +90,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
 
     /// Subscribes to the session's messages, connects, and starts decoding.
     public func start() {
-        guard serviceTask == nil else { return }
+        guard serviceTask == nil, failure == nil else { return }
         let bodies = transport.serviceMessages()
         let statuses = transport.statusUpdates()
         // task-owner: the session's host messages; ends when the transport finishes its service stream.
@@ -92,10 +104,14 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
                 }
             }
         }
-        // task-owner: sends rb.open once the rd session streams; ends with the transport's status stream.
+        // task-owner: sends rb.open once the rd session streams, and shows why it ended; ends with the transport's status stream.
         statusTask = Task { [weak self] in
-            for await status in statuses where status.state == .streaming {
-                self?.sessionStreaming()
+            for await status in statuses {
+                switch status.state {
+                case .streaming: self?.sessionStreaming()
+                case let .ended(end): self?.sessionEnded(end)
+                case .connecting, .waitingForConsent: break
+                }
             }
         }
         transport.connect()
@@ -110,7 +126,24 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     }
 
     private func sessionStreaming() {
+        hasStreamed = true
         run(openGate.streaming())
+    }
+
+    /// The rd session ended: unless the tab closed it, the tab says why.
+    private func sessionEnded(_ end: RemoteSessionEnd) {
+        guard let failure = RemoteBrowserFailure(end: end, streamed: hasStreamed, hadSecret: hasToken) else { return }
+        fail(failure)
+    }
+
+    /// Shows `failure` in the tab (page area and title) and stops the page.
+    /// The first failure stays; a tab that failed does not start.
+    public func fail(_ failure: RemoteBrowserFailure) {
+        guard self.failure == nil, !isClosed else { return }
+        self.failure = failure
+        surfaces.closeAll()
+        pane.stop()
+        tab?.showFailure(failure, message: RemoteBrowserStrings.failure(failure, address: address))
     }
 
     private func run(_ step: RemoteBrowserOpenGate.Step?) {
@@ -156,7 +189,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
             // host messages and control requests included) until it closes.
             let main = CFRunLoopGetMain()
             CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [nativeUI] in
-                // crash-allow: CFRunLoopGetMain blocks run on the main thread
+                // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 MainActor.assumeIsolated { nativeUI.showMenu(token: token, menu: menu) }
             }
             CFRunLoopWakeUp(main)
@@ -226,6 +259,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     }
 
     public func close() {
+        isClosed = true
         surfaces.closeAll()
         transport.sendService(.object(["t": .string("rb.close")]))
         transport.stop()
