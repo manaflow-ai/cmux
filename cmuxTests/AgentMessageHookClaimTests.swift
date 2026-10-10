@@ -15,7 +15,7 @@ struct AgentMessageHookClaimTests {
     func stopHookClaimsQueuedMessagesAfterAcknowledgingDeliveredMessages() async throws {
         let surfaceID = UUID()
         let previous = try appendMessage(to: surfaceID, body: "already delivered")
-        let delivered = try AgentMessageCenter.store.claimQueued(
+        let delivered = AgentMessageCenter.store.claimQueued(
             recipientSurfaceId: surfaceID.uuidString,
             via: "claude.wake"
         ).first
@@ -51,7 +51,7 @@ struct AgentMessageHookClaimTests {
     func registerPollLeavesQueuedMessagesForTheNextClaim() async throws {
         let surfaceID = UUID()
         let previous = try appendMessage(to: surfaceID, body: "already delivered")
-        let delivered = try AgentMessageCenter.store.claimQueued(
+        let delivered = AgentMessageCenter.store.claimQueued(
             recipientSurfaceId: surfaceID.uuidString,
             via: "claude.wake"
         ).first
