@@ -201,8 +201,10 @@ final class CloudService {
     /// calls on the connection that sent them, and registers again after
     /// every handshake of the verified app connection (a reconnected
     /// connection is a new provider; its calls in flight ended with it).
+    /// Only the app server path uses it: with the legacy link (the release
+    /// and default Debug path) the relay never registers.
     private func startCredentialProvider() {
-        guard let provider = credentialProvider, credentialEvents == nil else { return }
+        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
         let local = machines.local
         credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
             guard let connection = local?.connection else { return }
