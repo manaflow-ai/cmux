@@ -21,6 +21,8 @@ use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
 };
+mod detached_terminals;
+pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
     insert_restored_terminal_runtime_checked, insert_surface_checked,

@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     ResourceClientRecord, ViewLeaseStatus, ViewReleasePreparation, ViewResizePreparation,
-    conversation_tabs_wire, surface_has_view_placement,
+    conversation_tabs_wire, detached_terminals::accepts_view_sizing,
 };
 use crate::mux::{Mux, clamp_terminal_size};
 use crate::resource::{
@@ -444,7 +444,7 @@ fn resize_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok((false, "superseded")),
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !accepts_view_sizing(mux, surface) => {
             return Ok((false, "superseded"));
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -472,7 +472,7 @@ fn resize_resource_view(
                         lease,
                         previous_view_size,
                     );
-                    if !surface_has_view_placement(mux, surface) {
+                    if !accepts_view_sizing(mux, surface) {
                         return Ok((false, "superseded"));
                     }
                     return Err(ResourceError::operation_failed(
@@ -504,7 +504,7 @@ fn release_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok("superseded"),
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !accepts_view_sizing(mux, surface) => {
             return Ok("superseded");
         }
         ViewLeaseStatus::Current { .. } => {}

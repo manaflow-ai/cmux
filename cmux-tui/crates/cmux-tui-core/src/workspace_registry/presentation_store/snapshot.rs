@@ -82,6 +82,7 @@ impl WorkspaceRegistry {
             super::super::screen_store::read_saved_screen_groups(&self.connection.get())?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection.get())?;
         let conversation_tabs = read_conversation_tabs(&self.connection.get())?;
+        let remote_terminals = read_remote_terminals(&self.connection.get())?;
         let home_workspace =
             crate::state::home_store::live_home(&self.connection.get())?.map(|h| h.1);
         let app_workspaces = crate::state::home_store::live_app_workspaces(&self.connection.get())?;
@@ -92,6 +93,7 @@ impl WorkspaceRegistry {
             pinned_tabs,
             frontend_browsers,
             conversation_tabs,
+            remote_terminals,
             home_workspace,
             app_workspaces,
             app_tabs,

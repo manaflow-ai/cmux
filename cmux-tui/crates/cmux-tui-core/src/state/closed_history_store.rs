@@ -308,6 +308,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         {
             record["conversation"] = conversation;
         }
+        // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
+        if let Some(remote) =
+            super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
+        {
+            record["remote"] = remote;
+        }
     }
     Ok(Some(record))
 }
