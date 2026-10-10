@@ -37,7 +37,8 @@ final class SidebarChatRowView: SidebarItemRowView {
         titleFrame.origin.x = textX
         guard !meta.isHidden else { title.frame = titleFrame; return }
         let size = meta.intrinsicContentSize
-        let maxMeta = min(ceil(size.width), bounds.width * 0.4)
+        // The cell's size includes the field's insets: the text's width alone clips it ("2...").
+        let maxMeta = min(ceil(meta.cell?.cellSize.width ?? size.width), bounds.width * 0.4)
         let metaX = titleFrame.maxX - maxMeta
         meta.frame = NSRect(x: metaX, y: (bounds.height - size.height) / 2, width: maxMeta, height: size.height)
         if design == .project {
