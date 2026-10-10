@@ -152,6 +152,7 @@ struct NewMachineSheetLayoutTests {
         model.applyNetworkCatalog(CloudNetworkPresetCatalog(presets: [], requiredDomains: []))
         let (host, window) = Self.render(
             NewMachineSheet(model: model, layout: .grid)
+                .environment(\.accessibilityEnabled, true)
         )
         defer {
             window.contentView = nil
@@ -213,6 +214,7 @@ struct NewMachineSheetLayoutTests {
         _ = NSApplication.shared
         let host = NSHostingView(
             rootView: NewMachineSheet(model: model, layout: layout)
+                .environment(\.accessibilityEnabled, true)
         )
         let size = host.fittingSize
 
