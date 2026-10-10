@@ -589,14 +589,18 @@ impl SshBootstrapper {
         self.attachable(probe)?;
         let installed_distribution =
             probe.distribution_version.as_deref().unwrap_or(&probe.version);
-        if installed_distribution != self.config.package_version
-            || (self.config.package_installable
-                && probe.npm_bootstrap_version.as_deref()
-                    != Some(self.config.package_version.as_str()))
-        {
+        if installed_distribution != self.config.package_version {
             return Err(Incompatibility::Distribution {
                 remote: installed_distribution.to_owned(),
                 local: self.config.package_version.clone(),
+            });
+        }
+        if self.config.package_installable
+            && probe.npm_bootstrap_version.as_deref() != Some(self.config.package_version.as_str())
+        {
+            return Err(Incompatibility::Distribution {
+                remote: format!("npm {}", probe.npm_bootstrap_version.as_deref().unwrap_or("none")),
+                local: format!("npm {}", self.config.package_version),
             });
         }
         if !self.config.package_installable
@@ -1097,11 +1101,11 @@ impl fmt::Display for BootstrapError {
                     ),
                     Incompatibility::Distribution { remote, local } => write!(
                         formatter,
-                        "remote cmux-tui is distribution {remote} (build {build}), this cmux-tui installs {local}; the remote binary was not replaced"
+                        "remote cmux-tui is distribution {remote} (build {build}), this cmux-tui installs {local}; the remote binary does not match this build"
                     ),
                     Incompatibility::Build { remote, local } => write!(
                         formatter,
-                        "remote cmux-tui {version} is build {}, this cmux-tui is build {local}; the remote binary was not replaced",
+                        "remote cmux-tui {version} is build {}, this cmux-tui is build {local}; the remote binary does not match this build",
                         remote.as_deref().unwrap_or("unknown")
                     ),
                 }?;

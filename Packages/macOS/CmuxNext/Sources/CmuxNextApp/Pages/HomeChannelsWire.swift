@@ -2,7 +2,7 @@ import CmuxHomeCore
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The `cmux.home.*` wire of the channels Home page (webviews/src/pages/home-channels/types.ts):
 /// the Home data the native Home reads (``HomeSource``), projected into page JSON. Every read and
