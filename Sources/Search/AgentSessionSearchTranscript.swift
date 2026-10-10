@@ -7,8 +7,9 @@ import Foundation
 /// `refresh()` reads only the bytes appended since the previous call and
 /// parses the complete lines with the agent's own transcript parser. A file
 /// that shrank or was replaced (new inode) restarts the read from the top.
-/// The first read covers at most the last `readByteLimit` bytes, so a
-/// very long session costs one bounded read.
+/// Each read covers at most the last `readByteLimit` bytes, so a very long
+/// session, or one that grew a lot between palette opens, costs one bounded
+/// read; the line the cap cuts through is skipped.
 ///
 /// `refresh()` does blocking file I/O; `AgentSessionSearchTranscripts` runs
 /// it on a dedicated queue, never on the main actor.
@@ -58,12 +59,16 @@ struct AgentSessionSearchTranscript: Sendable {
 
         var start = byteOffset
         var skipsPartialFirstLine = false
-        if byteOffset == 0, size > readByteLimit {
+        if size - byteOffset > readByteLimit {
             start = size - readByteLimit
             skipsPartialFirstLine = true
+            // The held fragment begins a line the cap cuts through.
+            pendingFragment = Data()
         }
         try? handle.seek(toOffset: start)
-        guard let data = try? handle.readToEnd(), !data.isEmpty else { return didReset }
+        // Up to the size measured above: bytes appended since wait for the
+        // next refresh, so the cap holds even while the agent writes.
+        guard let data = try? handle.read(upToCount: Int(size - start)), !data.isEmpty else { return didReset }
         byteOffset = start + UInt64(data.count)
 
         let buffer: Data
