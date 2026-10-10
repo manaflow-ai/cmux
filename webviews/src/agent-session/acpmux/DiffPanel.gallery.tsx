@@ -219,7 +219,8 @@ export default componentEntry<GalleryProps>({
       note: "A loaded git scope replaces the turn files and shows branch metadata.",
       props: { files, source: loadedSource },
       play: async (ctx) => {
-        await chooseScope(ctx, "Uncommitted");
+        // Branch is the scope that asks the host for status metadata and renders BranchPill.
+        await chooseScope(ctx, "Branch");
         await ctx.waitFor(() => ctx.find({ selector: ".acpmux-branch-pill" }));
       },
     },
