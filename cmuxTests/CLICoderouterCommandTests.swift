@@ -236,6 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         standardInput: String? = nil,
         extraEnvironment: [String: String] = [:],
+        underTerminal: Bool = false,
         waitForSocket: Bool = true,
         handler: @escaping (String, [String: Any]) -> String?
     ) throws -> (result: ProcessRunResult, state: MockSocketServerState) {
@@ -294,9 +295,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment[key] = value
         }
 
+        // `underTerminal` runs the CLI on a pseudo-terminal, the only way to reach
+        // the interactive `claude setup-token` capture.
         let result = runProcess(
-            executablePath: cliPath,
-            arguments: arguments,
+            executablePath: underTerminal ? "/usr/bin/script" : cliPath,
+            arguments: underTerminal ? ["-q", "/dev/null", cliPath] + arguments : arguments,
             environment: environment,
             standardInput: standardInput,
             timeout: 5
@@ -392,6 +395,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertFalse(result.stderr.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
+    }
+
+    func testCoderouterClaudeAddOAuthTokenCapturesASetupTokenWiderThanTheTerminal() throws {
+        // A real setup token is 108 characters, longer than a default 80-column
+        // terminal, and `claude setup-token` hard-wraps it at the terminal width.
+        let token = "sk-ant-oat01-" + String(repeating: "AbCd0123_-", count: 9) + "WxYz5"
+        XCTAssertEqual(token.count, 108)
+        let bin = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-setup-token-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bin) }
+        let claudePath = bin.appendingPathComponent("claude").path
+        try """
+        #!/bin/sh
+        [ "$1" = "setup-token" ] || exit 2
+        cols=$(stty size 2>/dev/null | cut -d' ' -f2)
+        [ "${cols:-0}" -gt 0 ] 2>/dev/null || cols=80
+        printf 'Your OAuth token (valid for 1 year):\\n\\n'
+        printf '%s\\n' '\(token)' | fold -w "$cols"
+        printf '\\nStore this token securely.\\n'
+        """.write(toFile: claudePath, atomically: true, encoding: .utf8)
+        chmod(claudePath, 0o755)
+
+        nonisolated(unsafe) var receivedToken: String?
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token", "--label", "work"],
+            socketName: "coderouter-add-setup-token",
+            extraEnvironment: ["PATH": "\(bin.path):/usr/bin:/bin"],
+            underTerminal: true
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedToken = params["token"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...xYz5", label: "work"),
+                "accountsTotal": 1,
+            ])
+        }
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(receivedToken, token, "the whole token must reach CodeRouter, not its first line")
+        XCTAssertFalse(result.stdout.contains("AbCd0123_-"), "the secret must never be printed")
     }
 
     func testCoderouterClaudeSetIsAnAliasForAddAndReadsTheEnvironment() throws {
