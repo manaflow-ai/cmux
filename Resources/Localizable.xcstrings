@@ -305149,6 +305149,24 @@
             "value": "サイドバーに Cloud とデバイスのアイコンを表示"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Cloud i ikone uređaja u bočnoj traci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le icone Cloud e dei dispositivi nella barra laterale"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud- og enhetsikoner i sidepanelet"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -305206,6 +305224,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Git ブランチやディレクトリの詳細とは別に、Cloud コンピュータまたはデバイスのアイコンを表示します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ikonu Cloud računara ili uređaja nezavisno od detalja Git grane i direktorija."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’icona del computer Cloud o del dispositivo indipendentemente dai dettagli del branch Git e della directory."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskin- eller enhetsikonet uavhengig av detaljer om Git-gren og katalog."
           }
         },
         "en": {

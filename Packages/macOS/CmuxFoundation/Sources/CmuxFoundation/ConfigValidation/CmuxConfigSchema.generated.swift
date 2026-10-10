@@ -1674,7 +1674,8 @@ enum CmuxEmbeddedConfigSchema {
         "showCloudDeviceIcons": {
           "type": "boolean",
           "default": true,
-          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details."
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
+          "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
         },
         "showPullRequests": {
           "type": "boolean",
