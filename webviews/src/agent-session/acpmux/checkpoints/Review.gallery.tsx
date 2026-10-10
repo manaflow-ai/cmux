@@ -89,7 +89,9 @@ export default componentEntry<Props>({
       // Resolve after the gallery frame installs __cmuxPaneStrings. Resolving this at module
       // load time falls back to raw checkpoint keys in the static gallery bundle.
       const strings = checkpointStrings();
-      const [record, setRecord] = useState<Checkpoint | undefined>(mode === "create" ? undefined : mode === "retained" ? retained : base);
+      const [record, setRecord] = useState<Checkpoint | undefined>(
+        mode === "create" ? undefined : mode === "retained" ? retained : base,
+      );
       const next = { ...base, checkpoint_id: "checkpoint-b", ref: "refs/cmux/checkpoints/gallery-b" };
       if (!record) {
         return (
