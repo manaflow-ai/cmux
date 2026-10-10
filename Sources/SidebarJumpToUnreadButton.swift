@@ -9,6 +9,7 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
     /// A turn arrow reads as "go there"; straight down arrows read as download.
     static let systemName = "arrow.turn.down.right"
     static let maxShownCount = 99
+    /// `sidebar.showJumpToUnreadButton`, which the button's × turns off.
     static let setting = SidebarCatalogSection().showJumpToUnreadButton
 
     let label: String
@@ -33,11 +34,6 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
             shortcutText: shortcut.isUnbound ? nil : shortcut.displayString,
             isVisible: isEnabled && unreadCount > 0
         )
-    }
-
-    /// `sidebar.showJumpToUnreadButton`, which the button's × turns off.
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: setting)
     }
 }
 
@@ -70,9 +66,12 @@ struct SidebarJumpToUnreadButton: View {
     @State private var isConfirmingHide = false
     @AppStorage(SidebarJumpToUnreadButtonPresentation.setting.userDefaultsKey)
     private var isEnabled = SidebarJumpToUnreadButtonPresentation.setting.defaultValue
+    /// Times the confirm prompt's reset; injected so the delay isn't a bare sleep.
+    private let clock: any Clock<Duration>
 
-    init(presentationMode: WorkspacePresentationModeSettings.Mode) {
+    init(presentationMode: WorkspacePresentationModeSettings.Mode, clock: any Clock<Duration> = ContinuousClock()) {
         self.presentationMode = presentationMode
+        self.clock = clock
         _unreadCount = State(initialValue: TerminalNotificationStore.shared.notificationMenuSnapshot.unreadCount)
     }
 
@@ -98,11 +97,19 @@ struct SidebarJumpToUnreadButton: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.bottom, 8)
+                    // Clicking jumps, which can clear the last unread and remove the
+                    // capsule under the pointer; onHover(false) never comes then, so
+                    // it would return still hovered (or still confirming).
+                    .onDisappear {
+                        isHovered = false
+                        isCloseHovered = false
+                        isConfirmingHide = false
+                    }
             }
         }
         .task(id: isConfirmingHide) {
             guard isConfirmingHide else { return }
-            try? await Task.sleep(for: .seconds(5))
+            try? await clock.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.15)) { isConfirmingHide = false }
         }
@@ -154,11 +161,15 @@ struct SidebarJumpToUnreadButton: View {
                 ))
             }
         }
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
         .sidebarJumpToUnreadGlass(hovered: isHovered)
         .onHover { hovering in
             isHovered = hovering
-            if !hovering { isConfirmingHide = false }
+            if !hovering {
+                isConfirmingHide = false
+                // The × leaves with the hover, before its own onHover(false).
+                isCloseHovered = false
+            }
         }
         .animation(.easeOut(duration: 0.15), value: isHovered)
         .animation(.easeOut(duration: 0.15), value: isConfirmingHide)
@@ -171,6 +182,7 @@ struct SidebarJumpToUnreadButton: View {
                 .padding(.horizontal, 4)
                 .frame(minWidth: 16, minHeight: 16)
                 .background(Capsule().fill(cmuxAccent.color))
+                .fixedSize()
         }
     }
 
@@ -179,11 +191,14 @@ struct SidebarJumpToUnreadButton: View {
         if let shortcutText = resolved.shortcutText {
             Text(shortcutText).cmuxFont(size: 11).tracking(0.5).lineLimit(1)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .fixedSize()
         }
     }
 
+    /// Truncates rather than pushing the capsule past a narrow sidebar.
     private func title(_ text: String) -> some View {
         Text(text).cmuxFont(size: 12, weight: .medium).foregroundStyle(Color(nsColor: .labelColor)).lineLimit(1)
+            .truncationMode(.tail)
     }
 
     /// First click asks to confirm; the second turns the setting off.
@@ -204,6 +219,7 @@ struct SidebarJumpToUnreadButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .onHover { isCloseHovered = $0 }
         .safeHelp(String(localized: "sidebar.jumpToUnread.hide", defaultValue: "Hide Jump to Unread Button"))
         .accessibilityLabel(String(localized: "sidebar.jumpToUnread.hide", defaultValue: "Hide Jump to Unread Button"))
