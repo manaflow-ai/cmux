@@ -36,6 +36,9 @@ extension RemoteTmuxController {
         let host: RemoteTmuxHost
         /// The workspace that was selected when the request was made.
         let activeTabId: UUID
+        /// Identity of this request, used to prevent a cancelled request from
+        /// attaching after a newer request for the same window takes over.
+        let id: UUID
     }
 
     /// Where a routed New Workspace failed. Creating the session and attaching to
@@ -71,13 +74,23 @@ extension RemoteTmuxController {
             AppDelegate.shared?.mainWindowContexts.values
                 .contains(where: { $0.tabManager === manager }) == true
         }
+        func requestIsCurrent() -> Bool {
+            let managerID = ObjectIdentifier(manager)
+            guard let current = newSessionRequestIDs[managerID] else {
+                // Direct test calls do not register through handleNewWorkspaceRequested.
+                return !Task.isCancelled
+            }
+            return current == request.id && !Task.isCancelled
+        }
+        guard requestIsCurrent() else { return }
         if let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == request.activeTabId }),
            isMultiplexed(mirror) {
-            guard managerIsLive() else { return }
+            guard managerIsLive(), requestIsCurrent() else { return }
             if createMultiplexedNewSession(
                 host: host,
                 originatingTabId: request.activeTabId,
                 manager: manager,
+                requestID: request.id,
                 onCreated: onCreated
             ) {
                 return
@@ -95,7 +108,7 @@ extension RemoteTmuxController {
             // A closed window no longer has a requester who can pick up this
             // detached session. Remove the session cmux just created instead of
             // leaving an unreported remote orphan behind.
-            guard managerIsLive() else {
+            guard managerIsLive(), requestIsCurrent() else {
                 if result.succeeded, !created.isEmpty {
                     _ = try? await transport(for: host)
                         .runTmux(["kill-session", "-t", "=\(created)"])
@@ -110,11 +123,13 @@ extension RemoteTmuxController {
                 return
             }
             name = created
+        } catch is CancellationError {
+            return
         } catch {
             #if DEBUG
             cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
             #endif
-            guard managerIsLive() else { return }
+            guard managerIsLive(), requestIsCurrent() else { return }
             newSessionEnvironment.reportFailure(host, .create, manager)
             return
         }
@@ -123,6 +138,11 @@ extension RemoteTmuxController {
         // "could not create", and the session cmux just made must not be left
         // behind with nothing showing it.
         do {
+            guard requestIsCurrent() else {
+                _ = try? await transport(for: host)
+                    .runTmux(["kill-session", "-t", "=\(name)"])
+                return
+            }
             // The user may have moved on to another tab while the round trip
             // ran (mirror, but don't steal selection).
             let select = manager.selectedTab?.id == request.activeTabId
@@ -135,7 +155,7 @@ extension RemoteTmuxController {
             // Nobody has attached to it and nothing runs in it but its shell.
             let removed = (try? await transport(for: host)
                 .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
-            guard managerIsLive() else { return }
+            guard managerIsLive(), requestIsCurrent() else { return }
             newSessionEnvironment.reportFailure(
                 host,
                 .attach(sessionName: name, removed: removed),
