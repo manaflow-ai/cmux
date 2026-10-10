@@ -224,6 +224,12 @@ public actor SSHMachineLink {
             child.terminate()
             if self.child === child { self.child = nil }
             let stderr = child.stderrText
+            if let refusal = RemoteRefusal.parse(stderr) {
+                // A typed refusal is an install or update state, not a failure (cx-z3zh).
+                logger.error("ssh link for \(self.host.destination.description, privacy: .public) refused: \(stderr, privacy: .public)")
+                handle(.probed(.refused(refusal)))
+                throw SSHLinkError.needsInstall(.refused(refusal))
+            }
             let failure = SSHFailure.classifyLink(stderr: stderr) ?? .remoteFailed(String(describing: error))
             logger.error("ssh link for \(self.host.destination.description, privacy: .public) failed: \(stderr, privacy: .public)")
             handle(.failed(failure))

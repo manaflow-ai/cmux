@@ -1155,6 +1155,7 @@ async fn bootstrap_initial_ssh_route(
     config.extra_args = ssh.extra_args.clone();
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
+    config.required_capabilities = ssh.required_remote_capabilities();
     let bootstrap = SshBootstrapper::new(config)?;
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
@@ -5708,6 +5709,7 @@ mod tests {
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),
+            capabilities: Vec::new(),
         };
         write_executable(
             &script,

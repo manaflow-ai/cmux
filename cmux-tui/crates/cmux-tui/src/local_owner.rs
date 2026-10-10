@@ -444,33 +444,15 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 12] = [
-    "CMUX_SURFACE_ID",
-    "CMUX_WORKSPACE_ID",
-    "CMUX_TAB_ID",
-    "CMUX_PANEL_ID",
-    "CMUX_PANE_ID",
-    // Agent caller claims (cx-4nar): an owner an agent started (a Chief
-    // turn, an acpmux session) must not pass them to a person's terminals
-    // in it, or `--all-sessions` there refuses the person
-    // (cli/federation.rs `agent_marker`). acpmux sets the first three in
-    // every agent (agent.rs `spawn`); the Chief's turn env sets the owner
-    // socket (optchat-chief cmux_env.rs), a route to the Chief's own owner;
-    // cmux-tasks reads the principal, class and harness (owner.rs).
-    "ACPMUX_ENV",
-    "ACPMUX_SESSION_ID",
-    "ACPMUX_SESSION_NAME",
-    "CMUX_CHIEF_OWNER_SOCKET",
-    "CMUX_AGENT_PRINCIPAL",
-    "CMUX_AGENT_CLASS",
-    "CMUX_AGENT_HARNESS",
-];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
 
-/// Remove terminal identity and agent caller claims from the detached owner
-/// while preserving configuration and socket variables inherited from the
+/// Remove terminal identity and agent caller claims
+/// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
+/// preserving configuration and socket variables inherited from the
 /// launching client.
 fn configure_detached_owner_environment(command: &mut Command) {
-    for key in DETACHED_OWNER_IDENTITY_ENV {
+    for key in DETACHED_OWNER_IDENTITY_ENV.into_iter().chain(crate::startup_env::AGENT_CALLER_ENV) {
         command.env_remove(key);
     }
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 264f53ee299c90c9957bee5c4436f503b1daf078c1aefda6b5ca14bd06ea08c7. */
+/* cmux-tui mux protocol 12, IR f73eb9aa1d4e5a1d9a64b4b489a466a76a03c2abd164a01905c024cfa65182b6. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1004,6 +1004,7 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
 };
 
 export type ShutdownDaemonResult = {
@@ -1293,6 +1294,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };

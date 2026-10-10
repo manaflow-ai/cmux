@@ -60,7 +60,16 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
-        Err(_error) => {
+        Err(error) => {
+            // The resolver's typed refusal passes through unchanged.
+            let failure = super::wire::resolve_failure(&error);
+            if failure["code"] == "socket.no_daemon" {
+                return super::wire::print_local_error(
+                    &failure,
+                    global.output,
+                    super::wire::RESOLVE_FAILURE_EXIT,
+                );
+            }
             if let Some(session) = global.session.as_deref()
                 && cmux_tui_core::server::validate_session_name(session).is_err()
             {

@@ -300,9 +300,10 @@ fn target(
         if chief_home.is_some() {
             return Err((2, m.home_and_socket.into()));
         }
-        let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|_| {
-            (2, crate::localization::catalog().startup.invalid_session_name.to_owned())
-        })?;
+        let (socket, derived) =
+            super::wire::resolve_socket_with_origin(global).map_err(|error| {
+                (super::wire::RESOLVE_FAILURE_EXIT, super::wire::resolve_failure_message(&error))
+            })?;
         if link::is_brain_socket(&socket) {
             return Err((1, m.brain_socket.replace("{socket}", &socket.display().to_string())));
         }

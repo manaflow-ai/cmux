@@ -1449,6 +1449,7 @@ class SetTerminalKeepResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalKeepResult'
     terminal_id: str
     keep: bool
+    terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1781,6 +1782,7 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2651,6 +2653,7 @@ class CreateTerminalRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    detached: Union[bool, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
@@ -3305,6 +3308,18 @@ class NewPaneRightRequest:
 
 
 @dataclass(frozen=True)
+class NewRemoteTerminalTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-remote-terminal-tab/request'
+    terminal_id: str
+    session_id: str
+    session_name: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewRowRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-row/request'
     pane: Id
@@ -3511,6 +3526,12 @@ class ReloadConfigResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/reload-config/result'
     path: Union[str, None]
     reloaded: Literal[True]
+
+
+@dataclass(frozen=True)
+class RemoteTerminalSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-terminal-snapshot/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -4148,6 +4169,15 @@ class UpdateProfileRequest:
     icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UpdateRemoteTerminalTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-remote-terminal-tab/request'
+    surface: Id
+    session_name: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5367,6 +5397,7 @@ __all__ = [
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
+    'NewRemoteTerminalTabRequest',
     'NewRowRequest',
     'NewScreenRequest',
     'NewTabRequest',
@@ -5390,6 +5421,7 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
     'RemoveTabsFromTabGroupResult',
@@ -5466,6 +5498,7 @@ __all__ = [
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
     'UpdateProfileRequest',
+    'UpdateRemoteTerminalTabRequest',
     'UpdateScreenGroupRequest',
     'UpdateTabGroupRequest',
     'UpdateWorkspaceGroupRequest',

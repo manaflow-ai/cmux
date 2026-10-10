@@ -116,7 +116,10 @@ impl Hub {
             } else {
                 Some(
                     child
-                        .request(method::SESSION_NEW, self.acp_params(draft, &spec.spawn, None))
+                        .request(
+                            method::SESSION_NEW,
+                            self.acp_params(&session_id, draft, &spec.spawn, None),
+                        )
                         .await?,
                 )
             };
