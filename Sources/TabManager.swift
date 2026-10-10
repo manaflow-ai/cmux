@@ -4563,6 +4563,19 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
+    /// Previous/Next (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab, the View menu): steps
+    /// the focused pane's tabs when it holds two or more, wrapping inside the pane; otherwise moves
+    /// to the previous or next sidebar workspace, wrapping at the ends (Leo 2026-10-09, rapid
+    /// switching). `dock` is the focused Dock, whose pane follows the same rule. Next/Previous Tab
+    /// in Pane and Next/Previous Workspace stay explicit.
+    func stepTabOrWorkspace(forward: Bool, dock: DockSplitStore? = nil) {
+        if let dock {
+            _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
+            return
+        }
+        if forward { selectNextSurface() } else { selectPreviousSurface() }
+    }
+
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)
