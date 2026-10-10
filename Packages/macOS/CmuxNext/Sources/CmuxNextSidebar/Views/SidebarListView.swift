@@ -199,15 +199,19 @@ final class SidebarListView: NSView {
             view.targetSize = target.size
             configure(view, row: row, animated: animate)
             if existing == nil {
-                if animate, let previous = old.row(for: row.key) {
-                    view.frame = frame(for: previous)
-                } else if animate {
-                    // An expanded row comes out from under its header.
-                    let y = SidebarRowTransition.appearY(row, from: old, to: layout, dropIn: Metrics.space3)
-                    view.frame = NSRect(x: target.minX, y: y, width: target.width, height: target.height)
-                    view.alphaValue = 0
-                } else {
-                    view.frame = target
+                // The start state never animates: a recycled view shows no
+                // frame of its previous row (cx-bqm6).
+                Motion.withoutAnimation {
+                    if animate, let previous = old.row(for: row.key) {
+                        view.frame = frame(for: previous)
+                    } else if animate {
+                        // An inserted row grows in its own slot; an expanded one comes out from under its header.
+                        view.frame = SidebarRowTransition.insertFrame(row, target: target, from: old, to: layout)
+                        view.alphaValue = 0
+                        view.layer?.masksToBounds = true
+                    } else {
+                        view.frame = target
+                    }
                 }
                 addSubview(view, positioned: .above, relativeTo: decorations)
                 rowViews[row.key] = view
@@ -228,7 +232,7 @@ final class SidebarListView: NSView {
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
-        var leaving: [(SidebarRowView, CGFloat)] = []
+        var leaving: [(SidebarRowView, NSRect)] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
@@ -239,9 +243,11 @@ final class SidebarListView: NSView {
                 // A leaving row fades out without the selection fill: the
                 // fill is already on the new selected item (no second one).
                 view.isSelected = false
-                // A collapsed row slides up under its header; another leaving row nudges up.
-                let folded = old.row(for: key).flatMap { SidebarRowTransition.foldedY($0, from: old, to: layout) }
-                leaving.append((view, folded ?? view.frame.minY - Metrics.space3))
+                // A collapsed row slides up under its header; another leaving row closes its slot.
+                let current = view.frame
+                let end = old.row(for: key).map { SidebarRowTransition.removeFrame($0, current: current, from: old, to: layout) }
+                view.layer?.masksToBounds = true
+                leaving.append((view, end ?? NSRect(x: current.minX, y: current.minY, width: current.width, height: 0)))
             }
         }
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
@@ -249,36 +255,7 @@ final class SidebarListView: NSView {
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate)
         decorations.setGroupLines(groupLines(layout), animated: animate)
-        let moves = {
-            for (view, target) in targets {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
-            }
-        }
-        guard animate else {
-            Motion.withoutAnimation(moves)
-            leaving.forEach { recycle($0.0) }
-            return
-        }
-        // Existing rows move, new rows (group expand, insert) appear, and
-        // removed rows (group collapse, close) leave faster still.
-        Motion.animate(.move, in: self, moves)
-        Motion.animate(.appear, in: self) {
-            for (view, target) in appearing {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
-            }
-        }
-        Motion.animate(.disappear, in: self, {
-            for (view, endY) in leaving {
-                view.animator().alphaValue = 0
-                view.animator().frame.origin.y = endY
-            }
-        }, completion: { [weak self] in
-            guard let self else { return }
-            for (view, _) in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
-            self.pruneOffscreen()
-        })
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving).run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
