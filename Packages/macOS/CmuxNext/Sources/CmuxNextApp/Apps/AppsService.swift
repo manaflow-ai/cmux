@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import CmuxNextIcons
 import CmuxNextPages
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// App platform in the App (plans/cmux-next/app-platform.md), DEV
 /// prototype: the prototype registry, the JavaScriptCore app host with its

@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextWakeups
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
 /// connection carries control JSON and datagrams as `u8 type, u32 len`

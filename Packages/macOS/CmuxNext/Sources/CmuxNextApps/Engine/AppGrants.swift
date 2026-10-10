@@ -1,4 +1,4 @@
-import Synchronization
+import CmuxNextCompat
 
 /// What an app may do right now: its granted scopes and whether it runs
 /// sandboxed. Shared between the registry (writer) and the app's engine
