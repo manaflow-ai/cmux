@@ -53,7 +53,6 @@ WEB_JOBS = (
     "react-apps-check",
     "diff-sidecar-check",
     "web-db-migrations",
-    "agent-session-web-resources",
 )
 MACOS_JOBS = (
     "macos-compile-admission",
@@ -4933,12 +4932,6 @@ def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
     assert "scripts/check-test-determinism.py --self-test" in script
     assert "scripts/check-test-determinism.py --strict" in script
     assert script.index("--self-test") < script.index("--strict")
-
-
-def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
-    block = workflow_job_block("agent-session-web-resources", WEB_WORKFLOW)
-
-    assert "if: ${{ inputs.agent_session_web == 'true' }}" in block
 
 
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
