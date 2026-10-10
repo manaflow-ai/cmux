@@ -184,17 +184,37 @@ def public_markdown(urls: list[str]) -> str:
     return "\n".join(lines)
 
 
-def showcase_section(markdown: str, live_url: str) -> str:
+def body_gallery_path(live_url: str) -> str:
+    """Return a host-free gallery path suitable for a public PR body."""
+    path = urllib.parse.urlparse(live_url).path or "/live/"
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return path
+
+
+def scrub_gallery_host(text: str, live_url: str, body_path: str) -> str:
+    """Remove the private gallery host from prose outside the Showcase marker."""
+    parsed = urllib.parse.urlparse(live_url)
+    if not parsed.netloc:
+        return text
+    host = re.escape(parsed.netloc)
+    absolute = re.compile(rf"https?://{host}(?:[^\s)]*)?", re.IGNORECASE)
+    text = absolute.sub(body_path, text)
+    return re.sub(rf"(?<![\w.-]){host}(?![\w.-])", body_path, text)
+
+
+def showcase_section(markdown: str, gallery_path: str) -> str:
     body = markdown.strip()
     lines = ["<!-- cmux-showcase:start -->", "## Showcase", ""]
     if body:
         lines.extend([body, ""])
-    lines.extend([f"[Open the live gallery]({live_url})", "", "<!-- cmux-showcase:end -->"])
+    lines.extend([f"[Open the live gallery]({gallery_path})", "", "<!-- cmux-showcase:end -->"])
     return "\n".join(lines)
 
 
-def update_body(pr: int, body: str, section: str, *, dry_run: bool) -> str:
-    updated = MARKER_RE.sub("", body).rstrip()
+def update_body(pr: int, body: str, section: str, live_url: str, *, dry_run: bool) -> str:
+    gallery_path = body_gallery_path(live_url)
+    updated = scrub_gallery_host(MARKER_RE.sub("", body), live_url, gallery_path).rstrip()
     # Keep the repository's generated-by trailer as the final line. GitHub
     # renders it as attribution, and moving it below Showcase makes reruns
     # change unrelated prose at the end of the PR body.
@@ -287,8 +307,8 @@ def main() -> int:
     stills, videos = media_urls(feed_markdown, [])
     if not media_markdown and not public:
         raise SystemExit("no public or local showcase media found")
-    section = showcase_section(media_markdown, args.live_url)
-    updated = update_body(args.pr, body, section, dry_run=args.dry_run)
+    section = showcase_section(media_markdown, body_gallery_path(args.live_url))
+    updated = update_body(args.pr, body, section, args.live_url, dry_run=args.dry_run)
     if args.dry_run:
         print(updated)
     if not args.no_feed:
