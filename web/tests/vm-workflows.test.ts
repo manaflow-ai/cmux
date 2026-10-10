@@ -3580,6 +3580,10 @@ describe("VM Effect workflows", () => {
         maxActiveVms: 1,
         provider: "freestyle",
         image: "snapshot-go",
+        // Go creates carry the fixed Go shape (the route always sends the
+        // image size). Without it the shape check rejects the request before
+        // the runtime allowance is read, and this test would not reach it.
+        imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
         idempotencyKey: "go-destroyed-retry",
       }).pipe(Effect.provide(providerLayer(provider))),
     ));
