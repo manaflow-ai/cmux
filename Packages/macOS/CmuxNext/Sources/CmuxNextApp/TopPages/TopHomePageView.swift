@@ -50,11 +50,15 @@ final class TopHomePageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            rowsObservation?.cancel()
+            selectionObservation?.cancel()
+            chiefObservation?.cancel()
+            accountObservation?.cancel()
+        }
     }
 
     private func wireList(_ services: AppServices) {

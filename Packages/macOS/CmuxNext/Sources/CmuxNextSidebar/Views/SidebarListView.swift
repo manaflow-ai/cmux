@@ -86,10 +86,14 @@ final class SidebarListView: NSView {
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-    isolated deinit {
-        // The frame client deactivates in its own deinit (touching the lazy
-        // property here would create one that weakly captures a dying self).
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            // Leave the frame client alone: an active one goes idle on its next tick
+            // once self is gone (touching the lazy property here would create one).
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
