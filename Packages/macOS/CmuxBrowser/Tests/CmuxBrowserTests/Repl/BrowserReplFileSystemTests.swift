@@ -1038,4 +1038,32 @@ struct BrowserReplCopyLargeAttributeTests {
         #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.small", nil, 0, 0, 0) == small.count)
         #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.large", nil, 0, 0, 0) == -1)
     }
+
+    /// A write that reports no progress (0 bytes for a non-empty request,
+    /// which a pathological or FUSE file system can return forever) fails
+    /// the call with `EIO` instead of being retried without end.
+    @Test func writeThatMakesNoProgressFailsInsteadOfLooping() {
+        let bytes = [UInt8](repeating: 7, count: 64)
+        var calls = 0
+        var written = 0
+        let error: BrowserReplFileSystemError? = bytes.withUnsafeBytes { buffer in
+            do {
+                try BrowserReplFileSystem.writeFully(buffer.baseAddress!, count: buffer.count, syscall: "write", display: "f", isCancelled: { false }) { _, length in
+                    calls += 1
+                    // Three calls make no progress, then the rest is written.
+                    guard calls > 3 else { return 0 }
+                    written += length
+                    return length
+                }
+                return nil
+            } catch let error as BrowserReplFileSystemError {
+                return error
+            } catch {
+                return nil
+            }
+        }
+        #expect(error?.code == "EIO")
+        #expect(calls == 1)
+        #expect(written == 0)
+    }
 }

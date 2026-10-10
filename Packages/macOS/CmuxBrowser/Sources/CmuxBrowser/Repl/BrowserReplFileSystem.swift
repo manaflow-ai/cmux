@@ -900,16 +900,33 @@ public struct BrowserReplFileSystem: Sendable {
     /// Writes `data` in chunks, stopping when the call is cancelled.
     private func writeAll(_ data: Data, to file: BrowserReplDescriptor, display: String) throws {
         try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-            var offset = 0
-            while offset < bytes.count {
-                if offset > 0, isCancelled() { throw Self.cancelledError(syscall: "write", display: display) }
-                let count = write(file.fd, bytes.baseAddress! + offset, min(bytes.count - offset, Self.chunkBytes))
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    throw Self.posixError(errno, syscall: "write", display: display)
-                }
-                offset += count
+            guard let base = bytes.baseAddress else { return }
+            try Self.writeFully(base, count: bytes.count, syscall: "write", display: display, isCancelled: isCancelled) { pointer, length in
+                write(file.fd, pointer, length)
             }
+        }
+    }
+
+    /// Writes the `count` bytes at `bytes` through `write` (one `write(2)`
+    /// of at most ``chunkBytes``, returning the bytes written, or -1 with
+    /// `errno` set), checking `isCancelled` between writes.
+    static func writeFully(
+        _ bytes: UnsafeRawPointer,
+        count: Int,
+        syscall: String,
+        display: String,
+        isCancelled: () -> Bool,
+        write: (UnsafeRawPointer, Int) -> Int
+    ) throws {
+        var offset = 0
+        while offset < count {
+            if offset > 0, isCancelled() { throw cancelledError(syscall: syscall, display: display) }
+            let written = write(bytes + offset, min(count - offset, chunkBytes))
+            if written < 0 {
+                if errno == EINTR { continue }
+                throw posixError(errno, syscall: syscall, display: display)
+            }
+            offset += written
         }
     }
 
@@ -932,14 +949,8 @@ public struct BrowserReplFileSystem: Sendable {
                 try writeBudget.take(copied + count - max(size, copied), syscall: "copyfile", display: display, callBytes: copied + count)
             }
             try buffer.withUnsafeBytes { bytes in
-                var offset = 0
-                while offset < count {
-                    let written = write(destination.fd, bytes.baseAddress! + offset, count - offset)
-                    if written < 0 {
-                        if errno == EINTR { continue }
-                        throw Self.posixError(errno, syscall: "copyfile", display: display)
-                    }
-                    offset += written
+                try Self.writeFully(bytes.baseAddress!, count: count, syscall: "copyfile", display: display, isCancelled: { false }) { pointer, length in
+                    write(destination.fd, pointer, length)
                 }
             }
             copied += count
