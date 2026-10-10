@@ -120,6 +120,7 @@ struct Started {
 
 impl Drop for Started {
     fn drop(&mut self) {
+        #[cfg(unix)]
         if let Some(pid) = self.child.id() {
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);

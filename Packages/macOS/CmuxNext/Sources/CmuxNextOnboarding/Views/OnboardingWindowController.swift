@@ -1,19 +1,14 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// The onboarding window: a transparent window whose step variants draw
-/// their own Liquid Glass or opaque surface, with only a close button. Return continues, Escape skips the rest,
-/// Command-[ goes back. Only Skip (Escape) or Done ends the flow; closing
-/// the window otherwise leaves the first run unfinished, to resume later.
+/// The tool window (Import from Browser, Computer Use setup): a transparent
+/// window whose screen draws its own Liquid Glass or opaque surface, with
+/// only a close button. Return runs the primary button, Escape skips.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    /// Set while the App closes the window itself (`closeForRebuild`).
-    private var closingForRebuild = false
-
-    /// `variant` forces one screen design (the gallery's full-size preview).
-    public init(model: OnboardingModel, variant: (any OnboardingScreenVariant.Type)? = nil) {
+    public init(model: OnboardingModel) {
         self.model = model
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
@@ -22,7 +17,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.title = OnboardingStrings.windowTitle
+        window.title = model.step == .importData ? OnboardingStrings.importTitle : OnboardingStrings.computerUseTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.animationBehavior = .alertPanel
@@ -37,12 +32,11 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // Kind `.onboarding`: a clear window with only a close button; each
         // variant's surface draws its own glass or opaque background
         // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model, variant: variant), scope: .app)
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
             case .skipAll: model?.finish(completed: false)
-            case .back: model?.back()
             }
         }
         model.onEnd = { [weak self] _ in self?.window?.close() }
@@ -58,29 +52,22 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
-    /// Closes the window for the App (a rebuild for another step), which is
-    /// not the person's "not now".
-    public func closeForRebuild() {
-        closingForRebuild = true
-        close()
-    }
-
     /// Closes the window through its close button (the same AppKit path a
-    /// click on it takes): the person's "not now". Automation uses this.
+    /// click on it takes). Automation uses this.
     public func closeWithCloseButton() {
         guard let window else { return }
         if let button = window.standardWindowButton(.closeButton) { button.performClick(nil) } else { window.performClose(nil) }
     }
 
     public func windowWillClose(_ notification: Notification) {
-        model.leave(notNow: !closingForRebuild)
+        model.leave()
         onClose?()
     }
 }
 
 /// Routes the flow's keys; everything else goes to the focused control.
 final class OnboardingWindow: NSWindow {
-    enum Key { case next, skipAll, back }
+    enum Key { case next, skipAll }
     var onKey: ((Key) -> Void)?
 
     override func keyDown(with event: NSEvent) {
@@ -89,7 +76,6 @@ final class OnboardingWindow: NSWindow {
         // A held key repeats: only a fresh press moves on (it must not also accept the password consent).
         case (36, []) where !event.isARepeat, (76, []) where !event.isARepeat: onKey?(.next)  // Return, Enter
         case (36, []), (76, []): break
-        case (33, .command): onKey?(.back)                 // Command-[
         default: super.keyDown(with: event)
         }
     }

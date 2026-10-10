@@ -33,6 +33,7 @@ impl Defaults {
     }
 }
 
+#[cfg(unix)]
 pub async fn run(defaults: Defaults) -> Result<()> {
     let stream = crate::daemon::connect_stream().await?;
     let (daemon_read, mut daemon_write) = stream.into_split();
@@ -79,6 +80,12 @@ pub async fn run(defaults: Defaults) -> Result<()> {
         result = to_daemon => result,
         result = to_editor => result,
     }
+}
+/// Windows port: the daemon socket is `cmux::local_socket` there (a later
+/// landing).
+#[cfg(not(unix))]
+pub async fn run(_defaults: Defaults) -> Result<()> {
+    Err(crate::platform::unsupported("acpmux stdio"))
 }
 
 /// The id of a JSON-RPC request (a message with `method` and `id`).

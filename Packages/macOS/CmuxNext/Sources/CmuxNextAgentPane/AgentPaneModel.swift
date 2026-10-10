@@ -49,7 +49,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
-    @ObservationIgnored public var onImportAndSync: (() -> Void)? // onboarding's project and history import
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
     @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
     @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
@@ -308,10 +307,6 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
-        case .importAndSync:
-            guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
-            onImportAndSync()
-            return AgentPaneReply.success()
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key):
             guard let onOpenChatInTerminal else { return Self.unsupported("chats.openInTerminal") }

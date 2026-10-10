@@ -544,14 +544,13 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 }
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
-    use std::os::unix::fs::PermissionsExt;
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    crate::router_socket::owner_only(&tmp);
     std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
@@ -742,8 +741,8 @@ pub fn local_router_with(
     family: &str,
     need_upstream: bool,
 ) -> Result<(String, String), RouteError> {
+    use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
     let socket = home.join("router").join("router.sock");
     let unavailable = |what: String| {

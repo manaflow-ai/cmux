@@ -117,6 +117,7 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
 /// is an explicit unlock, not the close: the lock belongs to the open file
 /// description, and a child that another thread spawns holds a copy of this
 /// descriptor until it execs, so a close alone can leave the lock held.
+#[cfg(unix)]
 fn take_death_lock(file: std::fs::File) -> Watch {
     use std::os::fd::AsRawFd;
     let end = loop {
@@ -134,6 +135,12 @@ fn take_death_lock(file: std::fs::File) -> Watch {
     }
     drop(file);
     end
+}
+/// Windows port: `LockFileEx` there (a later landing); no watch can prove a
+/// death yet.
+#[cfg(not(unix))]
+fn take_death_lock(_file: std::fs::File) -> Watch {
+    Watch::Failed
 }
 
 /// Whether this incarnation's host is dead within `budget`. Blocks up to

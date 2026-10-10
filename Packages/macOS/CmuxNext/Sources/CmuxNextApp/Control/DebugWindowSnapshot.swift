@@ -117,9 +117,10 @@ enum DebugWindowSnapshot {
             var pagesFailed = 0
             for (page, rect) in pages {
                 do {
-                    // The chrome's holes (find bar, prompt bar, error page)
-                    // show the window there, as on screen.
-                    let holes = page.occlusionRects.map { page.contentView.convert($0, to: nil) }
+                    // The page window's holes (find bar, prompt bar, error
+                    // page, the whole New Tab page) show the window there, as
+                    // on screen.
+                    let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
                     layers.append(.page(try await page.snapshot(), rect, holes: holes))
                 } catch {
                     pagesFailed += 1

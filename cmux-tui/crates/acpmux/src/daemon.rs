@@ -34,11 +34,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     // Processes started before readiness (the login shell probe, agents)
     // must not hold the readiness pipe open.
+    #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
@@ -403,6 +405,7 @@ async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
 
 /// Read the person key (one line, at most 128 bytes) from an inherited
 /// descriptor and close it. The key is never logged.
+#[cfg(unix)]
 fn read_person_key(fd: i32) -> Option<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
@@ -427,7 +430,16 @@ fn read_person_key(fd: i32) -> Option<String> {
     }
 }
 
+/// Windows: no inherited descriptors yet (the CreateProcess handle list
+/// lands with the daemon start); no person key is read.
+#[cfg(not(unix))]
+fn read_person_key(fd: i32) -> Option<String> {
+    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
+    None
+}
+
 /// Write the readiness line to an inherited descriptor and close it.
+#[cfg(unix)]
 fn write_ready(fd: i32, ready: &Value) {
     use std::io::Write;
     use std::os::fd::FromRawFd;
@@ -446,6 +458,12 @@ fn write_ready(fd: i32, ready: &Value) {
         std::mem::forget(f);
     }
 }
+/// Windows port: the readiness pipe is an inherited handle there (a later
+/// landing, with the CreateProcess handle list); nothing is written yet.
+#[cfg(not(unix))]
+fn write_ready(fd: i32, _ready: &Value) {
+    tracing::warn!("--ready-fd {fd}: {}", crate::platform::unsupported("--ready-fd"));
+}
 
 /// Whether `--allow-dev-origin` may take effect: in a debug build, or with
 /// an explicit `--dev` that release launchers never pass. A release config
@@ -455,6 +473,7 @@ pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
 }
 
 /// Clears the group and other bits of `path`, if it exists.
+#[cfg(unix)]
 fn narrow_to_owner(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
     let Ok(meta) = std::fs::metadata(path) else { return };
@@ -466,6 +485,10 @@ fn narrow_to_owner(path: &std::path::Path) {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }
 }
+/// Windows port: owner-only access is an ACL there
+/// (`cmux::local_socket::private_directory`, a later landing).
+#[cfg(not(unix))]
+fn narrow_to_owner(_path: &std::path::Path) {}
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
 const TOKEN_ROTATION: u32 = 1;
@@ -512,6 +535,7 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(unix)]
 fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     use std::os::unix::io::AsRawFd;
     let file = std::fs::OpenOptions::new()
@@ -525,6 +549,11 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
         return Err(anyhow!("another acpmux daemon holds {}", path.display()));
     }
     Ok(file)
+}
+/// Windows port: the daemon lock is `LockFileEx` there (a later landing).
+#[cfg(not(unix))]
+fn acquire_lock(_path: &PathBuf) -> Result<std::fs::File> {
+    Err(crate::platform::unsupported("the acpmux daemon"))
 }
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
@@ -554,6 +583,7 @@ pub async fn wait_for_exit() -> bool {
 /// Polls a non-blocking `flock`, so the deadline always ends the wait: a
 /// blocking `flock` on a worker thread would outlive the timeout and hold
 /// up runtime teardown.
+#[cfg(unix)]
 async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
     use std::os::unix::io::AsRawFd;
     let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
@@ -575,6 +605,11 @@ async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+/// Windows port: no daemon runs there yet, so no lock is held.
+#[cfg(not(unix))]
+async fn wait_for_lock_release(_lock: PathBuf, _budget: Duration) -> bool {
+    true
+}
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
@@ -591,6 +626,7 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
+#[cfg(unix)]
 pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
     let path = socket_path();
     if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
@@ -602,6 +638,7 @@ pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
 /// readiness line (empty when it exited first).
+#[cfg(unix)]
 async fn start_daemon() -> Result<String> {
     let path = socket_path();
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
@@ -625,6 +662,12 @@ async fn start_daemon() -> Result<String> {
         )),
     }
 }
+/// Windows port: the daemon starts through CreateProcess with a handle list
+/// there (a later landing).
+#[cfg(not(unix))]
+async fn start_daemon() -> Result<String> {
+    Err(crate::platform::unsupported("starting the acpmux daemon"))
+}
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
     let why = if ready.trim().is_empty() {
@@ -642,6 +685,7 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// Open the daemon log for append, owner-only like the config file: the log
 /// can carry agent output and request details. A log left by an older build
 /// with wider bits is narrowed to 0600.
+#[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let log = std::fs::OpenOptions::new()
@@ -659,6 +703,7 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe.
+#[cfg(unix)]
 fn spawn_detached() -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
@@ -780,6 +825,7 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
 /// Start `acpmux router serve` as a detached child unless a router already
 /// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
 /// streams keep running); a later daemon finds and reuses it.
+#[cfg(unix)]
 fn ensure_router() {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
@@ -826,4 +872,11 @@ fn ensure_router() {
         }
         Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
+}
+
+/// Windows port: the router's admin socket and its detached start come with
+/// the daemon start landing; no router is started yet.
+#[cfg(not(unix))]
+fn ensure_router() {
+    tracing::warn!("{}", crate::platform::unsupported("starting the local router"));
 }

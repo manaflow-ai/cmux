@@ -116,11 +116,12 @@ impl Mux {
                 // never be allowed to terminate a replacement process.
                 continue;
             }
-            // The host's durable sidecar records the child's end.
+            // The host's durable sidecar records the child's end (an
+            // owner-gone end is a host loss: the tabs stay, invariant 3).
             self.persist_terminal_exit(
                 &record.terminal_id,
                 Some(&record.incarnation),
-                &TerminalEnd::ProcessEnded(record.exit.clone()),
+                &TerminalEnd::from_host_exit(record.exit.clone()),
             )?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
@@ -555,7 +556,7 @@ impl Mux {
             // but its tabs stay, dead (invariant 3).
             let observed = sidecar
                 .as_ref()
-                .map(|(_, record)| TerminalEnd::ProcessEnded(record.exit.clone()))
+                .map(|(_, record)| TerminalEnd::from_host_exit(record.exit.clone()))
                 .unwrap_or_else(|| TerminalEnd::host_lost(reason));
             let incarnation = sidecar
                 .as_ref()

@@ -128,7 +128,6 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
-        case "onboarding.importAndSync": self = .importAndSync
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }

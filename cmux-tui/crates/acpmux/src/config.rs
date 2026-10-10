@@ -36,15 +36,20 @@ pub fn socket_path() -> PathBuf {
     if preferred.as_os_str().len() < 96 {
         return preferred;
     }
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in home().to_string_lossy().bytes() {
-        hash ^= b as u64;
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    let uid = unsafe { libc::getuid() };
-    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
-    if private_dir(&dir, uid) {
-        return dir.join(format!("{hash:016x}.sock"));
+    // Windows port: the socket path rule there is `cmux::local_socket`'s (a
+    // later landing).
+    #[cfg(unix)]
+    {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in home().to_string_lossy().bytes() {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        let uid = unsafe { libc::getuid() };
+        let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+        if private_dir(&dir, uid) {
+            return dir.join(format!("{hash:016x}.sock"));
+        }
     }
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
@@ -53,6 +58,7 @@ pub fn socket_path() -> PathBuf {
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory
 /// owned by `uid` that nobody else can enter.
+#[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
@@ -755,6 +761,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
     // Owner-only from creation: these files hold tokens and session data.
+    #[cfg(unix)]
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
@@ -767,6 +774,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
+    // Windows port: owner-only is an ACL there (a later landing); the file
+    // keeps the folder's ACL (a user profile folder is private by default).
+    #[cfg(not(unix))]
+    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }

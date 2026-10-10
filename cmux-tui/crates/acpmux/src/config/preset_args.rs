@@ -171,6 +171,7 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 
 /// Writes `text` as preset `name`'s system prompt file (directory 0700, file
 /// 0400, replaced atomically); returns the file's sha256.
+#[cfg(unix)]
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -190,6 +191,14 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
     }
     written?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
+}
+/// Windows port: the 0700/0400 modes are ACLs there (a later landing).
+#[cfg(not(unix))]
+pub fn write_system_prompt(_presets: &Path, _name: &str, _text: &str) -> io::Result<String> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        crate::platform::unsupported("preset system prompts").to_string(),
+    ))
 }
 
 /// Removes preset `name`'s directory (its system prompt file).

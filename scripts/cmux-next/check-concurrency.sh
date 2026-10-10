@@ -132,7 +132,7 @@ SYNCHRONIZATION_IMPORT = re.compile(r"^\s*(@\w+\s+)*((public|internal|package|pr
 SYNCHRONIZATION_RULE = "import Synchronization: use CmuxNextCompat (macOS 14 floor)"
 # Files under a WINDOW FREEZE held by another lane that still import it.
 # Temporary: the owner switches them to CmuxNextCompat, then drops the entry.
-SYNCHRONIZATION_PENDING_FILES = {"CmuxNextSettings/Managed/ManagedKeyGuard.swift"}
+SYNCHRONIZATION_PENDING_FILES: set[str] = set()
 # `--only synchronization` (safe-push's blocking check) runs only this rule.
 ONLY = os.environ.get("CHECK_CONCURRENCY_ONLY", "")
 

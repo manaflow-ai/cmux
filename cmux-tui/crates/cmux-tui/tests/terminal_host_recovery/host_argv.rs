@@ -1,7 +1,10 @@
-//! cx-0tgl LF: a terminal host's command line names neither its owner's tag
-//! (state path) nor the executable it was built in (the app bundle), so
-//! cleanup that matches a tag or a bundle path (`pgrep -f <tag>`, `pkill -f
-//! "<app>.app"`, a bundle-age reaper) never reaches a host.
+//! cx-0tgl LF: a terminal host's command line names neither its owner's
+//! state path nor the executable it was built in (the app bundle), so
+//! cleanup that matches a state path or a bundle path (`pkill -f
+//! "<app>.app"`, a bundle-age reaper) never reaches a host. cx-3ryj: it does
+//! name its owner (`--owner <bundle>:<tag>@<daemon pid>`, no path), so
+//! `pgrep -f <CMUX_TAG>` finds a tag's hosts; a host its daemon serves still
+//! survives a stray SIGTERM.
 
 use super::*;
 
@@ -58,4 +61,27 @@ fn a_terminal_host_command_line_names_no_tag_and_no_bundle() {
             "the host does not run from its copy: {path}"
         );
     }
+}
+
+/// cx-hostorphan: `ps` names the app and tag that own a host through
+/// `--owner <bundle>:<tag>@<daemon pid>`, a value with no path in it.
+#[test]
+fn a_terminal_host_command_line_names_its_owner_without_a_path() {
+    let mut harness = RecoveryHarness::start_unstarted("host-argv-owner");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_BUNDLE_ID", "dev.cmux.test.owner").env("CMUX_TAG", "owner tag/x.app/");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    request(
+        &harness.socket,
+        serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"owner"}),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let daemon = harness.child.as_ref().unwrap().id();
+    let output =
+        Command::new("ps").args(["-o", "args=", "-p", &record.host_pid.to_string()]).output();
+    let args = String::from_utf8_lossy(&output.unwrap().stdout).trim().to_owned();
+    let expected = format!("--owner dev.cmux.test.owner:owner_tag_x.app_@{daemon}");
+    assert!(args.ends_with(&expected), "ps does not name the owner: {args}");
+    assert!(!args.contains(".app/"), "the host command line holds a bundle path: {args}");
 }
