@@ -13,14 +13,14 @@ import Testing
         #expect(MDInlineParser.parse("[x](javascript:alert(1))").spans.compactMap(\.link).isEmpty)
     }
 
-    /// A Chief subagent's link in agent text is a link (`HomeAppLinks`: only
+    /// A Chief subagent's link in agent text is a link (`URL.isChiefSubagentLink`: only
     /// `cmux://chief/<home id>/session/<id>`), and a click hands it to the host's app-link
     /// handler (the app's `link.open`), never to the system; any other cmux:// text stays text.
     @Test func aSubagentLinkIsALinkAndItsClickGoesToTheApp() throws {
         HomeMarkdownPolicy.installed = false
         let (p, c) = Fixture2.projection()
         let link = "cmux://chief/0a1b2c3d/session/01a12318-9c7f-7000-beab-7686172b0ca3"
-        #expect(HomeAppLinks.isSubagentLink(try #require(URL(string: link))))
+        #expect(try #require(URL(string: link)).isChiefSubagentLink)
         #expect(MarkdownLinkPolicy.sanitize(link) == link)
         #expect(MDInlineParser.parse("[a1](\(link))").spans.compactMap(\.link) == [link])
         // Its own message id: the measure cache keys by message id, not text (another test's msg_1).
@@ -46,8 +46,8 @@ import Testing
         let hit = try #require(c.demo?.hit(point))
         #expect(c.openLink(hit, at: point))
         #expect(opened.map(\.absoluteString) == [link])
-        #expect(!HomeAppLinks.isSubagentLink(URL(string: "cmux://chief/0a1b2c3d/session/s1?x=1")!))
-        #expect(!HomeAppLinks.isSubagentLink(URL(string: "cmux-dev://chief/0a1b2c3d/session/s1")!))
+        #expect(!URL(string: "cmux://chief/0a1b2c3d/session/s1?x=1")!.isChiefSubagentLink)
+        #expect(!URL(string: "cmux-dev://chief/0a1b2c3d/session/s1")!.isChiefSubagentLink)
     }
 
     @Test func aClickOpensOnlyHttpHttpsAndMailto() {
