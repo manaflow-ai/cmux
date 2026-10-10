@@ -29,15 +29,9 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     /// Where Chrome's viewport is on screen; touches map through this rect.
     /// Frames are drawn exactly as streamed (no local scroll prediction).
     private var imageRect: CGRect = .zero
-    /// Remote page zoom of the shown frame (1 = minimum for mobile pages).
-    private var shownPageScale: CGFloat = 1
-    /// A pinch-in at the page's minimum zoom became the tab-overview pinch:
-    /// its touches no longer go to the page.
-    private var pinchTakenOver = false
     /// Touches of a taken-over pinch stay away from the page until all fingers lift.
     private var suppressTouches = false
-    /// Pinch handed to the overview: (phase, scale, velocity).
-    var onOverviewPinch: ((PinchPhase, CGFloat, CGFloat) -> Void)?
+
     var topInset: CGFloat = 0 { didSet { if oldValue != topInset { setNeedsLayout() } } }
     /// CSS width of the requested viewport, used before the first frame.
     var viewportCSSWidth: CGFloat = 0
@@ -61,13 +55,6 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         proxy.onText = { [weak self] in self?.onText?($0) }
         proxy.onKey = { [weak self] in self?.onKey?($0) }
         proxy.onEnd = { [weak self] in self?.onKeyboardDismissed?() }
-
-        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
-        pinch.cancelsTouchesInView = false
-        pinch.delaysTouchesBegan = false
-        pinch.delaysTouchesEnded = false
-        pinch.delegate = self
-        addGestureRecognizer(pinch)
 
         let long = UILongPressGestureRecognizer(target: self, action: #selector(longPress(_:)))
         long.cancelsTouchesInView = false
@@ -96,7 +83,6 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         let resized = frameCSS != nil && frameCSS != frame.cssSize
         shownImage = frame.image
         frameCSS = frame.cssSize
-        shownPageScale = frame.pageScale
         imageLayer.contents = frame.image
         strip.backgroundColor = frame.topColor
         backgroundColor = frame.topColor
@@ -215,28 +201,15 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    // MARK: Pinch to the tab overview
+    // MARK: Zoom pinch
 
-    @objc private func pinch(_ g: UIPinchGestureRecognizer) {
-        switch g.state {
-        case .began, .changed:
-            if !pinchTakenOver {
-                // Only a pinch-in on a page that cannot zoom out further
-                // (mobile pages at scale 1) belongs to the overview.
-                guard g.scale < 0.94, shownPageScale <= 1.02, onOverviewPinch != nil else { return }
-                pinchTakenOver = true
-                suppressTouches = true
-                onTouch?(.cancel, [])
-            }
-            onOverviewPinch?(.changed, g.scale / 0.94, g.velocity)
-        case .ended, .cancelled, .failed:
-            if pinchTakenOver {
-                onOverviewPinch?(.ended, g.scale / 0.94, g.velocity)
-                pinchTakenOver = false
-            }
-        default:
-            break
-        }
+    /// The screen's zoom pinch took these touches: cancel the touch sequence
+    /// on the host once and keep the remaining touches away from the page
+    /// until every finger lifts.
+    func zoomPinchTookOver() {
+        guard !suppressTouches else { return }
+        suppressTouches = true
+        if !touchIds.isEmpty { onTouch?(.cancel, []) }
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
@@ -330,7 +303,7 @@ struct PageSurface: UIViewRepresentable {
     var wantsHardwareKeys: Bool
     var onDrag: (CGFloat) -> Void
     var onKeyboardDismissed: () -> Void
-    var onOverviewPinch: ((PinchPhase, CGFloat, CGFloat) -> Void)? = nil
+    var zoomPinchActive = false
 
     func makeUIView(context: Context) -> PageSurfaceView {
         let view = PageSurfaceView()
@@ -345,7 +318,7 @@ struct PageSurface: UIViewRepresentable {
         view.viewportCSSWidth = viewportCSSWidth
         view.onDrag = onDrag
         view.onKeyboardDismissed = onKeyboardDismissed
-        view.onOverviewPinch = onOverviewPinch
+        if zoomPinchActive { view.zoomPinchTookOver() }
         view.show(frame)
         if keyboardActive {
             if !view.proxy.isFirstResponder { view.proxy.becomeFirstResponder() }

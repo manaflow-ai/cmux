@@ -79,8 +79,14 @@ struct BrowserScreen: View {
     @State private var gridContentOrigin: CGPoint?
     /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
     @State private var newTabPending = false
-    /// A pinch on the page or on a card drives the zoom.
-    @State private var pinching = false
+    /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
+    @State private var pinchSession = ZoomPinchSession()
+    /// While true the page's own touches are cancelled on the host.
+    @State private var zoomPinchActive = false
+    #if DEBUG
+    /// Synthetic fingers drawn by the DEBUG pinch driver (for recordings).
+    @State private var debugFingers: [CGPoint] = []
+    #endif
     @State private var overviewScroll: CGFloat = 0
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
@@ -118,14 +124,12 @@ struct BrowserScreen: View {
     /// at the grid's current scroll offset.
     private func zoomGeometry() -> (rect: CGRect, radius: CGFloat, strip: CGFloat) {
         let layout = overviewLayout
-        let card = zoomEndpoint()
-        let p = CGFloat(zoomState.progress)
-        func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
-        let rect = CGRect(x: lerp(0, card.minX), y: lerp(0, card.minY), width: lerp(size.width, card.width),
-                          height: lerp(size.height, card.height))
-        let q = min(1, max(0, p))
+        let rect = zoomPath().rect(progress: zoomState.progress, offset: zoomState.offset)
+        let q = min(1, max(0, CGFloat(zoomState.progress)))
         return (rect, style.metrics.screenRadius + (layout.cardRadius - style.metrics.screenRadius) * q, safeTop * (1 - q))
     }
+
+    private func zoomPath() -> ZoomRectPath { ZoomRectPath(full: fullRect, card: zoomEndpoint()) }
 
     /// The zoom's card end: the card's frame in the grid's content converted
     /// to the screen through the grid's reported content origin (its actual
@@ -168,7 +172,6 @@ struct BrowserScreen: View {
                             onNewTab: newTabFromOverview,
                             onDone: { closeOverview(selecting: model.activeTabId) },
                             onCloseAll: closeAll,
-                            onCardPinch: { id, phase, scale, velocity in cardPinch(id, phase, scale: scale, velocity: velocity) },
                             placeholderId: newTabPending ? Self.newTabMarker : nil,
                             onContentOrigin: { origin in if gridContentOrigin != origin { gridContentOrigin = origin } })
                     .opacity(overviewVisible ? 1 : 0)
@@ -241,6 +244,15 @@ struct BrowserScreen: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(browserScreenSpace))
+        .gesture(ZoomPinchGesture { handlePinch($0) })
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            ForEach(Array(debugFingers.enumerated()), id: \.offset) { _, p in
+                Circle().fill(Color(red: 1, green: 0, blue: 1)).frame(width: 14, height: 14).position(p)
+            }
+            .allowsHitTesting(false)
+        }
+        #endif
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
         // A browser row in the drawer opens that tab (by id).
         .onChange(of: shellRoute?.nonce, initial: true) { _, _ in
@@ -280,7 +292,7 @@ struct BrowserScreen: View {
                         wantsHardwareKeys: !chrome.editing && !overviewVisible,
                         onDrag: { chrome.pageDragged($0) },
                         onKeyboardDismissed: { chrome.pageKeyboard = false; pushGeometry() },
-                        onOverviewPinch: { phase, scale, velocity in pagePinch(phase, scale: scale, velocity: velocity) })
+                        zoomPinchActive: zoomPinchActive)
                 .opacity(chrome.swiping || showsStartPage ? 0 : 1)
                 .allowsHitTesting(!chrome.swiping && !showsStartPage && !displaced)
             if displaced && !showsStartPage && !chrome.swiping {
@@ -537,83 +549,143 @@ struct BrowserScreen: View {
 
     // MARK: Pinch
 
+    /// Every pinch on the screen comes here (the UIKit recognizer and the
+    /// DEBUG synthetic driver). The decision is local and immediate: a pinch-in
+    /// past 0.96 within 40 ms on the page, a pinch-out past 1.04 on a grid
+    /// card, or any pinch while a zoom is running (it grabs the zoom where it
+    /// is). Otherwise the pinch belongs to the page (remote zoom) or the grid.
+    private func handlePinch(_ sample: PinchSample) {
+        let session = pinchSession
+        switch sample.phase {
+        case .began:
+            session.reset()
+            session.start = sample
+            session.startRect = zoomGeometry().rect
+            session.startedFromOverview = zoomState.phase == .overview
+            decide(sample)
+        case .changed:
+            if session.start == nil {
+                session.start = sample
+                session.startRect = zoomGeometry().rect
+                session.startedFromOverview = zoomState.phase == .overview
+            }
+            if session.decision == .pending { decide(sample) }
+            if session.decision == .engaged { track(sample) }
+        case .ended:
+            if session.decision == .engaged { releasePinch(sample) }
+            session.reset()
+            zoomPinchActive = false
+        }
+    }
+
+    private func decide(_ sample: PinchSample) {
+        let session = pinchSession
+        guard let start = session.start else { return }
+        let elapsed = sample.time - start.time
+        switch zoomState.phase {
+        case .animating, .interactive:
+            engage()
+        case .page:
+            guard !chrome.editing, !chrome.menuOpen, model.activeTabId != nil || showsStartPage else {
+                session.decision = .rejected; return
+            }
+            if sample.scale <= ZoomPinchSession.engageIn {
+                zoomTabId = model.activeTabId
+                prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
+                engage()
+            } else if elapsed > ZoomPinchSession.decisionWindow || sample.scale > 1 {
+                session.decision = .rejected
+            }
+        case .overview:
+            guard let id = cardTab(at: start.centroid) else { session.decision = .rejected; return }
+            if sample.scale >= ZoomPinchSession.engageOut {
+                zoomTabId = id
+                session.startRect = zoomEndpoint()
+                engage()
+            } else if elapsed > ZoomPinchSession.decisionWindow || sample.scale < 1 {
+                session.decision = .rejected
+            }
+        }
+    }
+
+    /// Starts tracking from the gesture's start state: the rect as it was
+    /// presented when the fingers came down, under the start centroid.
+    private func engage() {
+        let session = pinchSession
+        guard let start = session.start else { return }
+        session.decision = .engaged
+        session.tracker = PinchTracker(startRect: session.startRect, startCentroid: start.centroid)
+        zoomDriver.beginInteraction()
+        if zoomState.phase == .interactive, !zoomState.showsOverview { /* unreachable */ }
+        zoomPinchActive = true
+    }
+
+    private func track(_ sample: PinchSample) {
+        let session = pinchSession
+        guard let tracker = session.tracker else { return }
+        let s = tracker.state(scale: sample.scale, centroid: sample.centroid, path: zoomPath())
+        session.record(sample.time, s.progress, s.offset)
+        let v = session.velocity()
+        zoomDriver.updateInteraction(progress: s.progress, offset: s.offset, velocity: v.p, offsetVelocity: v.o)
+    }
+
+    private func releasePinch(_ sample: PinchSample) {
+        let session = pinchSession
+        let v = session.velocity()
+        let toOverview = PinchTracker.releaseToOverview(progress: zoomState.progress, velocity: v.p,
+                                                        startedFromOverview: session.startedFromOverview, path: zoomPath())
+        if !toOverview, let id = zoomTabId, id != model.activeTabId, model.tabs.contains(where: { $0.id == id }) {
+            model.select(id)
+        }
+        zoomDriver.release(toOverview: toOverview)
+    }
+
+    /// The tab whose card is under `point` (screen coordinates).
+    private func cardTab(at point: CGPoint) -> String? {
+        let grid = overviewLayout
+        for (i, tab) in model.tabs.enumerated()
+        where grid.zoomEndpoint(i, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll).contains(point) {
+            return tab.id
+        }
+        return nil
+    }
+
     #if DEBUG
-    /// DEBUG (`CMUX_NEXT_BROWSER_PINCH=page|card|page-cancel`): a scripted
-    /// two-finger pinch for recordings (AXe has no multitouch). Feeds the same
-    /// handlers as the recognizers: scale over ~0.35 s, then release.
+    /// DEBUG (`CMUX_NEXT_BROWSER_PINCH=page|card|page-cancel|grab`): replays a
+    /// two-finger pinch path (scale and centroid over time) through
+    /// `handlePinch` on the display clock, and draws the synthetic fingers so
+    /// recordings show the rect against them (AXe has no multitouch).
     private func debugPinchScript() async {
-        guard model.activeFrame != nil, let mode = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] else { return }
-        try? await Task.sleep(for: .seconds(3))  // test script pacing only
-        let steps = 21
-        let page = mode.hasPrefix("page")
-        let end: CGFloat = mode == "page-cancel" ? 0.85 : (page ? 0.55 : 2.1)
-        if !page {
+        guard model.activeFrame != nil || showsStartPage,
+              let mode = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] else { return }
+        try? await Task.sleep(for: .seconds(3))  // recording lead-in (test script only)
+        if mode == "card" {
             openOverview()
             try? await Task.sleep(for: .seconds(1.5))
         }
-        var last: CGFloat = 1
-        for i in 1...steps {
-            let t = CGFloat(i) / CGFloat(steps)
-            let scale = 1 + (end - 1) * t * t * (3 - 2 * t)
-            let v = (scale - last) * 60
-            last = scale
-            if page { pagePinch(.changed, scale: scale, velocity: v) } else if let id = model.tabs.last?.id {
-                cardPinch(id, .changed, scale: scale, velocity: v)
+        let path = DebugPinchPath(mode: mode, size: size, cardCenter: CGPoint(x: zoomEndpoint().midX, y: zoomEndpoint().midY))
+        let clock = DisplayClock()
+        var t0: CFTimeInterval?
+        var began = false
+        for await now in clock.ticks() {
+            let start = t0 ?? now
+            t0 = start
+            let t = now - start
+            if mode == "grab", t >= DebugPinchPath.grabAt, zoomState.phase == .page, pinchSession.start == nil {
+                openOverview()  // a tap starts the zoom; the pinch below grabs it
             }
-            try? await Task.sleep(for: .milliseconds(16))
+            guard let point = path.sample(at: t) else { break }
+            if point.centroid == .zero { continue }  // grab mode: before the fingers land
+            debugFingers = path.fingers(at: t)
+            let phase: PinchSample.Phase = began ? point.phase : .began
+            began = true
+            handlePinch(PinchSample(phase: phase, scale: point.scale, centroid: point.centroid, time: now))
+            if point.phase == .ended { break }
         }
-        if page { pagePinch(.ended, scale: last, velocity: 0) } else if let id = model.tabs.last?.id {
-            cardPinch(id, .ended, scale: last, velocity: 0)
-        }
+        clock.stop()
+        debugFingers = []
     }
     #endif
-
-    /// Pinch-in on the page (the surface hands it over once the remote page
-    /// is at its minimum zoom): the page shrinks into its card with the
-    /// fingers. Scale and velocity are the pinch's (1 = start).
-    private func pagePinch(_ phase: PinchPhase, scale: CGFloat, velocity: CGFloat) {
-        let span = max(1, size.width - overviewLayout.cardWidth)
-        let progress = Double((size.width - size.width * scale) / span)
-        let v = Double(-velocity * size.width / span)
-        switch phase {
-        case .changed:
-            if !pinching {
-                guard zoomState.phase == .page, !chrome.editing, model.activeTabId != nil else { return }
-                zoomTabId = model.activeTabId
-                prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
-                pinching = true
-                zoomDriver.beginInteraction()
-            }
-            zoomDriver.updateInteraction(progress: progress, velocity: v)
-        case .ended:
-            guard pinching else { return }
-            pinching = false
-            zoomDriver.endInteraction(velocity: v, startedFromOverview: false)
-        }
-    }
-
-    /// Pinch-out on a card: it opens with the fingers.
-    private func cardPinch(_ tabId: String, _ phase: PinchPhase, scale: CGFloat, velocity: CGFloat) {
-        let card = overviewLayout.cardWidth
-        let span = max(1, size.width - card)
-        let progress = Double((size.width - card * scale) / span)
-        let v = Double(-velocity * card / span)
-        switch phase {
-        case .changed:
-            if !pinching {
-                guard zoomState.phase == .overview, scale > 1.03 else { return }
-                zoomTabId = tabId
-                pinching = true
-                zoomDriver.beginInteraction()
-            }
-            zoomDriver.updateInteraction(progress: progress, velocity: v)
-        case .ended:
-            guard pinching else { return }
-            pinching = false
-            let toOverview = zoomDriver.endInteraction(velocity: v, startedFromOverview: true)
-            if !toOverview, tabId != model.activeTabId { model.select(tabId) }
-        }
-    }
 
     private func closeAll() {
         let ids = model.tabs.map(\.id)

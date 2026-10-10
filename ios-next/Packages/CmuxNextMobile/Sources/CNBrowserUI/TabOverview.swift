@@ -114,9 +114,6 @@ struct ScaledPage: View {
 /// The browser screen's coordinate space (zoom rects and card frames).
 let browserScreenSpace = "cn.browser.screen"
 
-/// A pinch update. The first `.changed` that passes the caller's threshold begins the interaction.
-enum PinchPhase: Sendable { case changed, ended }
-
 /// Tab overview: blurred wallpaper, 2-column grid, top controls and the
 /// bottom bar (+, "N Tabs", Done).
 struct TabOverview: View {
@@ -140,7 +137,6 @@ struct TabOverview: View {
     var onNewTab: () -> Void
     var onDone: () -> Void
     var onCloseAll: () -> Void
-    var onCardPinch: (String, PinchPhase, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
     /// A tab being created with (+): its start-page card is already in the
     /// grid (at index tabs.count) so the zoom can land on its real frame.
     var placeholderId: String?
@@ -167,7 +163,6 @@ struct TabOverview: View {
                             .opacity(tab.id == hiddenTabId ? 0 : 1)
                             .contentShape(.rect)
                             .onTapGesture { onSelect(tab.id) }
-                            .simultaneousGesture(cardPinch(tab.id))
                             .offset(x: r.minX, y: r.minY)
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
@@ -204,15 +199,6 @@ struct TabOverview: View {
             }
         }
         .frame(width: layout.size.width, height: layout.size.height)
-    }
-
-    /// Pinch-out on a card opens it with the fingers.
-    private func cardPinch(_ id: String) -> some Gesture {
-        MagnifyGesture(minimumScaleDelta: 0.03)
-            .onChanged { v in
-                onCardPinch(id, .changed, v.magnification, v.velocity)
-            }
-            .onEnded { v in onCardPinch(id, .ended, v.magnification, v.velocity) }
     }
 
     private var topControls: some View {

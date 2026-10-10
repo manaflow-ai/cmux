@@ -28,6 +28,10 @@ final class TabZoomDriver {
     func start(from progress: Double, toOverview: Bool) { mutate { $0.start(from: progress, toOverview: toOverview) } }
     func beginInteraction() { mutate { $0.beginInteraction() } }
     func updateInteraction(progress: Double, velocity: Double) { mutate { $0.updateInteraction(progress: progress, velocity: velocity) } }
+    func updateInteraction(progress: Double, offset: CGVector, velocity: Double, offsetVelocity: CGVector) {
+        mutate { $0.updateInteraction(progress: progress, offset: offset, velocity: velocity, offsetVelocity: offsetVelocity) }
+    }
+    func release(toOverview: Bool) { mutate { $0.release(toOverview: toOverview) } }
     @discardableResult
     func endInteraction(velocity: Double, startedFromOverview: Bool) -> Bool {
         var toOverview = false
