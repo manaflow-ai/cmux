@@ -59,13 +59,14 @@ pub const STOP_REQUESTED: &str = "stop requested";
 pub enum Input {
     Daemon(Box<DaemonEvent>),
     Agents(Box<AgentEvent>),
-    /// A turn worker settled the view and asks for its turn (None: nothing to do).
-    Settled(Sender<Option<TurnStart>>),
+    /// A turn worker settled the view and asks for its turn (None: nothing to
+    /// do). `deferred`: it waited SETTLE_BOUND and lines are still building.
+    Settled {
+        reply: Sender<Option<TurnStart>>,
+        deferred: bool,
+    },
     /// A turn worker could not settle (shutdown or a failed write).
     SettleFailed,
-    /// A turn worker has waited for the compactor for a while and a node keeps
-    /// failing: what to tell the conversation (once per wait).
-    Stalled(String),
     /// An acpmux turn's session and how far its events are folded.
     TurnProgress {
         key: String,
@@ -288,9 +289,10 @@ pub struct Settings {
     pub shared_ttl: crate::prompt::SharedTtl,
 }
 
-/// How long a turn waits for the compactor before it tells the conversation
-/// which node keeps failing (section 6 expects seconds).
-const STALL_NOTICE: Duration = Duration::from_secs(60);
+/// The longest a turn waits for view lines that are still building
+/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction);
+/// then it reads them unsummarized and the next turn gets their summaries.
+pub const SETTLE_BOUND: Duration = Duration::from_secs(10);
 /// How often a turn waiting for the compactor updates `settle.json`.
 const PROGRESS_TICK: Duration = Duration::from_secs(2);
 
@@ -669,8 +671,8 @@ impl Brain {
         match input {
             Input::Daemon(event) => self.on_daemon(*event),
             Input::Agents(event) => self.on_agents(*event),
-            Input::Settled(reply) => {
-                let start = self.settled();
+            Input::Settled { reply, deferred } => {
+                let start = self.settled(deferred);
                 let _ = reply.send(start);
             }
             Input::SettleFailed => {
@@ -680,7 +682,6 @@ impl Brain {
                     self.fatal = Some(format!("the memory stopped writing: {fatal}"));
                 }
             }
-            Input::Stalled(text) => self.stalled(&text),
             Input::TurnProgress {
                 key,
                 session_id,
@@ -746,28 +747,6 @@ impl Brain {
     fn ready(&self) -> bool {
         self.fatal.is_none()
             && (self.agents_up || matches!(self.settings.engine, Engine::Native(_)))
-    }
-
-    /// Tells the conversation, once per wait, that its message waits on a
-    /// failing compactor node (section 6 expects the wait to take seconds).
-    fn stalled(&mut self, text: &str) {
-        if self.phase != Phase::Settling {
-            return;
-        }
-        let Some(conversation) = self.state.conversation.clone() else {
-            return;
-        };
-        (self.log)(text);
-        let key = format!(
-            "stall:optchat:{}:{}",
-            self.handled,
-            self.chat.status().messages
-        );
-        self.state
-            .outbox
-            .push(reply_entry(conversation, &key, text));
-        self.save();
-        self.flush_outbox();
     }
 
     /// Posts a notice once, now or as soon as the conversation is known.

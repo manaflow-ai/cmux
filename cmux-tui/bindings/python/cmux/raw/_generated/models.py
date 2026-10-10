@@ -1859,6 +1859,12 @@ class Tree:
 
 
 @dataclass(frozen=True)
+class ViewportPaneWidthResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewportPaneWidthResult'
+    width: float
+
+
+@dataclass(frozen=True)
 class VtStateResult:
     __cmux_schema_path__: ClassVar[str] = 'types/VtStateResult'
     cols: int
@@ -5185,6 +5191,7 @@ __all__ = [
     'TerminalResources',
     'TerminalResourcesResult',
     'Tree',
+    'ViewportPaneWidthResult',
     'VtStateResult',
     'WaitForResult',
     'Workspace',

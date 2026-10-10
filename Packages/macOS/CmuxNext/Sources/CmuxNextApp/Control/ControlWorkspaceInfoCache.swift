@@ -1,7 +1,7 @@
 import CmuxNextControl
 import CmuxNextDaemon
 import Observation
-import Synchronization
+import CmuxNextCompat
 
 /// Keeps each workspace's control value between snapshot publishes
 /// (plans/cmux-next/control-snapshot-topology.md, step 1). A publish maps

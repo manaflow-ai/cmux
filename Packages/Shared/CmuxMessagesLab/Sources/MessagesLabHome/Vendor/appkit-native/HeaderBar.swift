@@ -57,8 +57,12 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         toolbar.showsBaselineSeparator = false
         toolbar.centeredItemIdentifiers = [Self.avatarID]
 
-        pill.bezelStyle = .glass
-        pill.borderShape = .capsule
+        if #available(macOS 26, *) { // cmux: macOS 14 has no glass bezel
+            pill.bezelStyle = .glass
+            pill.borderShape = .capsule
+        } else {
+            pill.bezelStyle = .push
+        }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
