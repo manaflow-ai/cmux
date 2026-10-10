@@ -27,6 +27,8 @@ async function main(): Promise<void> {
       type: { type: "string" },
       "agent-history": { type: "string" },
       "skip-echo": { type: "boolean", default: false },
+      layout: { type: "boolean", default: false },
+      focus: { type: "string" },
       "agent-prompt": { type: "string" },
       "agent-mode": { type: "string" },
       permission: { type: "string", default: "allow" },
@@ -122,6 +124,19 @@ async function main(): Promise<void> {
     report.attached = { terminal, replayBytes, tail: plain.slice(-600) };
     log(`attached ${terminal.id} at ${terminal.cols}x${terminal.rows}; replay ${replayBytes} bytes; screen tail:\n${plain.trim().split("\n").filter(Boolean).slice(-8).join("\n")}`);
     await client.request("term.detach", { streamId });
+  }
+  if (values.layout || values.focus) {
+    const { layout } = await client.request("layout.get");
+    report.layout = layout;
+    log(`layout: ${JSON.stringify(layout, null, 1)}`);
+    if (values.focus) {
+      // --focus <paneId>:<tabId>
+      const [paneId, tabId] = values.focus.split(":");
+      const changed = new Promise<any>((resolve) => client.peer.on("event", (t, p) => t === "layout.changed" && resolve(p.layout)));
+      await client.request("layout.focusTab", { paneId, tabId });
+      const after = await Promise.race([changed, new Promise((r) => setTimeout(() => r(null), 3000))]);
+      log(`after focus: ${after ? JSON.stringify((after as any).workspaces.flatMap((w: any) => w.panes.map((p: any) => ({ pane: p.id, active: p.active, focusedTabId: p.focusedTabId })))) : "no layout.changed"}`);
+    }
   }
   const { sessions } = await client.request("agent.list");
   report.sessions = sessions;
