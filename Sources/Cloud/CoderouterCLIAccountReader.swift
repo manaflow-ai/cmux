@@ -465,6 +465,8 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
     private let process: Process
     private let stdoutWriter: FileHandle
     private let stderrWriter: FileHandle
+    private let writerLock = NSLock()
+    private var writersClosed = false
 
     init(process: Process, stdoutWriter: FileHandle, stderrWriter: FileHandle) {
         self.process = process
@@ -484,6 +486,10 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
     }
 
     func closeWriters() {
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard !writersClosed else { return }
+        writersClosed = true
         try? stdoutWriter.close()
         try? stderrWriter.close()
     }
