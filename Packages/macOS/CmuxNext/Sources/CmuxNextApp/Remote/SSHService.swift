@@ -268,7 +268,8 @@ final class SSHService {
         session.lastError = nil
         do {
             session.installPhase = .manifest
-            let plan = try await installer.plan(commit: commit, platform: platform, remoteBinary: host.remoteBinary)
+            let plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
+                                                remoteBinary: host.remoteBinary)
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
@@ -276,7 +277,7 @@ final class SSHService {
                 Task { @MainActor in session.installPhase = phase }
             }
             session.installPhase = nil
-            logger.info("installed cmux-tui \(commit, privacy: .public) on \(host.destination.description, privacy: .public)")
+            logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             await link.handle(.installFinished(.success))
             reconnect(session)
         } catch {

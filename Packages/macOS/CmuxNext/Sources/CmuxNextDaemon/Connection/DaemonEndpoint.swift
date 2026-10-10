@@ -185,6 +185,8 @@ public struct DaemonCapabilities: Sendable {
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
+    /// App workspaces (`workspace.ensure_app`, `Workspace.app`, `Tab.app`).
+    public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
@@ -266,7 +268,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner] }

@@ -3,6 +3,7 @@
   "optional" : [
     "agent-session-attach-v1",
     "agent-session-tabs-v1",
+    "app-screens-v1",
     "attach-identity-v1",
     "batch-close-v1",
     "bookmarks-v1",
