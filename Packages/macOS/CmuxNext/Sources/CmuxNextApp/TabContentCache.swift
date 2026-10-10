@@ -200,7 +200,7 @@ final class TabContentCache {
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
             return nil
         }
-        if let adopted = pageRequests.takeAdoption(for: tab.surface) {
+        if let adopted = pageRequests.takeAdoption(for: tab) {
             return tracked(install(adopted, for: key), tab)
         }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
