@@ -44,6 +44,21 @@ final class MorphBubble {
     private let textSize: CGSize
     private let fieldRect: CGRect, flyingRect: CGRect
 
+    /// The background colour's alpha of `layer` from `e.from` to 1 with `e`'s timing: a keyframe
+    /// animation sampled at 240 Hz (the layer's opacity would also fade its sublayers).
+    static func fillAlpha(_ layer: CALayer, color: UIColor, _ e: SpringElement, begin: CFTimeInterval) {
+        let n = max(2, CrashGuard.int(e.settleTime * 240, in: 0...100_000)) // cmux: no trap on NaN
+        let a = CAKeyframeAnimation(keyPath: "backgroundColor")
+        a.values = (0...n).map { color.withAlphaComponent(CGFloat(min(1, max(0, e.value(Double($0) / 240, from: e.from, to: 1))))).cgColor }
+        a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
+        a.duration = Double(n) / 240
+        a.beginTime = begin
+        a.calculationMode = .linear
+        a.fillMode = .backwards
+        a.isRemovedOnCompletion = true
+        layer.add(a, forKey: "fillAlpha")
+    }
+
     /// Kept for callers; the morph no longer uses Core Image.
     static func warmUp() {}
 
@@ -136,7 +151,17 @@ final class MorphBubble {
             }
             Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), Springs.bubbleWidth, begin: begin)
             Animate.pulse(bubble, "transform.scale", Springs.bubbleScale, begin: begin)
-            Animate.scalar(body, "opacity", from: o.from, to: 1, o, begin: begin)
+            // The blue fill is translucent at first, the text is not: Messages' text is white
+            // (min channel > 215) from 75-92 ms, while its body is still translucent (lossless
+            // send-typed-take1, send-2line-take2: body blue 186 of 247 at 75 ms). The body's
+            // opacity would dim its text with it, so only the fill colour's alpha follows the
+            // element. macOS 26 (the original recording) dims body and text together: there
+            // the body's opacity keeps the parity (fill alpha only: mean excess 0.81 -> 0.88).
+            if ComposeMetrics.macOS26 {
+                Animate.scalar(body, "opacity", from: o.from, to: 1, o, begin: begin)
+            } else {
+                MorphBubble.fillAlpha(body, color: color, o, begin: begin)
+            }
             Animate.scalar(tail, "opacity", from: o.from, to: 1, o, begin: begin)
             // The grey under the translucent bubble belongs to the bubble, not to
             // the field glass: it stays while the glass fill fades (measured at

@@ -333,7 +333,12 @@ final class TiledBody {
     /// > 0 during a fold change: no tile is drawn on main in that frame (the queue does it).
     static var noMainTiles = 0
 
+    /// The band's label as drawn ("Show all N lines" or "Show less"; accessibility reads it).
+    private(set) var bandLabel = ""
+    /// The band is on screen (folded, or the "Show less" band of an expanded message).
+    var bandShown: Bool { !band.isHidden && (folded || lessBand) }
     private func drawBand(_ label: String, _ p: PartRow, scale s: CGFloat) {
+        bandLabel = label
         let lh = Fixture.lineHeight
         let key = "\(label)|\(p.outgoing)|\(body.width)|\(s)|\(Fixture.paletteGeneration)"
         guard key != bandKey else { return }
