@@ -25,7 +25,6 @@
     "agent-session/acpmux/DictationButton.tsx#DictationButton",
     "agent-session/acpmux/DictationLevelMeter.tsx#DictationLevelMeter",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
-    "agent-session/acpmux/DiffPanel.tsx#DiffPanel",
     "agent-session/acpmux/EffortTrack.tsx#EffortTrack",
     "agent-session/acpmux/FileSearch.tsx#FileSearch",
     "agent-session/acpmux/HomeLists.tsx#HomeLists",
