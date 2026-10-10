@@ -171,7 +171,7 @@ public final class SocketTasksSource: TasksSource {
 
     // MARK: - Reading
 
-    private func deliver(_ batch: TasksSocketReader.Batch, generation: Int) {
+    private func deliver(_ batch: TasksSocketConnection.Batch, generation: Int) {
         guard generation == self.generation, connected else { return }
         for line in batch.lines {
             dispatch(line)
