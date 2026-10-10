@@ -299,6 +299,7 @@ async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
 /// rename does not either (the child holds the same inode). A short-lived
 /// `sh` opens, writes, and closes the file in its own process, so no fork of
 /// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+#[cfg(unix)]
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
     use std::process::{Command, Stdio};

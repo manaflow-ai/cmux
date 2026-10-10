@@ -351,6 +351,7 @@ fn load_dir(dir: &Path, source: ProfileSource, out: &mut LoadedProfiles) {
 
 /// The file's text after the size, type and owner checks: a profile runs a
 /// program with the user's rights, so nobody else may be able to change it.
+#[cfg(unix)]
 fn read_profile_file(path: &Path, source: ProfileSource) -> Result<String, Diagnostic> {
     use std::os::unix::fs::MetadataExt;
     let shown = path.to_string_lossy().into_owned();
@@ -380,6 +381,18 @@ fn read_profile_file(path: &Path, source: ProfileSource) -> Result<String, Diagn
     }
     std::fs::read_to_string(path)
         .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))
+}
+/// Windows port: the owner check reads the file's ACL there (a later
+/// landing); until then no profile file is read (fail closed).
+#[cfg(not(unix))]
+fn read_profile_file(path: &Path, _source: ProfileSource) -> Result<String, Diagnostic> {
+    let shown = path.to_string_lossy().into_owned();
+    Err(Diagnostic::error(
+        &shown,
+        None,
+        crate::platform::unsupported("harness profile files").to_string(),
+        None,
+    ))
 }
 
 fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {

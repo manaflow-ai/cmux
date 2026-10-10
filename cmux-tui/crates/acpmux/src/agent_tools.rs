@@ -380,6 +380,7 @@ impl AgentTools {
 
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
 /// file first, then renamed, so claude never reads half a config).
+#[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -399,10 +400,22 @@ fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     }
     Ok(written?)
 }
+/// Windows port: owner-only files are ACLs there (a later landing); until
+/// then no private file is written.
+#[cfg(not(unix))]
+fn write_private(_path: &Path, _bytes: &[u8]) -> anyhow::Result<()> {
+    Err(crate::platform::unsupported("private files"))
+}
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+/// Windows has no execute bit: any file counts.
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Same rule as `cmux mcp serve` (cmux-tui `cli/mcp/config.rs`): on only when
@@ -464,6 +477,6 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
