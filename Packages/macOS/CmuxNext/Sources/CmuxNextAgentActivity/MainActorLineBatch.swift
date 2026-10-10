@@ -1,3 +1,4 @@
+public import Foundation
 import Synchronization
 
 /// What one main-actor drain of a ``MainActorLineBatch`` delivers.
