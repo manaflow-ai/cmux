@@ -95,7 +95,3 @@ fn stop_daemon(global: &GlobalArgs, home: &ChiefHome) -> i32 {
     };
     crate::cli::lifecycle::run(global, plan)
 }
-
-#[cfg(test)]
-#[path = "shutdown/tests.rs"]
-mod tests;

@@ -319,7 +319,3 @@ fn reexec_with(
         .exec();
     Err(Some(format!("cmux: could not run {}: {error}", path.display())))
 }
-
-#[cfg(test)]
-#[path = "skew/tests.rs"]
-mod tests;

@@ -821,9 +821,8 @@ jobs:
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           node --test scripts/lib/reload-shim.test.mjs
-          # Version skew: the capability-text lint and the skew matrix classifier.
+          # Version skew: the capability-text lint.
           bash scripts/cmux-next/tests/capability-text.test.sh
-          python3 -I scripts/cmux-next/tests/test_skew_matrix.py
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh

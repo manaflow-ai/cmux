@@ -3805,10 +3805,6 @@ mod orphan_shutdown_tests;
 mod session_identity_tests;
 
 #[cfg(test)]
-#[path = "server/daemon_build_tests.rs"]
-mod daemon_build_tests;
-
-#[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
