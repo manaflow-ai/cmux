@@ -15,8 +15,14 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
     /// The App's downloads, read while rendering so an observable list
-    /// redraws the button as downloads start and end.
-    public var downloads: (() -> BrowserToolbarDownloads)? { didSet { render() } }
+    /// redraws the button as downloads start and end. Set after `bind`, so
+    /// it re-arms the observation to track the list.
+    public var downloads: (() -> BrowserToolbarDownloads)? {
+        didSet {
+            guard let tab else { return render() }
+            bind(tab)
+        }
+    }
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also

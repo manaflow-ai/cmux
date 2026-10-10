@@ -14,6 +14,9 @@ enum BrowserDownloadsMenu {
 
     static func menu(_ list: BrowserDownloadList, target: ActionTargetRef, registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
+        // A row with nothing to do (a failed blob: download) still reads
+        // as a download, not as a disabled command.
+        menu.autoenablesItems = false
         let items = list.items.suffix(shown).reversed()
         if items.isEmpty {
             let empty = NSMenuItem(title: BrowserHitStrings.downloadsEmpty, action: nil, keyEquivalent: "")
