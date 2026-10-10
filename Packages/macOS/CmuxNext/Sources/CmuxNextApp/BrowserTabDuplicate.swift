@@ -17,8 +17,10 @@ struct BrowserTabDuplicate {
         let pane = pane, cache = pane.services.cache
         let page = cache.existingBrowser(tab.id)?.tab
         let url = page?.state.url ?? tab.url.flatMap(URL.init(string:))
+        // The record names the original's profile, as the page's cookies do.
+        let profile = pane.services.browserProfiles.profileID(ofTab: tab)
         guard let page, let state = Self.history(of: page) else {
-            pane.newBrowserTab(url: url, inherited: tab.browserEngine, opener: tab.surface)
+            pane.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
             return
         }
         var configuration = BrowserTabConfiguration(profile: page.profileID, initialURL: url, zoom: page.state.zoom)
@@ -27,7 +29,7 @@ struct BrowserTabDuplicate {
         case .webKit:
             let copy = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
             if !copy.restore(state), let url { copy.load(url) }
-            pane.newBrowserTab(url: url, inherited: tab.browserEngine, adopting: copy, opener: tab.surface)
+            pane.newBrowserTab(url: url, inherited: tab.browserEngine, adopting: copy, profile: profile, opener: tab.surface)
         case .chromium:
             pane.services.registry.track(Task { [weak pane] in
                 // The remote-localhost store of the original, as for any Chromium page.
@@ -35,10 +37,12 @@ struct BrowserTabDuplicate {
                 do {
                     let copy = try await cache.makeCEFTab(configured)
                     guard let pane else { copy.close(); return nil }
-                    pane.newBrowserTab(url: url, inherited: tab.browserEngine, adopting: copy, opener: tab.surface)
+                    pane.newBrowserTab(url: url, inherited: tab.browserEngine, adopting: copy, profile: profile, opener: tab.surface)
                     return nil
                 } catch {
-                    return "duplicate tab: \(error)"
+                    // Chromium did not start: the URL alone, in the fallback engine.
+                    pane?.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
+                    return nil
                 }
             })
         }
