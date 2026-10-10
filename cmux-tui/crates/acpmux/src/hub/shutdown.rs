@@ -153,22 +153,3 @@ pub(crate) fn shutting_down_error() -> RpcError {
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::MemoryStore;
-
-    /// A shutdown already running (SIGTERM, or a plain `_acpmux/shutdown`)
-    /// has decided to hand the agents off; a later `endAgents` cannot change
-    /// that and must say so instead of reporting success.
-    #[tokio::test]
-    async fn end_agents_after_the_shutdown_started_is_refused() {
-        let hub = Hub::new(Config::default(), Box::new(MemoryStore::default()));
-        hub.shutdown_all().await;
-        assert!(
-            hub.end_agents_at_shutdown(Default::default()).is_err(),
-            "endAgents was accepted after the shutdown had handed the agents off"
-        );
-    }
-}

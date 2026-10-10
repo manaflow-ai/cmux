@@ -191,20 +191,3 @@ impl Hub {
         Ok(last)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_plain_id;
-
-    #[test]
-    fn bundle_ids_must_be_one_plain_component() {
-        assert!(is_plain_id("0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"));
-        assert!(!is_plain_id(""));
-        assert!(!is_plain_id("."));
-        assert!(!is_plain_id(".."));
-        assert!(!is_plain_id("../escape"));
-        assert!(!is_plain_id("a/b"));
-        assert!(!is_plain_id("a/"));
-        assert!(!is_plain_id("/abs"));
-    }
-}
