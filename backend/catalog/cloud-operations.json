@@ -4760,6 +4760,70 @@
         }
       ]
     },
+    "TeamAuditEntry": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "actor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "category": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "admin",
+              "billing"
+            ]
+          }
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "detail": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "json"
+          }
+        },
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
     "TeamDomain": {
       "kind": "object",
       "fields": {
@@ -4960,12 +5024,8 @@
         "role": {
           "required": true,
           "type": {
-            "kind": "enum",
-            "values": [
-              "owner",
-              "admin",
-              "member"
-            ]
+            "kind": "ref",
+            "name": "TeamRole"
           }
         },
         "display_name": {
@@ -5797,6 +5857,16 @@
         }
       }
     },
+    "TeamRole": {
+      "kind": "enum",
+      "values": [
+        "owner",
+        "admin",
+        "member",
+        "billing",
+        "guest"
+      ]
+    },
     "TeamVmAccountUser": {
       "kind": "object",
       "fields": {
@@ -6087,6 +6157,13 @@
               "kind": "ref",
               "name": "TeamVmRetired"
             }
+          }
+        },
+        "no_owner": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
           }
         }
       }
@@ -6649,12 +6726,8 @@
         "role": {
           "required": true,
           "type": {
-            "kind": "enum",
-            "values": [
-              "owner",
-              "admin",
-              "member"
-            ]
+            "kind": "ref",
+            "name": "TeamRole"
           }
         },
         "sso_required": {
@@ -15409,6 +15482,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -15449,7 +15526,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -15786,6 +15863,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -15822,7 +15903,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -17809,6 +17890,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -17850,7 +17935,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19409,6 +19494,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19448,7 +19537,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19604,6 +19693,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19641,7 +19734,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19905,6 +19998,10 @@
         ]
       },
       "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
         "auth.forbidden",
         "auth.sso_required",
         "auth.unauthenticated",
@@ -19945,7 +20042,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -48672,6 +48769,9 @@
                 "items": {
                   "$ref": "#/$defs/TeamVmRetired"
                 }
+              },
+              "no_owner": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -48846,6 +48946,216 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "team.audit.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "before": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamAuditEntry"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team audit",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Read the team's audit records, newest first (owners and admins: all; billing: billing records only).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "before": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamAuditEntry"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "entries",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamAuditEntry": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "at": {
+                "type": "integer"
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "billing"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "detail": {},
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "op",
+              "actor",
+              "at",
+              "category",
+              "summary",
+              "detail",
+              "hash"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "team.device.compliance": {
@@ -49886,6 +50196,16 @@
             "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
           "TeamMember": {
             "type": "object",
             "properties": {
@@ -49893,12 +50213,7 @@
                 "$ref": "#/$defs/UserId"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "admin",
-                  "member"
-                ]
+                "$ref": "#/$defs/TeamRole"
               },
               "display_name": {
                 "type": "string"
@@ -51073,12 +51388,8 @@
           "role": {
             "required": false,
             "type": {
-              "kind": "enum",
-              "values": [
-                "owner",
-                "admin",
-                "member"
-              ]
+              "kind": "ref",
+              "name": "TeamRole"
             }
           }
         },
@@ -51122,6 +51433,33 @@
                   ]
                 }
               ]
+            }
+          },
+          "seat_count": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "no_owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "next_cursor": {
@@ -51188,12 +51526,7 @@
             "maximum": 200
           },
           "role": {
-            "type": "string",
-            "enum": [
-              "owner",
-              "admin",
-              "member"
-            ]
+            "$ref": "#/$defs/TeamRole"
           }
         },
         "additionalProperties": true,
@@ -51202,6 +51535,16 @@
             "type": "string",
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
+          },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
           }
         }
       },
@@ -51231,6 +51574,24 @@
                 ]
               }
             ]
+          },
+          "seat_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "no_owner": {
+            "type": "boolean"
           },
           "next_cursor": {
             "anyOf": [
@@ -51265,6 +51626,16 @@
             "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
           "TeamMember": {
             "type": "object",
             "properties": {
@@ -51272,12 +51643,7 @@
                 "$ref": "#/$defs/UserId"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "admin",
-                  "member"
-                ]
+                "$ref": "#/$defs/TeamRole"
               },
               "display_name": {
                 "type": "string"
@@ -51289,6 +51655,135 @@
               "display_name"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.members.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "user": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team members remove",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/UserId"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
           }
         }
       }
@@ -55749,6 +56244,16 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "TeamRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "billing",
+              "guest"
+            ]
+          },
           "UserTeam": {
             "type": "object",
             "properties": {
@@ -55766,12 +56271,7 @@
                 ]
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "admin",
-                  "member"
-                ]
+                "$ref": "#/$defs/TeamRole"
               },
               "sso_required": {
                 "type": "boolean"

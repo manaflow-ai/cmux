@@ -687,6 +687,25 @@ pub struct TargetPolicyHost {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditEntry {
+    pub n: i64,
+    pub op: String,
+    pub actor: String,
+    pub at: i64,
+    pub category: TeamAuditEntryCategory,
+    pub summary: String,
+    pub detail: Value,
+    pub hash: String,
+}
+
+wire_enum! {
+    TeamAuditEntryCategory {
+        Admin = "admin",
+        Billing = "billing",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamDomain {
     pub domain: EmailDomain,
     pub state: TeamDomainState,
@@ -759,16 +778,8 @@ wire_enum! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamMember {
     pub user: UserId,
-    pub role: TeamMemberRole,
+    pub role: TeamRole,
     pub display_name: String,
-}
-
-wire_enum! {
-    TeamMemberRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -888,18 +899,5 @@ pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesIntegrationsAllowedProviders {
     pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesMcpServerValue {
-        UserChoice = "user_choice",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesMcpServer {
-    pub value: TeamPolicyValuesMcpServerValue,
     pub mode: PolicyMode,
 }

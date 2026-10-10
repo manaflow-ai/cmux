@@ -31,13 +31,24 @@ struct BranchDaemonHarness {
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         let connection = DaemonConnection(
-            configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
+            configuration: Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
             endpointProvider: launcher.endpointProvider)
         let identity = try await connection.start()
         let store = await DaemonStore()
         let storeTask = Task { await store.run(connection: connection) }
         return BranchDaemonHarness(root: root, session: session, endpoint: ensured.endpoint, identity: identity,
                                    connection: connection, store: store, storeTask: storeTask)
+    }
+
+    /// The live daemon's connection with test deadlines: these suites do not
+    /// test the deadlines (DeadlineTests does), and a host running 32 suite
+    /// processes missed the product's 5 s terminal start bound (create-terminal
+    /// timed out in three suites of one shard at once). The TEST GLOBAL STATE
+    /// rule: control-plane tests use 30 s deadlines.
+    static func configuration(terminalEnvironment: (@Sendable () async -> [String: String])?,
+                              sessionEvents: Bool) -> DaemonConnection.Configuration {
+        DaemonConnection.Configuration(requestTimeout: .seconds(30), snapshotTimeout: .seconds(30), spawnTimeout: .seconds(30),
+                                       terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
     }
 
     func stop() async {

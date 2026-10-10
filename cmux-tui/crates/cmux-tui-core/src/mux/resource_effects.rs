@@ -49,7 +49,7 @@ impl Mux {
         project: impl FnOnce(&WorkspaceRegistry, &State) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
         let registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap();
         project(&registry, &state)
     }
 
@@ -153,7 +153,7 @@ impl Mux {
         project: impl FnOnce(&WorkspaceRegistry, &mut State) -> anyhow::Result<ResourceEffectProjection>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let mut projection = project(&registry, &mut state)?;
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]

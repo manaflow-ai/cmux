@@ -44,6 +44,8 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
     /// Learned picks, mirrored from the daemon's history (empty for a local history).
     public private(set) var picks: [Pick] = []
     public var pickHalfLife: TimeInterval = 7 * 24 * 60 * 60
+    /// Usage keys of rows the user hid (mirrored from the daemon's history).
+    public private(set) var hidden: Set<String> = []
 
     private enum CodingKeys: String, CodingKey {
         case entries, halfLife, capacity
@@ -56,11 +58,18 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
     }
 
     /// The daemon's whole history replaces this mirror (`palette_usage.get`).
-    public mutating func replace(entries: [String: Entry], picks: [Pick], halfLife: TimeInterval, pickHalfLife: TimeInterval) {
+    public mutating func replace(entries: [String: Entry], picks: [Pick], halfLife: TimeInterval, pickHalfLife: TimeInterval,
+                                 hidden: Set<String> = []) {
         self.entries = entries
         self.picks = picks
+        self.hidden = hidden
         self.halfLife = halfLife
         self.pickHalfLife = pickHalfLife
+    }
+
+    /// Reset Ranking for a local history: forgets the row's uses.
+    public mutating func forget(_ key: String) {
+        entries.removeValue(forKey: key)
     }
 
     public mutating func record(_ key: String, at now: Date) {

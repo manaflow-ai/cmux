@@ -38,7 +38,7 @@ pub(super) fn spawn_frame_producer(
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
-            let mut term = pty.term.lock().unwrap();
+            let term = pty.term.lock().unwrap();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
             let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
             if colors_pending {
@@ -46,9 +46,7 @@ pub(super) fn spawn_frame_producer(
                     pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                 let _ = pty.flush_attach_colors_locked(&term, defaults);
             }
-            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false)
-                || colors_pending
-            {
+            if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
                 last_frame = Instant::now();
             }
         }
