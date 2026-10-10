@@ -15,6 +15,10 @@ import Foundation
 nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
     /// Runs one control method in process with the app op's origin.
     let control: @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
+    /// The React CodeRouter page (``CodeRouterPageProvider``) reads `coderouter.detect` as
+    /// `{providers: <accounts.list rows>}` with phase, links and connect state; the
+    /// first-party app reads the documented `Detected[]`.
+    var pageShapes = false
 
     var families: Set<String> { ["coderouter"] }
 
@@ -36,7 +40,9 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
             // carry `acct_` handles and redacted labels, and `redact` shortens any email again.
             // The answer is the app's `Detected[]` (first-party-apps/coderouter/README.md): one row per provider.
             let accounts = try await control("accounts.list", params)
-            return Self.redact(.array((AppJSON(accounts["providers"] ?? .array([])).arrayValue ?? []).map(Self.detected)))
+            let rows = AppJSON(accounts["providers"] ?? .array([]))
+            if pageShapes { return Self.redact(["providers": rows]) }
+            return Self.redact(.array((rows.arrayValue ?? []).map(Self.detected)))
         case "coderouter.accounts.list":
             // The control plane answers `{accounts: [...]}`; the app's `Account[]` is the list.
             let reply = AppJSON(try await control("coderouter.accounts.list", params))
