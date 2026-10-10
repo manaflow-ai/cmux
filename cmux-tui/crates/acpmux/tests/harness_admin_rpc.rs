@@ -8,6 +8,9 @@
 //! One test: the methods read acpmux's home from ACPMUX_HOME, a process-wide
 //! setting.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

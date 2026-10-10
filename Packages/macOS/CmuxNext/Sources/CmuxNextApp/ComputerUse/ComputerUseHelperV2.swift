@@ -259,6 +259,9 @@ final class ComputerUseHelperV2 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
+        // This probe only connects and reads the peer; it never writes. Still no SIGPIPE.
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 // concurrency-allow: @concurrent, never on the main actor; a local Unix socket connect.

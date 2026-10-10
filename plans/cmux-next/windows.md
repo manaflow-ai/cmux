@@ -29,7 +29,7 @@ what each shortcut means. Nothing else may decide those.
 ## Model
 
 - `WindowKind` (CmuxNextDesign, `CaseIterable`): `main`, `settings`,
-  `debugSettings`, `appStore`, `onboarding`, `onboardingGallery`,
+  `debugSettings`, `appStore`, `onboarding`,
   `browserPopup`, `devTools`, `pageInfo`, `terminalDebug`, `browserDebug`.
   Overlay panels (palette, hover cards, omnibox suggestions, notifications,
   appearance studio, tab group editor, drag ghosts, divider catchers,
@@ -194,7 +194,7 @@ windows (Chromium page windows, panels) are not included. Use
 | Settings fallback | `SettingsWindowController` | background before content (74324ca921f) | install(.settings) |
 | Debug Settings fallback | `DebugSettingsWindowController` | same | install(.debugSettings) |
 | App Store | `AppStoreWindowController` (becomes a page tab) | content before background | install(.appStore) until the page lands |
-| onboarding, gallery | `OnboardingWindowController`, `OnboardingGalleryController` | hand-built | install(.onboarding / .onboardingGallery) |
+| onboarding (Import from Browser, Computer Use setup) | `OnboardingWindowController` | hand-built | install(.onboarding) |
 | browser popup | `BrowserPopupPanel` | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
 | page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |

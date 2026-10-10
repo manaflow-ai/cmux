@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 /// The helper v2 endpoint folder the app exports to this daemon.
@@ -63,6 +64,7 @@ pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
 /// opened descriptor, not by path): another local user (fleet Macs run
 /// several slot users) must not be able to point the bridge, and its
 /// secret, at a socket of theirs.
+#[cfg(unix)]
 pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -97,12 +99,21 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     Ok(Endpoint { socket: PathBuf::from(socket), secret: secret.to_owned() })
 }
 
+/// Windows port: the owner check (`fstat` uid and mode) needs the owner-only
+/// ACL check of a later landing; the endpoint is refused until then.
+#[cfg(not(unix))]
+pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
+    let _ = dir;
+    Err(crate::platform::unsupported("the Computer Use helper v2 endpoint"))
+}
+
 /// One admitted connection to the helper socket (JSON lines).
 pub struct Helper<S> {
     stream: BufReader<S>,
     next_id: u64,
 }
 
+#[cfg(unix)]
 impl Helper<UnixStream> {
     /// Connects and presents the secret.
     pub async fn connect(endpoint: &Endpoint) -> Result<Self> {
@@ -182,6 +193,12 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
 }
 
 /// `acpmux cua-mcp`: an MCP stdio server that forwards to the helper v2.
+#[cfg(not(unix))]
+pub async fn run_bridge() -> Result<()> {
+    Err(crate::platform::unsupported("the Computer Use bridge (its helper socket)"))
+}
+
+#[cfg(unix)]
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
     let stdin = BufReader::new(tokio::io::stdin());
