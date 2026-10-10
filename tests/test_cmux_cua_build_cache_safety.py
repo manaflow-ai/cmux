@@ -123,6 +123,9 @@ while (($#)); do
   fi
 done
 [[ -n "$target" ]]
+if [[ -n "${CUA_TEST_CARGO_LOG:-}" ]]; then
+  printf '%s|%s\n' "$CARGO_TARGET_DIR" "${SDKROOT:-}" >> "$CUA_TEST_CARGO_LOG"
+fi
 mkdir -p "$CARGO_TARGET_DIR/$target/release"
 cp /usr/bin/true "$CARGO_TARGET_DIR/$target/release/cmux-cua"
 """,
@@ -216,13 +219,54 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         assert (
             snapshot / ".cmux-cua-managed-build-source"
         ).read_text() == f"cmux-cua-build-source-v1 {sha} {patch_digest()}\n"
-        assert (
-            snapshot
-            / ".cmux-cargo-target"
-            / ("aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin")
-            / "release"
-            / "cmux-cua"
-        ).is_file()
+        triple = "aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin"
+        assert list((snapshot / ".cmux-cargo-target").glob(f"**/{triple}/release/cmux-cua"))
+
+
+def fake_xcode(root: Path, name: str) -> tuple[Path, Path]:
+    developer = root / f"{name}.app" / "Contents" / "Developer"
+    sdk = developer / "Platforms" / "MacOSX.platform" / "Developer" / "SDKs" / "MacOSX.sdk"
+    sdk.mkdir(parents=True)
+    (developer.parent / "version.plist").write_text(f"<plist>{name}</plist>\n")
+    (sdk / "SDKSettings.json").write_text(f'{{"Version": "{name}"}}\n')
+    return developer, sdk
+
+
+def test_each_xcode_gets_its_own_cargo_target(sha: str) -> None:
+    """Cargo replays cached build-script output (absolute SDK link paths), so
+    an Xcode 26.6 build must not share a target dir with an Xcode 27 build:
+    ld 26.6 cannot read Xcode 27's libdispatch.tbd ("unknown architecture")."""
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-xcode-target-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        log = root / "cargo.log"
+        environment = successful_build_environment(root, sha)
+        environment["CUA_TEST_CARGO_LOG"] = str(log)
+        seen = []
+        for name in ("Xcode", "Xcode_26.6"):
+            developer, sdk = fake_xcode(root, name)
+            run_environment = dict(environment, DEVELOPER_DIR=str(developer))
+            run_environment.pop("SDKROOT", None)
+            run_environment["SDKROOT"] = str(sdk)
+            subprocess.run(
+                [
+                    str(BUILD_SCRIPT),
+                    "--output",
+                    str(root / name / "cmux-cua"),
+                    "--archs",
+                    "arm64",
+                    "--cache-dir",
+                    str(cache_dir),
+                ],
+                env=run_environment,
+                capture_output=True,
+                text=True,
+            )
+            seen.append(str(sdk))
+        rows = [line.split("|") for line in log.read_text().splitlines()]
+        assert len(rows) == 2, rows
+        assert rows[0][0] != rows[1][0], f"both Xcodes shared Cargo target {rows[0][0]}"
+        assert [sdkroot for _target, sdkroot in rows] == seen, rows
 
 
 def main() -> int:
@@ -231,6 +275,7 @@ def main() -> int:
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
+    test_each_xcode_gets_its_own_cargo_target(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 
