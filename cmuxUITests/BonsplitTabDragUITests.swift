@@ -196,6 +196,49 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    func testMinimalModeHiddenSidebarPaneTabClicksSelectTabs() {
+        let (app, dataPath) = launchConfiguredApp(startWithHiddenSidebar: true)
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for hidden-sidebar pane-tab click UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertEqual(ready["sidebarVisible"], "0", "Expected the pane-tab click fixture to hide the left sidebar")
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneSelectedTitle", equals: betaTitle, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected the newly created beta tab to start selected. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        // The pane tab strip is also the minimal-mode titlebar when the left
+        // sidebar is hidden. Exercise repeated transitions so a transient
+        // tab-item registry gap cannot turn a visible click into a no-op.
+        for (tab, expectedTitle) in [(alphaTab, alphaTitle), (betaTab, betaTitle), (alphaTab, alphaTitle)] {
+            tab.click()
+            XCTAssertTrue(
+                waitForJSONKey("trackedPaneSelectedTitle", equals: expectedTitle, atPath: dataPath, timeout: 5.0) != nil,
+                "Expected clicking \(expectedTitle) to select that pane tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
+            )
+        }
+    }
+
     func testRightSidebarModeBarKeepsFixedHeightAcrossPresentationModes() {
         let expectedModeBarHeight: CGFloat = 28
         var referenceTopInset: CGFloat?
