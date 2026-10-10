@@ -2,10 +2,10 @@ import CmuxiOSFeatureKit
 import SwiftUI
 import UIKit
 
-/// A UIKit toolbar button keeps XCTest's `isEnabled` state aligned with the
+/// A UIKit navigation item keeps XCTest's `isEnabled` state aligned with the
 /// SwiftUI form validation. SwiftUI's toolbar accessibility wrapper can stay
 /// enabled even when its Button is disabled on iOS 26.
-private struct HostEditorToolbarButton: UIViewRepresentable {
+private struct HostEditorNavigationItem: UIViewRepresentable {
     let title: String
     let isEnabled: Bool
     let action: () -> Void
@@ -17,77 +17,40 @@ private struct HostEditorToolbarButton: UIViewRepresentable {
             self.action = action
         }
 
-        @objc func pressed(_ sender: UIButton) {
+        @objc func pressed(_ sender: UIBarButtonItem) {
             action()
-        }
-    }
-
-    final class Button: UIButton {
-        var desiredEnabled = false {
-            didSet { scheduleBarButtonItemSync() }
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            scheduleBarButtonItemSync()
-        }
-
-        private func scheduleBarButtonItemSync() {
-            DispatchQueue.main.async { [weak self] in self?.syncBarButtonItem() }
-        }
-
-        private func syncBarButtonItem() {
-            guard let window else { return }
-            var controllers: [UIViewController] = []
-            collectControllers(from: window.rootViewController, into: &controllers)
-            let items = controllers.flatMap { controller in
-                (controller.navigationItem.leftBarButtonItems ?? [])
-                    + (controller.navigationItem.rightBarButtonItems ?? [])
-            }
-            guard let item = items.first(where: { item in
-                guard let customView = item.customView else { return false }
-                return contains(self, in: customView)
-            }) else { return }
-            item.isEnabled = desiredEnabled
-            item.accessibilityIdentifier = "ssh.editor.save"
-            item.accessibilityTraits = desiredEnabled ? .button : [.button, .notEnabled]
-        }
-
-        private func collectControllers(from controller: UIViewController?, into result: inout [UIViewController]) {
-            guard let controller else { return }
-            result.append(controller)
-            collectControllers(from: controller.presentedViewController, into: &result)
-            for child in controller.children {
-                collectControllers(from: child, into: &result)
-            }
-        }
-
-        private func contains(_ target: UIView, in view: UIView) -> Bool {
-            view === target || view.subviews.contains { contains(target, in: $0) }
         }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
 
-    func makeUIView(context: Context) -> UIButton {
-        let button = Button(type: .system)
-        button.addTarget(context.coordinator, action: #selector(Coordinator.pressed(_:)), for: .touchUpInside)
-        button.accessibilityIdentifier = "ssh.editor.save"
-        button.isEnabled = isEnabled
-        button.desiredEnabled = isEnabled
-        button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
-        return button
+    func makeUIView(context: Context) -> UIView {
+        UIView(frame: .zero)
     }
 
-    func updateUIView(_ button: UIButton, context: Context) {
-        button.setTitle(title, for: .normal)
-        button.isEnabled = isEnabled
-        if let button = button as? Button {
-            button.desiredEnabled = isEnabled
-        }
-        button.accessibilityIdentifier = "ssh.editor.save"
-        button.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
+    func updateUIView(_ view: UIView, context: Context) {
         context.coordinator.action = action
+        DispatchQueue.main.async {
+            guard let controller = Self.hostingController(for: view) else { return }
+            let item = controller.navigationItem.rightBarButtonItem ?? UIBarButtonItem()
+            item.title = title
+            item.style = .done
+            item.target = context.coordinator
+            item.action = #selector(Coordinator.pressed(_:))
+            item.isEnabled = isEnabled
+            item.accessibilityIdentifier = "ssh.editor.save"
+            item.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
+            controller.navigationItem.rightBarButtonItem = item
+        }
+    }
+
+    private static func hostingController(for view: UIView) -> UIViewController? {
+        var responder: UIResponder? = view
+        while let current = responder {
+            if let controller = current as? UIViewController { return controller }
+            responder = current.next
+        }
+        return nil
     }
 }
 
@@ -200,11 +163,11 @@ struct HostEditorView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button(SSHText.cancel) { model.dismiss?() }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                let saveEnabled = model.canSave
-                HostEditorToolbarButton(title: model.isNew ? SSHText.add : SSHText.save,
-                                        isEnabled: saveEnabled) { Task { await model.save() } }
-            }
+        }
+        .background {
+            HostEditorNavigationItem(title: model.isNew ? SSHText.add : SSHText.save,
+                                     isEnabled: model.canSave) { Task { await model.save() } }
+                .frame(width: 0, height: 0)
         }
         .task { await model.load() }
     }
