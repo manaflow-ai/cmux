@@ -103,6 +103,14 @@ public final class SettingsApplier {
             }
             applied.insert(id)
         }
+        // `tabs.swapCmdTAndCmdN`: Cmd-T is New Workspace and Cmd-N New Tab, unless the user
+        // bound either one above. Turning it off removes the pair like any other binding.
+        if snapshot.swapCmdTAndCmdN {
+            for (id, key) in [("newTab.default", "n"), ("newTab", "t")] as [(ActionID, String)] where !applied.contains(id) {
+                setOverride(Shortcut(key, modifiers: [.command]), for: id)
+                applied.insert(id)
+            }
+        }
         for id in appliedShortcutIDs.subtracting(applied) {
             registry.removeShortcutOverride(for: id)
         }

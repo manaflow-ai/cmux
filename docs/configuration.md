@@ -139,6 +139,21 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
 
+## `tabs.swapCmdTAndCmdN`
+
+Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
+
+```json
+{
+  "tabs": { "swapCmdTAndCmdN": true }
+}
+```
+
+- `false` (default): Cmd-T follows the focus. In a pane with a tab strip (a terminal, a browser tab, the New Tab page) it opens a tab there. On an agent chat, or in a pane without a tab strip, it opens a workspace in the current group. Cmd-N opens a workspace.
+- `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
+
+Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
 ## `tabs.newTabTemplate`
 
 The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
