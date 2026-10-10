@@ -1882,6 +1882,89 @@ mod tests {
         ));
     }
 
+    /// A register ticket signed with the relay's secret, with explicit times and claims version.
+    /// `signed_issued_at` is the issue time the signature covers; the payload carries
+    /// `issued_at_unix`, so a different value is a tampered ticket.
+    fn signed_register_ticket(
+        config: &RelayConfig,
+        version: u8,
+        issued_at_unix: u64,
+        signed_issued_at: u64,
+        expires_at_unix: u64,
+    ) -> String {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use hmac::{Hmac, Mac};
+        let claims = serde_json::json!({
+            "version": version,
+            "issuer": config.ticket_issuer,
+            "permission": "register",
+            "role": "daemon",
+            "slot": "slot-a",
+            "circuit": null,
+            "lane": null,
+            "generation": null,
+            "issued_at_unix": issued_at_unix,
+            "expires_at_unix": expires_at_unix,
+        });
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        let signing = format!(
+            "cmux-relay-ticket-v2\n{version}\n{}\nregister\ndaemon\nslot-a\n\n\n\n{signed_issued_at}\n{expires_at_unix}",
+            config.ticket_issuer,
+        );
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(config.ticket_secret.as_ref().unwrap()).unwrap();
+        mac.update(signing.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        format!("v2.{payload}.{signature}")
+    }
+
+    /// A client of the relay socket cannot register with a ticket that lives longer than five
+    /// minutes, was issued more than five minutes ago, is issued in the future past the clock
+    /// skew, has a tampered issue time, or uses the legacy claims version. A ticket of exactly
+    /// five minutes registers.
+    #[tokio::test]
+    async fn register_tickets_outside_lifetime_skew_version_or_signature_are_refused_on_the_wire() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![9; 32]),
+            ticket_issuer: "relay.test".into(),
+            ..RelayConfig::default()
+        };
+        let server = TestServer::start(config.clone()).await;
+        let now = unix_timestamp(SystemTime::now()).unwrap();
+        let max = RelayTicketClaims::MAX_LIFETIME_SECONDS;
+        let refused = [
+            ("lifetime over five minutes", signed_register_ticket(&config, 2, now, now, now + max + 1)),
+            ("issued over five minutes ago", signed_register_ticket(&config, 2, now - max - 1, now - max - 1, now + 10)),
+            ("issued past the clock skew", signed_register_ticket(&config, 2, now + 120, now + 120, now + 200)),
+            ("tampered issue time", signed_register_ticket(&config, 2, now + 1, now, now + 60)),
+            ("legacy claims version", signed_register_ticket(&config, 1, now, now, now + 60)),
+        ];
+        for (case, ticket) in refused {
+            let mut socket = server.connect().await;
+            send_control(
+                &mut socket,
+                RelayControl::Register { protocol: REMOTE_PROTOCOL_VERSION, slot: "slot-a".into(), ticket },
+            )
+            .await;
+            let reply = receive_control(&mut socket).await;
+            assert!(
+                matches!(&reply, RelayControl::Error { code, retryable: false, .. } if code == "invalid-ticket"),
+                "{case}: {reply:?}"
+            );
+        }
+        let mut socket = server.connect().await;
+        send_control(
+            &mut socket,
+            RelayControl::Register {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: signed_register_ticket(&config, 2, now, now, now + max),
+            },
+        )
+        .await;
+        let reply = receive_control(&mut socket).await;
+        assert!(matches!(reply, RelayControl::Registered { .. }), "five-minute ticket: {reply:?}");
+    }
+
     #[tokio::test]
     async fn hmac_provider_and_join_tickets_enforce_permission_lane_and_generation() {
         let config = RelayConfig {
