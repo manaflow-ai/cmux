@@ -88,6 +88,19 @@ describe("CLI config route", () => {
     });
   });
 
+  test("a project without a publishable key publishes auth config without one", async () => {
+    await withCliConfigEnvironment(
+      { ...testEnvironment, NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: undefined },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.auth.projectId).toBe(testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID);
+        expect("publishableClientKey" in body.auth).toBe(false);
+      },
+    );
+  });
+
   test("publishes CodeRouter and the hosted Subrouter POST contract", async () => {
     await withCliConfigEnvironment(testEnvironment, async () => {
       const response = GET(new Request("https://cmux.com/api/cli/config"));

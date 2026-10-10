@@ -121,7 +121,7 @@ test("production opt-in verifies the production project and keeps its file separ
   assert.match(result.stdout, /optional.*production|production.*optional/i);
   assert.match(result.stdout, /verify.*production/i);
   assert.deepEqual(requestProjects(f), [productionProject]);
-  assert.ok(f.requests()[0].headers.includes("x-stack-publishable-client-key: pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"));
+  assert.ok(!f.requests()[0].headers.some((header) => header.startsWith("x-stack-publishable-client-key")));
   assert.equal(f.value(f.prodFile, "CMUX_DOGFOOD_STACK_PASSWORD"), "production-fixture-password");
   assert.equal(fs.statSync(f.prodFile).mode & 0o777, 0o600);
   assert.equal(fs.existsSync(f.legacyProdFile), false);
