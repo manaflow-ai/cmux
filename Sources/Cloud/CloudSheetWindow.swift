@@ -191,12 +191,13 @@ final class CloudSheetWindow {
     }
 
     private func scheduleAttachedSheetAnchorCorrection() {
-        guard isAttachedToHost, topEdgeAnchor != nil, !isAnchorCorrectionScheduled else { return }
+        guard isAttachedToHost, !isHostMovePending, topEdgeAnchor != nil, !isAnchorCorrectionScheduled else { return }
         isAnchorCorrectionScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isAnchorCorrectionScheduled = false
             guard self.isAttachedToHost, !self.isOpening, !self.isApplyingFrame,
+                  !self.isHostMovePending,
                   let anchor = self.topEdgeAnchor else { return }
             let delta = anchor - self.window.frame.maxY
             guard abs(delta) > 0.5 else { return }
