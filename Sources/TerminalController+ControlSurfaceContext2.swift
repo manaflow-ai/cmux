@@ -78,7 +78,8 @@ extension TerminalController {
     // MARK: - split
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceSplitInputs
+        inputs: ControlSurfaceSplitInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) -> ControlSurfaceSplitResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -177,7 +178,7 @@ extension TerminalController {
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
@@ -358,7 +359,8 @@ extension TerminalController {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -453,7 +455,7 @@ extension TerminalController {
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext
             )?.id
         } else if panelType == .simulator {

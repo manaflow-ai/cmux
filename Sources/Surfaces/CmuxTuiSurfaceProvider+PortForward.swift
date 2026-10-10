@@ -45,7 +45,12 @@ extension CmuxTuiSurfaceProvider {
         guard isRegisteredInCatalog() else { throw CancellationError() }
         let pane = try existingPane
             ?? CloudDisplayPaneReservation.current?.pane(for: resource)
-            ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
+            ?? SurfacePaneFactory.makeBrowserPane(
+                url: nil,
+                at: destination,
+                focus: focus,
+                creationPolicy: .restoration
+            )
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
