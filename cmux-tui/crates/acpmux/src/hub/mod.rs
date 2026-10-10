@@ -25,6 +25,8 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod pool;
+mod queue;
+pub use queue::QueuedPrompt;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod session;
@@ -129,16 +131,6 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
-}
-
-/// A prompt waiting for the running turn to end.
-#[derive(Debug, Clone)]
-pub struct QueuedPrompt {
-    pub prompt_id: String,
-    pub turn_id: String,
-    pub client: String,
-    pub preview: String,
-    pub queued_at: u64,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -654,6 +646,7 @@ impl Hub {
                 | "turn_error"
                 | "queued"
                 | "dequeued"
+                | "queue_removed"
                 | "created"
                 | "tags"
                 | "rules"

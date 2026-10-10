@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7a628fb96e9d748dfafdea4dc062aff87a948faad7965e44ec604aeb9678bf54";
+pub const ir_sha256 = "212eba9e751a44b8d3cc84ccd3fec120d038b69d5b9cd83afb322a32f310fd45";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -774,6 +774,22 @@ pub const GuestUrlOpenResult = struct {
 
 pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
+};
+
+pub const HistorySearchHit = struct {
+    at_ms: i64,
+    highlights: []const HistorySearchRange,
+    key: []const u8,
+    kind: []const u8,
+    position: wire.Nullable(i64),
+    snippet: []const u8,
+    target: []const u8,
+    title: []const u8,
+};
+
+pub const HistorySearchRange = struct {
+    end: u32,
+    start: u32,
 };
 
 pub const Id = u64;
@@ -4955,6 +4971,34 @@ pub fn getSizeState(client: anytype, request: GetSizeStateRequest) !wire.Decoded
             .authority = "control",
             .since = 12,
             .capability = "shared-sizing-v1",
+        },
+        request,
+    );
+}
+
+pub const HistorySearchRequest = struct {
+    kinds: ?[]const []const u8 = null,
+    limit: wire.Field(u32) = .absent,
+    query: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "kinds",
+    };
+};
+
+pub const HistorySearchResult = struct {
+    hits: []const HistorySearchHit,
+    took_us: u64,
+};
+
+pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decoded(HistorySearchResult) {
+    return client.callTyped(
+        HistorySearchResult,
+        .{
+            .name = "history-search",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "history-search-v1",
         },
         request,
     );
@@ -9589,7 +9633,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 241;
+pub const command_count: usize = 242;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9684,6 +9728,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
+    .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "import-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
