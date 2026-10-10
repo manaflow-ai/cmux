@@ -137,7 +137,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
           onSelect={() => void store.select("changed")}
           testId="ds.section.changed"
         />
-        <div className="ds-sidebar-separator" role="separator" />
+        <hr className="ds-sidebar-separator" />
         {state.sections.map((entry) => (
           <SidebarRow
             key={entry.id}
@@ -194,11 +194,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
               {t("debugSettings.resetAll")}
             </button>
           </div>
-          {state.notice || snap.error ? (
-            <div className="ds-notice" role="status">
-              {snap.error ?? state.notice}
-            </div>
-          ) : null}
+          {state.notice || snap.error ? <output className="ds-notice">{snap.error ?? state.notice}</output> : null}
         </header>
         <div className="ds-scroll">
           {state.groups.length === 0 ? (

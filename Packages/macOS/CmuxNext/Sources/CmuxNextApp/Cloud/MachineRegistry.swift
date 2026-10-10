@@ -83,9 +83,15 @@ final class MachineRegistry {
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
+    /// `terminal-reaper-active-v1` says how a daemon was started (with a
+    /// reap grace), not what its build serves: a remote daemon that the SSH
+    /// bootstrap starts never has it, and tab close handles both cases, so
+    /// its absence is not "update this machine" (cx-z0uk: a daemon installed
+    /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
         var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
+        notNeeded.insert(DaemonCapabilities.shared.terminalReaperActive)
         if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
