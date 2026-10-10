@@ -831,3 +831,35 @@ test("snapshot: a link URL summary never shows part of a value the session masks
     await servers.close();
   }
 });
+
+// IDREF lists (aria-labelledby, aria-owns) and slot names are page
+// attributes of any length: the page agent reads at most their first
+// 4,096 characters (and an id cut there is dropped), never splitting,
+// scanning or escaping the whole value, and a slot whose name is longer
+// reads its own fallback content instead of the host's children.
+test("snapshot: IDREF lists and slot names are read only within their first 4,096 characters", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          const pad = " ".repeat(5000);
+          const long = "s".repeat(5000);
+          document.body.innerHTML = '<div role="listbox" aria-label="L" id="lb"></div><div style="display:none"><div id="x" role="option">Owned</div><span id="h">Other</span></div><button id="b">Own</button><div id="host"></div>';
+          document.getElementById("lb").setAttribute("aria-owns", pad + "x");
+          document.getElementById("b").setAttribute("aria-labelledby", pad + "h");
+          const host = document.getElementById("host");
+          const slotted = host.appendChild(document.createElement("button"));
+          slotted.textContent = "Slotted";
+          slotted.setAttribute("slot", long);
+          const shadow = host.attachShadow({ mode: "open" });
+          shadow.innerHTML = '<div role="group" aria-label="G"><slot><button>Fallback</button></slot></div>';
+          shadow.querySelector("slot").setAttribute("name", long);
+        });`);
+      const r = await run(`const s = await snapshot({ maxChars: Infinity }); console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (listbox|option|button|group)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));`);
+      assert.deepEqual(JSON.parse(r.value), ['- listbox "L"', '- button "Own"', '- group "G"', '- button "Fallback"']);
+    });
+  } finally {
+    await servers.close();
+  }
+});
