@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-pub(crate) use cmux_link::stamp::LinkPeer;
+pub use cmux_link::stamp::LinkPeer;
 
 /// Last good check older than this: new streams of the install are refused.
 pub const REFUSE_NEW_STREAMS_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -22,7 +22,7 @@ pub const RECHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// The conversation participant of a paired install (decision D-B). Never
 /// `user_local`.
-pub(crate) fn remote_participant(install: &str) -> String {
+pub fn remote_participant(install: &str) -> String {
     format!("remote_{install}")
 }
 
@@ -50,7 +50,7 @@ impl RevocationClock for MonotonicClock {
 
 /// What the revocation state allows for one install right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StreamPolicy {
+pub enum StreamPolicy {
     /// New and existing streams are served.
     Serve,
     /// New streams are refused; existing streams stay (24 hours offline).
@@ -67,7 +67,7 @@ enum InstallCheck {
 
 /// The offline revocation limits (section 10, decision D-D). A check that
 /// could not reach the cloud is not recorded, so it changes nothing.
-pub(crate) struct Revocation {
+pub struct Revocation {
     clock: Arc<dyn RevocationClock>,
     checks: BTreeMap<String, InstallCheck>,
 }
@@ -79,25 +79,25 @@ impl Default for Revocation {
 }
 
 impl Revocation {
-    pub(crate) fn set_clock(&mut self, clock: Arc<dyn RevocationClock>) {
+    pub fn set_clock(&mut self, clock: Arc<dyn RevocationClock>) {
         self.clock = clock;
     }
 
     /// The control plane confirmed `install` now.
-    pub(crate) fn record_good_check(&mut self, install: &str) {
+    pub fn record_good_check(&mut self, install: &str) {
         if !matches!(self.checks.get(install), Some(InstallCheck::Revoked)) {
             self.checks.insert(install.to_string(), InstallCheck::Good(self.clock.now()));
         }
     }
 
     /// The control plane said `install` is revoked. Revocation is final.
-    pub(crate) fn record_revoked(&mut self, install: &str) {
+    pub fn record_revoked(&mut self, install: &str) {
         self.checks.insert(install.to_string(), InstallCheck::Revoked);
     }
 
     /// The time of `install`'s last good check (tests).
-    #[cfg(test)]
-    pub(crate) fn good_check_time(&self, install: &str) -> Option<Instant> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn good_check_time(&self, install: &str) -> Option<Instant> {
         match self.checks.get(install) {
             Some(InstallCheck::Good(at)) => Some(*at),
             _ => None,
@@ -106,7 +106,7 @@ impl Revocation {
 
     /// The policy of `install` at the current clock. An install that was
     /// never checked is closed (fail closed).
-    pub(crate) fn policy(&self, install: &str) -> StreamPolicy {
+    pub fn policy(&self, install: &str) -> StreamPolicy {
         match self.checks.get(install) {
             None | Some(InstallCheck::Revoked) => StreamPolicy::Close,
             Some(InstallCheck::Good(at)) => {
@@ -173,7 +173,7 @@ impl From<RelayStateError> for BindRefused {
 
 /// `mutex` locked for an admission or revocation decision: a poisoned lock
 /// is an error, never its possibly half-updated value.
-pub(crate) fn lock_checked<T>(
+pub fn lock_checked<T>(
     mutex: &Mutex<T>,
     lock: RelayLock,
 ) -> Result<MutexGuard<'_, T>, RelayStateError> {
@@ -182,43 +182,43 @@ pub(crate) fn lock_checked<T>(
 
 /// The remote-relay state on the conversation host.
 #[derive(Default)]
-pub(crate) struct RemoteRelayState {
+pub struct RemoteRelayState {
     /// The verified link peer of each remote connection (memory only).
-    pub(crate) peers: Mutex<BTreeMap<u64, LinkPeer>>,
-    pub(crate) pairing: Mutex<Option<Arc<dyn PairingRecords>>>,
-    pub(crate) revocation: Mutex<Revocation>,
+    pub peers: Mutex<BTreeMap<u64, LinkPeer>>,
+    pub pairing: Mutex<Option<Arc<dyn PairingRecords>>>,
+    pub revocation: Mutex<Revocation>,
 }
 
 impl RemoteRelayState {
     /// The peer record of `client`; an error when the peers lock is
     /// poisoned (callers fail closed).
-    pub(crate) fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
+    pub fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
         Ok(lock_checked(&self.peers, RelayLock::Peers)?.get(&client).cloned())
     }
 
     /// The peer record of `client` (tests). A poisoned peers lock gives
     /// `None`.
-    #[cfg(test)]
-    pub(crate) fn peer(&self, client: u64) -> Option<LinkPeer> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn peer(&self, client: u64) -> Option<LinkPeer> {
         self.peer_checked(client).ok().flatten()
     }
 
     /// The server owner from the pairing records; an error when the pairing
     /// lock is poisoned (callers deny).
-    pub(crate) fn owner_user(&self) -> Result<Option<String>, RelayStateError> {
+    pub fn owner_user(&self) -> Result<Option<String>, RelayStateError> {
         let pairing = lock_checked(&self.pairing, RelayLock::Pairing)?.clone();
         Ok(pairing.and_then(|records| records.owner_user()))
     }
 
     /// The remote connections of `install`.
-    pub(crate) fn clients_of(&self, install: &str) -> Result<Vec<u64>, RelayStateError> {
+    pub fn clients_of(&self, install: &str) -> Result<Vec<u64>, RelayStateError> {
         let peers = lock_checked(&self.peers, RelayLock::Peers)?;
         Ok(peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect())
     }
 
     /// Every connection that has a peer record, for a close of all remote
     /// streams.
-    pub(crate) fn all_peer_clients(&self) -> Vec<u64> {
+    pub fn all_peer_clients(&self) -> Vec<u64> {
         // Safety: this list only closes streams; a poisoned map can name a
         // stale id, and closing a stale id does nothing.
         self.peers.lock().unwrap_or_else(PoisonError::into_inner).keys().copied().collect()

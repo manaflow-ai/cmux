@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::image_paste_file::ImagePasteFile;
 use base64::Engine;
 
-pub(crate) const CAPABILITY: &str = "terminal-image-paste-v1";
+pub const CAPABILITY: &str = "terminal-image-paste-v1";
 pub(crate) const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 pub(crate) const MAX_CHUNK_BYTES: usize = 48 * 1024;
 const MAX_RETAINED_BYTES: usize = 128 * 1024 * 1024;
@@ -16,7 +16,7 @@ pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
 const UPLOAD_TTL: Duration = Duration::from_secs(120);
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ImagePasteOwner {
+pub struct ImagePasteOwner {
     pub client: u64,
     pub surface: u64,
     pub terminal: String,
@@ -51,7 +51,7 @@ struct Shared {
     changed: Condvar,
 }
 
-pub(crate) struct ImagePasteStore {
+pub struct ImagePasteStore {
     shared: Arc<Shared>,
 }
 
@@ -116,7 +116,7 @@ impl ImagePasteStore {
         Ok(())
     }
 
-    pub(crate) fn begin(
+    pub fn begin(
         &self,
         owner: ImagePasteOwner,
         id: &str,
@@ -176,7 +176,7 @@ impl ImagePasteStore {
         Ok(())
     }
 
-    pub(crate) fn append(
+    pub fn append(
         &self,
         owner: &ImagePasteOwner,
         id: &str,
@@ -200,7 +200,7 @@ impl ImagePasteStore {
 
     /// Publishes once, directly through the terminal owner's paste primitive.
     /// No remote path is accepted from or returned to the client.
-    pub(crate) fn commit(
+    pub fn commit(
         &self,
         owner: &ImagePasteOwner,
         id: &str,
@@ -244,7 +244,7 @@ impl ImagePasteStore {
         result
     }
 
-    pub(crate) fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
+    pub fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
         let mut state = self.shared.state.lock().unwrap();
         if let Some(upload) = state.uploads.get_mut(&(owner.client, id.to_owned())) {
             anyhow::ensure!(&upload.owner == owner, "image-owner-mismatch");
@@ -257,7 +257,7 @@ impl ImagePasteStore {
         Ok(())
     }
 
-    pub(crate) fn disconnect(&self, client: u64) {
+    pub fn disconnect(&self, client: u64) {
         let mut state = self.shared.state.lock().unwrap();
         for upload in state
             .uploads
@@ -271,7 +271,7 @@ impl ImagePasteStore {
         self.shared.changed.notify_one();
     }
 
-    pub(crate) fn close_terminal(&self, terminal: &str) {
+    pub fn close_terminal(&self, terminal: &str) {
         let mut state = self.shared.state.lock().unwrap();
         for upload in state.uploads.values_mut().filter(|upload| upload.owner.terminal == terminal)
         {

@@ -17,7 +17,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 /// Marks of one create, measured from the arrival of its request.
-pub(crate) struct Trace {
+pub struct Trace {
     label: &'static str,
     start: Instant,
     marks: Vec<(Cow<'static, str>, u64)>,
@@ -44,20 +44,20 @@ pub(crate) fn enabled() -> bool {
 impl Trace {
     /// A trace for a request that arrived at `start`, or `None` when marks
     /// are off.
-    pub(crate) fn start(label: &'static str, start: Instant) -> Option<Self> {
+    pub fn start(label: &'static str, start: Instant) -> Option<Self> {
         enabled().then(|| Self { label, start, marks: Vec::new() })
     }
 }
 
 /// Make `trace` the current thread's trace.
-pub(crate) fn install(trace: Option<Trace>) {
+pub fn install(trace: Option<Trace>) {
     if let Some(trace) = trace {
         CURRENT.with(|current| *current.borrow_mut() = Some(trace));
     }
 }
 
 /// Remove and return the current thread's trace.
-pub(crate) fn take() -> Option<Trace> {
+pub fn take() -> Option<Trace> {
     if !enabled() {
         return None;
     }
@@ -65,12 +65,12 @@ pub(crate) fn take() -> Option<Trace> {
 }
 
 /// Record `name` on the current thread's trace, if any.
-pub(crate) fn mark(name: &'static str) {
+pub fn mark(name: &'static str) {
     mark_with(|| Cow::Borrowed(name));
 }
 
 /// Record a computed name; `name` runs only when a trace is installed.
-pub(crate) fn mark_with(name: impl FnOnce() -> Cow<'static, str>) {
+pub fn mark_with(name: impl FnOnce() -> Cow<'static, str>) {
     if !enabled() {
         return;
     }
@@ -85,7 +85,7 @@ pub(crate) fn mark_with(name: impl FnOnce() -> Cow<'static, str>) {
 }
 
 /// Append `trace` to the marks file.
-pub(crate) fn finish(trace: Option<Trace>) {
+pub fn finish(trace: Option<Trace>) {
     let (Some(trace), Some(sink)) = (trace, sink()) else { return };
     let marks = trace
         .marks
@@ -104,7 +104,7 @@ pub(crate) fn finish(trace: Option<Trace>) {
 
 /// Mark the start of every commit on a registry connection: the gap after
 /// `sqlite.commit` is the commit's write and sync.
-pub(crate) fn traced(connection: rusqlite::Connection) -> rusqlite::Connection {
+pub fn traced(connection: rusqlite::Connection) -> rusqlite::Connection {
     if enabled() {
         let _ = connection.commit_hook(Some(|| {
             mark("sqlite.commit");

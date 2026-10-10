@@ -166,6 +166,8 @@ impl ResourceOperation {
             Self::PaletteUsageGet => "palette_usage.get",
             Self::PaletteUsageRecord => "palette_usage.record",
             Self::PaletteUsageImport => "palette_usage.import",
+            Self::PaletteUsageHide => "palette_usage.hide",
+            Self::PaletteUsageForget => "palette_usage.forget",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

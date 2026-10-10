@@ -126,7 +126,7 @@ impl NewWorkspacePlacement {
     /// ([`Self::scoped`]), else the settings file, read at each creation (a
     /// change applies to the next workspace with no reload). Unit tests
     /// never read the developer's file: they get the default.
-    pub(crate) fn current() -> Self {
+    pub fn current() -> Self {
         if let Some(scoped) = SCOPED.with(Cell::get) {
             return scoped;
         }
@@ -135,20 +135,20 @@ impl NewWorkspacePlacement {
 
     /// Runs `body` with every workspace this thread creates placed at
     /// `self`: a creation path that names its own place.
-    pub(crate) fn scoped<T>(self, body: impl FnOnce() -> T) -> T {
+    pub fn scoped<T>(self, body: impl FnOnce() -> T) -> T {
         let _guard = ScopedPlacement(SCOPED.with(|cell| cell.replace(Some(self))));
         body()
     }
 
     /// The value [`Self::current`] gives on this thread until the guard drops.
-    #[cfg(test)]
-    pub(crate) fn set_for_test(self) -> ScopedPlacement {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_for_test(self) -> ScopedPlacement {
         ScopedPlacement(SCOPED.with(|cell| cell.replace(Some(self))))
     }
 }
 
 /// Restores the scoped placement that was set before.
-pub(crate) struct ScopedPlacement(Option<NewWorkspacePlacement>);
+pub struct ScopedPlacement(Option<NewWorkspacePlacement>);
 
 impl Drop for ScopedPlacement {
     fn drop(&mut self) {

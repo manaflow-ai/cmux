@@ -39,13 +39,13 @@ pub fn install(text: &'static TerminalRespawnText) {
     let _ = TEXT.set(text);
 }
 
-pub(crate) fn text() -> &'static TerminalRespawnText {
+pub fn text() -> &'static TerminalRespawnText {
     TEXT.get().copied().unwrap_or(&ENGLISH)
 }
 
 /// The marker line for a terminal that ran `program` (a command that is not
 /// pre-filled again), or none. Control characters in the name are dropped.
-pub(crate) fn marker(program: Option<&str>) -> String {
+pub fn marker(program: Option<&str>) -> String {
     let text = text();
     match program.map(|program| program.chars().filter(|c| !c.is_control()).collect::<String>()) {
         Some(program) if !program.is_empty() => {
@@ -57,7 +57,7 @@ pub(crate) fn marker(program: Option<&str>) -> String {
 
 /// The line under a reopened tab's archived screen whose close stopped
 /// `program`. Control characters in the name are dropped.
-pub(crate) fn stopped_marker(program: &str) -> String {
+pub fn stopped_marker(program: &str) -> String {
     let program = program.chars().filter(|c| !c.is_control()).collect::<String>();
     text().stopped.replace("{program}", &program)
 }
