@@ -9,6 +9,7 @@ use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
 use super::{Mux, State, WorkspaceRegistry};
+use crate::lock_rank::{HeldRank, LockRank};
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
@@ -193,14 +194,18 @@ pub(crate) struct StateMutex(Mutex<State>);
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
     guard: MutexGuard<'a, State>,
+    /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
+    _rank: HeldRank,
 }
 
 impl StateGuard<'_> {
     fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard }
+        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
     }
 }
+
+const STATE_LOCK_NAME: &str = "mux.state";
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
@@ -227,7 +232,9 @@ impl StateMutex {
         Self(Mutex::new(state))
     }
 
+    #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
+        HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
         match self.0.lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
             Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),

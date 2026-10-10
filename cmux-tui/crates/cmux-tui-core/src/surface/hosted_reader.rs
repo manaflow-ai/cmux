@@ -50,7 +50,19 @@ pub(super) enum Flow {
 
 /// How one host stream ended. The frame demultiplexer, the journal target
 /// and any journal update reservation stay alive until the connection
-/// iteration ends, as they did when this loop was one closure.
+/// iteration ends, after a reconnect installed its replacement. Keeping the
+/// reservation is deliberate (cx-fr5l):
+/// - An active update (the parser applied output, then the stream broke
+///   before the bytes reached the journal, as on the color-contract break in
+///   `apply_output`) keeps `journal_capture_epoch` odd. Checkpoint capture
+///   (`terminal_replay_blob`) then refuses the diverged mirror until the
+///   reconnect replaced it from the host snapshot and recorded the
+///   `host_reconnect` gap. Releasing it at the break would publish an even
+///   epoch while the mirror holds output that the journal lacks.
+/// - A reserved but inactive update costs nothing: shutdown first waits for
+///   this reader (`finish_terminal_reader`), and at its deadline
+///   `close_terminal_journal_capture_when_idle` revokes an inactive
+///   reservation at once.
 struct StreamEnd<'a> {
     received_exit: Option<TerminalExit>,
     resync_requested: bool,

@@ -15,6 +15,7 @@ pub(crate) mod agent_folder;
 mod agent_folder_tests;
 pub(crate) mod agent_start;
 pub(crate) mod closed_history;
+pub(crate) mod closed_history_delete;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]

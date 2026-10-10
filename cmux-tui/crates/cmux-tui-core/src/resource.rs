@@ -13,8 +13,10 @@ mod selector_tokens;
 pub use selector_tokens::is_reserved_selector_token;
 mod error;
 mod idempotency;
+mod request_id;
 pub use error::*;
 pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
+pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -22,38 +24,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct RequestId(String);
-
-impl RequestId {
-    pub const MAX_BYTES: usize = 128;
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > Self::MAX_BYTES {
-            return Err(ResourceError::validation_invalid(
-                Some("id"),
-                "request id must contain 1 to 128 UTF-8 bytes",
-            ));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -370,6 +340,8 @@ pub enum ResourceOperation {
     OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
     #[serde(rename = "window_record.list")]
@@ -388,6 +360,10 @@ pub enum ResourceOperation {
     PaletteUsageRecord,
     #[serde(rename = "palette_usage.import")]
     PaletteUsageImport,
+    #[serde(rename = "palette_usage.hide")]
+    PaletteUsageHide,
+    #[serde(rename = "palette_usage.forget")]
+    PaletteUsageForget,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

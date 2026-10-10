@@ -200,6 +200,7 @@ const fn access(operation: Op) -> Access {
         | Op::StreamCancel
         | Op::OriginConfirmationIssue
         | Op::ClosedList
+        | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
         | Op::WindowRecordPut
@@ -209,6 +210,8 @@ const fn access(operation: Op) -> Access {
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
+        | Op::PaletteUsageHide
+        | Op::PaletteUsageForget
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow
