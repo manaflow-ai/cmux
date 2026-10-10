@@ -158,6 +158,15 @@ final class RemoteLocalhostService {
         return client
     }
 
+    /// Opens a byte stream to `port` on the loopback of `machine` over its
+    /// forwarding connection (a remote browser host, cx-2cob slice 2); nil
+    /// for a machine with no daemon here.
+    func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
+        guard let daemon = machines.daemon(machine: machine) else { return nil }
+        let client = client(for: daemon)
+        return { port in try await client.open(host: "127.0.0.1", port: port) }
+    }
+
     private var debugClients: [String: LoopbackForwardClient] = [:]
     /// The last store plan per tab id (`debug.remote-localhost`), bounded by
     /// the number of Chromium pages created this session.
