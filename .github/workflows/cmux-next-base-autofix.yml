@@ -11,7 +11,7 @@ name: cmux-next base autofix
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
-# in cmux-tui. Each
+# in cmux-tui and the OptChat crates. Each
 # runs only when its inputs changed since the last successful run (actions:
 # read lists it); a repair that cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
@@ -40,6 +40,7 @@ on:
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/**
+      - Native/OptChat/**
       - Packages/**
       - webviews/src/**
       - webviews/scripts/pages/**
@@ -161,7 +162,7 @@ jobs:
             # The namespace lint reads the package and iOS app sources.
             grep -qE "^(Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|$bot)" <<<"$changed" && ratchets=true
             grep -qE "^(backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/|$bot)" <<<"$changed" && cloud=true
-            grep -qE "^(cmux-tui/|$bot)" <<<"$changed" && fmt=true
+            grep -qE "^(cmux-tui/|Native/OptChat/|$bot)" <<<"$changed" && fmt=true
           fi
           { echo "graph=$graph"; echo "strings=$strings"; echo "sdk=$sdk"; echo "shortcuts=$shortcuts"; echo "ratchets=$ratchets"; echo "cloud=$cloud"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
 

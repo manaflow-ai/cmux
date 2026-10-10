@@ -28,7 +28,8 @@
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
-#   - formatting: cargo fmt over the cmux-tui workspace (unless --no-fmt).
+#   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
+#     (Native/OptChat; unless --no-fmt).
 # A path matching base-autofix-frozen.txt is never written; it is reported.
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
@@ -208,11 +209,26 @@ if [[ -f "$repo/Packages/macOS/CmuxNext/Package.swift" && -x "$repo/scripts/cmux
   fi
 fi
 
-# 4. Formatting.
+# 4. Formatting. Each OptChat crate is its own package; plain cargo fmt keeps
+# to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
   (cd "$repo/cmux-tui" && cargo fmt --all)
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
+fi
+if (( fmt )); then
+  for manifest in "$repo"/Native/OptChat/*/Cargo.toml; do
+    [[ -f "$manifest" ]] || continue
+    crate="${manifest%/Cargo.toml}"; crate="${crate#"$repo"/}"
+    before="$(git -C "$repo" status --porcelain -- "$crate")"
+    # A crate rustfmt cannot parse is reported; it never stops the other repairs.
+    if ! (cd "$repo/$crate" && cargo fmt 2>/dev/null); then
+      echo "left: cargo fmt failed in $crate (run it there by hand)"
+      continue
+    fi
+    after="$(git -C "$repo" status --porcelain -- "$crate")"
+    [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in $crate"
+  done
 fi
 exit 0
