@@ -275,3 +275,122 @@ struct SidebarToggleSlideMachineTests {
         #expect(landing < 0.25)
     }
 }
+
+/// Chrome that rests at a different x in the docked and hidden layouts
+/// glides between them in step with the slide: at content offset 0 it sits
+/// at its hidden rest, at the full sidebar width at its docked rest, so
+/// neither the keypress commit nor the landing commit moves it.
+@Suite
+struct SidebarSlideGlideTests {
+    /// Where the glided chrome is on screen under the hidden layout.
+    private func onScreen(hidden: CGFloat, factor: Double, offset: Double) -> Double {
+        Double(hidden) + offset + offset * factor
+    }
+
+    @Test
+    func titleGlidesFromItsHiddenRestToItsDockedRest() {
+        for (width, titlebarInset) in [(240.0, 82.0), (320, 82), (180, 300)] {
+            let leading = ContentView.titlebarTitleLeadings(
+                isFullScreen: false,
+                sidebarWidth: width,
+                minimumSidebarWidth: 180,
+                titlebarLeadingInset: titlebarInset,
+                reservedControlsWidth: 120
+            )
+            let factor = SidebarSlideGlide.factor(hiddenLeading: leading.hidden, dockedLeading: leading.docked, sidebarWidth: width)
+            #expect(onScreen(hidden: leading.hidden, factor: factor, offset: 0) == Double(leading.hidden))
+            #expect(abs(onScreen(hidden: leading.hidden, factor: factor, offset: width) - Double(leading.docked)) < 1e-9)
+        }
+    }
+
+    @Test
+    func titleThatRestsInPlaceHoldsStillWhileTheContentSlides() {
+        // A minimum-width sidebar leaves the title where the titlebar
+        // buttons put it in both layouts: it cancels the slide exactly.
+        let leading = ContentView.titlebarTitleLeadings(
+            isFullScreen: false,
+            sidebarWidth: 180,
+            minimumSidebarWidth: 180,
+            titlebarLeadingInset: 300,
+            reservedControlsWidth: 0
+        )
+        #expect(leading.hidden == leading.docked)
+        #expect(SidebarSlideGlide.factor(hiddenLeading: leading.hidden, dockedLeading: leading.docked, sidebarWidth: 180) == -1)
+    }
+
+    @Test
+    func fullscreenHiddenTitleClearsTheAlwaysVisibleControls() {
+        let leading = ContentView.titlebarTitleLeadings(
+            isFullScreen: true,
+            sidebarWidth: 240,
+            minimumSidebarWidth: 180,
+            titlebarLeadingInset: 82,
+            reservedControlsWidth: 120
+        )
+        #expect(leading.hidden == 8 + 120 + 8)
+        #expect(leading.docked == 252)
+    }
+
+    @Test
+    func minimalModeTabsGlideFromPastTheTrafficLightsToTheSidebarEdge() {
+        let width = 240.0, inset = 80.0, paneLeading = 6.0
+        let factor = SidebarSlideGlide.factor(hiddenLeading: inset, dockedLeading: width, sidebarWidth: width)
+        #expect(factor == -inset / width)
+        // Hidden layout: the tabs rest `inset` past the pane; landed, at the
+        // docked pane's leading edge, a sidebar width further on.
+        #expect(onScreen(hidden: paneLeading + inset, factor: factor, offset: 0) == paneLeading + inset)
+        #expect(abs(onScreen(hidden: paneLeading + inset, factor: factor, offset: width) - (paneLeading + width)) < 1e-9)
+    }
+
+    @Test
+    func noSidebarWidthMeansNoGlide() {
+        #expect(SidebarSlideGlide.factor(hiddenLeading: 10, dockedLeading: 200, sidebarWidth: 0) == 0)
+    }
+}
+
+/// The tab bar's trailing part a slide pins to each pane's moving trailing
+/// edge is Bonsplit's action lane, whose width must match Bonsplit's rule.
+@Suite
+struct SidebarSlidePaneChromeLaneTests {
+    @Test
+    func laneIsPaddingPlusButtonsUpToFive() {
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 0, paneWidth: 500) == 0)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 1, paneWidth: 500) == 36)
+        // The default four buttons: 6 + 8 padding, 4 x 22, 3 x 4 spacing.
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 4, paneWidth: 500) == 114)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 5, paneWidth: 120) == 140)
+    }
+
+    @Test
+    func pastFiveTheLaneIsCappedNearAQuarterOfThePane() {
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 8, paneWidth: 400) == 140)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 8, paneWidth: 1000) == 218)
+    }
+}
+
+/// A layout change mid-slide rebuilds the motion from where it is.
+@Suite
+struct SidebarToggleSlideMachineRestartTests {
+    @Test
+    func restartGoesOnFromThePresentedOffsetWithItsSpeed() throws {
+        var machine = SidebarToggleSlideMachine(docked: false)
+        _ = machine.request(visible: true, width: 240, now: 0)
+        let before = try #require(machine.slide)
+        let offset = try #require(machine.offset(at: 0.05))
+        let restarted = try #require(machine.restart(now: 0.05))
+        #expect(restarted.generation != before.generation)
+        #expect(abs(restarted.from - offset) < 1e-9)
+        #expect(restarted.to == before.to)
+        #expect(restarted.landsVisible == before.landsVisible)
+        let speed = machine.spring.velocity(from: before.from, to: before.to, velocity: before.velocity, at: 0.05)
+        #expect(abs(restarted.velocity - machine.spring.nonOvershootingVelocity(from: offset, to: 240, velocity: speed)) < 1e-9)
+        #expect(machine.land(generation: before.generation).isEmpty)
+        #expect(machine.land(generation: restarted.generation) == [.commitShownLayout])
+    }
+
+    @Test
+    func nothingToRestartAtRest() {
+        var machine = SidebarToggleSlideMachine(docked: true)
+        #expect(machine.restart(now: 1) == nil)
+    }
+}

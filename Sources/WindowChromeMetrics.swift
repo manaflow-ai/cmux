@@ -25,13 +25,6 @@ enum WindowChromeMetrics {
 enum WorkspaceCardMetrics {
     static let cornerRadius: CGFloat = 16
     static let borderWidth: CGFloat = 1
-    /// Pane edge to card edge where the card meets the window edge.
-    static let paneInset: CGFloat = 8
-    /// The bottom leading corner sits under a pane that meets the sidebar,
-    /// so its curve has to end where the pane's square corner starts: a
-    /// continuous corner's curve runs about 1.53 radii along each edge, and
-    /// it must fit in the bottom inset.
-    static let bottomLeadingCornerRadius: CGFloat = paneInset / 1.53
 }
 
 /// The card surface, filled with the terminal's own background colour.
@@ -45,14 +38,14 @@ struct WorkspaceCardBackground: View {
     let fill: NSColor
 
     var body: some View {
-        // Rounded only where the card meets the glass: the leading corners.
+        // Rounded only where the card meets the glass: the top leading corner.
         // The trailing and bottom edges run flush to the window, so rounding
         // them would just notch the window's own frame. No stroke: the card
         // is one surface against the glass, separated by fill and rounding
         // alone.
         UnevenRoundedRectangle(
             topLeadingRadius: WorkspaceCardMetrics.cornerRadius,
-            bottomLeadingRadius: WorkspaceCardMetrics.bottomLeadingCornerRadius,
+            bottomLeadingRadius: 0,
             bottomTrailingRadius: 0,
             topTrailingRadius: 0,
             style: .continuous
