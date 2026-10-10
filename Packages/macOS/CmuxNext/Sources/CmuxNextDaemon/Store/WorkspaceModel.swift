@@ -35,6 +35,9 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var markedUnread: Bool
     /// `home` for the store's home workspace (`workspace-kind-v1`).
     public internal(set) var kind: String?
+    /// The app of an app workspace (`app-screens-v1`): its one pane shows the
+    /// app without a tab strip.
+    public internal(set) var app: String?
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
@@ -70,6 +73,7 @@ public final class WorkspaceModel: Identifiable {
         pinned = s.pinned
         markedUnread = s.markedUnread
         kind = s.kind
+        app = s.app
         daemonUnreadCount = s.unreadCount
     }
 
@@ -89,6 +93,7 @@ public final class WorkspaceModel: Identifiable {
         if pinned != s.pinned { pinned = s.pinned }
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
+        if app != s.app { app = s.app }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
