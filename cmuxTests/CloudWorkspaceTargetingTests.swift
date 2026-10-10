@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCloud
 import CmuxCloudMachines
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -254,6 +255,17 @@ struct CloudWorkspaceTargetingTests {
     func unavailableAction() {
         let fixture = CloudWorkspaceTargetingFixture()
         defer { fixture.close() }
+        let defaults = UserDefaults.standard
+        let cloudEnabledKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let previousCloudEnabled = defaults.object(forKey: cloudEnabledKey)
+        defaults.set(true, forKey: cloudEnabledKey)
+        defer {
+            if let previousCloudEnabled {
+                defaults.set(previousCloudEnabled, forKey: cloudEnabledKey)
+            } else {
+                defaults.removeObject(forKey: cloudEnabledKey)
+            }
+        }
         fixture.available = false
         let ids = fixture.manager.tabs.map(\.id)
         #expect(!fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))

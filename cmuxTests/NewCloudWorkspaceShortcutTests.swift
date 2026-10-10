@@ -627,8 +627,10 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test func testNewLocalWorkspaceDoesNotTargetSelectedCloudMachine() async throws {
         defer { restoreState() }
-        let app = AppDelegate()
-        let manager = TabManager()
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture()
+        defer { windowFixture.cleanup() }
+        let app = windowFixture.appDelegate
+        let manager = windowFixture.tabManager
         let workspace = try #require(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
@@ -643,8 +645,6 @@ final class NewCloudWorkspaceShortcutTests {
             }
         )
         app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
-        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
-        defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
         #expect(app.performNewLocalWorkspaceAction(tabManager: manager, debugSource: "test.cmdN"))
         #expect(app.performNewLocalWorkspaceAction(tabManager: manager, debugSource: "test.cmdN.repeat"))
         await app.cloudWorkspaceOperationController?.waitForPendingOperations()
