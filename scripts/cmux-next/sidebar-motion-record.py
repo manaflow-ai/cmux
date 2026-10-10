@@ -77,16 +77,25 @@ def center(row):
 
 
 def drag_onto(dragged, target):
+    """Drags `dragged` down toward `target` a step at a time and releases
+    once the card's head (the grabbed row, centred on the pointer) sits
+    mid-row on a loose workspace, the band where a drop groups
+    (SidebarGroupBand)."""
     x, y = center(dragged)
     _, target_y = center(target)
-    to = target_y + 24
+    to = target_y - 40
     rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to, "steps": 20, "release": False})
-    for _ in range(40):
-        drop = (sidebar().get("drop") or {}).get("target") or ""
-        if "onto" in drop:
+    for _ in range(60):
+        over = [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")
+                and r.get("key") != dragged.get("key") and not r.get("group") and not r.get("suppressed")]
+        hit = next((r for r in over if 0.4 <= (to - (r.get("window_frame") or {}).get("y", 0))
+                    / max(1, (r.get("window_frame") or {}).get("height", 1)) <= 0.6), None)
+        if hit:
             break
-        rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to - 2, "steps": 1, "press": False, "release": False})
-        to -= 2
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to + 2, "steps": 1, "press": False, "release": False})
+        to += 2
+    print(f"drag-onto: released at {to} over {hit and hit.get('title')}", flush=True)
+    time.sleep(0.3)  # test harness: the onto highlight shows before the drop
     return rpc("debug.mouse", {"action": "up", "x": x, "y": to})
 
 
@@ -141,9 +150,9 @@ def main():
         time.sleep(0.5)  # test harness: the drop settles
     workspace_rows = rows("workspace")
     if len(workspace_rows) >= 4:
-        # Dragged up until the drop probe reads onto the workspace above,
+        # Dragged down until the card's head sits mid-row on a workspace below,
         # then released: the two make a group, whose name editor opens.
-        record("drag-onto", lambda: drag_onto(workspace_rows[3], workspace_rows[1]), seconds=3)
+        record("drag-onto", lambda: drag_onto(workspace_rows[1], workspace_rows[3]), seconds=3)
     print("\nRESULT PASS (recorded)")
 
 
