@@ -6,22 +6,29 @@ import SwiftUI
 /// state and configured shortcut. Kept separate from the view so the title,
 /// tooltip and enablement rules are testable without hosting SwiftUI.
 struct SidebarJumpToUnreadButtonPresentation: Equatable {
-    let systemName: String
+    /// An arrow that hops, so the button reads as "jump", not "download".
+    static let systemName = "arrowshape.bounce.right"
+    static let maxShownCount = 99
+
     let title: String
     let helpText: String
     let isEnabled: Bool
+    /// The unread count shown beside the icon, nil when nothing is unread.
+    let countText: String?
 
     static func resolve(
-        hasUnreadNotifications: Bool,
+        unreadCount: Int,
         shortcut: StoredShortcut
     ) -> SidebarJumpToUnreadButtonPresentation {
         let action = KeyboardShortcutSettings.Action.jumpToUnread
         let title = action.label
         return SidebarJumpToUnreadButtonPresentation(
-            systemName: hasUnreadNotifications ? "bell.badge" : "bell",
             title: title,
             helpText: shortcut.isUnbound ? title : action.tooltip(title, shortcut: shortcut),
-            isEnabled: hasUnreadNotifications
+            isEnabled: unreadCount > 0,
+            countText: unreadCount > 0
+                ? (unreadCount > maxShownCount ? "\(maxShownCount)+" : "\(unreadCount)")
+                : nil
         )
     }
 }
@@ -32,28 +39,33 @@ struct SidebarJumpToUnreadButtonPresentation: Equatable {
 /// shortcut, and is enabled under the same rule as that menu item.
 ///
 /// Unread state is observed here rather than in `SidebarFooterButtons`: the
-/// store's menu snapshot is reduced to a deduplicated Bool, so notification
-/// churn re-renders only this button, and only when its enablement flips.
+/// store's menu snapshot is reduced to a deduplicated unread count, so
+/// notification churn re-renders only this button, and only when the count
+/// changes.
+///
+/// The button is never `.disabled`: macOS shows no tooltip on a disabled
+/// control, so with nothing unread it is only dimmed and its action does
+/// nothing.
 struct SidebarJumpToUnreadButton: View {
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     private let iconSize: CGFloat = 12
 
     let presentationMode: WorkspacePresentationModeSettings.Mode
 
-    @State private var hasUnreadNotifications: Bool
+    @State private var unreadCount: Int
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     init(presentationMode: WorkspacePresentationModeSettings.Mode) {
         self.presentationMode = presentationMode
-        _hasUnreadNotifications = State(
-            initialValue: TerminalNotificationStore.shared.notificationMenuSnapshot.hasUnreadNotifications
+        _unreadCount = State(
+            initialValue: TerminalNotificationStore.shared.notificationMenuSnapshot.unreadCount
         )
     }
 
     private var presentation: SidebarJumpToUnreadButtonPresentation {
         let _ = keyboardShortcutSettingsObserver.revision
         return .resolve(
-            hasUnreadNotifications: hasUnreadNotifications,
+            unreadCount: unreadCount,
             shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
         )
     }
@@ -64,11 +76,11 @@ struct SidebarJumpToUnreadButton: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .onReceive(
                     TerminalNotificationStore.shared.$notificationMenuSnapshot
-                        .map(\.hasUnreadNotifications)
+                        .map(\.unreadCount)
                         .removeDuplicates()
-                ) { hasUnread in
-                    if hasUnreadNotifications != hasUnread {
-                        hasUnreadNotifications = hasUnread
+                ) { count in
+                    if unreadCount != count {
+                        unreadCount = count
                     }
                 }
         }
@@ -76,23 +88,34 @@ struct SidebarJumpToUnreadButton: View {
 
     private var button: some View {
         let resolved = presentation
+        let tint = Color(nsColor: resolved.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor)
         return Button {
+            guard resolved.isEnabled else { return }
             AppDelegate.shared?.jumpToLatestUnread()
         } label: {
-            CmuxSystemSymbolImage(
-                systemName: resolved.systemName,
-                pointSize: iconSize,
-                weight: .medium,
-                tint: Color(nsColor: resolved.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor)
-            )
-            .frame(width: buttonSize, height: buttonSize, alignment: .center)
+            HStack(spacing: 3) {
+                CmuxSystemSymbolImage(
+                    systemName: SidebarJumpToUnreadButtonPresentation.systemName,
+                    pointSize: iconSize,
+                    weight: .medium,
+                    tint: tint
+                )
+                if let countText = resolved.countText {
+                    Text(countText)
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(tint)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .padding(.horizontal, resolved.countText == nil ? 0 : 5)
+            .frame(minWidth: buttonSize, minHeight: buttonSize, maxHeight: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .disabled(!resolved.isEnabled)
         .accessibilityElement(children: .ignore)
         .safeHelp(resolved.helpText)
         .accessibilityLabel(resolved.title)
+        .accessibilityValue(resolved.countText ?? "")
         .accessibilityIdentifier("SidebarJumpToUnreadButton")
     }
 }
