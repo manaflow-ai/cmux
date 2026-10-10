@@ -10,6 +10,19 @@ private struct HostEditorNavigationItem: UIViewRepresentable {
     let isEnabled: Bool
     let action: () -> Void
 
+    final class SaveButton: UIButton {
+        var handler: () -> Void = {}
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            addTarget(self, action: #selector(pressed), for: .touchUpInside)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        @objc private func pressed() { handler() }
+    }
+
     func makeUIView(context: Context) -> UIView {
         UIView(frame: .zero)
     }
@@ -18,10 +31,20 @@ private struct HostEditorNavigationItem: UIViewRepresentable {
         DispatchQueue.main.async {
             guard let controller = Self.hostingController(for: view) else { return }
             let item = controller.navigationItem.rightBarButtonItem ?? UIBarButtonItem()
+            let button: SaveButton
+            if let existing = item.customView as? SaveButton {
+                button = existing
+            } else {
+                button = SaveButton(frame: .zero)
+                item.customView = button
+            }
+            button.setTitle(title, for: .normal)
+            button.isEnabled = isEnabled
+            button.handler = action
+            button.accessibilityIdentifier = "ssh.editor.save"
             item.title = title
             item.style = .done
-            let save = action
-            item.primaryAction = UIAction { _ in save() }
+            item.primaryAction = nil
             item.isEnabled = isEnabled
             item.accessibilityIdentifier = "ssh.editor.save"
             item.accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
