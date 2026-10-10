@@ -39,8 +39,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case failed
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update): the one list still shows its header,
-        /// even with no workspaces, so the failure and its menu stay visible.
+        /// network, install or update). In one list its workspaces' second
+        /// line names the status (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
             case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true

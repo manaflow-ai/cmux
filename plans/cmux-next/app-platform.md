@@ -232,8 +232,9 @@ Coordinator answers applied: default first-party apps come from a deployment lis
 ### 13.2 Daemon commands (capability `apps-v1`)
 | cmd | params | result / events |
 | --- | --- | --- |
-| `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, manifest}]}` |
-| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; every change (including `hidden`) needs a verified cmux app connection (origin `user`) until P8 adds the verified-app path; agents must not change what the user sees (D55 as amended, request-origin.md) |
+| `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, hide_only, manifest}]}`; `hide_only` is true for first-party apps (Hide and Show only, never Remove) |
+| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; every change (including `hidden`) needs a verified cmux app connection (origin `user`) until P8 adds the verified-app path; agents must not change what the user sees (D55 as amended, request-origin.md); the reducer also refuses every non-user change (`apps.origin`); `installed: false` on a first-party app answers `apps.first_party_hide_only` (hide it instead), and a first-party app removed before that rule comes back hidden at load |
+| `apps-store` | `{op, args, origin?}`: an App Store op of section 15 (`cmux.apps.catalog.list`, `catalog.get`, `installed.list`, `set`, `install`, `uninstall`; the short `apps.<verb>` also works) | the op's result; `set`, `install` and `uninstall` need the verified cmux app connection like `apps-set` and origin `user` for every field; `install`/`uninstall` of a first-party app answer `apps.first_party_hide_only` |
 | `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
 | `apps-unmount` | `{mount_id}` | — |
 | `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
@@ -324,7 +325,8 @@ Every app, built-in or third-party, says how it appears with one manifest v2 blo
 | Field | Meaning | Validator |
 | --- | --- | --- |
 | `sidebarItem {section, title?, icon?, order?}` | a sidebar item that opens the app; title and icon default to the app's; the user may hide or move it (R53) | `order` 0-99 is first-party only (`presentation.orderReserved`), so no app sits above Home (Home 0, App Store 10, CodeRouter 20) |
-| `screen` | `app` (the app fills the screen) or `appColumn` (a docked app column next to the normal columns, like Home) | |
+| `screen` | `app` (the app fills the screen; the `appColumn` value is retired, Home uses `app`) | |
+| `hiddenByDefault` | a default app that starts installed but hidden until the user shows it (still reachable from the palette, CLI and App Store); CodeRouter ships hidden | |
 | `tab` | the app may also open as a page tab (Open as Tab, drag into a workspace) | |
 | `primaryInput` | where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id | |
 | `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
