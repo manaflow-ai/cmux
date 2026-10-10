@@ -1,28 +1,41 @@
 name: cmux-next base autofix
 
-# After each cmux-next run on a feat-cmux-next push, repairs the base's
-# mechanical reds in one commit on top of that push, so no pull request has to
-# carry them: the generated files the Mac generated-files job rebuilt (its
-# cmux-next-generated-patch artifact: action contracts, CI target graph) and
-# cargo fmt in cmux-tui (scripts/cmux-next/base-autofix.sh). A frozen path
+# After each feat-cmux-next push, repairs the base's mechanical reds in one
+# commit on top of it, so no pull request has to carry them
+# (scripts/cmux-next/base-autofix.sh): the CI target graph, regenerated from
+# `swift package dump-package` in a pinned Swift 6.2 Linux container (the Mac
+# generated-files job's tools), and cargo fmt in cmux-tui. Each runs only when
+# the push changed its inputs. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
 # is reported and never written; missing cmux-tui tree inputs are reported
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
-# app-ffi-release.yml's app-ffi-repin pull request.
+# app-ffi-release.yml's app-ffi-repin pull request. The action contracts need a
+# Mac swift test and are frozen, so pull requests keep carrying them.
+#
+# Its own push trigger: feat-cmux-next push CI is the Swift app build only
+# (cx-g34i), so cmux-next's push run no longer regenerates anything, and its
+# push paths never included cmux-tui.
 #
 # Push identity: github-actions[bot] through this job's GITHUB_TOKEN
 # (contents: write). No ruleset or branch protection applies to
 # feat-cmux-next (2026-10-09). GITHUB_TOKEN cannot push workflow files, and its
-# pushes start no workflow: the repair commit is verified by the next push's
-# cmux-next run, which is enough for mechanical fixes, and the bot cannot loop.
+# pushes start no workflow: the repair commit is verified by the next pull
+# request's checks, and the bot cannot loop.
 #
 # Dry run until the repo variable CMUX_NEXT_BASE_AUTOFIX is 1: it repairs and
 # commits locally, and the summary shows what it would push.
 on:
-  workflow_run:
-    workflows: [cmux-next]
-    types: [completed]
+  push:
     branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/**
+      - Packages/**
+      - scripts/cmux-next/base-autofix.sh
+      - scripts/cmux-next/base-autofix-frozen.txt
+      - scripts/cmux-next/ci-target-graph.py
+      - scripts/ci/check_cmux_tui_tree_inputs.py
+      - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - .github/workflows/cmux-next-base-autofix.yml
 
 permissions: {}
 
@@ -33,44 +46,66 @@ concurrency:
 jobs:
   autofix:
     name: autofix feat-cmux-next
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && github.event.workflow_run.head_branch == 'feat-cmux-next' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
-      actions: read
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
-      # Absent when the run regenerated nothing.
-      - name: Download the regenerated files
-        id: generated
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-next-generated-patch
-          path: ${{ runner.temp }}/generated
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+      # What the push changed decides the repairs. A new branch or a lost
+      # before commit runs them all.
+      - name: Changed areas
+        id: areas
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$BEFORE" =~ ^0+$ ]] || ! git fetch --quiet --depth=1 origin "$BEFORE"; then
+            graph=true fmt=true
+          else
+            changed="$(git diff --name-only "$BEFORE" HEAD)"
+            graph=false fmt=false
+            grep -qE '^(Packages/|scripts/cmux-next/(ci-target-graph\.py|base-autofix))' <<<"$changed" && graph=true
+            grep -qE '^(cmux-tui/|scripts/cmux-next/base-autofix)' <<<"$changed" && fmt=true
+          fi
+          echo "graph=$graph" >> "$GITHUB_OUTPUT"
+          echo "fmt=$fmt" >> "$GITHUB_OUTPUT"
+
+      # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
+      # checkout is mounted at its own path, read-only: the manifest's local
+      # package dependencies resolve outside the package directory.
+      - name: Dump the CmuxNext package manifest
+        if: steps.areas.outputs.graph == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -w "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" \
+            docker.io/library/swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
+            swift package dump-package > "$RUNNER_TEMP/package-dump.json"
 
       - name: Set up pinned cmux-tui Rust
+        if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Repair
+        env:
+          GRAPH: ${{ steps.areas.outputs.graph }}
+          FMT: ${{ steps.areas.outputs.fmt }}
         run: |
           set -euo pipefail
-          generated=()
-          [[ -d "$RUNNER_TEMP/generated" ]] && generated=(--generated "$RUNNER_TEMP/generated")
-          scripts/cmux-next/base-autofix.sh ${generated[@]+"${generated[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
+          args=()
+          [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
+          [[ "$FMT" == true ]] || args+=(--no-fmt)
+          scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit the repairs
         id: commit
         env:
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -94,7 +129,7 @@ jobs:
           # The checkout keeps no credentials; the token is used only here.
           TOKEN: ${{ github.token }}
           ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [[ "$ENABLED" != true ]]; then
