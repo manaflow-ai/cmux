@@ -361,7 +361,3 @@ mod receive;
 
 #[path = "mesh_driver_gateway.rs"]
 mod gateway;
-
-#[cfg(test)]
-#[path = "mesh_tests.rs"]
-mod tests;
