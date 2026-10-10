@@ -29,11 +29,14 @@ use crate::resource::{
 };
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
+pub use open_guard::RegistryQuarantined;
+use open_guard::preflight_unsupported_schema;
 
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
+mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -2372,8 +2375,10 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
+        open_guard::refuse_orphaned_journal(&db_path)?;
         let connection = open_registry_database(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
         Self::initialize(
             connection,
@@ -4987,42 +4992,6 @@ pub(crate) fn canonical_json(value: &Value) -> anyhow::Result<String> {
     let mut output = String::new();
     write(value, &mut output)?;
     Ok(output)
-}
-
-fn preflight_unsupported_schema(
-    database_path: &Path,
-) -> Option<UnsupportedWorkspaceRegistrySchema> {
-    // This probe only improves a writer-conflict error. Initialization remains
-    // authoritative, so read-only I/O and SQL failures must not block startup.
-    try_preflight_unsupported_schema(database_path).ok().flatten()
-}
-
-fn try_preflight_unsupported_schema(
-    database_path: &Path,
-) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
-    let connection = open_registry_database_read_only(database_path)?;
-    connection.busy_timeout(std::time::Duration::from_millis(500))?;
-    let has_meta: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_meta {
-        return Ok(None);
-    }
-    let Some(found) = meta_value(&connection, "schema_version")? else {
-        return Ok(None);
-    };
-    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
-    if found <= SCHEMA_VERSION {
-        return Ok(None);
-    }
-    Ok(Some(UnsupportedWorkspaceRegistrySchema {
-        found,
-        newest_supported: SCHEMA_VERSION,
-        database_path: Some(database_path.to_path_buf()),
-        registry_id: meta_value(&connection, "registry_id")?,
-    }))
 }
 
 pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
