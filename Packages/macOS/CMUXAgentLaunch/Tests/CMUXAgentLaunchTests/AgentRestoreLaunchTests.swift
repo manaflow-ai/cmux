@@ -149,8 +149,8 @@ import Testing
         try assertOmpRestoreKeepsExecutablePath("/Users/test/.bun/bin/omp")
     }
 
-    @Test(arguments: [[], ["omp", "--model", "sonnet"]])
-    func structuredOmpRestoreRejectsUnresolvedLaunchCapture(arguments: [String]) {
+    @Test(arguments: [[], ["omp", "--model", "sonnet"]], [false, true])
+    func structuredOmpRestoreRejectsUnresolvedLaunchCapture(arguments: [String], withPreparedArguments: Bool) {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
             kind: "omp",
@@ -165,7 +165,10 @@ import Testing
                 environment: ["PATH": "/usr/bin:/bin"],
                 source: "environment"
             ),
-            preparedArguments: nil,
+            // The app continuation path prepares argv through this same API.
+            preparedArguments: withPreparedArguments ? AgentResumeArgv().builtInKind(
+                kind: "omp", sessionId: sessionID, executablePath: nil, arguments: arguments
+            ) : nil,
             observedPermissionMode: nil
         )
 
@@ -198,6 +201,28 @@ import Testing
             )
         )
         #expect(invocation.arguments == [executable, "--session", sessionID])
+    }
+
+    @Test func structuredOmpRestoreKeepsAbsolutePreparedExecutable() throws {
+        let executable = "/Users/test/.bun/bin/omp"
+        let prepared = [executable, "--session", sessionID]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(launcher: "omp", arguments: []),
+            preparedArguments: prepared,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == prepared)
     }
 
     private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
