@@ -32,6 +32,14 @@ final class SidebarChatRowView: SidebarItemRowView {
         needsLayout = true
     }
 
+    /// A click anywhere on the row is the row's: a hit on its title or mark went to that label,
+    /// which the table refuses as first responder, so the table took the mouse down and the
+    /// chat never opened (cx-tr0w).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        return self
+    }
+
     override func layout() {
         super.layout()
         icon.isHidden = false
