@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// An app's icon: an SF Symbol on a quiet tile, or the bundle's image.
@@ -30,8 +31,7 @@ struct AppIconView: View {
     }
 
     private func symbol(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: size * 0.46, weight: .regular))
+        Icon(symbol: name, size: size * 0.46)
             .foregroundStyle(colors.primary)
     }
 }
