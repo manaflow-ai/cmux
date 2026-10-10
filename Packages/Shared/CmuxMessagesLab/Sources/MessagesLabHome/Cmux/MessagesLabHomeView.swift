@@ -67,7 +67,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// H17: offline the user can type, but Send and tapbacks are off.
+    /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
@@ -231,7 +231,9 @@ public final class MessagesLabHomeView: NSView {
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
 
     /// Return in the field: sends the text and the attachments as one message.
-    public func sendDraft() { projection.send() }
+    /// Nil when it went (or waits for the owner as "sending"), else why not.
+    @discardableResult
+    public func sendDraft() -> String? { projection.send() }
 
     /// Automation (DEBUG socket): a love tapback on the newest incoming
     /// message through the picker's path (`ChatIntents.react`).

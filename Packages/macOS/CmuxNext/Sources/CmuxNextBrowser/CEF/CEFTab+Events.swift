@@ -48,7 +48,21 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url):
             clearTitleBeforeCommit()
             guard let navigation else { return }
-            machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
+            let error = Self.loadError(code: code, text: text, url: url)
+            machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
+                // The failed address is the tab's document now (Chrome's
+                // omnibox shows it), even when Chromium sends no address
+                // change for its error page, as after a New Tab page. After
+                // `.failed` the machine also takes it as the committed URL,
+                // so a later cancelled load does not revert to the New Tab.
+                machine.apply(.urlChanged(failing))
+                committedURL = failing
+                // Chromium draws its error page or interstitial and commits it
+                // with no OnLoadStart: that page ends the New Tab page's hole,
+                // as a committed page does, so it is not masked out (cx-2nfi).
+                if error.engineShowsPage { reachedFirstRealPage() }
+            }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
