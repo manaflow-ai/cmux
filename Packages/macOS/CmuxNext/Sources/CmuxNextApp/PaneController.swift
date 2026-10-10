@@ -161,7 +161,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url)
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
-                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id) { item.isUnread = true }
+                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id, in: services.cache) { item.isUnread = true }
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }

@@ -14,17 +14,25 @@ final class BrowserTitleAttention {
     private var seen: [String: (url: String?, title: String)] = [:]
     private var marked: Set<String> = []
 
-    /// Whether browser tab `tab` shows the attention dot (never while
-    /// Settings hides attention on tabs; the strip snapshot asks).
-    func marks(_ tab: TabModel, selected: Bool) -> Bool {
+    /// Whether browser tab `tab` shows the attention dot; never while
+    /// Settings hides attention on tabs. A title that comes while its live
+    /// page in `cache` loads (a load or reload at the same URL) is the
+    /// page's, not news; that state is read only when the title changed, so
+    /// the snapshot does not follow every page state change.
+    func marks(_ tab: TabModel, selected: Bool, in cache: TabContentCache) -> Bool {
         let key = tab.id
+        guard DesignSettings.shared.attention.showsOnTab else {
+            (seen[key], marked) = (nil, [])
+            return false
+        }
         guard !selected, !tab.title.isEmpty else {
             if selected { marked.remove(key) }
             seen[key] = nil
-            return marked.contains(key) && DesignSettings.shared.attention.showsOnTab
+            return marked.contains(key)
         }
-        if let last = seen[key], last.url == tab.url, last.title != tab.title { marked.insert(key) }
+        if let last = seen[key], last.url == tab.url, last.title != tab.title,
+           cache.existingBrowser(key)?.tab.state.isLoading != true { marked.insert(key) }
         seen[key] = (tab.url, tab.title)
-        return marked.contains(key) && DesignSettings.shared.attention.showsOnTab
+        return marked.contains(key)
     }
 }
