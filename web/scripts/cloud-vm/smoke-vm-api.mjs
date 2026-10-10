@@ -12,6 +12,7 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
+import { classifyCodexCanaryOutcome } from "./canaryOutcome.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -413,14 +414,7 @@ try {
         ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
-      // codex echoes the prompt, so only a line that is exactly the answer counts.
-      const codexPong = !zeroToken && codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
-      // The edge delivered the token but the team has no upstream subscription:
-      // a real outcome on staging teams, reported rather than failed. In
-      // zero-token mode it is the only passing outcome.
-      const codexOutcome = /codex-missing/.test(codexOut)
-        ? "failed"
-        : codexPong ? "answered" : /"error":\s*"no_usable_account"/.test(codexOut) ? "no_account" : "failed";
+      const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
       edge = {
         hostsSteered: steered,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
