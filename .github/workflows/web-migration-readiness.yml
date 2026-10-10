@@ -1,0 +1,129 @@
+name: Web migration readiness
+
+# Early signal for the Vercel deploy gate (web/tools/migration-deploy-gate.mjs).
+# Merging main deploys production without running migrations, so a pull
+# request that adds a web/db/migrations folder must have that migration
+# applied to PlanetScale staging and production before it merges.
+#
+# This workflow is read from the base branch. It reads the pull request's file
+# list through the API as data, never checks out or runs pull-request code,
+# and runs only the trusted gate from the base revision.
+on:
+  pull_request_target:
+    branches:
+      - main
+    # labeled/unlabeled re-evaluate the attestation label without a push.
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: web-migration-readiness-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    name: Web migration readiness
+    # Repository secrets are present here. Keep it on an ephemeral GitHub
+    # hosted runner and never let a repository variable select the host.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ATTESTATION_LABEL: db-migrations-applied
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+      TRUSTED_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - name: List migrations this pull request adds
+        id: added
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The pull-request files API lists at most 3000 files. Fail closed
+          # rather than miss a migration beyond that limit.
+          if [ "${CHANGED_FILES:-0}" -gt 3000 ]; then
+            echo "::error::Pull request changes ${CHANGED_FILES} files; the files API lists only 3000, so added migrations cannot be verified."
+            exit 1
+          fi
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[] | select(.status == "added" or .status == "renamed" or .status == "copied") | .filename' \
+            > "$RUNNER_TEMP/added-files.txt"
+          names=""
+          while IFS= read -r file; do
+            case "$file" in
+              web/db/migrations/*/migration.sql) ;;
+              *) continue ;;
+            esac
+            name="${file#web/db/migrations/}"
+            name="${name%/migration.sql}"
+            if [[ ! "$name" =~ ^[0-9]{14}_[A-Za-z0-9_]+$ ]]; then
+              echo "::error::Unexpected migration folder name: $name"
+              exit 1
+            fi
+            names="${names:+$names,}$name"
+          done < "$RUNNER_TEMP/added-files.txt"
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+          if [ -z "$names" ]; then
+            echo "No migration folders added; nothing to verify."
+          else
+            echo "Added migrations: $names"
+          fi
+
+      - name: Checkout trusted base revision
+        if: steps.added.outputs.names != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TRUSTED_SHA }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Bun
+        if: steps.added.outputs.names != ''
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install trusted gate dependencies
+        if: steps.added.outputs.names != ''
+        working-directory: trusted/web
+        run: bun install --frozen-lockfile
+
+      - name: Verify migrations are applied to staging and production
+        if: steps.added.outputs.names != ''
+        working-directory: trusted/web
+        env:
+          NAMES: ${{ steps.added.outputs.names }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'db-migrations-applied') }}
+          # Read-only PlanetScale roles limited to drizzle.__drizzle_migrations.
+          # See web/AGENTS.md "Migration order" for how to create them.
+          CMUX_MIGRATION_GATE_STAGING_DATABASE_URL: ${{ secrets.CMUX_MIGRATION_GATE_STAGING_DATABASE_URL }}
+          CMUX_MIGRATION_GATE_PRODUCTION_DATABASE_URL: ${{ secrets.CMUX_MIGRATION_GATE_PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ ! -f tools/migration-deploy-gate.mjs ]; then
+            echo "::error::The base revision has no tools/migration-deploy-gate.mjs; cannot verify."
+            exit 1
+          fi
+          if [ -n "${CMUX_MIGRATION_GATE_STAGING_DATABASE_URL:-}" ] && [ -n "${CMUX_MIGRATION_GATE_PRODUCTION_DATABASE_URL:-}" ]; then
+            status=0
+            for target in staging production; do
+              upper=$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')
+              bun tools/migration-deploy-gate.mjs --label "$target" \
+                --database-url-env "CMUX_MIGRATION_GATE_${upper}_DATABASE_URL" --names "$NAMES" || status=1
+            done
+            if [ "$status" -ne 0 ]; then
+              echo "::error::Apply the migration to staging, then production, before merging (bun run cloud-vm:migrate -- staging, then -- production, from this PR's web/). Then re-run this check."
+            fi
+            exit "$status"
+          fi
+          echo "::warning::Read-only migration ledger secrets are not configured; falling back to the ${ATTESTATION_LABEL} label."
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "::warning::The ${ATTESTATION_LABEL} label attests that ${NAMES} is applied to staging and production. Unverified."
+            exit 0
+          fi
+          echo "::error::This pull request adds ${NAMES}. Apply it to staging and production first (bun run cloud-vm:migrate -- staging, then -- production), then add the ${ATTESTATION_LABEL} label."
+          exit 1
