@@ -1576,21 +1576,21 @@
     },
     {
       "entry": {
-        "actionID": "workspace.newInGroup",
+        "actionID": "workspace.newLikeThis",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:workspace.newInGroup",
+        "frecencyKey": "action:workspace.newLikeThis",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "group", "section"],
+        "keywords": ["create", "same", "group", "cwd", "folder", "directory"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "New Workspace in This Group",
+        "title": "New Workspace Like This",
         "typingSectionIndex": 16
       },
-      "id": "action:workspace.newInGroup"
+      "id": "action:workspace.newLikeThis"
     },
     {
       "entry": {
@@ -1627,24 +1627,6 @@
         "typingSectionIndex": 16
       },
       "id": "action:workspace.newOnMachine"
-    },
-    {
-      "entry": {
-        "actionID": "workspace.newInSameDirectory",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:workspace.newInSameDirectory",
-        "hasShortcut": false,
-        "hidesWhenTyping": false,
-        "isEnabled": true,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "cwd", "folder", "path"],
-        "rankBias": 0,
-        "sectionIndex": 1,
-        "title": "New Workspace in Same Directory",
-        "typingSectionIndex": 16
-      },
-      "id": "action:workspace.newInSameDirectory"
     },
     {
       "entry": {

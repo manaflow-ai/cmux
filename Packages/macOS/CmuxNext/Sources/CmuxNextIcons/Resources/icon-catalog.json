@@ -133,6 +133,12 @@
    "family": "action"
   },
   {
+   "name": "action.share",
+   "meaning": "Share (a link, the app)",
+   "sf": "square.and.arrow.up",
+   "family": "action"
+  },
+  {
    "name": "action.show",
    "meaning": "Show / watch / focus mode",
    "sf": "eye",
@@ -702,6 +708,12 @@
    "name": "group.new",
    "meaning": "New group / folder / load unpacked",
    "sf": "folder.badge.plus",
+   "family": "group"
+  },
+  {
+   "name": "group.ungroup",
+   "meaning": "Ungroup workspaces",
+   "sf": "square.stack.3d.up.slash",
    "family": "group"
   },
   {
@@ -1641,6 +1653,12 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "window.new",
+   "meaning": "Move to a new window / new window",
+   "sf": "macwindow.badge.plus",
+   "family": "window"
   },
   {
    "name": "workspace",

@@ -123,8 +123,8 @@
   {
    "name": "browser.incognito",
    "meaning": "Incognito / private window",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 10.5 8.1 5.4a1 1 0 0 1 1.35-.62L12 5.75l2.55-.97a1 1 0 0 1 1.35.62l1.6 5.1Z'/><path d='M3 10.5h18'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 10.5 8.1 5.4a1 1 0 0 1 1.35-.62L12 5.75l2.55-.97a1 1 0 0 1 1.35.62l1.6 5.1Z'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.5h18'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 10.5 7.5 5.75h9l2 4.75'/><path d='M3 10.5h18'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 10.5 7.5 5.75h9l2 4.75Z'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.5h18'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></g></svg>",
    "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/><path class='accent' stroke='var(--accent)' d='M4 11.5V5.5l4 3.5h8l4-3.5v6'/></svg>",
    "alts": [
     {
@@ -133,7 +133,7 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6.5' cy='13' r='3.5'/><circle cx='17.5' cy='13' r='3.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13c1.25 -1 2.75 -1 4 0M3 13 4.75 7.25M21 13l-1.75 -5.75'/></g></svg>"
     }
    ],
-   "note": "Preferred: hat over glasses, the browser 'incognito' idiom; bare eyeglasses (alt) reads as 'reading/view' at 16 px. Cat: the hat becomes cat ears over the glasses (a cat in disguise).",
+   "note": "Preferred: a simple fedora crown over glasses keeps the private-window idiom legible at row size without the previous angular crown detail.",
    "replaces": [
     "eyeglasses"
    ]

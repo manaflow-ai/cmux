@@ -357,3 +357,35 @@ fn no_daemon_outlives_a_fixture() {
     }
     assert_eq!(processes_under(&dir), Vec::<String>::new(), "a daemon outlived its fixture");
 }
+
+/// `remote connect --state-dir` (the app's link client) keeps its client log
+/// in that directory, never in the default state root (cx-fdjq). The ssh
+/// binary fails at once, so the connect fails without the network and logs
+/// its error.
+#[test]
+fn remote_connect_state_dir_holds_the_client_log() {
+    let fixture = Fixture::new();
+    let client_state = fixture.dir.join("client-state");
+    fs::create_dir(&client_state).unwrap();
+    fs::set_permissions(&client_state, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = fixture
+        .command()
+        .args(["remote", "connect", "ssh://cmux-fdjq.invalid", "--session", &fixture.session])
+        .args(["--headless", "--json", "--no-install", "--ssh-binary", "/usr/bin/false"])
+        .args(["--connect-timeout-seconds", "5", "--reconnect-attempts", "1", "--state-dir"])
+        .arg(&client_state)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "the connect must fail: {stderr}");
+    // The default log is the parent of CMUX_TUI_STATE_DIR (the fixture dir).
+    assert!(
+        !fixture.dir.join("client.log").exists(),
+        "the client log went to the default state root; stderr: {stderr}"
+    );
+    assert!(
+        client_state.join("client.log").exists(),
+        "no client log in --state-dir; stderr: {stderr}"
+    );
+}
