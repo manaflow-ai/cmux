@@ -122,6 +122,7 @@ export function AllChatsList({
     return (
       <div
         key={row.key}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
         role="listitem"
         className="nt-all-item"
         style={style}
@@ -163,6 +164,7 @@ export function AllChatsList({
         <ContextMenu items={items}>
           <VirtualList
             className="nt-all-list"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
             role="list"
             label={nt("allChats")}
             count={count}
