@@ -48637,7 +48637,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:TeamDO",
-      "risk": "read",
+      "risk": "mutate-shared",
       "principals": [
         "session"
       ],

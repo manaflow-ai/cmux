@@ -1,8 +1,8 @@
 //! cx-7e7b: the manual restart of a dead terminal tab (`restart-tab`,
 //! `tab-restart-v1`, plans/cmux-next/ownership.md section 3.2). It reuses
 //! the L2 respawn worker: the same terminal id gets a new shell and a new
-//! incarnation, also after the crash-loop bound refused an automatic
-//! respawn, and after a process end the tab kept (`on_exit` keep), also
+//! incarnation, also after the respawn supervisor gave up
+//! (`restart_exhausted`), and after a process end the tab kept (`on_exit` keep), also
 //! from the CLI (`cmux tab <id> restart`). A tab whose terminal still runs
 //! is a typed reject.
 
@@ -12,40 +12,60 @@ fn restart_tab(harness: &RecoveryHarness, tab: serde_json::Value) -> serde_json:
     request_response(&harness.socket, serde_json::json!({"id":1,"cmd":"restart-tab","surface":tab}))
 }
 
-/// a. The bound refused the second automatic respawn and the tab reads
-/// dead; Restart brings the same terminal back with a new shell.
+/// a. The supervisor used every attempt (two here) and the tab reads dead
+/// with `restart_exhausted`; Restart brings the same terminal back with a
+/// new shell, and the supervisor starts over: the next loss respawns again.
 #[test]
-fn a_manual_restart_brings_back_a_terminal_the_crash_loop_bound_left_dead() {
+fn a_manual_restart_brings_back_a_terminal_the_supervisor_gave_up_on() {
     let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("restart-after-bound");
-    let (terminal_id, incarnation, _) = start_default_shell(&harness, "bound");
-    kill_current_shell_and_host(&harness, &terminal_id);
-    let respawned = wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let mut harness = RecoveryHarness::start_unstarted("restart-after-exhausted");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_RESPAWN_BACKOFF_MS", "0,0");
+    harness.child = Some(command.spawn().expect("spawn the daemon"));
+    wait_for_socket(&harness.socket);
+    let (terminal_id, mut incarnation, _) = start_default_shell(&harness, "bound");
+    for _ in 0..2 {
+        kill_current_shell_and_host(&harness, &terminal_id);
+        incarnation = wait_for_respawn(&harness, &terminal_id, &incarnation);
+        let surface = tab_named(&harness, "bound")["surface"].as_u64().expect("surface");
+        wait_for_screen(&harness.socket, surface, MARKER);
+    }
     let surface = tab_named(&harness, "bound")["surface"].as_u64().expect("surface");
-    wait_for_screen(&harness.socket, surface, MARKER);
     let old_pid = echo_value(&harness, surface, "first", "$$");
     kill_current_shell_and_host(&harness, &terminal_id);
     wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
-    std::thread::sleep(Duration::from_secs(1));
-    let dead = tab_named(&harness, "bound");
-    assert_eq!(dead["dead"], true, "the bound did not leave the tab dead: {dead}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let dead = loop {
+        let tab = tab_named(&harness, "bound");
+        if tab["end"]["reason"] == "restart_exhausted" {
+            break tab;
+        }
+        assert!(Instant::now() < deadline, "the supervisor never gave up: {tab}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(dead["dead"], true, "{dead}");
 
     let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
     assert_eq!(restarted["ok"], true, "{restarted}");
     assert_eq!(restarted["data"]["terminal"], dead["terminal_resource_id"], "{restarted}");
-    let new_incarnation = wait_for_respawn(&harness, &terminal_id, &respawned);
-    assert_ne!(new_incarnation, incarnation);
+    let manual = wait_for_respawn(&harness, &terminal_id, &incarnation);
 
     let tab = tab_named(&harness, "bound");
     assert_eq!(tab["dead"], false, "{tab}");
     assert_eq!(tab["terminal_id"], terminal_id.as_str(), "the restart made a new terminal");
     assert_eq!(tab["tab_resource_id"], dead["tab_resource_id"], "the restart made a new tab");
     let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
+    wait_for_screen(&harness.socket, surface, MARKER);
     assert_ne!(echo_value(&harness, surface, "second", "$$"), old_pid, "the same shell answered");
-    let lines = wait_for_respawn_lines(&harness, &terminal_id, 2);
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert_eq!(lines[1]["cause"], "user_restart");
-    assert_eq!(lines[1]["new_incarnation"], new_incarnation.as_str());
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 3);
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines[2]["cause"], "user_restart");
+    assert_eq!(lines[2]["new_incarnation"], manual.as_str());
+
+    // The restart reset the supervisor: the next loss respawns at once.
+    kill_current_shell_and_host(&harness, &terminal_id);
+    wait_for_respawn(&harness, &terminal_id, &manual);
+    assert_eq!(tab_named(&harness, "bound")["dead"], false);
 }
 
 /// b. A process end under `on_exit` keep leaves the tab dead with its

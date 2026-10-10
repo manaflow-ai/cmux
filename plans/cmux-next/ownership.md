@@ -191,14 +191,13 @@ that ever matters.
 
 Restart of a dead tab (user decision 2026-10-02; design revised 2026-10-09, cx-7e7b): the
 owner respawns a host-lost placed terminal by itself under the SAME terminal id
-(cx-6so.49 L2, `mux/terminal_respawn.rs`, crash-loop bound 3 per 600 s). A tab L2 leaves
-dead (a crash-loop refusal, a loss reason that never respawns, a process end the tab
+(cx-6so.49 L2, `mux/terminal_respawn.rs`, a supervisor with bounded backoff). A tab L2
+leaves dead (`restart_exhausted` or `restart_failed`, a loss reason that never respawns, a process end the tab
 kept under `on_exit` keep, a keep-layout tab) shows one-click Restart. The op is
 `restart-tab {surface}` (`tab-restart-v1`, Unix owners): it runs the L2 worker for the
 same terminal id, so the tab id, placement, name, pin, group and every reference to the
 terminal stay, and the new shell starts below the previous screen and the marker line.
-An explicit request is not bounded by the crash-loop limit and does not count toward
-it. A tab whose terminal runs, launches or already restarts is the typed reject
+An explicit request has no backoff and resets the supervisor's attempt count. A tab whose terminal runs, launches or already restarts is the typed reject
 `tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
 superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
 orphan branch feat-cmux-next-tab-restart-4) did not land. Surfaces, one shared action

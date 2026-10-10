@@ -1931,12 +1931,13 @@ object{surface:Id, url:string, title:string|null, favicon_url:string|null, owner
 | since | protocol 12 additive extension; capability `tab-restart-v1` (Unix owners) |
 
 Restarts a terminal tab whose shell ended: a host loss the automatic respawn
-refused (the crash-loop bound) or never covers, a process end the tab kept
+gave up on (`restart_exhausted`, `restart_failed`) or never covers, a process end the tab kept
 (`on_exit` keep), or a tab kept by `shutdown-daemon` `keep_layout`. It runs
 the automatic respawn's worker: the same terminal id gets a new shell and a
 new incarnation in every tab that shows it, below the previous screen and one
 dim marker line; the tab id, placement, name, pin and group stay. An explicit
-restart is not bounded by the crash-loop limit and does not count toward it.
+restart has no backoff and resets the respawn supervisor's attempt count for
+the terminal.
 The reply comes when the worker started; the tree shows the tab adopting,
 then running, or dead again when the launch failed. Errors (`error_code`):
 `tab-not-dead` (the terminal runs, launches or already restarts),
