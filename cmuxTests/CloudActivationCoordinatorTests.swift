@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCloud
 import CmuxSettings
 import Foundation
@@ -109,6 +110,43 @@ struct CloudActivationCoordinatorTests {
 
         #expect(coordinator.state == .failed(.serviceUnavailable))
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+    }
+
+    @Test("An absent WireGuard hub does not roll back Cloud activation")
+    func absentWireGuardHubKeepsActivationEnabled() async throws {
+        let suite = "cmux.cloud.activation.absentHub.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            wireGuardHub: nil,
+            allowsBackgroundWork: { true },
+            listPage: { nil },
+            notificationCenter: NotificationCenter()
+        )
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {
+                await registry.prepareActivationHub(
+                    wireGuardHub: nil,
+                    expectedTeamScope: scope
+                )
+            }
+        )
+
+        coordinator.enable()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+
+        #expect(coordinator.state == .enabled)
+        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
     }
 
     @Test("Cancellation serializes cleanup before a replacement attempt")

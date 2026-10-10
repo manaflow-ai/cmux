@@ -120,6 +120,11 @@ public actor CloudWireGuardHub {
     private var prewarmLease: Lease?
     /// Retained after completion: one automatic sequence per Cloud activation, not per fleet poll.
     private var preparationTask: Task<Void, Never>?
+    /// Identity and account scope of the task retained in ``preparationTask``.
+    /// The identity fences a replaced unscoped warmup from mutating a newer
+    /// activation attempt.
+    private var preparationID: UUID?
+    private var preparationScope: AuthenticatedTeamScope?
     private var pinnedByExternalClient = false
     /// The authenticated account/team that produced the running enrollment.
     /// Activation refreshes preserve the carrier when this scope is unchanged.
@@ -219,13 +224,59 @@ public actor CloudWireGuardHub {
         }
     }
 
-    /// Schedules account-level preparation without making fleet discovery wait for enrollment.
-    /// Repeated refreshes and a first terminal join the same startup and keep one shared claim.
-    public func prepareForCloudUse() {
-        guard !Task.isCancelled, preparationTask == nil else { return }
-        preparationTask = Task { [weak self] in
-            _ = try? await self?.prewarm()
+    /// Schedules account-level preparation without making activation or fleet
+    /// discovery wait for enrollment. Repeated refreshes and a first terminal
+    /// join the same startup and keep one shared claim. The optional scope is
+    /// used by first-use activation so a background task cannot enroll a
+    /// different account if sign-out or team selection changes while it runs.
+    public func prepareForCloudUse(
+        allowWhenCloudDisabled: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil
+    ) {
+        guard !Task.isCancelled else { return }
+        if let preparationTask {
+            // Activation publishes its marker before the registry's observer
+            // can schedule its ordinary, unscoped warmup. Replace that first
+            // task with the account-fenced activation attempt instead of
+            // silently dropping the expected scope.
+            if let expectedTeamScope, preparationScope != expectedTeamScope {
+                preparationTask.cancel()
+                self.preparationTask = nil
+                preparationID = nil
+                preparationScope = nil
+            } else {
+                return
+            }
         }
+        let preparationID = UUID()
+        self.preparationID = preparationID
+        preparationScope = expectedTeamScope
+        preparationTask = Task { [weak self] in
+            _ = try? await self?.prewarm(
+                allowWhenCloudDisabled: allowWhenCloudDisabled,
+                expectedTeamScope: expectedTeamScope,
+                preparationID: preparationID
+            )
+        }
+    }
+
+    /// Cancels the activation-owned preparation attempt and releases only its
+    /// account-level claim. Existing link leases remain untouched.
+    public func cancelPreparation() async {
+        let task = preparationTask
+        let hasOtherUsers = leases.count > (prewarmLease == nil ? 0 : 1) || pinnedByExternalClient
+        task?.cancel()
+        // If preparation is the only owner, invalidate its shared startup
+        // task before awaiting it. A readiness probe may otherwise be parked
+        // indefinitely while this cleanup waits for the cancelled waiter.
+        if task != nil, !hasOtherUsers {
+            stop(preservingPreparationTask: true)
+            await task?.value
+        }
+        preparationTask = nil
+        preparationID = nil
+        preparationScope = nil
+        releasePrewarm()
     }
 
     /// Keeps one account claim even if startup fails. Explicit link demand can
@@ -234,13 +285,29 @@ public actor CloudWireGuardHub {
         allowWhenCloudDisabled: Bool = false,
         expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> Ready {
+        try await prewarm(
+            allowWhenCloudDisabled: allowWhenCloudDisabled,
+            expectedTeamScope: expectedTeamScope,
+            preparationID: nil
+        )
+    }
+
+    private func prewarm(
+        allowWhenCloudDisabled: Bool,
+        expectedTeamScope: AuthenticatedTeamScope?,
+        preparationID: UUID?
+    ) async throws -> Ready {
         try Task.checkCancellation()
+        if let preparationID {
+            guard self.preparationID == preparationID else { throw CancellationError() }
+        }
         if allowWhenCloudDisabled, activeTeamScope != expectedTeamScope {
             // Activation is the account-fenced handoff from a disabled local
             // marker. Drop any stale carrier before enrolling with the scope
             // captured by this attempt; a running hub cannot be assumed to
             // belong to the current account after sign-out/team changes.
-            stop()
+            resetForScopeChange()
+            try Task.checkCancellation()
         }
         if prewarmLease == nil {
             let lease = Lease(id: UUID())
@@ -249,10 +316,14 @@ public actor CloudWireGuardHub {
             idleStopTask?.cancel()
             idleStopTask = nil
         }
-        return try await ensureRunning(
+        let ready = try await ensureRunning(
             allowWhenCloudDisabled: allowWhenCloudDisabled,
             expectedTeamScope: expectedTeamScope
         )
+        if let preparationID {
+            guard self.preparationID == preparationID else { throw CancellationError() }
+        }
+        return ready
     }
 
     /// Releases the account-level preparation claim when its owner no longer needs it.
@@ -280,9 +351,21 @@ public actor CloudWireGuardHub {
 
     /// Stops the hub on purpose (sign-out, revoke); leases are dropped, no restart follows.
     public func stop() {
+        stop(preservingPreparationTask: false)
+    }
+
+    private func resetForScopeChange() {
+        stop(preservingPreparationTask: true)
+    }
+
+    private func stop(preservingPreparationTask: Bool) {
         generation &+= 1
-        preparationTask?.cancel()
-        preparationTask = nil
+        if !preservingPreparationTask {
+            preparationTask?.cancel()
+            preparationTask = nil
+            preparationScope = nil
+            preparationID = nil
+        }
         idleStopTask?.cancel()
         idleStopTask = nil
         restartTask?.cancel()
