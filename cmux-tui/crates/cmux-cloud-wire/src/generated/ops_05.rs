@@ -4,6 +4,44 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
+    HomeSearchOp {
+        name: "home.search",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:planetscale",
+        risk: "read",
+        principals: [Session, Install],
+        params: HomeSearchParams,
+        result: HomeSearchResult,
+        error: HomeSearchError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchParams {
+    pub q: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItemRangesItem {
+    pub start: i64,
+    pub length: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeSearchResultHitsItem {
     pub conversation: ConversationId,
@@ -860,46 +898,4 @@ wire_op! {
 pub struct InviteAcceptParams {
     pub code: String,
     pub secret: String,
-}
-
-wire_errors! {
-    /// The error codes invite.accept declares.
-    InviteAcceptError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteExpired = "invite_expired",
-        InviteNotPending = "invite_not_pending",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Approve (default) or decline a join that waits for approval (pending_approval).
-    InviteApproveJoinOp {
-        name: "invite.approve_join",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: InviteApproveJoinParams,
-        result: HomeConversationCommit,
-        error: InviteApproveJoinError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteApproveJoinParams {
-    pub conversation: ConversationId,
-    pub invite_id: InviteId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approve: Option<bool>,
 }

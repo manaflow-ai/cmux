@@ -125,7 +125,7 @@ fn a_close_records_the_actor_of_its_connection() {
     // A close is recorded by its effect receipt, not in resource_mutations.
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'close-it'";
-    let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
+    let actor = registry.connection.get().query_row(sql, [], |row| row.get::<_, String>(0));
     assert_eq!(actor.ok().as_deref(), Some("user:user_local"));
 }
 
@@ -159,7 +159,8 @@ fn rows_a_creation_reserves_are_the_callers() {
     let registry = mux.workspace_registry.lock().unwrap();
     let sql =
         "SELECT idempotency_key, actor FROM resource_mutations WHERE actor != 'user:user_local'";
-    let mut statement = registry.connection.prepare(sql).unwrap();
+    let db = registry.connection.get();
+    let mut statement = db.prepare(sql).unwrap();
     let others = statement
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
         .unwrap()
@@ -186,7 +187,7 @@ fn a_replayed_close_keeps_the_first_receipt_actor() {
     assert_eq!(replay["ok"], true, "{replay}");
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'replay-close'";
-    let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
+    let actor = registry.connection.get().query_row(sql, [], |row| row.get::<_, String>(0));
     assert_eq!(actor.ok().as_deref(), Some("user:user_local"));
 }
 
@@ -195,7 +196,7 @@ fn a_replayed_close_keeps_the_first_receipt_actor() {
 fn newest_legacy_actor(mux: &Arc<Mux>) -> Option<String> {
     let registry = mux.workspace_registry.lock().unwrap();
     let sql = "SELECT actor FROM resource_effect_receipts ORDER BY rowid DESC LIMIT 1";
-    registry.connection.query_row(sql, [], |row| row.get::<_, String>(0)).ok()
+    registry.connection.get().query_row(sql, [], |row| row.get::<_, String>(0)).ok()
 }
 
 /// A legacy line's reply: the dispatcher may answer on another thread.

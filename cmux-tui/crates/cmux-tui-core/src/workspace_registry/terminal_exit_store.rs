@@ -171,7 +171,8 @@ impl WorkspaceRegistry {
                 "terminal exit topology changes must be a JSON array"
             );
         }
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut terminal = read_terminal(&tx, terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
         let terminal_revision = transaction_terminal_revision(&tx)?;
@@ -389,13 +390,15 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn set_terminal_exit_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
-            self.connection.execute_batch(
+            self.connection.get().execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_terminal_exit
                  BEFORE INSERT ON terminal_mutations
                  BEGIN SELECT RAISE(ABORT, 'forced terminal exit failure'); END;",
             )?;
         } else {
-            self.connection.execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
+            self.connection
+                .get()
+                .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_terminal_exit")?;
         }
         Ok(())
     }

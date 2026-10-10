@@ -183,13 +183,14 @@ impl Mux {
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let mux = Arc::new(Mux {
+            registry_connection: registry.connection.clone(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
             resource_projection_stats,
             started_at: Instant::now(),
-            state: Mutex::new(state),
+            state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -284,7 +285,11 @@ impl Mux {
             cell_pixel_operation: Mutex::new(None),
             #[cfg(test)]
             cell_pixel_fanout_timeout: Mutex::new(None),
-            default_colors: Mutex::new(default_colors),
+            default_colors: crate::lock_rank::RankedMutex::new(
+                crate::lock_rank::LockRank::Leaf,
+                "mux.default_colors",
+                default_colors,
+            ),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),

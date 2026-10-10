@@ -79,7 +79,7 @@ impl Mux {
         // token against the state it commits on.
         if !created_panes.is_empty() {
             let registry = self.workspace_registry.lock().unwrap();
-            let state = self.state.lock().unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target disappeared before confirmation".to_string(),
@@ -246,7 +246,7 @@ impl Mux {
         let notifications = self.tree_decorations();
         let registry = self.workspace_registry.lock().unwrap();
         let (removed, deltas, selection_resync, revision) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo workspace is no longer available".to_string(),

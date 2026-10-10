@@ -835,7 +835,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudMachineCreateOp {
         name: "cloud.machine.create",
         class: Mutation,
@@ -868,6 +868,10 @@ pub struct CloudMachineCreateResult {
 wire_errors! {
     /// The error codes cloud.machine.create declares.
     CloudMachineCreateError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
         AuthForbidden = "auth.forbidden",
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
@@ -884,20 +888,5 @@ wire_errors! {
         OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
-    CloudMachineDeleteOp {
-        name: "cloud.machine.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: CloudMachineDeleteParams,
-        result: CloudMachineDeleteResult,
-        error: CloudMachineDeleteError,
     }
 }

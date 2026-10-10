@@ -62,7 +62,7 @@ impl Mux {
 
         let mut session_selectors = selectors;
         session_selectors.pairing_request = None;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         let resolved = self
             .resolve_resource_path_in_state(
                 &state,
