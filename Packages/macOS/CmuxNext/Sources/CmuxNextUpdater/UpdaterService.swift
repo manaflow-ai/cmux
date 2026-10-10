@@ -332,6 +332,7 @@ public final class UpdaterService {
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
             card: card,
+            cardPresentation: cardPresentation,
             badge: footerPill?.title
         )
     }
