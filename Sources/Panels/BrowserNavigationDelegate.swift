@@ -341,6 +341,15 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+        let navigationIntent: BrowserInsecureHTTPNavigationIntent = shouldOpenInNewTab ? .newTab : .currentTab
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
@@ -374,11 +383,12 @@ import WebKit
             var request = navigationAction.request
             request.url = listenerURL
             if let host = serviceURL.host {
+                let hostValue = host.contains(":") ? "[\(host)]" : host
                 let port = serviceURL.port.map { ":\($0)" } ?? ""
-                request.setValue(host + port, forHTTPHeaderField: "Host")
+                request.setValue(hostValue + port, forHTTPHeaderField: "Host")
             }
             decisionHandler(.cancel)
-            requestNavigation?(request, .currentTab, nil)
+            requestNavigation?(request, navigationIntent, nil)
             return
         }
 
@@ -387,7 +397,7 @@ import WebKit
            let owner, owner.owningWorkspaceRoutesThroughSSHTui,
            owner.sshLoopbackServiceURL(for: url) != nil {
             decisionHandler(.cancel)
-            requestNavigation?(navigationAction.request, .currentTab, nil)
+            requestNavigation?(navigationAction.request, navigationIntent, nil)
             return
         }
 
@@ -544,13 +554,6 @@ import WebKit
                 openInNewTab?(url)
             }
         }
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
         if navigationAction.targetFrame?.isMainFrame == true {
