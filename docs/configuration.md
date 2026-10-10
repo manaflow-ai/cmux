@@ -396,8 +396,8 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 | Shortcut | Action | `shortcuts.bindings` key |
 | --- | --- | --- |
-| Cmd+T | New Tab (a horizontal tab in the focused pane) | `newTab.sameKind` |
-| Cmd+N | New Workspace (a vertical tab in the active group) | `newTab` |
+| Cmd+T | New Tab | `newTab.sameKind` |
+| Cmd+N | New Workspace | `newTab` |
 | Cmd+Shift+N | New Window | `newWindow` |
 | Cmd+Option+Shift+N | New Incognito Window | `newIncognitoWindow` |
 
