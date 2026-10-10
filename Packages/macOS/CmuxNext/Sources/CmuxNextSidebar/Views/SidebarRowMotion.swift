@@ -83,8 +83,10 @@ struct RowMotion {
     /// settled, so its translucent selection fill never shows a title through
     /// it (cx-bqm6, cx-ai79).
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
-        guard let key = list.selectedRowKey, let before = old.row(for: key)?.y, let after = layout.row(for: key)?.y,
-              before != after else { return }
+        // A dragged row is hidden under its lifted card, which already draws
+        // above the list: no row passes under it, so none hides (cx-ikxz).
+        guard let key = list.selectedRowKey, !list.suppressed.contains(key), let before = old.row(for: key)?.y,
+              let after = layout.row(for: key)?.y, before != after else { return }
         let block = Self.block(of: key)
         let passed = targets.map(\.0).filter { view in
             guard !block(view.key), let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
