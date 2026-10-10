@@ -550,7 +550,8 @@
             "key" : "settings.group.feedMirror",
             "rows" : [
               "feed.mirrorNotifications.agents",
-              "feed.mirrorNotifications.terminal"
+              "feed.mirrorNotifications.terminal",
+              "feed.agentPermissionPrompts"
             ],
             "title" : {
               "key" : "settings.group.feedMirror",
@@ -16062,6 +16063,53 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.feedMirror",
+        "text" : "Feed"
+      },
+      "help" : {
+        "key" : "settings.feed.agentPermissionPrompts.help",
+        "text" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.agentPermissionPrompts",
+      "keywords" : [
+        "cloud",
+        "iphone",
+        "push",
+        "approve",
+        "allow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "feed",
+        "agentPermissionPrompts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.feed.agentPermissionPrompts",
+        "text" : "Send Agent Permission Requests to the Feed"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "blink",
         "pulse",
         "steady",
@@ -17875,7 +17923,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b80a715624cf80085c07f7db99bea69f7b0f51b5e51fd1ff273e6bc37355f8d7",
+  "schema_hash" : "875b83f942ddfbd4f0198fa8eb3a7918a09c01039d2aa0c6c371742d1b8bd242",
   "sections" : [
     {
       "id" : "general",
