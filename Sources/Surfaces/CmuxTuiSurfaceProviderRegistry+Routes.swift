@@ -45,7 +45,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             return nil
         }
-        return await links.createdTrustedCarrierSession(for: machineID)
+        return await links.session(for: machineID)
     }
 
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {

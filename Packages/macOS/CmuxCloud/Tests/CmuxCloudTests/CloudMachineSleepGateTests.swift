@@ -99,7 +99,25 @@ struct CloudMachineSleepGateTests {
         )
         await links.setCreatedTrustedCarrierEndpoint(endpoint, for: machineID)
 
-        #expect(await links.createdTrustedCarrierSession(for: machineID) == "cloud")
+        #expect(await links.session(for: machineID) == "cloud")
+    }
+
+    @Test("Reconnects without a create receipt use the Cloud daemon session")
+    func reconnectWithoutReceiptUsesCloudSession() async {
+        let links = makeLinks()
+        #expect(await links.session(for: machineID) == "cloud")
+    }
+
+    @Test("An explicit create receipt session overrides the Cloud default")
+    func customReceiptSessionSurvivesReconnect() async {
+        let links = makeLinks()
+        await links.setCreatedTrustedCarrierEndpoint(VMCmuxRemoteEndpoint(
+            route: "ws://10.0.0.7:1337/v1/link", token: "", expiresAtUnix: 0,
+            session: "owned-session", trustedCarrier: true
+        ), for: machineID)
+        #expect(await links.session(for: machineID) == "owned-session")
+        await links.retainAddresses(machineIDs: [])
+        #expect(await links.session(for: machineID) == "cloud")
     }
 
     private func makeLinks(

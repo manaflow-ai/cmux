@@ -23,7 +23,7 @@ enum InProcessMachineCreateLauncher {
         let create: @Sendable (Invocation, String) async throws -> VMSummary
         let record: @MainActor (VMSummary, VMCmuxRemoteEndpoint?) async -> CmuxTuiSurfaceProvider?
         let provider: @MainActor (String) -> CmuxTuiSurfaceProvider?
-        let refresh: @MainActor () async -> Void
+        let refresh: @MainActor (Bool) async -> Void
         let open: @MainActor (Invocation, CmuxTuiSurfaceProvider) async throws -> Void
         var validate: @MainActor (Invocation) throws -> Void = { _ in }
     }
@@ -59,9 +59,9 @@ enum InProcessMachineCreateLauncher {
                 guard let scope, scope == registry.creationScope else { return nil }
                 return registry.provider(machineID: machineID)
             },
-            refresh: {
+            refresh: { force in
                 guard let scope, scope == registry.creationScope else { return }
-                _ = await registry.refresh(force: false)
+                _ = await registry.refresh(force: force)
             },
             open: { invocation, provider in
                 try await open(
@@ -260,7 +260,7 @@ enum InProcessMachineCreateLauncher {
             if provider == nil {
                 provider = dependencies.provider(machineID)
                 if provider == nil {
-                    await dependencies.refresh()
+                    await dependencies.refresh(false)
                     provider = dependencies.provider(machineID)
                 }
             }

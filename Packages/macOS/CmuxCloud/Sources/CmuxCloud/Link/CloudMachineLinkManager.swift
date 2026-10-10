@@ -174,8 +174,12 @@ public actor CloudMachineLinkManager {
         createdTrustedCarrierEndpoints[machineID] = endpoint
     }
 
-    public func createdTrustedCarrierSession(for machineID: String) -> String? {
-        createdTrustedCarrierEndpoints[machineID]?.session
+    /// The daemon session to use for this machine, preserving an explicit
+    /// create receipt and otherwise using the Cloud daemon default.
+    /// - Parameter machineID: The machine whose link is being opened.
+    /// - Returns: The session shared by native and external CLI links.
+    public func session(for machineID: String) -> String {
+        createdTrustedCarrierEndpoints[machineID]?.session ?? "cmux"
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
@@ -289,7 +293,7 @@ public actor CloudMachineLinkManager {
             self.store(link: link, for: machineID)
             let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
-            var session = self.createdTrustedCarrierSession(for: machineID) ?? "cmux"
+            var session = self.session(for: machineID)
             // The machine's daemon serves a trusted listener inside the private
             // network, so a link needs no enrollment: the first use asks the
             // control plane once (it also brings an older daemon to the trusted

@@ -33,7 +33,7 @@ struct InProcessMachineCreateLauncherTests {
             },
             record: { _, _ in created ? testProvider : nil },
             provider: { _ in created ? testProvider : nil },
-            refresh: {},
+            refresh: { _ in },
             open: { _, _ in
                 didOpen = true
                 throw VMClientError.httpStatus(503, "{\"message\":\"\(upstreamMessage)\"}")
@@ -72,7 +72,7 @@ struct InProcessMachineCreateLauncherTests {
             },
             record: { _, _ in Issue.record("Unexpected record"); return nil },
             provider: { _ in Issue.record("Unexpected lookup"); return nil },
-            refresh: { Issue.record("Unexpected refresh") },
+            refresh: { _ in Issue.record("Unexpected refresh") },
             open: { _, _ in Issue.record("Unexpected open") },
             validate: { _ in throw CloudDiagnosticFailure.placement }
         )
@@ -82,6 +82,42 @@ struct InProcessMachineCreateLauncherTests {
         #expect(!completion.succeeded)
         #expect(completion.machineId == nil)
         #expect(!completion.wasCancelled)
+    }
+
+    @Test("A missing receipt provider forces a fresh fleet discovery")
+    func missingReceiptProviderForcesFreshRefresh() async throws {
+        let workspace = UUID()
+        let invocation = try #require(InProcessMachineCreateLauncher.parse(arguments: [
+            "vm", "new", "--workspace", workspace.uuidString, "--focus", "false"
+        ]))
+        let testCatalog = SurfaceCatalog()
+        let testProvider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: testCatalog
+        )
+        defer { testProvider.stopTransportResources() }
+        var discoveredAfterCreate = false
+        let dependencies = InProcessMachineCreateLauncher.Dependencies(
+            create: { _, _ in
+                VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1)
+            },
+            record: { _, _ in nil },
+            provider: { _ in
+                discoveredAfterCreate ? testProvider : nil
+            },
+            // An unforced read joins the stale pre-create fleet page; only a
+            // fresh read contains the new machine.
+            refresh: { force in discoveredAfterCreate = force },
+            open: { _, _ in }
+        )
+
+        let completion = await InProcessMachineCreateLauncher.run(
+            invocation, operationID: UUID(), dependencies: dependencies, onOutput: { _ in }
+        )
+
+        #expect(completion.succeeded)
+        #expect(discoveredAfterCreate)
+        #expect(completion.machineId == "created-machine")
     }
 
     @Test("Manual input is admitted before graph discovery; a forced retry reuses the starter")
