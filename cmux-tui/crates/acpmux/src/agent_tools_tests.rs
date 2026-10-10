@@ -46,6 +46,8 @@ fn inputs(bin: &Path, cmux_json: Option<&str>, state: &Path) -> Inputs {
         cmux_json: cmux_json.map(str::to_owned),
         state_dir: state.to_path_buf(),
         cua: None,
+        cua_v2: None,
+        acpmux: None,
     }
 }
 
