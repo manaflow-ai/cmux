@@ -87,7 +87,8 @@ final class ReplyThreadOverlay: UIView {
 
 /// One thread row's trip, in its superview's space: `baseY` is where its
 /// frame sits (the transform carries it from there), `y` where it shows.
-/// The anchor (a swiped bubble) also unwinds `initialOffsetX`.
+/// The anchor (a swiped bubble) also unwinds `initialOffsetX`. `easing` is
+/// fixed for the trip (set by `ReplyThreadMotion`).
 private struct ReplyThreadItem {
     let view: UIView
     let baseY: CGFloat
@@ -96,32 +97,37 @@ private struct ReplyThreadItem {
     var y: CGFloat
     var offsetX: CGFloat
     let initialOffsetX: CGFloat
+    var easing: CGFloat = 0
     var resting: Bool { y == targetY && offsetX == 0 }
 }
 
 /// Drives the thread's rows frame by frame (ChatKit's layout dynamics):
-/// each covers a share of its remaining distance per 60 Hz frame, more the
-/// farther it is from the middle of the visible transcript, and snaps
-/// within 0.25 px. A display link because UIKit has no animation of this
-/// shape; it stops as soon as everything rests.
+/// each covers a fixed share of its remaining distance per 60 Hz frame,
+/// more the farther its thread slot is from the middle of the view, and
+/// snaps within 0.25 px going in (2 px coming back). A display link
+/// because UIKit has no animation of this shape; it stops as soon as
+/// everything rests.
 @MainActor
 private final class ReplyThreadMotion: NSObject {
     private(set) var items: [ReplyThreadItem]
     let animatingOut: Bool
-    let viewHeight: CGFloat
     let scale: CGFloat
-    /// Middle of the transcript left visible above the composer, in window space.
-    let referenceY: () -> CGFloat
     var onRest: (() -> Void)?
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval?
 
-    init(items: [ReplyThreadItem], animatingOut: Bool, viewHeight: CGFloat, scale: CGFloat, referenceY: @escaping () -> CGFloat) {
-        self.items = items
+    /// `viewHeight` is the conversation view's; each row's easing is set
+    /// here, once, from where its slot (`baseY`) sits in the window.
+    init(items: [ReplyThreadItem], animatingOut: Bool, viewHeight: CGFloat, scale: CGFloat) {
+        self.items = items.map { item in
+            var item = item
+            let height = item.view.bounds.height
+            let slot = item.view.superview.map { $0.convert(CGPoint(x: 0, y: item.baseY + height / 2), to: nil).y } ?? item.baseY + height / 2
+            item.easing = ConversationReplyMotion.threadEasing(slotCenterY: slot, itemHeight: height, viewHeight: viewHeight, animatingOut: animatingOut)
+            return item
+        }
         self.animatingOut = animatingOut
-        self.viewHeight = viewHeight
         self.scale = scale
-        self.referenceY = referenceY
         super.init()
         apply()
     }
@@ -150,7 +156,7 @@ private final class ReplyThreadMotion: NSObject {
         for index in items.indices {
             let item = items[index]
             items[index] = ReplyThreadItem(view: item.view, baseY: item.baseY, startY: item.startY - delta, targetY: item.targetY,
-                                           y: item.y - delta, offsetX: item.offsetX, initialOffsetX: item.initialOffsetX)
+                                           y: item.y - delta, offsetX: item.offsetX, initialOffsetX: item.initialOffsetX, easing: item.easing)
         }
         apply()
     }
@@ -166,26 +172,26 @@ private final class ReplyThreadMotion: NSObject {
     }
 
     private func step(frameDuration: TimeInterval) {
-        let reference = referenceY()
-        let snap = ConversationReplyMotion.snapDistance(scale: scale)
+        let snap = ConversationReplyMotion.snapDistance(scale: scale, animatingOut: animatingOut)
         for index in items.indices {
             var item = items[index]
-            let height = item.view.bounds.height
-            let center = item.view.superview.map { $0.convert(CGPoint(x: 0, y: item.y + height / 2), to: nil).y } ?? item.y
-            let easing = ConversationReplyMotion.easing(centerY: center, itemHeight: height, referenceY: reference, viewHeight: viewHeight, animatingOut: animatingOut)
-            let k = ConversationReplyMotion.step(easing: easing, frameDuration: frameDuration)
-            item.y += (item.targetY - item.y) * k
-            if abs(item.targetY - item.y) < snap { item.y = item.targetY }
+            // The swipe offset follows the trip as it stood before this
+            // frame's step: Messages' sideways swing trails its vertical
+            // travel by exactly one frame, and lands the frame after it.
             if item.initialOffsetX > 0 {
                 let travel = max(abs(item.targetY - item.startY), 1)
-                if travel < 2 {
+                if item.y == item.targetY {
+                    item.offsetX = 0
+                } else if travel < 2 {
                     item.offsetX = max(0, item.offsetX - 6 * CGFloat(frameDuration * 60))
                 } else {
                     let progress = abs(item.y - item.startY) / travel
                     item.offsetX = max(0, item.initialOffsetX * ConversationReplyMotion.offsetCurve(progress: progress))
                 }
-                if item.y == item.targetY { item.offsetX = 0 }
             }
+            let k = ConversationReplyMotion.step(easing: item.easing, frameDuration: frameDuration)
+            item.y += (item.targetY - item.y) * k
+            if abs(item.targetY - item.y) < snap { item.y = item.targetY }
             items[index] = item
         }
         apply()
@@ -259,9 +265,7 @@ extension ConversationViewController {
         let chrome = threadOnlyChrome(of: anchorID, in: overlay)
         chrome.forEach { $0.alpha = 0 }
         if reduceMotion { overlay.content.alpha = 0 }
-        let motion = ReplyThreadMotion(items: items, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale) { [weak self] in
-            self?.replyReferenceY ?? 0
-        }
+        let motion = ReplyThreadMotion(items: items, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
         overlay.motion = motion
         motion.start()
         composer.textView.becomeFirstResponder()
@@ -272,12 +276,6 @@ extension ConversationViewController {
             chrome.forEach { $0.alpha = 1 }
             self.refreshReplyBacking(hiddenOnly: false)
         }
-    }
-
-    /// ChatKit paces each row from the middle of the transcript left visible
-    /// above the keyboard (window space).
-    fileprivate var replyReferenceY: CGFloat {
-        view.convert(CGPoint(x: 0, y: composerContainer.frame.maxY / 2), to: nil).y
     }
 
     /// The blur over 0.3 s on UIKit's default ease in-out. The paused
@@ -493,9 +491,7 @@ extension ConversationViewController {
                 }
                 return ReplyThreadItem(view: item.view, baseY: item.baseY, startY: item.y, targetY: target, y: item.y, offsetX: 0, initialOffsetX: 0)
             }
-            let motion = ReplyThreadMotion(items: items, animatingOut: true, viewHeight: view.bounds.height, scale: traitCollection.displayScale) { [weak self] in
-                self?.replyReferenceY ?? 0
-            }
+            let motion = ReplyThreadMotion(items: items, animatingOut: true, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
             motion.onRest = {
                 motionDone = true
                 finish()

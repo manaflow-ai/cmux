@@ -50,6 +50,13 @@ public enum ConversationReplyMotion {
         indicatorInitialScale + (indicatorFinalScale - indicatorInitialScale) * progress
     }
 
+    /// Left edge of the arrow's box: the bubble's leading edge on both sides.
+    /// (ChatKit's arithmetic suggests an incoming arrow sits past the 6 pt
+    /// tail; Messages on a device draws it at the edge.)
+    public static func indicatorMinX(balloon: CGRect, isOutgoing: Bool) -> CGFloat {
+        balloon.minX
+    }
+
     /// Whether a pan with this velocity is horizontal enough to be a reply swipe.
     public static func isSwipeAngle(velocity: CGPoint) -> Bool {
         guard velocity.x != 0 else { return false }
@@ -103,6 +110,16 @@ public enum ConversationReplyMotion {
         return total / 3
     }
 
+    /// A thread row's easing for the whole trip, in or out. Messages fixes it
+    /// from where the row sits in the thread (its slot, in window space) and
+    /// paces it from the middle of the whole view, so a row covers the same
+    /// share of what's left every frame: on an iPhone 17 Pro Max a 62 pt
+    /// bubble whose slot is centred at y 530 covers 12.5 % per frame going
+    /// in at every point of a 129 pt trip, and 16.9 % coming back.
+    public static func threadEasing(slotCenterY: CGFloat, itemHeight: CGFloat, viewHeight: CGFloat, animatingOut: Bool) -> CGFloat {
+        easing(centerY: slotCenterY, itemHeight: itemHeight, referenceY: viewHeight / 2, viewHeight: viewHeight, animatingOut: animatingOut)
+    }
+
     /// The share of the remaining distance a bubble covers in a frame of
     /// `frameDuration` seconds (exact for 60 Hz, compounded for other rates).
     public static func step(easing: CGFloat, frameDuration: TimeInterval) -> CGFloat {
@@ -112,8 +129,11 @@ public enum ConversationReplyMotion {
         return min(1, r * (1 - pow(r, n)) / (1 - r))
     }
 
-    /// When a bubble is this close to its slot it snaps there (0.25 px).
-    public static func snapDistance(scale: CGFloat) -> CGFloat { 0.25 / max(scale, 1) }
+    /// When a bubble is this close to its slot it snaps there: 0.25 px going
+    /// in, 2 px coming back (Messages lands a returning row from 0.68 pt).
+    public static func snapDistance(scale: CGFloat, animatingOut: Bool) -> CGFloat {
+        (animatingOut ? 2 : 0.25) / max(scale, 1)
+    }
 
     /// Backing-transcript opacity while the thread is up: outgoing text
     /// bubbles 0.7, photos and attachments 0.4, everything else 1.

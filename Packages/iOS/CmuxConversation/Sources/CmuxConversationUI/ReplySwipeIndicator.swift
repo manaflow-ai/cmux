@@ -10,8 +10,6 @@ import UIKit
 /// arrow drifts 12 pt left as it grows.
 final class ReplySwipeIndicator: UIView {
     static let size: CGFloat = 26
-    /// `balloonMaskTailWidth`: an incoming arrow sits past the tail.
-    static let incomingTailWidth: CGFloat = 6
 
     private let sharp = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.backward.fill"))
     /// Core Animation's gaussian blur filter isn't public, so the blur is a
@@ -88,7 +86,9 @@ final class ReplySwipeIndicator: UIView {
         timer.startAnimation()
     }
 
-    /// Release: back to 0.4 and transparent over 0.4 s, keeping its drift.
+    /// Release without replying: back to 0.4 and transparent over 0.4 s,
+    /// keeping its drift. A reply hides it at once instead (`reset`): its
+    /// row hides behind the thread's copy on the very next frame.
     func settle() {
         let drift = self.drift
         UIView.animate(withDuration: ConversationReplyMotion.indicatorResetDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {

@@ -456,14 +456,13 @@ final class MessageCell: UICollectionViewCell {
         )
     }
 
-    /// ChatKit parks the indicator at the balloon's resting leading edge
-    /// (past the 6 pt tail for incoming), centered on the balloon view,
-    /// whose height includes the tail drop.
+    /// Messages parks the indicator at the balloon's resting leading edge,
+    /// centered on the balloon view, whose height includes the tail drop.
     private var replyIndicatorCenter: CGPoint {
         guard let model, let cellLayout else { return .zero }
         let balloon = cellLayout.bubbleFrame ?? cellLayout.linkCardFrame ?? cellLayout.imageFrames.first ?? cellLayout.contentFrame
         let height = balloon.height + (model.showsTail ? ConversationTheme.tailDrop : 0)
-        let minX = model.isOutgoing ? balloon.minX : balloon.minX + ReplySwipeIndicator.incomingTailWidth
+        let minX = ConversationReplyMotion.indicatorMinX(balloon: balloon, isOutgoing: model.isOutgoing)
         return CGPoint(x: minX + ReplySwipeIndicator.size / 2, y: balloon.minY + height / 2)
     }
 

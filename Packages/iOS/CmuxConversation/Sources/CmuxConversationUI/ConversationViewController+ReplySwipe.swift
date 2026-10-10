@@ -8,7 +8,8 @@ import UIKit
 /// uncovering the arrow parked behind it; crossing 40 pt while moving right
 /// commits (pulse plus a soft haptic), dragging back under it while moving
 /// left un-commits (haptic only). On release the arrow fades over 0.4 s and
-/// the bubble eases home over 0.25 s; a committed swipe opens the reply.
+/// the bubble eases home over 0.25 s; a committed swipe opens the reply and
+/// its arrow vanishes with the row on the next frame, as Messages does.
 extension ConversationViewController {
     /// The bubble cell a reply swipe at `point` would drag, if any.
     func replySwipeCell(at point: CGPoint, velocity: CGPoint) -> MessageCell? {
@@ -46,7 +47,11 @@ extension ConversationViewController {
         let commit = replyHapticFired && ended
         let releasedAt = replyDragOffset
         let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
-        cell?.replyIndicator.settle()
+        if commit {
+            cell?.replyIndicator.reset()
+        } else {
+            cell?.replyIndicator.settle()
+        }
         replyDragRowID = nil
         replyDragOffset = 0
         replyHapticFired = false
