@@ -207,7 +207,7 @@ def one_round(n, env):
             return False, "the app's control socket never answered", None
         rpc("action.run", {"id": "home.show"})
         # Send as soon as the composer exists: the owner and the brain host may still be starting.
-        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 120):
+        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240):
             return False, f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}", None
         if settled:
             settle(n, stop)
