@@ -1,4 +1,5 @@
 public import Foundation
+public import CoreGraphics
 public import Observation
 
 /// What the `cmux://bookmarks` page needs from the App: one browser
@@ -18,6 +19,9 @@ public protocol BookmarkManagerSource: AnyObject {
     /// Asks where to save and writes the HTML export (host panel).
     func exportHTML()
     func copy(_ text: String)
+    /// A bookmark's site icon, nil for a folder or while it loads (the row draws the
+    /// generic icon). The host reads observable state, so the row redraws when it lands.
+    func favicon(for node: BookmarkNode) -> CGImage?
 }
 
 /// The page's state: selected folder, search text, selection, editor.

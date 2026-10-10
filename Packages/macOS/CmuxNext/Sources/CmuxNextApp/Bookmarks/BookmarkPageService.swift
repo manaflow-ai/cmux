@@ -94,6 +94,8 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
 
     var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
 
+    func favicon(for node: BookmarkNode) -> CGImage? { services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage }
+
     func apply(_ operation: BookmarkOperation) -> Bool {
         do {
             try services.bookmarks.apply(operation, profile: profile)
