@@ -159,12 +159,16 @@ final class RemoteLocalhostService {
         return client
     }
 
+    /// The forwarding connection of `machine` (browser runtimes and their
+    /// streams use it too, cx-2cob slice 2); nil for a machine with no daemon here.
+    func loopbackClient(machine: String) -> LoopbackForwardClient? {
+        machines.daemon(machine: machine).map { client(for: $0) }
+    }
+
     /// Opens a byte stream to `port` on the loopback of `machine` over its
-    /// forwarding connection (a remote browser host, cx-2cob slice 2); nil
-    /// for a machine with no daemon here.
+    /// forwarding connection; nil for a machine with no daemon here.
     func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
-        guard let daemon = machines.daemon(machine: machine) else { return nil }
-        let client = client(for: daemon)
+        guard let client = loopbackClient(machine: machine) else { return nil }
         return { port in try await client.open(host: "127.0.0.1", port: port) }
     }
 
