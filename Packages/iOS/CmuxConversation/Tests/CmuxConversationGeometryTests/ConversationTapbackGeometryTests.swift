@@ -32,4 +32,16 @@ import Testing
         let small = ConversationTapbackGeometry.circles(mirrored: true)[2].offsetBy(dx: platter.minX, dy: platter.minY)
         #expect(small.midX > body.maxX)
     }
+
+    /// A reacted reply's badge sits between its quote and its bubble; the row
+    /// must not rise, or the quote draws over the bubble above (user's
+    /// iPhone: a reply quote on top of "lunch? thinking ramen").
+    @Test func aBadgeBelowAQuoteDoesNotRiseBesideTheRowAbove() {
+        let above = CGRect(x: 87, y: 0, width: 284, height: 40.33)
+        let badge = CGRect(x: 440, y: 50, width: 48, height: 44)
+        #expect(ConversationTapbackGeometry.rise(badge: badge, rowAbove: above, badgeTopsRow: true) == ConversationTapbackGeometry.rowGrowth)
+        #expect(ConversationTapbackGeometry.rise(badge: badge, rowAbove: above, badgeTopsRow: false) == 0)
+        // Overlapping sideways never rises.
+        #expect(ConversationTapbackGeometry.rise(badge: badge.offsetBy(dx: -150, dy: 0), rowAbove: above, badgeTopsRow: true) == 0)
+    }
 }

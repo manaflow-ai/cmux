@@ -66,6 +66,13 @@ struct MessageCellLayout {
     var translationFrame: CGRect? = nil
     /// Document balloons (tail area excluded, like `bubbleFrame`), one per file.
     var fileFrames: [CGRect] = []
+
+    /// The row ends in a caption line ("Replay", "Edited", "Delivered", ...)
+    /// rather than a bubble.
+    var endsWithCaption: Bool {
+        guard let last = [footerFrame, repliesFrame, editedFrame, translationFrame, replayFrame, audioExpiryFrame].compactMap({ $0 }).map(\.maxY).max() else { return false }
+        return last >= height - 0.5
+    }
 }
 
 @MainActor
@@ -215,6 +222,12 @@ extension MessageCellLayout {
         ConversationTranscriptMetrics.ceilToPixel(value, scale: ConversationTheme.displayScale)
     }
 
+    /// `value` rounded to the nearest pixel, as ChatKit rounds a balloon's text height.
+    static func pixelRound(_ value: CGFloat) -> CGFloat {
+        let scale = max(1, ConversationTheme.displayScale)
+        return (value * scale).rounded() / scale
+    }
+
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
@@ -273,7 +286,7 @@ extension MessageCellLayout {
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
-            y += h + 6
+            y += h + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
         }
 
         var senderNameFrame: CGRect?
@@ -288,7 +301,7 @@ extension MessageCellLayout {
         // Messages stacks each photo at the full image width, 4 pt apart; a
         // tall photo is capped in height and aspect-fills (it never narrows).
         var imageFrames: [CGRect] = []
-        let imageSpacing: CGFloat = 4
+        let imageSpacing = t.groupedSpacing
         for attachment in message.attachments where attachment.kind == .image {
             let w = floor(width * t.maxImageWidthFraction)
             let h = min(w / CGFloat(attachment.aspectRatio), t.maxImageHeight)
@@ -370,11 +383,12 @@ extension MessageCellLayout {
             // balloon at @3x); the text keeps its 14 pt leading inset and the
             // rounding lands on the trailing side.
             let bodyWidth = max(pixelCeil(size.width + 2 * hPad), t.minBubbleWidth)
-            // The row advances by the unrounded height (40.287 pt); the
-            // transcript rounds each row's origin to the pixel grid, so rows
-            // land where Messages puts them (232.33, 276.67, 321.00, ...).
-            let rowHeight = textHeight + 2 * vPad
-            let h = pixelCeil(rowHeight)
+            // ChatKit rounds the text's height to the nearest pixel and adds
+            // the insets: 42.67 pt for a 22.674 pt line at XL, 57.33 for
+            // 33.41 at AX1 (40.33 at Large either way). Rows then land on the
+            // pixel grid where Messages puts them (232.33, 276.67, 321.00).
+            let h = pixelRound(textHeight) + 2 * vPad
+            let rowHeight = h
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
@@ -439,8 +453,9 @@ extension MessageCellLayout {
         }
         var replayFrame: CGRect?
         if message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
-            replayFrame = footerRect(y + 4)
-            y += 4 + footerHeight
+            // A status line like "Delivered": `smallTranscriptSpace` under the body.
+            replayFrame = footerRect(y + t.footerGap)
+            y += t.footerGap + footerHeight
         }
         var translationFrame: CGRect?
         if model.translation != nil {

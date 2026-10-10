@@ -1292,26 +1292,27 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
                 }
                 return 0
             default:
-                return index > 0 && isMessage(index - 1) ? 10 : 0
+                return index > 0 && isMessage(index - 1) ? ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.mediumSpace) : 0
             }
         }
-        guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
+        guard index > 0, case let .message(previous) = rows[index - 1] else { return TimestampCell.nextRowGap }
         // Gaps run body to body; the previous row's tail hangs into this one.
         let width = collectionView.bounds.width
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
-        let gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
-        // A tapback badge that clears the bubble above sideways rises beside
-        // it instead of pushing this bubble down (Messages, iOS 27.0: "Ha ha"
-        // under a narrower bubble keeps the plain 10 pt gap).
-        if !model.reactionKinds.isEmpty, let anchor = layoutCache.layout(for: model, width: width, margin: layoutMargin).reactionAnchor {
+        var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
+        // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
+        if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }
+        // A tapback badge that clears the bubble above sideways rises beside it.
+        let layout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        if !model.reactionKinds.isEmpty, let anchor = layout.reactionAnchor {
             let corner = CGRect(x: anchor.x - (model.isOutgoing ? 0 : 1), y: anchor.y, width: 1, height: 1)
             let platter = ConversationTapbackGeometry.platterFrame(forBody: corner, onTrailingCorner: !model.isOutgoing)
             let badge = ReactionBadgeView.frame(count: model.reactionKinds.count, platter: platter, pointsLeft: model.isOutgoing)
-            let above = previousLayout.contentFrame
-            if badge.maxX <= above.minX || badge.minX >= above.maxX {
-                return gap - overhang - ConversationTheme.reactionRowGrowth
-            }
+            let topsRow = layout.quoteFrame == nil && layout.senderNameFrame == nil
+            let rise = ConversationTapbackGeometry.rise(badge: badge, rowAbove: previousLayout.contentFrame, badgeTopsRow: topsRow)
+            if rise > 0 { return gap - overhang - rise }
         }
         return max(0, gap - overhang)
     }
