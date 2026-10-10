@@ -10233,9 +10233,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let submittedText = terminalInputText
         let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
         // A send that lands while recovery has retired the dead client waits
-        // (bounded) for the replacement before anything is captured below, so
-        // the identity snapshot and every attachment send use the new client.
+        // (bounded) for the replacement before the identity snapshot below, so
+        // every attachment send and the text use the new client. A sign-out,
+        // account switch, or Mac switch during that wait must not let the
+        // snapshot adopt the new session: the captured text was composed for
+        // the terminal that no longer exists there.
+        let waitSignInGeneration = signInGeneration
         await awaitRemoteClientDuringConnectionRecovery(terminalID: submittedTerminalID)
+        guard signInGeneration == waitSignInGeneration,
+              workspace(workspaceID, containsSurfaceID: submittedTerminalID.rawValue) else {
+            return false
+        }
         // Capture the submit-time session + connection identity ONCE up front and
         // re-check it before every subsequent send. The captured terminal already
         // pins the target surface, but it does NOT pin the session/transport the

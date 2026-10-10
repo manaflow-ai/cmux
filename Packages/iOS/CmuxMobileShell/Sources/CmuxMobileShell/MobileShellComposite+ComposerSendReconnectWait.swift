@@ -18,7 +18,7 @@ extension MobileShellComposite {
             ?? 30_000_000_000
         let deadline = ContinuousClock.now + .nanoseconds(Int64(clamping: nanoseconds))
         let timeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(until: deadline, clock: .continuous)
+            guard (try? await Task.sleep(until: deadline, clock: .continuous)) != nil else { return }
             self?.resumeComposerSendClientWaiters()
         }
         defer { timeout.cancel() }
