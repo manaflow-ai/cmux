@@ -62,7 +62,7 @@ extension CmuxTuiSurfaceProvider {
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
             case .browserNotCreated:
-                return CloudGuestDisplaySnapshot.unavailableMessage
+                return String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry.")
             case .terminalExited(let id):
                 return String(
                     format: String(

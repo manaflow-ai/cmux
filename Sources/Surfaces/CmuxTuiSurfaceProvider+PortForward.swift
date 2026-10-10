@@ -50,8 +50,8 @@ extension CmuxTuiSurfaceProvider {
                                           source: .remote, propagateToCloud: false, catalog: catalog)
         }
         if let loopbackURL = cloudLoopbackBrowserURL(for: resource) {
-            browser.cloudAccess.retainResource(resource.id)
-            browser.showCloudAddress(loopbackURL)
+            let configured = configureBrowser(browser, url: loopbackURL, resourceID: resource.id)
+            guard configured else { throw ProviderError.localForwardURLUnavailable }
             return pane
         }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
@@ -200,6 +200,44 @@ extension CmuxTuiSurfaceProvider {
 
     func accessModel(port: Int, address: String, scheme: String = "http", route: CloudPortAccessRoute = .browserProxy) -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
+        let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = if route == .browserProxy {
+            { [weak self] in
+                guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                let generation = self.currentLifecycleGeneration
+#if DEBUG
+                let desktopStartedAt = Date()
+                cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
+                let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                // Repair only a desktop the probe saw answer with an error. A probe
+                // that timed out (a busy carrier) used to start this repair, a guest
+                // exec of about 12s, on a healthy desktop: display 1 then showed
+                // "Loading Cloud page" for 20s or more.
+                if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                   try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
+                    try Task.checkCancellation()
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
+                    _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                }
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                return endpoint
+            }
+        } else {
+            nil
+        }
         return portAccessStore.model(machineID: machineID, target: target, scheme: scheme, route: route) {
             CloudPortAccessModel(
                 target: target,
@@ -233,40 +271,7 @@ extension CmuxTuiSurfaceProvider {
                     await portForwards?.close(machineID: machineID, port: port)
                 },
                 route: route,
-                startBrowserProxy: route == .browserProxy ? { [weak self] in
-                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
-                    let generation = self.currentLifecycleGeneration
-#if DEBUG
-                    let desktopStartedAt = Date()
-                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
-#endif
-                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    // Repair only a desktop the probe saw answer with an error. A probe
-                    // that timed out (a busy carrier) used to start this repair, a guest
-                    // exec of about 12s, on a healthy desktop: display 1 then showed
-                    // "Loading Cloud page" for 20s or more.
-                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
-                       try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
-                        try Task.checkCancellation()
-                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
-#endif
-                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    }
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                    return endpoint
-                } : nil
+                startBrowserProxy: startBrowserProxy
             )
         }
     }

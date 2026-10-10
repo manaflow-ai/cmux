@@ -99,7 +99,7 @@ extension Workspace {
                 return
             } catch {
                 guard !Task.isCancelled, self.panels[panel.id] === panel else { return }
-                panel.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+                panel.cloudAccess.showUnavailable(String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry."))
             }
         }
         cloudBrowserCreationTasks[panel.id] = task

@@ -34,11 +34,23 @@ extension CmuxTuiSurfaceProvider {
                 idempotencyKey: idempotencyKey,
                 correlationKey: correlationKey
             ))
-            try self.validateTerminalMutationLifecycle(lifecycle)
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let created = CmuxTuiSnapshotParser.createdBrowser(fromCreateResult: object) else {
                 throw ProviderError.browserNotCreated
             }
+            guard self.isRegisteredInCatalog() else {
+                // The daemon mutation is committed even if the local provider was
+                // retired while waiting. Close its tab before discarding the receipt
+                // so a reconnect cannot strand an unowned browser.
+                _ = try? await link.run(arguments: CloudTuiRequests.closeTabArguments(
+                    socketPath: connected.socketPath,
+                    tabID: created.tabID
+                ))
+                throw CancellationError()
+            }
+            // A reconnect can advance the generation while keeping this provider
+            // registered. The active provider adopts the committed receipt so the
+            // browser remains discoverable after reconnect.
             return self.recordCreatedBrowser(
                 created,
                 workspaceID: created.workspaceID,
