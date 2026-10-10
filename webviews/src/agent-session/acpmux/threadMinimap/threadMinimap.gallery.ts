@@ -52,6 +52,7 @@ export default agentPaneEntry({
   title: "Thread minimap",
   area: "Agent pane",
   height: 640,
+  widths: { narrow: 880, normal: 1040, wide: 1240 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
     "agent-session/acpmux/App.tsx#VirtualTranscript",
@@ -59,7 +60,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "long-chat": {
-      note: "A long conversation with one overview tick per prompt and a viewport run of lit turns.",
+      note: "A long conversation with one overview tick per prompt and a viewport run of lit turns. The narrow gallery width stays above the minimap's 28 px gutter threshold.",
       snapshot: chat(rows, { title: "Thread minimap review" }),
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="4"]' });
