@@ -79,6 +79,7 @@ extension IconName {
     nonisolated public static let computeruseClick = IconName("computeruse.click")
     nonisolated public static let computeruseDrag = IconName("computeruse.drag")
     nonisolated public static let computeruseObserve = IconName("computeruse.observe")
+    nonisolated public static let computeruseScroll = IconName("computeruse.scroll")
     nonisolated public static let configJson = IconName("config.json")
     nonisolated public static let contextUsage = IconName("context.usage")
     nonisolated public static let controlPopup = IconName("control.popup")
