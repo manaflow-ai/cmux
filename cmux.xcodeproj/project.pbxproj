@@ -1417,7 +1417,7 @@
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A5 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
-		D0F5A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F5A0000000000000000002 /* CmuxAgentDeliveryCore */; };
+		D0F6A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */; };
 		A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
 		C85390090000000000000003 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
 		CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */ = {isa = PBXBuildFile; productRef = CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */; };
@@ -9079,7 +9079,7 @@
 			files = (
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
-				D0F5A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */,
+				D0F6A0000000000000000003 /* CmuxAgentDeliveryCore in Frameworks */,
 				F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */,
 				C79470010000000000000005 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A5 /* CmuxCore in Frameworks */,
@@ -13813,7 +13813,7 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
-				D0F5A0000000000000000002 /* CmuxAgentDeliveryCore */,
+				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				5CA7A1060000000000000002 /* CmuxSurfaceCatalogModel */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
@@ -14056,7 +14056,7 @@
 				D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
-				D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
+				D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -19489,7 +19489,7 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCore;
 		};
-		D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */ = {
+		D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAgentDeliveryCore;
 		};
@@ -19859,9 +19859,9 @@
 			package = CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */;
 			productName = CmuxCore;
 		};
-		D0F5A0000000000000000002 /* CmuxAgentDeliveryCore */ = {
+		D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */;
+			package = D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */;
 			productName = CmuxAgentDeliveryCore;
 		};
 		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
