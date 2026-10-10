@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// Search field, All, Changed, then every section with its count and a dot
@@ -11,13 +12,13 @@ struct DebugSettingsSidebar: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.space1) {
                 HStack(spacing: Metrics.space3) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(SettingsStyle.tertiary)
+                    Icon(.search, size: 13).foregroundStyle(SettingsStyle.tertiary)
                     TextField(DebugSettingsStrings.searchPlaceholder, text: $model.query)
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
                         .accessibilityIdentifier("cmux.debugSettings.search")
                     if !model.query.isEmpty {
-                        Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        Button { model.query = "" } label: { Icon(.fieldClear, size: 13) }
                             .buttonStyle(.plain).foregroundStyle(SettingsStyle.tertiary)
                     }
                 }
@@ -25,13 +26,13 @@ struct DebugSettingsSidebar: View {
                 .frame(height: SettingsStyle.rowHeight)
                 .background(SettingsStyle.hover, in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
                 .padding(.bottom, Metrics.space4)
-                DebugSidebarRow(title: DebugSettingsStrings.all, symbol: "list.bullet", count: model.descriptors.count, changed: 0,
+                DebugSidebarRow(title: DebugSettingsStrings.all, icon: Icon(.viewList, size: 13), count: model.descriptors.count, changed: 0,
                                 isSelected: model.selection == .all && model.query.isEmpty) { select(.all) }
-                DebugSidebarRow(title: DebugSettingsStrings.changed, symbol: "pencil.circle", count: model.changedCount, changed: 0,
+                DebugSidebarRow(title: DebugSettingsStrings.changed, icon: Icon(.stateChanged, size: 13), count: model.changedCount, changed: 0,
                                 isSelected: model.selection == .changed) { select(.changed) }
                 Rectangle().fill(SettingsStyle.separator).frame(height: Metrics.dividerThickness).padding(.vertical, Metrics.space2)
                 ForEach(model.sections) { section in
-                    DebugSidebarRow(title: section.title, symbol: section.symbol, count: model.count(in: section),
+                    DebugSidebarRow(title: section.title, icon: Icon(symbol: section.symbol, size: 13), count: model.count(in: section),
                                     changed: model.changedCount(in: section),
                                     isSelected: model.query.isEmpty && model.selection == .section(section.id)) { select(.section(section.id)) }
                 }
@@ -51,7 +52,7 @@ struct DebugSettingsSidebar: View {
 
 private struct DebugSidebarRow: View {
     let title: String
-    let symbol: String
+    let icon: Icon
     let count: Int
     let changed: Int
     let isSelected: Bool
@@ -61,7 +62,7 @@ private struct DebugSidebarRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Metrics.space4) {
-                Image(systemName: symbol).frame(width: Metrics.iconSize + Metrics.space2)
+                icon.frame(width: Metrics.iconSize + Metrics.space2)
                     .foregroundStyle(isSelected ? SettingsStyle.text : SettingsStyle.secondary)
                 Text(title).lineLimit(1)
                 Spacer(minLength: 0)

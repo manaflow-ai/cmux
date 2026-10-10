@@ -675,6 +675,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
