@@ -5,6 +5,8 @@ use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 
 /// The optional section that reports resource projection spans.
 const RESOURCE_PROJECTION: &str = "resource_projection";
+/// The optional section that reports which thread commits durable writes.
+const WRITE_PATH: &str = "write_path";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -17,6 +19,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         journal_writer: mux.journal_writer_stats(),
         connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
         resource_projection: wants(RESOURCE_PROJECTION).then(|| mux.resource_projection_stats()),
+        write_path: wants(WRITE_PATH).then(|| mux.write_path_stats()),
     }
 }
 

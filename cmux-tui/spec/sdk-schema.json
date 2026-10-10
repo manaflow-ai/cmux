@@ -5641,6 +5641,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "write_path": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsWritePath"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -5648,7 +5656,8 @@
     "schema is 1.",
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
-    "resource_projection is present only when the request names it in include."
+    "resource_projection is present only when the request names it in include.",
+    "write_path is present only when the request names it in include."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -5797,6 +5806,56 @@
     "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
     "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes.",
     "full_projections plus scoped_projections is projections; a scoped projection restates only the workspaces it changed, and scope_fallbacks counts scoped projections that found a change outside their scope and ran full. crosschecks counts scoped projections compared with the full projection (debug builds, or CMUX_TUI_PROJECTION_CROSSCHECK=1); crosscheck_mismatches counts comparisons that differed."
+   ]
+  },
+  "ServerStatsWritePath": {
+   "kind": "object",
+   "fields": {
+    "effect_intents": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "effect_intent_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "effect_intent_batches": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "request_effect_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "writer_registry_locks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start.",
+    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
    ]
   },
   "GuestUrlOpenResult": {
@@ -14927,7 +14986,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -21150,6 +21209,179 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+   ]
+  },
+  "feed-local-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "unread": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-read": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "items": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-begin": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-abort": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-done": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "home": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
+    "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
    ]
   }
  },

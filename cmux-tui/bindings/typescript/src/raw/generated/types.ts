@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 88c4f627c2eddde95ff74ed6122e6656406faa5152b49ca3490378ead7469997. */
+/* cmux-tui mux protocol 12, IR 7ea59149ad31b078e3187dc8ba31abf0011fcba464a7bd7f17d45f6f6f0c5354. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -948,6 +948,15 @@ export type ServerStatsResult = {
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;
+  "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsWritePath = {
+  "effect_intent_batches": bigint;
+  "effect_intent_failures": bigint;
+  "effect_intents": bigint;
+  "request_effect_commits": bigint;
+  "writer_registry_locks": bigint;
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";

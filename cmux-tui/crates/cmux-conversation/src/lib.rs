@@ -38,7 +38,7 @@ pub use question::{
 };
 pub use reducer::{
     Commit, CreateRequest, OpRequest, Reject, apply, check_typing, create, summary,
-    valid_participant_id, valid_token,
+    valid_participant_id, valid_token, validate_parts,
 };
 pub use search::{
     MAX_QUERY_CHARS, MAX_SEARCH_LIMIT, MIN_SEARCH_LIMIT, SNIPPET_CHARS, SearchHit, SearchInput,

@@ -85,6 +85,8 @@ impl ConversationStore {
                 !message.parts.is_empty(),
                 "bad request: an imported message needs parts"
             );
+            // The same part rules as a send: an import is no way around them.
+            cmux_conversation::validate_parts(&message.parts).map_err(rejected)?;
             anyhow::ensure!(
                 valid_time(&message.created_at),
                 "bad request: created_at must be YYYY-MM-DDTHH:MM:SS.mmmZ"
