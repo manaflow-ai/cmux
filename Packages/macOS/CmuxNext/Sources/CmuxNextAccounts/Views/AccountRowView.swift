@@ -52,10 +52,6 @@ struct AccountRowView: View {
                     .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
             }
             if let outcome { outcome.padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4) }
-            if model.confirmTarget == row.provider {
-                ConnectConfirmation(model: model, provider: row.provider, palette: palette)
-                    .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
-            }
             if model.pasteTarget == row.provider {
                 PasteField(model: model, provider: row.provider, palette: palette)
                     .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
@@ -125,27 +121,5 @@ private struct LinkedAccountLine: View {
                 .disabled(busy)
                 .accessibilityIdentifier("cmux.accounts.remove.\(account.id)")
         }
-    }
-}
-
-/// Connect confirmation with the Codex refresh-token note.
-struct ConnectConfirmation: View {
-    let model: AccountsModel
-    let provider: AIProvider
-    let palette: AccountsPalette
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.space3) {
-            Text(AccountsStrings.codexRefreshNote).font(palette.caption).foregroundStyle(palette.text)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: Metrics.space3) {
-                Button(AccountsStrings.confirmConnect) { model.connect(provider, confirmed: true) }
-                    .accessibilityIdentifier("cmux.accounts.confirm.\(provider.rawValue)")
-                Button(AccountsStrings.cancel) { model.confirmTarget = nil }
-            }
-            .buttonStyle(AccountsButtonStyle(palette: palette))
-        }
-        .padding(Metrics.space4)
-        .background(palette.hover, in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
     }
 }

@@ -24,6 +24,10 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
+        // A person-only action is refused first, whatever its arguments or context (cx-zk9t).
+        if action.isPersonOnly {
+            throw ControlError(code: "unavailable", message: RegistryControlBridge.personOnlyReason, data: ["action": .string(action.id)])
+        }
         var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
         // The caller is part of the fingerprint; where it places is resolved

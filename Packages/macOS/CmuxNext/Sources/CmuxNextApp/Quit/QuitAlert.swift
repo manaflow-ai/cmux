@@ -49,7 +49,8 @@ final class QuitAlert {
 
     static func spec(_ content: QuitAlertContent, remember: Bool) -> CmuxDialogSpec {
         let buttons = content.buttons.map { id in
-            CmuxDialogButton(id: id.rawValue, title: QuitAlertContent.title(of: id), role: role(of: id))
+            CmuxDialogButton(id: id.rawValue, title: QuitAlertContent.title(of: id), role: role(of: id),
+                             confirmKind: confirmKind(of: id, content))
         }
         // Drawn left to right: the other choices, Cancel, then the primary one.
         let primary = buttons.prefix(1)
@@ -59,6 +60,18 @@ final class QuitAlert {
             ? [.check(id: rememberField, title: QuitStrings.dontAskAgain, on: remember)] : []
         return CmuxDialogSpec(title: content.title, lines: content.lines, fields: fields, buttons: ordered,
                               identifier: "cmux.dialog.quit")
+    }
+
+    /// Only the person picks a choice that ends programs or deletes workspaces (cx-zk9t):
+    /// the end choices; Quit, which applies the remembered choice (End Everything
+    /// too); and Keep while incognito programs would end. Keep and Cancel stay open
+    /// to automation otherwise.
+    private static func confirmKind(of id: QuitAlertContent.Button, _ content: QuitAlertContent) -> CmuxDialogConfirmKind {
+        switch id {
+        case .confirmQuitEverything, .endEverything, .quit: .destructive
+        case .keep: content.endsIncognito ? .destructive : .none
+        case .cancel: .none
+        }
     }
 
     /// Keep (or Quit) answers Return, Cancel answers Escape, every end choice
@@ -105,17 +118,49 @@ final class QuitAlert {
             finish(.quit(.endEverything, remember: false))
             return true
         }
-        let resolved = switch id {
+        return center.press(dialogID, button: Self.resolve(id, in: ids))
+    }
+
+    /// The button an automation id names ("quit" is Keep when the dialog has no Quit).
+    private static func resolve(_ id: String, in ids: [String]) -> String {
+        switch id {
         case "quit" where !ids.contains("quit"): "keep"
         case "end-keep-layout", "quit-everything": "confirm-quit-everything"
         default: id
         }
-        return center.press(dialogID, button: resolved)
     }
 
-    /// A second Cmd-Q while the dialog shows: its default (keep, or Quit).
+    /// `press` for automation (`debug.quit`), through `CmuxDialogCenter.automationRefusal`
+    /// (cx-zk9t): Keep, Quit and Cancel pass; the end choices (and End Everything, which
+    /// has no button) answer only to the person. "end" only reports.
+    @discardableResult
+    func automationPress(_ id: String) throws(CmuxDialogAutomationRefusal) -> Bool {
+        guard let dialogID, id != "end" else { return press(id) }
+        if id == QuitAlertContent.Button.endEverything.rawValue {
+            throw CmuxDialogAutomationRefusal(dialog: dialogID, kind: .destructive, step: "press \(id)")
+        }
+        if let refusal = center.automationRefusal(dialogID, button: Self.resolve(id, in: buttons.map(\.id))) { throw refusal }
+        return press(id)
+    }
+
+    /// "Don't ask again" for automation, through `CmuxDialogCenter.automationSetValue`.
+    func automationRemember(_ on: Bool) throws(CmuxDialogAutomationRefusal) {
+        guard let dialogID else {
+            remember = on
+            return
+        }
+        try center.automationSetValue(.bool(on), for: Self.rememberField, in: dialogID)
+    }
+
+    /// A second Cmd-Q while the dialog shows: its default (keep, or Quit). A user-only
+    /// default (Quit, or Keep while incognito programs would end) needs the person's own
+    /// Cmd-Q (cx-zk9t): a second quit from automation does not answer it.
     func answerDefault() {
         guard let primary = content.buttons.first else { return }
+        if let dialogID, center.automationRefusal(dialogID, button: Self.resolve(primary.rawValue, in: buttons.map(\.id))) != nil,
+           !CmuxPersonInput.shared.isPerson(NSApp.currentEvent) {
+            return
+        }
         press(primary.rawValue)
     }
 

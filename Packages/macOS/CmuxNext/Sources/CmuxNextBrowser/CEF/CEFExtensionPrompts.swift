@@ -40,13 +40,15 @@ final class CEFExtensionPrompts {
         sheets.values.map(\.prompt).sorted { $0.id < $1.id }
     }
 
-    /// Answers a waiting prompt as its sheet would. False when it is gone.
-    @discardableResult
-    func answer(_ id: Int32, _ answer: ExtensionInstallPrompt.Answer) -> Bool {
+    #if DEBUG
+    /// DEV-only test fixture (`debug.extensions.prompt {fixture_answer}`): answers a waiting
+    /// prompt without its dialog. Compiled only in DEBUG. False when it is gone.
+    func fixtureAnswer(_ id: Int32, _ answer: ExtensionInstallPrompt.Answer) -> Bool {
         guard let sheet = sheets[id] else { return false }
-        sheet.end(answer)
+        sheet.fixtureAnswer(answer)
         return true
     }
+    #endif
 
     /// The tab that asked (only that tab is blocked); else the pane window
     /// that showed a Chromium tab last; else any visible cmux window.

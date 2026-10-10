@@ -92,6 +92,25 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         return copy
     }
 
+    /// Set only by the registry after the person answered the user-only confirmation of a
+    /// person-only action (cx-zk9t). No argument, key binding, page or socket caller can set
+    /// it, so `confirm: true` never skips that confirmation.
+    public internal(set) var isPersonConfirmed = false
+
+    /// This invocation aimed at `target` (a confirmation's pinned object).
+    public func retargeted(_ target: ActionTargetRef) -> ActionInvocation {
+        var copy = self
+        copy.target = target
+        return copy
+    }
+
+    /// This invocation confirmed by the person (`gateDestructive` only).
+    func personConfirmed() -> ActionInvocation {
+        var copy = confirmed()
+        copy.isPersonConfirmed = true
+        return copy
+    }
+
     /// The first argument's text form, for handlers that take one string.
     var legacyArgument: String? {
         let values = arguments.filter { $0.key != ActionArgument.confirmName }

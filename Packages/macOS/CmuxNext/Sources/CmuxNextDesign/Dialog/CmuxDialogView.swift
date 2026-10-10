@@ -36,6 +36,20 @@ public final class CmuxDialogView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // MARK: Accessibility
+
+    // `AXCmuxConfirmKind` (CmuxDialogConfirmKind.accessibilityAttribute): AppKit has no
+    // property for a custom attribute, so it goes through the informal protocol.
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [CmuxDialogConfirmKind.accessibilityAttribute]
+    }
+
+    @available(macOS, deprecated: 10.10, message: "custom accessibility attribute")
+    nonisolated public override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        attribute == CmuxDialogConfirmKind.accessibilityAttribute ? spec.userOnlyKind.rawValue : super.accessibilityAttributeValue(attribute)
+    }
+
     // MARK: Values
 
     /// Every field's current value by field id.
@@ -104,7 +118,7 @@ public final class CmuxDialogView: NSView {
     public override var acceptsFirstResponder: Bool { true }
 
     public override func keyDown(with event: NSEvent) {
-        if let key = Self.key(event), handle(key, modifiers: Self.modifiers(event)) { return }
+        if let key = Self.key(event), handlePersonKey(key, event) { return }
         super.keyDown(with: event)
     }
 
@@ -112,7 +126,35 @@ public final class CmuxDialogView: NSView {
     /// while the keyboard is inside it.
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard containsKeyboard, let key = Self.key(event) else { return super.performKeyEquivalent(with: event) }
-        return handle(key, modifiers: Self.modifiers(event)) || super.performKeyEquivalent(with: event)
+        return handlePersonKey(key, event) || super.performKeyEquivalent(with: event)
+    }
+
+    /// A key from the event stream: a press of a user-only button runs only for the
+    /// person's own key (`CmuxPersonInput`); a posted one is swallowed (cx-zk9t).
+    private func handlePersonKey(_ key: CmuxDialogKeys.Key, _ event: NSEvent, modifiers: CmuxDialogKeys.Modifiers? = nil) -> Bool {
+        let modifiers = modifiers ?? Self.modifiers(event)
+        if case .press(let id)? = CmuxDialogKeys.action(for: key, modifiers: modifiers, in: spec), refusesNonPerson(id, event) { return true }
+        return handle(key, modifiers: modifiers)
+    }
+
+    /// A key a text field's editor turned into a command (Return, Escape, Tab): the same person check.
+    private func handleEditorKey(_ key: CmuxDialogKeys.Key, modifiers: CmuxDialogKeys.Modifiers) -> Bool {
+        guard let event = NSApp.currentEvent else {
+            if case .press(let id)? = CmuxDialogKeys.action(for: key, modifiers: modifiers, in: spec), refusesNonPerson(id, nil) { return true }
+            return handle(key, modifiers: modifiers)
+        }
+        return handlePersonKey(key, event, modifiers: modifiers)
+    }
+
+    /// The "changed by another app" note under each field of a user-only dialog
+    /// (`CmuxDialogView+FieldChanges`).
+    var changeNotes: [String: NSTextField] = [:]
+
+    /// Whether a press of button `id` by `event` is refused: the button is user-only
+    /// and the event is not the person's.
+    private func refusesNonPerson(_ id: String, _ event: NSEvent?) -> Bool {
+        guard let button = spec.buttons.first(where: { $0.id == id }), spec.confirmKind(of: button).isUserOnly else { return false }
+        return !CmuxPersonInput.shared.isPerson(event)
     }
 
     public override func cancelOperation(_ sender: Any?) {
@@ -154,6 +196,10 @@ public final class CmuxDialogView: NSView {
     }
 
     @objc private func pressed(_ sender: CmuxDialogButtonView) {
+        // A click or Space on the button: a user-only one needs the person's own current event
+        // in this window, or an accepted assistive accessibility press (cx-zk9t).
+        if spec.buttons.first(where: { $0.id == sender.button.id }).map(spec.confirmKind(of:))?.isUserOnly == true,
+           !sender.takeAccessibilityPress(), !CmuxPersonInput.shared.isPersonEdit(NSApp.currentEvent, in: window) { return }
         press(sender.button.id)
     }
 
@@ -190,7 +236,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, confirmKind: spec.confirmKind(of: button), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
@@ -241,7 +287,17 @@ public final class CmuxDialogView: NSView {
     private func fieldViews(_ field: CmuxDialogField, width: CGFloat) -> [NSView] {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
-            let input = secure ? NSSecureTextField(string: initial) : NSTextField(string: initial)
+            let userOnly = spec.userOnlyKind.isUserOnly
+            let input: NSTextField
+            if secure {
+                let field = CmuxDialogSecureField(string: initial)
+                field.userOnly = userOnly
+                input = field
+            } else {
+                let field = CmuxDialogTextField(string: initial)
+                field.userOnly = userOnly
+                input = field
+            }
             input.placeholderString = placeholder
             input.font = Typography.body
             input.delegate = self
@@ -251,9 +307,10 @@ public final class CmuxDialogView: NSView {
             input.widthAnchor.constraint(equalToConstant: width).isActive = true
             input.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.fieldHeight).isActive = true
             register(input, id: id)
-            return captioned(caption, input, width: width)
+            return captioned(caption, input, width: width) + changeNote(id, width: width)
         case .choice(let id, let caption, let options, let selected):
-            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            let popup = CmuxDialogPopUp(frame: .zero, pullsDown: false)
+            popup.userOnly = spec.userOnlyKind.isUserOnly
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
@@ -263,15 +320,20 @@ public final class CmuxDialogView: NSView {
             popup.setAccessibilityLabel(caption ?? spec.title)
             popup.translatesAutoresizingMaskIntoConstraints = false
             popup.widthAnchor.constraint(equalToConstant: width).isActive = true
+            popup.target = self
+            popup.action = #selector(fieldChanged(_:))
             register(popup, id: id)
-            return captioned(caption, popup, width: width)
+            return captioned(caption, popup, width: width) + changeNote(id, width: width)
         case .check(let id, let title, let on):
-            let check = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            let check = CmuxDialogCheckbox(checkboxWithTitle: title, target: nil, action: nil)
+            check.userOnly = spec.userOnlyKind.isUserOnly
             check.state = on ? .on : .off
             check.font = Typography.body
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
+            check.target = self
+            check.action = #selector(fieldChanged(_:))
             register(check, id: id)
-            return [check]
+            return [check] + changeNote(id, width: width)
         case .preview(let text):
             let preview = label(text, font: .monospacedSystemFont(ofSize: Typography.body.pointSize, weight: .regular),
                                 role: .primary, width: width)
@@ -296,10 +358,10 @@ extension CmuxDialogView: NSTextFieldDelegate {
     /// Return, Escape and Tab inside a text field follow the dialog keys.
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)): handle(.return, modifiers: [])
-        case #selector(NSResponder.cancelOperation(_:)): handle(.escape, modifiers: [])
-        case #selector(NSResponder.insertTab(_:)): handle(.tab, modifiers: [])
-        case #selector(NSResponder.insertBacktab(_:)): handle(.tab, modifiers: .shift)
+        case #selector(NSResponder.insertNewline(_:)): handleEditorKey(.return, modifiers: [])
+        case #selector(NSResponder.cancelOperation(_:)): handleEditorKey(.escape, modifiers: [])
+        case #selector(NSResponder.insertTab(_:)): handleEditorKey(.tab, modifiers: [])
+        case #selector(NSResponder.insertBacktab(_:)): handleEditorKey(.tab, modifiers: .shift)
         default: false
         }
     }
