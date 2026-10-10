@@ -33,10 +33,11 @@ final class BookmarkChromiumSync {
             self?.handle(event, profile: BrowserProfileRecord.wireID(for: profile), store: store)
         }
         // task-owner: lives as long as the service; event-driven (Observation).
-        // The file becomes the truth once the home daemon answered or gave up.
+        // The file becomes the truth once the home daemon answered or gave
+        // up; a reconnect lets a failed read start again.
+        let home = service.services.machines.local
         homeObservation = Task { [weak self] in
-            let home = service.services.machines.local
-            for await _ in ObservationStream({ home.store.identity != nil || home.startup != .connecting }) {
+            for await _ in ObservationStream({ "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)" }) {
                 guard let self else { return }
                 retryWaiting()
             }
@@ -53,8 +54,12 @@ final class BookmarkChromiumSync {
         retryWaiting()
     }
 
+    /// Syncs the waiting stores whose tree is loaded; reading the others
+    /// starts their fetch again when one failed or found no connection.
     private func retryWaiting() {
-        for (store, profile) in waiting where service.isLoaded(profile) { schedule(store, profile: profile) }
+        for (store, profile) in waiting {
+            if service.isLoaded(profile) { schedule(store, profile: profile) } else { _ = service.tree(profile) }
+        }
     }
 
     private func handle(_ event: CEFBookmarkEvent, profile: String, store: String) {
@@ -129,13 +134,13 @@ final class BookmarkChromiumSync {
     /// empty Chromium's model. Reading the tree starts its fetch, whose
     /// `changed` comes back here.
     private func sync(_ store: String, profile: String) {
-        let tree = service.tree(profile)
         guard service.isLoaded(profile) else {
             waiting[store] = profile
+            _ = service.tree(profile)
             return
         }
         waiting[store] = nil
-        if bridge.sync(store: store, treeJSON: Self.json(tree)) < 0 {
+        if bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) < 0 {
             logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
         }
     }

@@ -27,8 +27,11 @@ final class BookmarkService {
     @ObservationIgnored var importStore: ImportedDataStore?
     /// Profiles whose daemon tree was fetched on this connection.
     @ObservationIgnored var fetched: Set<String> = []
-    /// Profiles whose tree came from a daemon reply since the last switch to the daemon.
+    /// Profiles whose tree came from a daemon reply requested after the
+    /// home daemon settled (the file copied over), since the last switch.
     @ObservationIgnored var loadedFromDaemon: Set<String> = []
+    /// `observeHome` finished its pass for the daemon's current capability.
+    @ObservationIgnored var homeSettled = false
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var fileTrees: [String: [BookmarkNode]] = [:]
     @ObservationIgnored var fileLoaded = false
