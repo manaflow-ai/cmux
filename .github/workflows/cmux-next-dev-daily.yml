@@ -23,7 +23,6 @@ jobs:
   publish:
     if: >-
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'feat-cmux-next' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     name: Sign and publish cmux NEXT DEV
@@ -40,9 +39,37 @@ jobs:
       APP_NAME: cmux NEXT DEV
       BUNDLE_ID: com.cmuxterm.app.debug.next
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
+      # A source run may have red tests or lint while its app-producing Mac
+      # job succeeded. Those independent reds must not suppress this channel.
+      SOURCE_APP_PRODUCER_JOBS: |-
+        cmux app scheme compile (Debug)
+        cmux-next Release compile (Xcode 26)
     steps:
+      - name: Require a successful app-producing job
+        id: source-gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          jobs="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "success") | .name' || true)"
+          eligible=false
+          while IFS= read -r job_name; do
+            while IFS= read -r producer_name; do
+              if [[ -n "$job_name" && "$job_name" == "$producer_name" ]]; then
+                eligible=true
+              fi
+            done <<< "$SOURCE_APP_PRODUCER_JOBS"
+          done <<< "$jobs"
+          if [[ "$eligible" != true ]]; then
+            echo "::notice::cmux-next run $SOURCE_RUN_ID has no successful app-producing job; skipping daily publication"
+          fi
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+
       - name: Download the exact Release app artifact
         id: source-artifact
+        if: steps.source-gate.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

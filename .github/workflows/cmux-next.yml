@@ -2003,7 +2003,10 @@ jobs:
       # before it writes the immutable R2 object or comments on the PR.
       - name: Package the trusted cmux-next dogfood artifact
         id: dogfood-artifact
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) }}
+        # Keep packaging independent of later launch-budget failures. The
+        # app-producing compile is the admission boundary; unrelated checks
+        # and tests are separate jobs and must not suppress this artifact.
+        if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) }}
         env:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -2022,7 +2025,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload the exact cmux-next app for the trusted publisher
-        if: ${{ steps.dogfood-artifact.outputs.archive != '' }}
+        if: ${{ always() && steps.dogfood-artifact.outputs.archive != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.dogfood-artifact.outputs.artifact_name }}

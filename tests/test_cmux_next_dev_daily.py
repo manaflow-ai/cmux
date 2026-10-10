@@ -39,6 +39,17 @@ class DevDailyWorkflowContract(unittest.TestCase):
         self.assertIn("cmux-next-dev-daily-unsigned-${{ github.sha }}", upload["with"]["name"])
         self.assertEqual(upload["with"]["compression-level"], 0)
 
+        # The producer is independent of checks/tests, so those reds do not
+        # prevent the app artifact from being retained for the publisher.
+        self.assertEqual(
+            set(job["needs"]),
+            {"path_route", "macos-placement", "push-head-preflight"},
+        )
+        package = next(step for step in job["steps"] if step.get("id") == "dogfood-artifact")
+        base_upload = next(step for step in job["steps"] if step.get("name") == "Upload the exact cmux-next app for the trusted publisher")
+        self.assertIn("always()", package["if"])
+        self.assertIn("always()", base_upload["if"])
+
     def test_publisher_is_trusted_workflow_run_and_exact_head_gated(self):
         trigger = self.publisher[True]["workflow_run"]
         self.assertEqual(trigger["workflows"], ["cmux-next"])
@@ -47,13 +58,19 @@ class DevDailyWorkflowContract(unittest.TestCase):
         condition = publish["if"]
         for clause in (
             "github.event.workflow_run.event == 'push'",
-            "github.event.workflow_run.conclusion == 'success'",
             "github.event.workflow_run.head_branch == 'feat-cmux-next'",
             "github.event.workflow_run.head_repository.full_name == github.repository",
         ):
             self.assertIn(clause, condition)
+        self.assertNotIn("github.event.workflow_run.conclusion == 'success'", condition)
         self.assertEqual(publish["environment"], "release")
         self.assertEqual(publish["permissions"]["contents"], "write")
+
+        publisher = PUBLISHER.read_text(encoding="utf-8")
+        self.assertIn("actions/runs/$SOURCE_RUN_ID/jobs?filter=latest", publisher)
+        self.assertIn("cmux app scheme compile (Debug)", publisher)
+        self.assertIn("cmux-next Release compile (Xcode 26)", publisher)
+        self.assertIn("steps.source-gate.outputs.eligible == 'true'", publisher)
 
     def test_publisher_has_no_notarization_or_publication_crossing(self):
         text = PUBLISHER.read_text(encoding="utf-8")
