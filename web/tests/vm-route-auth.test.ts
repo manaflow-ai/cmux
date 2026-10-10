@@ -2462,7 +2462,7 @@ describe("VM REST auth", () => {
       mockImplementation(next: () => Promise<never>): void;
     }).mockImplementation(async () => {
       throw new VmPublicationProviderError({
-        operation: "deleteTlsRulesForHostname",
+        operation: "deletePublicationTlsRules",
         cause: new Error("provider unavailable"),
       });
     });
