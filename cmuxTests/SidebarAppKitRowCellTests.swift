@@ -165,6 +165,7 @@ struct SidebarAppKitRowCellTests {
                 canMarkUnread: false,
                 hasLatestNotification: false,
                 allNotificationsMuted: false,
+                hasManualCustomColor: false,
                 notifications: []
             )
         )

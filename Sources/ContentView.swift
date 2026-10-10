@@ -843,6 +843,36 @@ struct SidebarUnreadSnapshotObserver: View {
     }
 }
 
+private struct SidebarOriginPresentationInput: Equatable {
+    let id: UUID
+    let title: String
+    let destination: String?
+    let cloudVMID: String?
+}
+
+@MainActor
+private final class SidebarOriginPresentationCache {
+    var workspaceInputs: [UUID: SidebarOriginPresentationInput] = [:]
+    var workspaceIds: Set<UUID> = []
+    var mirrorWorkspaceIds: Set<UUID> = []
+    var mirrorDestinations: [UUID: String] = [:]
+    var hasLoadedMirrorDestinations = false
+    var colorsEnabled = false
+    var hostTitlesEnabled = false
+    var hostTitleSuffixes: [UUID: String] = [:]
+
+    func reset() {
+        workspaceInputs = [:]
+        workspaceIds = []
+        mirrorWorkspaceIds = []
+        mirrorDestinations = [:]
+        hasLoadedMirrorDestinations = false
+        colorsEnabled = false
+        hostTitlesEnabled = false
+        hostTitleSuffixes = [:]
+    }
+}
+
 struct ContentView: View {
     private enum CommandPaletteTaskKey: Hashable, Sendable {
         case searchIndexBuild
@@ -11376,6 +11406,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // receive only values and action closures. This is the ownership boundary
     // that prevents layout/realization from publishing row state (#6707).
     @State var workspaceSnapshotCache = SidebarRowSnapshotCache()
+    @State private var sidebarOriginPresentationCache = SidebarOriginPresentationCache()
     /// Bumped once per interactive-resize end: an apply during the drag
     /// is deferred by the AppKit controller. The bump projects one final
     /// authoritative snapshot after mouse-up so state that changed mid-drag
@@ -13119,8 +13150,12 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
-        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabManager.tabs, mirrorDestinations: mirrorDestinations)
+        let presentation = originPresentationValues(
+            tabs: tabManager.tabs,
+            changedWorkspaceIds: workspaceIds
+        )
+        let mirrorDestinations = presentation.mirrorDestinations
+        let hostTitleSuffixes = presentation.hostTitleSuffixes
         // A rename can start or end a title collision, which changes the host shown on OTHER rows.
         // Rebuild every row whose saved snapshot carries a different host than it should now.
         let staleHostIds = tabManager.tabs.compactMap { workspace -> UUID? in
@@ -13146,8 +13181,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
-        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabs, mirrorDestinations: mirrorDestinations)
+        let presentation = originPresentationValues(tabs: tabs)
+        let mirrorDestinations = presentation.mirrorDestinations
+        let hostTitleSuffixes = presentation.hostTitleSuffixes
         // The origin color and the host after a colliding title differ per row, so each row's
         // cached snapshot is reused only when its own key still matches.
         workspaceSnapshotCache.reconcile(
@@ -13238,11 +13274,66 @@ struct VerticalTabsSidebar: View, Equatable {
         return destination
     }
 
-    /// The mirror destinations a batch snapshot refresh needs, or nil when neither origin colors nor
-    /// host titles are on (then no row resolves a destination and the walk would be wasted).
-    private func mirrorDestinationsForOriginPresentation() -> [UUID: String]? {
-        guard remoteTmuxOriginColorsEnabled || remoteTmuxOriginHostTitlesEnabled else { return nil }
-        return AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
+    /// Resolves the shared origin inputs once per changed batch. Mirror destinations are retained
+    /// until the mirror set or an affected mirror changes; title suffixes are recomputed only when
+    /// their `(id, title, destination, cloudVMID)` inputs differ.
+    private func originPresentationValues(
+        tabs: [Workspace],
+        changedWorkspaceIds: Set<UUID>? = nil
+    ) -> (mirrorDestinations: [UUID: String]?, hostTitleSuffixes: [UUID: String]) {
+        let colorsEnabled = remoteTmuxOriginColorsEnabled
+        let hostTitlesEnabled = remoteTmuxOriginHostTitlesEnabled
+        guard colorsEnabled || hostTitlesEnabled else {
+            sidebarOriginPresentationCache.reset()
+            return (nil, [:])
+        }
+
+        let mirrorWorkspaceIds = Set(tabs.filter(\.isRemoteTmuxMirror).map(\.id))
+        let flagsChanged = sidebarOriginPresentationCache.colorsEnabled != colorsEnabled
+            || sidebarOriginPresentationCache.hostTitlesEnabled != hostTitlesEnabled
+        let mirrorSetChanged = sidebarOriginPresentationCache.mirrorWorkspaceIds != mirrorWorkspaceIds
+        let affectedMirrorChanged = changedWorkspaceIds?.contains { mirrorWorkspaceIds.contains($0) } == true
+        if !sidebarOriginPresentationCache.hasLoadedMirrorDestinations
+            || flagsChanged
+            || mirrorSetChanged
+            || affectedMirrorChanged {
+            sidebarOriginPresentationCache.mirrorDestinations =
+                AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
+            sidebarOriginPresentationCache.hasLoadedMirrorDestinations = true
+        }
+
+        let mirrorDestinations = sidebarOriginPresentationCache.mirrorDestinations
+        let inputs = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
+            let destination = originDestination(for: workspace, mirrorDestinations: mirrorDestinations)
+            return (
+                workspace.id,
+                SidebarOriginPresentationInput(
+                    id: workspace.id,
+                    title: workspace.title,
+                    destination: destination,
+                    cloudVMID: workspace.cloudVMID
+                )
+            )
+        })
+        if hostTitlesEnabled {
+            if flagsChanged || sidebarOriginPresentationCache.workspaceInputs != inputs {
+                sidebarOriginPresentationCache.hostTitleSuffixes = hostTitleSuffixes(
+                    tabs: tabs,
+                    mirrorDestinations: mirrorDestinations
+                )
+            }
+        } else {
+            sidebarOriginPresentationCache.hostTitleSuffixes = [:]
+        }
+        sidebarOriginPresentationCache.workspaceInputs = inputs
+        sidebarOriginPresentationCache.workspaceIds = Set(inputs.keys)
+        sidebarOriginPresentationCache.mirrorWorkspaceIds = mirrorWorkspaceIds
+        sidebarOriginPresentationCache.colorsEnabled = colorsEnabled
+        sidebarOriginPresentationCache.hostTitlesEnabled = hostTitlesEnabled
+        return (
+            colorsEnabled || hostTitlesEnabled ? mirrorDestinations : nil,
+            hostTitlesEnabled ? sidebarOriginPresentationCache.hostTitleSuffixes : [:]
+        )
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -15201,7 +15292,8 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: contextMenuPinState,
             inferredTaskStatus: workspaceSnapshot.taskStatusInput.inferred,
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
-            isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden
+            isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
+            hasManualCustomColor: workspaceSnapshot.hasManualCustomColor
         )
         return result
     }

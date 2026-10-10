@@ -202,7 +202,7 @@ public struct BetaFeaturesSection: View {
     @ViewBuilder
     private var remoteTmuxOriginColorsRow: some View {
         SettingsCardRow(
-            configurationReview: .settingsOnly,
+            configurationReview: .json("remoteTmux.beta.originColors.enabled"),
             searchAnchorID: "setting:betaFeatures:remoteTmuxOriginColors",
             String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"),
             subtitle: remoteTmuxOriginColors.current
@@ -219,7 +219,7 @@ public struct BetaFeaturesSection: View {
     @ViewBuilder
     private var remoteTmuxOriginHostTitlesRow: some View {
         SettingsCardRow(
-            configurationReview: .settingsOnly,
+            configurationReview: .json("remoteTmux.beta.originHostTitles.enabled"),
             searchAnchorID: "setting:betaFeatures:remoteTmuxOriginHostTitles",
             String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles", defaultValue: "Remote host names on duplicate titles"),
             subtitle: remoteTmuxOriginHostTitles.current

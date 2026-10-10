@@ -164,7 +164,7 @@ extension TabItemView {
 
             // Gate on the MANUAL color, not the effective row color: an
             // origin-tinted row with no manual color has nothing to clear.
-            if workspaceSnapshot.hasManualCustomColor {
+            if context.hasManualCustomColor {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
                 } label: {
