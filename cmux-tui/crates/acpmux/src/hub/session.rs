@@ -25,6 +25,9 @@ pub struct Session {
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
     pub(super) rehydrate: AtomicBool,
+    /// The chat's route changed during a turn: restart the harness on it when
+    /// the turn ends (`route_switch.rs`).
+    pub(super) route_switch: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
