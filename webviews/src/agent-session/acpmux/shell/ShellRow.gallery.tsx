@@ -154,6 +154,10 @@ export default componentEntry<Props>({
       value: 0,
       reason: "Expanding shell output and triggering a shell action must not move the shell block anchor.",
     },
+    layoutShiftMax: {
+      value: 0.05,
+      reason: "Expanding an in-flow transcript intentionally moves the disclosure and receipt below the newly revealed output.",
+    },
     longFrameFailMs: {
       value: 33,
       reason: "Shell row controls should remain responsive while output disclosure updates the transcript.",
