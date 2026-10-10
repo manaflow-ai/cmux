@@ -2757,7 +2757,15 @@ function AcpmuxPane() {
           .catch(() => undefined);
       },
     };
-  }, [freshChat, quick, composerSnapshot.sessions, composerSnapshot.summary, newTabProjects, chooseProject, chooseFolder]);
+  }, [
+    freshChat,
+    quick,
+    composerSnapshot.sessions,
+    composerSnapshot.summary,
+    newTabProjects,
+    chooseProject,
+    chooseFolder,
+  ]);
   const transcript = (
     <ImageViewerContext.Provider value={openImage}>
       <ShellActionsContext.Provider value={shellActions}>

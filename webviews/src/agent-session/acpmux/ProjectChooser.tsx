@@ -63,7 +63,9 @@ export function ProjectChooser({
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
-  const currentKey = current ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) }) : undefined;
+  const currentKey = current
+    ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
+    : undefined;
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
