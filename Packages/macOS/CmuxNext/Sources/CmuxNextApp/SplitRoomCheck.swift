@@ -49,6 +49,28 @@ extension AppServices {
         }
     }
 
+    /// The ONE rule for a split that opens a new tool (Split Right/Down/Left/Up and Split Browser
+    /// Right/Down, from the chat header's Terminal and Browser buttons, the palette, menus,
+    /// shortcuts and the CLI) (cx-yihq). A person's split from the docked agent chat opens the tool
+    /// as a tab in the scrolling strip, as New Terminal and New Browser do there (cx-ic0); a script's
+    /// split there is refused, so its result stays predictable. Elsewhere it splits when the pane
+    /// has room, and is refused when it has none: a split never opens a column (column-sizing.md).
+    func toolSplit(from pane: PaneModel, edge: PaneEdge, byPerson: Bool) -> ToolSplitDecision {
+        if byPerson, let strip = chatDockStripPane(for: pane) { return .tab(in: strip) }
+        switch splitRoom(for: pane, edge: edge) {
+        case .split: return .split
+        case .refused(let reason): return .refused(reason)
+        case .newColumn: return .refused(RefusalStrings.columnTooNarrowToSplit)
+        }
+    }
+
+    /// The strip pane a tool opened from `pane` goes to when `pane` is the chat dock, else nil.
+    private func chatDockStripPane(for pane: PaneModel) -> PaneController? {
+        guard ChatDockRules.isChatDock(pane, services: self), let controller = paneController(for: pane),
+              case .tab(let target) = ChatColumnPlacement.resolve(from: controller, services: self) else { return nil }
+        return controller.workspace?.panes[target]
+    }
+
     /// The width to send with a new column next to `pane`, from every path
     /// that opens one, and `commit`, which the caller runs once the new
     /// column exists: on a shown workspace it shrinks a lone full-width
@@ -65,6 +87,16 @@ extension AppServices {
         let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
         return NewColumnSpawn(width: request.width, commit: { [weak model] in model?.commitNewColumnResize(request) })
     }
+}
+
+/// What a split that opens a new tool does (`AppServices.toolSplit`).
+enum ToolSplitDecision {
+    /// Split the pane in place.
+    case split
+    /// Open the tool as a tab in this strip pane (the pane was the chat dock).
+    case tab(in: PaneController)
+    /// No split; the localized reason for the caller to report.
+    case refused(String)
 }
 
 /// A new column's width and the lone column's width change to run after it exists.

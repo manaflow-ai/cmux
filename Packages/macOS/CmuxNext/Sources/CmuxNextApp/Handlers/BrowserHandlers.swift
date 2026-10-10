@@ -84,7 +84,8 @@ enum BrowserHandlers {
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
-                try splitBrowser(from: try context.pane(invocation), direction: direction, context: context)
+                try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
+                                 context: context)
             })
         }
     }
@@ -92,11 +93,21 @@ enum BrowserHandlers {
     /// A new app-rendered browser tab in a new split beside `pane`: the
     /// default engine at `url` in browser profile `profile`, else the
     /// new-tab page with its address bar focused; with `url` the page takes
-    /// focus.
+    /// focus. The split follows the one tool-split rule (`AppServices.toolSplit`,
+    /// cx-yihq), as Split Right does: refused without room, and from the docked
+    /// chat a person's browser is a tab in the strip.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
-                             context: AppActionContext) throws {
+                             byPerson: Bool = false, context: AppActionContext) throws {
         let handle = pane.pane.handle, model = pane.pane
         let browserTabs = context.services.cache.browserTabs
+        switch context.services.toolSplit(from: model, edge: direction == .right ? .right : .bottom, byPerson: byPerson) {
+        case .split:
+            break
+        case .refused(let reason):
+            throw ActionFailure(message: reason)
+        case .tab(let strip):
+            return try browserTab(in: strip, url: url, profile: profile, context: context)
+        }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
@@ -116,6 +127,26 @@ enum BrowserHandlers {
                                             generation: intent)
             } catch {
                 context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A split's browser tab opened in strip pane `strip` instead (`ToolSplitDecision.tab`), focused.
+    private static func browserTab(in strip: PaneController, url: URL?, profile: String?, context: AppActionContext) throws {
+        let browserTabs = context.services.cache.browserTabs
+        if let refusal = browserTabs.refusal(in: strip.pane) { throw ActionFailure(message: refusal) }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        let content = strip.workspace
+        if let content { PaneHandlers.focus(strip.layoutPaneID, in: content) }
+        let intent = content?.beginFocusIntent()
+        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
+        let model = strip.pane
+        Task {
+            do {
+                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
+                content?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
+            } catch {
+                context.daemon.logger.error("split-browser tab failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
