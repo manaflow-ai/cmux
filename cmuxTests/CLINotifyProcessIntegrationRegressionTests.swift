@@ -10207,6 +10207,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ["cleared": true, "count": 1, "profiles": []]
             ),
             (
+                "delete-terminator",
+                ["browser", "profiles", "delete", "--", "--literal-profile"],
+                "browser.profiles.delete",
+                [#""profile":"--literal-profile""#],
+                [
+                    "deleted": true,
+                    "profile": [
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "name": "--literal-profile",
+                        "slug": "literal-profile",
+                        "built_in_default": false,
+                        "current": false,
+                    ],
+                ]
+            ),
+            (
                 "delete",
                 ["browser", "profiles", "delete", "Agent Smoke"],
                 "browser.profiles.delete",
@@ -10261,6 +10277,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
     }
+
     private struct MockedSSHRun {
         let requests: [[String: Any]]
         let stdout: String

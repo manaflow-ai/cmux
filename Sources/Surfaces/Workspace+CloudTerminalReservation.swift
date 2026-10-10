@@ -39,6 +39,13 @@ extension Workspace {
     /// Hands a device provider the native pane without requiring a Cloud
     /// attachment object. Device mirrors share the optimistic reservation path,
     /// but their attachment status has a different type from Cloud VMs.
+    ///
+    /// Adoption binds the pane; it does not retire the request. As with
+    /// `adoptReservedCloudTerminalPane`, the reservation stays pending until its
+    /// owner calls `completeReservedCloudTerminalPane`. The owner checks that its
+    /// reservation is still pending after the projection returns, so retiring it
+    /// here made a successful adoption look like a closed pane and tore down the
+    /// workspace a device workspace row had just opened.
     func adoptPendingDeviceTerminalPane(
         _ reservation: CloudTerminalPaneReservation,
         machine: SurfaceMachineID,
@@ -50,8 +57,9 @@ extension Workspace {
               reservation.boundResourceID == resource.id,
               cloudPendingCreations[reservation.panelID] === reservation,
               let panel = panels[reservation.panelID] as? TerminalPanel,
-              panel.surface.ioMode == .manualMirror else { return nil }
-        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+              panel.surface.ioMode == .manualMirror,
+              // A pane binds one mirror session; a second adoption must not replace it.
+              panel.deviceAttachment == nil else { return nil }
         return (id, panel.id, panel.surface)
     }
 

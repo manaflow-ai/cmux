@@ -789,7 +789,7 @@ private extension CmuxVaultAgentSessionIDSource {
     }
 }
 
-private extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
         var result: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
         for process in cmuxScopedProcesses() {

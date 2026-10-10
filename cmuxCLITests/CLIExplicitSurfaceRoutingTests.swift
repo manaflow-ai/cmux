@@ -68,6 +68,36 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+
+    @Test func browserProfileMutationsRejectMalformedArgumentsBeforeSocket() throws {
+        let cases: [(name: String, arguments: [String], diagnostic: String)] = [
+            ("surface-missing-value", ["browser", "profiles", "delete", "--surface", "--typo", "Work"], "--surface requires a value"),
+            ("create-flag", ["browser", "profiles", "create", "Work", "--typo"], "unexpected arguments"),
+            ("create-extra", ["browser", "profiles", "create", "--name", "Work", "extra"], "unexpected arguments"),
+            ("rename-flag", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "--typo"], "unexpected arguments"),
+            ("rename-extra", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "extra"], "unexpected arguments"),
+            ("clear-flag", ["browser", "profiles", "clear", "--all", "--typo"], "unexpected arguments"),
+            ("clear-extra", ["browser", "profiles", "clear", "--all", "extra"], "unexpected arguments"),
+            ("delete-flag", ["browser", "profiles", "delete", "Work", "--typo"], "unexpected arguments"),
+            ("delete-extra", ["browser", "profiles", "delete", "Work", "extra"], "unexpected arguments"),
+        ]
+
+        for testCase in cases {
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: testCase.arguments,
+                environment: cliEnvironment(
+                    socketPath: Self.makeSocketPath("browser-profile-invalid-\(testCase.name)")
+                ),
+                timeout: Self.processTimeout
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.stderr.contains(testCase.diagnostic), Comment(rawValue: result.stderr))
+            #expect(!result.stderr.localizedCaseInsensitiveContains("socket not found"), Comment(rawValue: result.stderr))
+        }
+    }
+
     @Test func notifyAcceptsDesktopValueOption() throws {
         // `--desktop true|false` (#14688) must pass argument validation and reach the socket.
         let execution = try runMockCommand(

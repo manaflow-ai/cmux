@@ -145,7 +145,7 @@ struct CloudSidebarNotificationTests {
         _ = fixture.catalog.replaceResources([fixture.snapshot().resources[0]], on: fixture.machine, from: fixture.provider)
         fixture.catalog.sidebarNotifications.flush()
         #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty)
-        #expect(fixture.catalog.sidebarNodes(on: fixture.machine).allSatisfy { $0.machine == fixture.machine })
+        #expect(fixture.catalog.sidebarNodes(on: fixture.machine).withoutCoderouterSection.allSatisfy { $0.machine == fixture.machine })
     }
 
     @Test("Sign-out retains pins but confirmed machine deletion forgets them durably")

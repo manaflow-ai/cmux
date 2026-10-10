@@ -117,6 +117,29 @@ struct SudoApprovalCoordinatorTests {
         #expect(await broker.stopCallCount == 1)
     }
 
+    @Test("Application termination starts broker shutdown without waiting for it")
+    func terminationShutdownDoesNotBlockCaller() async {
+        let broker = BlockingStopSudoBroker()
+        let coordinator = SudoApprovalCoordinator(
+            broker: broker,
+            presenter: RecordingSudoApprovalPresenter()
+        )
+        var startEvents = await broker.startEvents().makeAsyncIterator()
+        var stopEvents = await broker.stopEvents().makeAsyncIterator()
+
+        coordinator.start { error in
+            Issue.record("Unexpected startup failure: \(error)")
+        }
+        _ = await startEvents.next()
+
+        coordinator.stopInBackgroundForTermination()
+        _ = await stopEvents.next()
+        #expect(await broker.stopCallCount == 1)
+
+        await broker.releaseFirstStop()
+        await coordinator.stop()
+    }
+
     @Test("A restart requested during shutdown begins only after shutdown joins")
     func restartAfterCancelledTermination() async {
         let broker = BlockingStopSudoBroker()
@@ -335,6 +358,7 @@ private actor BlockingStopSudoBroker: SudoBrokerServing {
     }
 
     var startCallCount: Int { starts }
+    var stopCallCount: Int { stops }
 
     func startEvents() -> AsyncStream<Void> { startEventStream }
     func stopEvents() -> AsyncStream<Void> { stopEventStream }

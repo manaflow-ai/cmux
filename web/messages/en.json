@@ -1759,7 +1759,10 @@
       ],
       "hostedNetworkingFeatures": [
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
-      ]
+      ],
+      "annual": {
+        "yearly": "Yearly"
+      }
     },
     "max": {
       "name": "Max",
@@ -2001,7 +2004,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo and Team is $60/user/mo, both billed monthly. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2020,7 +2023,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is not available for new subscriptions. Choose a monthly plan below.",
+    "billingAnnualUnavailable": "Annual billing is available only for Pro. Choose a plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
@@ -3378,6 +3381,7 @@
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
           "defaultZoomLevel": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page.",
           "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
+          "showLinkHoverURL": "Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus.",
           "urlAllowlist": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "workspaceGroups": {
@@ -4396,7 +4400,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "Run persistent Linux cloud machines from cmux and keep coding agents working after you close your Mac.",
       "intro": "cmux Cloud gives you persistent Linux machines in the cloud that open as normal cmux workspaces. Terminals keep running when you close a pane, lose the network, or shut your laptop, so coding agents can keep working and you can reattach from any signed-in Mac.",
-      "betaNote": "cmux Cloud is in early access, and it is turned on for Macs in stages. To use it, your Mac must be in the rollout, and you must turn on Settings › Beta Features › Cloud Machines. If your Mac is not in the rollout yet, Cloud commands show \"Cloud Machines are temporarily unavailable.\"",
+      "betaNote": "cmux Cloud is in early access and available unless your organization disables it. To use it, turn on Settings › Beta Features › Cloud Machines.",
       "whatTitle": "What a machine is",
       "whatDesc": "A machine is a persistent cloud computer that belongs to you or to your team. It keeps its files, installed tools, and running terminals. Treat it like a pet, not like cattle: you install what you need once and come back to it later.",
       "whatDaemon": "Every machine runs the cmux TUI daemon. The daemon holds the machine's workspaces and terminals. A cmux pane on your Mac only shows a terminal that lives on the machine, so closing the pane never stops the process.",
@@ -4405,7 +4409,7 @@
       "requirementsTitle": "What you need",
       "reqMac": "The cmux macOS app, running and signed in. The cmux CLI talks to the app, and the app holds your credentials.",
       "reqPlan": "A paid cmux plan. Free accounts cannot create machines. See the pricing page for the current plans.",
-      "reqBeta": "A Mac that is in the Cloud early access rollout, with Cloud Machines turned on in Settings › Beta Features.",
+      "reqBeta": "Cloud Machines turned on in Settings › Beta Features, with no organization policy disabling Cloud.",
       "reqNoVpn": "No VPN, SSH key, or port forwarding setup. cmux connects to your machines over a private network that starts automatically.",
       "quickstartTitle": "Quickstart",
       "stepSignIn": "Sign in. Use the Cloud tab in the right sidebar, or run the login command in a terminal.",
@@ -4606,9 +4610,9 @@
       "symptomColumn": "Problem",
       "fixColumn": "Fix",
       "errNotSeen": "No Cloud tab or New Cloud Machine command",
-      "fixNotSeen": "Turn on Settings › Beta Features › Cloud Machines. If Cloud still does not show, your Mac is not in the rollout yet. If cmux says that Cloud Machines are disabled by your administrator, ask your administrator.",
-      "errUnavailable": "Cloud Machines are temporarily unavailable",
-      "fixUnavailable": "Your Mac is not in the Cloud rollout yet, or Cloud is temporarily turned off. The Settings toggle alone does not turn on Cloud. Try again later.",
+      "fixNotSeen": "Turn on Settings › Beta Features › Cloud Machines. If Cloud still does not show, check whether your administrator disabled Cloud Machines.",
+      "errUnavailable": "Cloud Machines are disabled or unavailable",
+      "fixUnavailable": "Cloud Machines are off because the local Settings toggle is off or your administrator disabled Cloud. Turn on the toggle, or ask your administrator to allow Cloud.",
       "errSignIn": "Cloud VM access requires sign-in",
       "fixSignIn": "Run cmux auth login, then try again. If your session was rejected, run cmux auth logout first.",
       "errPlan": "Cloud VMs require a paid plan",
@@ -7115,7 +7119,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
+    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {

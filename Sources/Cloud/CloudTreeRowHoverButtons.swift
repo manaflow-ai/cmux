@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 struct CloudTreeRowHoverButtons: View {
@@ -12,9 +13,31 @@ struct CloudTreeRowHoverButtons: View {
 
     var body: some View {
         switch kind {
+        // The section headers' refresh icons sit after their counts
+        // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
-        case .cloudMachinesSection(let canCreateMachine, _):
+        case .coderouterSection:
+            MachinesChromeIconButton(
+                symbolName: "questionmark.circle",
+                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
+                isBusy: false
+            ) {
+                nodeActions.showRowGuide(nodeID)
+            }
+            .help(CoderouterGuideView.summary)
+            .accessibilityIdentifier("CoderouterGuideButton")
+        case .coderouterAccount(let account):
+            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) {
+                nodeActions.removeCoderouterAccount(account)
+            }
+        case .coderouterProviderGroup(let provider, _):
+            if provider.canAdd {
+                plus(provider.newAccountTitle) {
+                    nodeActions.addCoderouterAccount(provider)
+                }
+            }
+        case .cloudMachinesSection(let canCreateMachine, _, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
                     nodeActions.newMachine()
@@ -114,6 +137,21 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .port(let resource, _, _):
+            if let port = Self.shareablePort(resource) {
+                CloudPortShareButton(
+                    key: CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port),
+                    store: CloudPortShareStore.shared
+                ) {
+                    nodeActions.sharePort(resource.id)
+                }
+            }
+        case .display(let resource, _, let remoteView):
+            if let remoteView, remoteView.isCloudDisplayMembershipView {
+                xmark(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) {
+                    nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                }
+            }
         default:
             EmptyView()
         }
@@ -124,7 +162,11 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
-        case .cloudMachinesSection(let canCreateMachine, _):
+        case .coderouterProviderGroup(let provider, _):
+            return provider.canAdd
+        case .coderouterSection, .coderouterAccount:
+            return true
+        case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:
             return true
@@ -132,16 +174,33 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .port(let resource, _, _):
+            return shareablePort(resource) != nil
+        case .display(_, _, let remoteView):
+            return remoteView?.isCloudDisplayMembershipView == true
         default:
             return false
         }
     }
 
+    /// A Cloud machine's forwarded port can be shared; This Mac and SSH hosts can't.
+    static func shareablePort(_ resource: SurfaceResource) -> Int? {
+        guard resource.machine.cloudMachineID != nil else { return nil }
+        return resource.id.forwardedPort
+    }
+
     /// True when the row's buttons stay visible without hover. Machine rows
     /// keep + and ⋯ on screen so their actions are discoverable at rest.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
-        if case .machine = kind { return true }
-        return false
+        switch kind {
+        case .machine:
+            return true
+        case .port(let resource, _, _):
+            // Sharing is the port row's main action, so it stays discoverable.
+            return shareablePort(resource) != nil
+        default:
+            return false
+        }
     }
 
     /// The Displays affordance remains visible while guest discovery is pending
@@ -166,6 +225,83 @@ struct CloudTreeRowHoverButtons: View {
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
+    }
+}
+
+/// Share on a Cloud port row: a spinner while the link is made, a checkmark
+/// once it is on the clipboard.
+private struct CloudPortShareButton: View {
+    let key: CloudPortShareStore.Key
+    let store: CloudPortShareStore
+    let action: () -> Void
+
+    var body: some View {
+        let phase = store.phase(for: key)
+        // No transition: the controls host resizes with the note, and an
+        // animated swap slides the note out under the row's content.
+        HStack(spacing: 4) {
+            if let status = status(phase) {
+                // The row's content keeps its trailing edge at just below
+                // required priority, so the controls host shrinks to its
+                // minimum width; a fixed-size note keeps that minimum honest
+                // instead of truncating to nothing.
+                Text(status)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            MachinesChromeIconButton(
+                symbolName: symbolName(phase),
+                accessibilityLabel: label(phase),
+                isBusy: phase == .creating,
+                action: action
+            )
+            .help(label(phase))
+            .accessibilityIdentifier("CloudPortShareButton")
+        }
+    }
+
+    private func symbolName(_ phase: CloudPortShareStore.Phase?) -> String {
+        switch phase {
+        case .copied: return "checkmark"
+        case .failed: return "exclamationmark.triangle"
+        case .creating, .ready, nil: return "link"
+        }
+    }
+
+    /// The short inline note beside the button while sharing runs and right
+    /// after the link lands on the clipboard.
+    private func status(_ phase: CloudPortShareStore.Phase?) -> String? {
+        switch phase {
+        case .creating:
+            return String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}")
+        case .copied:
+            return String(localized: "cloudTree.port.share.copied", defaultValue: "Copied to clipboard")
+        case .ready:
+            return String(localized: "cloudTree.port.share.ready", defaultValue: "Link ready")
+        case .failed, nil:
+            return nil
+        }
+    }
+
+    private func label(_ phase: CloudPortShareStore.Phase?) -> String {
+        switch phase {
+        case .creating:
+            return String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}")
+        case .copied(.team):
+            return String(localized: "cloudTree.port.share.copiedTeam", defaultValue: "Link copied. Your team can open it after signing in.")
+        case .copied(.personal):
+            return String(localized: "cloudTree.port.share.copiedPersonal", defaultValue: "Link copied. Only you can open it.")
+        case .copied(.public):
+            return String(localized: "cloudTree.port.share.copiedPublic", defaultValue: "Link copied. Anyone with the link can open it.")
+        case .ready:
+            return String(localized: "cloudTree.port.share.readyHelp", defaultValue: "The link is ready. Click to copy it.")
+        case .failed:
+            return String(localized: "cloudTree.port.share.failed", defaultValue: "Couldn't create link")
+        case nil:
+            return String(localized: "cloudTree.port.shareLink", defaultValue: "Share Link")
+        }
     }
 }
 

@@ -40,6 +40,7 @@ extension BrowserPanel {
             oldCmuxWebView.clearBrowserDownloadCallbacks()
             oldCmuxWebView.browserViewportModel = nil
             oldCmuxWebView.onBrowserViewportHierarchyChanged = nil
+            oldCmuxWebView.onKeyboardFocusedLinkChanged = nil
             oldCmuxWebView.onMouseBackButton = nil
             oldCmuxWebView.onMouseForwardButton = nil
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil

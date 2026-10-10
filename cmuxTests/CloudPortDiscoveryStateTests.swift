@@ -35,6 +35,9 @@ struct CloudPortDiscoveryStateTests {
         #expect(CloudPortScanResult(socketListing: "State Recv-Q Send-Q Local Address:Port Peer Address:Port\n")?.ports == [])
         #expect(CloudPortScanResult(socketListing: "LISTEN 0 128 10.0.0.7:3000 0.0.0.0:*")?.state == .empty(.otherInterfaceOnly))
         #expect(CloudPortScanResult(socketListing: "inventory unavailable") == nil)
+        // A diagnostic or UNCONN row beside real rows does not void the inventory.
+        #expect(CloudPortScanResult(socketListing: "inventory unavailable\nLISTEN 0 128 127.0.0.1:3000 0.0.0.0:*")?.ports == [3000])
+        #expect(CloudPortScanResult(socketListing: "UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*")?.state == .empty(.noListeningService))
         #expect(CmuxTuiSurfaceProvider.portScan(from: VMExecResult(exitCode: 127, stdout: "", stderr: "missing")) == nil)
     }
 

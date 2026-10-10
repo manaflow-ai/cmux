@@ -49,6 +49,7 @@ extension TerminalController {
         "debug.window.screenshot",
         "debug.cloudtree.gallery",
         "debug.cloudtree.spacing",
+        "debug.cloudtree.rows",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",
         "debug.mobile.transport.disconnect",

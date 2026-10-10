@@ -41,6 +41,13 @@ struct CloudBrowserAccessView<Content: View>: View {
                         .ghosttyDialogTheme()
                     }
                 }
+            } else if state.isRestoring {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text(String(localized: "cloud.display.restoring", defaultValue: "Reconnecting to Cloud…"))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("CloudDisplayRestoring")
             } else if let message = state.starting {
                 ProgressView(message)
                     .controlSize(.small)
@@ -80,6 +87,7 @@ struct CloudBrowserAccessView<Content: View>: View {
     private var showsNativeContent: Bool {
         let state = panel.cloudAccess
         return state.unavailable != nil
+            || state.isRestoring
             || state.starting != nil
             || state.failureMessage != nil
             || (state.isDesktop && !state.showsPage)

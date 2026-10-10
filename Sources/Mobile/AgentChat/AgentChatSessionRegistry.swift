@@ -333,6 +333,31 @@ final class AgentChatSessionRegistry {
         storeRecord(record, replacing: previous)
     }
 
+    /// Optimistically marks sessions on a terminal as working when the user
+    /// supplies input to a needs-input prompt. The next hook remains
+    /// authoritative and can move the session back to needs-input or idle.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface receiving the input.
+    ///   - at: The input timestamp used for the working-state clock.
+    /// - Returns: The number of sessions advanced from needs-input.
+    @discardableResult
+    func noteUserInput(surfaceID: String, at: Date = Date()) -> Int {
+        let sessionIDs = indexedRecords(surfaceID: surfaceID)
+            .filter { record in
+                if case .needsInput = record.state { return true }
+                return false
+            }
+            .map(\.sessionID)
+        for sessionID in sessionIDs {
+            update(sessionID: sessionID) { record in
+                record.state = record.state.afterExplicitInput(at: at)
+                record.lastActivityAt = at
+            }
+        }
+        return sessionIDs.count
+    }
+
     #if DEBUG
     /// Compact state label for the debug trace (`idle`/`working`/`needsInput`/
     /// `ended`), stripping any associated value.

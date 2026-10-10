@@ -2157,6 +2157,7 @@
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "showLinkHoverURL": "指標停留在連結上或連結取得鍵盤焦點時，在瀏覽器面板左下角顯示連結的目的地。",
           "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
@@ -2875,7 +2876,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "在 cmux 中執行持久的 Linux 雲端機器，即使闔上 Mac，程式設計代理仍會在雲端持續工作，並可從任何 Mac 重新連線。",
       "intro": "cmux Cloud 為你提供雲端上的持久 Linux 機器，並以一般 cmux 工作區的形式開啟。關閉窗格、網路中斷或闔上筆電時，終端機都會繼續執行，因此程式設計代理可以持續工作，你也能從任何已登入的 Mac 重新連線。",
-      "betaNote": "cmux Cloud 目前為搶先體驗階段，並分批向 Mac 開放。若要使用，你的 Mac 必須在開放範圍內，且你需要啟用 Settings › Beta Features › Cloud Machines。如果你的 Mac 尚未在開放範圍內，Cloud 指令會顯示「Cloud Machines 暫時無法使用」。",
+      "betaNote": "cmux Cloud 目前為搶先體驗階段，除非你的組織將其停用，否則皆可使用。若要使用，請啟用 Settings › Beta Features › Cloud Machines。",
       "whatTitle": "什麼是機器",
       "whatDesc": "機器是一台屬於你或你團隊的持久雲端電腦。它會保留檔案、已安裝的工具和執行中的終端機。請把它當成長期使用的機器，而不是用完即丟的資源：需要的工具只要安裝一次，之後隨時回來繼續使用。",
       "whatDaemon": "每台機器都會執行 cmux TUI 常駐程式。常駐程式保存機器上的工作區和終端機。Mac 上的 cmux 窗格只是顯示位於機器上的終端機，因此關閉窗格絕不會停止程序。",
@@ -2884,7 +2885,7 @@
       "requirementsTitle": "你需要準備什麼",
       "reqMac": "已執行並登入的 cmux macOS 應用程式。cmux CLI 會與應用程式通訊，你的憑證由應用程式保存。",
       "reqPlan": "cmux 付費方案。免費帳號無法建立機器。目前的方案請參閱定價頁面。",
-      "reqBeta": "一台已進入 Cloud 搶先體驗開放範圍的 Mac，並已在 Settings › Beta Features 中啟用 Cloud Machines。",
+      "reqBeta": "已在 Settings › Beta Features 中啟用 Cloud Machines，且組織原則未停用 Cloud。",
       "reqNoVpn": "不需要設定 VPN、SSH 金鑰或連接埠轉送。cmux 會透過自動啟動的私人網路連線到你的機器。",
       "quickstartTitle": "快速入門",
       "stepSignIn": "登入。使用右側邊欄的 Cloud 分頁，或在終端機中執行登入指令。",
@@ -3084,9 +3085,9 @@
       "symptomColumn": "問題",
       "fixColumn": "解決方法",
       "errNotSeen": "沒有 Cloud 分頁或 New Cloud Machine 指令",
-      "fixNotSeen": "啟用 Settings › Beta Features › Cloud Machines。如果 Cloud 仍未顯示，表示你的 Mac 尚未在開放範圍內。如果顯示 Cloud Machines 已被管理員停用，請聯絡你的管理員。",
-      "errUnavailable": "Cloud Machines 暫時無法使用",
-      "fixUnavailable": "你的 Mac 尚未在 Cloud 開放範圍內，或 Cloud 暫時已關閉。僅啟用 Settings 中的開關並不會啟用 Cloud。請稍後再試。",
+      "fixNotSeen": "啟用 Settings › Beta Features › Cloud Machines。如果 Cloud 仍未顯示，請檢查管理員是否停用了 Cloud Machines。",
+      "errUnavailable": "Cloud Machines 已停用或無法使用",
+      "fixUnavailable": "Cloud Machines 已關閉，因為 Settings 中的本機切換開關已關閉，或管理員停用了 Cloud。請開啟開關，或請管理員允許 Cloud。",
       "errSignIn": "存取 Cloud VM 需要登入",
       "fixSignIn": "執行 cmux auth login 後再試一次。如果工作階段被拒絕，請先執行 cmux auth logout。",
       "errPlan": "Cloud VM 需要付費方案",
@@ -5342,7 +5343,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",
     "title": "歡迎加入 cmux Pro",
-    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。",
     "done": "前往控制面板",
     "steps": {
       "iosApp": {

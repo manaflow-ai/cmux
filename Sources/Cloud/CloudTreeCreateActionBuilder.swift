@@ -8,17 +8,22 @@ enum CloudTreeCreateActionBuilder {
         for node in nodes {
             node.children = add(to: node.children)
             switch node.kind {
-            case .cloudMachinesSection(let canCreateMachine, _):
+            case .cloudMachinesSection:
                 // New Cloud Machine is the button above the section
-                // (`CloudNewMachineButton`), so the empty fleet's
-                // double-click-only "New Machine" placeholder goes.
-                node.children.removeAll { $0.id == "cloud-machines-section/empty" }
-                guard canCreateMachine else { break }
+                // (`CloudNewMachineButton`); an empty fleet keeps its
+                // "No cloud machines yet" line so the section still opens.
+                break
             case .workspacesGroup(let machine)
                 where (machine.cloudMachineID != nil || machine.isDevice) && !node.children.contains(where: { $0.structureTag == "createAction" }):
                 node.children.insert(CloudTreeNode(
                     id: "\(CloudTreeNodeBuilder.nodeID(workspacesGroup: machine))/new-workspace",
                     kind: .createAction(.newWorkspace(machine))
+                ), at: 0)
+            case .coderouterProviderGroup(let provider, _)
+                where provider.canAdd && !node.children.contains(where: { $0.structureTag == "createAction" }):
+                node.children.insert(CloudTreeNode(
+                    id: "\(node.id)/new-account",
+                    kind: .createAction(.newCoderouterAccount(provider))
                 ), at: 0)
             default:
                 break

@@ -24,6 +24,10 @@ final class FileExplorerState: ObservableObject {
     @Published var width: CGFloat {
         didSet { defaults.set(Double(width), forKey: "fileExplorer.width") }
     }
+    /// The width the mode bar needs for the selected tab's full name, the other
+    /// tabs as icons, and its trailing controls; the right sidebar never gets
+    /// narrower. Not persisted.
+    @Published var modeBarMinimumWidth: CGFloat = 0
 
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.

@@ -359,6 +359,24 @@ final class CloudWorkspaceCreationCoordinator {
         }
     }
 
+    /// The pane's title until the daemon's receipt names the workspace. A new
+    /// unnamed workspace shows the name the daemon is about to assign, so the
+    /// receipt confirms the title instead of renaming a generic placeholder.
+    private func provisionalWorkspaceTitle(
+        for operation: CloudWorkspaceCreationOperation, name: String?, catalog: SurfaceCatalog
+    ) -> String {
+        let placeholder = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        guard !operation.isExistingWorkspaceOpen else { return placeholder }
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        let pendingCreations = operations.values.filter {
+            $0 !== operation && $0.machine == operation.machine && !$0.isExistingWorkspaceOpen
+                && $0.reservation != nil && $0.receipt == nil && $0.failure == nil
+        }.count
+        return CloudTreeNodeBuilder.predictedDefaultWorkspaceName(
+            on: operation.machine, snapshot: catalog.snapshot, pendingCreations: pendingCreations
+        ) ?? placeholder
+    }
+
     private func run(
         _ operation: CloudWorkspaceCreationOperation, name: String?, focus: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
@@ -369,7 +387,7 @@ final class CloudWorkspaceCreationCoordinator {
             // Admit the local manual pane before the first remote await. It is
             // the request's early-input owner while the daemon allocates the
             // workspace and starter terminal behind it.
-            let provisionalTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+            let provisionalTitle = provisionalWorkspaceTitle(for: operation, name: name, catalog: catalog)
             let provisionalReceipt = operation.isExistingWorkspaceOpen
                 ? operation.receipt ?? existingWorkspace.map {
                     SurfaceWorkspaceCreationReceipt(workspace: $0, terminal: existingTerminal, cursor: nil)

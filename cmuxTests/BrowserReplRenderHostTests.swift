@@ -16,40 +16,30 @@ import WebKit
 struct BrowserReplRenderHostTests {
     private static let renderWindowIdentifier = "cmux.browserVisualAutomationRender"
 
-    private func makeWindow() throws -> (NSWindow, NSView) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+    /// Render windows other suites in this test process left on screen; only
+    /// a render window that appears during a test belongs to it.
+    private let preexistingRenderWindows: Set<ObjectIdentifier>
+
+    init() {
+        preexistingRenderWindows = Set(
+            NSApp.windows
+                .filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+                .map(ObjectIdentifier.init)
         )
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        let contentView = try #require(window.contentView)
-        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
-        contentView.addSubview(anchor)
-        return (window, anchor)
     }
 
     private func visibleRenderWindows() -> [NSWindow] {
-        NSApp.windows.filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+        NSApp.windows.filter {
+            $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible
+                && !preexistingRenderWindows.contains(ObjectIdentifier($0))
+        }
     }
 
     @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {
-        let (window, anchor) = try makeWindow()
+        let (window, anchor, panel, paneHost) = try makePane(key: true)
         defer { window.orderOut(nil) }
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
-        )
         let webView = panel.webView
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
-        let paneHost = try #require(webView.cmuxBrowserViewportAttachmentSuperview)
 
         // A background tab: no pane shows it, so a driving session moves it
         // into the render window.
@@ -92,6 +82,25 @@ struct BrowserReplRenderHostTests {
         override var isKeyWindow: Bool { reportsKey }
     }
 
+    /// A deterministic ordinary pane window for tests that exercise only the
+    /// render-host focus transition. Headless runners do not reliably activate
+    /// a newly-created AppKit window, so its key status is explicit.
+    private func makeWindow() throws -> (NSWindow, NSView) {
+        let window = KeyStatusWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.reportsKey = true
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+        return (window, anchor)
+    }
+
     private func makePane(key: Bool) throws -> (KeyStatusWindow, NSView, BrowserPanel, NSView) {
         let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -130,7 +139,115 @@ struct BrowserReplRenderHostTests {
         #expect(visibleRenderWindows().isEmpty)
     }
 
-    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() throws {
+    /// A workspace transition can hide the portal hierarchy before the
+    /// panel's logical visibility flag is updated. Native input must follow
+    /// the live hierarchy into the render host instead of targeting that
+    /// hidden WebView.
+    @Test func shownTabHiddenInHierarchyUsesRenderHostForInput() throws {
+        let (window, _, panel, paneHost) = try makePane(key: true)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        // Keep the logical pane state shown, but model the hidden ancestor
+        // left behind while its workspace is inactive.
+        paneHost.isHidden = true
+        defer { paneHost.isHidden = false }
+        #expect(panel.isWebViewVisibleInPane)
+        #expect(panel.webView.isHiddenOrHasHiddenAncestor)
+
+        attachment.keepRendering()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(attachment.isMirroringPane)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+        #expect(!panel.webView.isHiddenOrHasHiddenAncestor)
+        #expect(panel.isWebViewVisibleInPane)
+    }
+
+    /// A key-window transition must not release a render host while the
+    /// original pane hierarchy is still hidden. Once the portal reveals that
+    /// hierarchy, its presentability signal releases the host without another
+    /// pane visibility-state transition.
+    @Test func renderHostStaysWhenPaneHidesBeforeWindowBecomesKey() async throws {
+        let (window, anchor, panel, paneHost) = try makePane(key: false)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        #expect(attachment.isInRenderWindow)
+        // Hide the portal's anchor as well as its slot. A full portal sync is
+        // queued by makePane; keeping both hidden makes that pending pass part
+        // of the same inactive-workspace transition instead of allowing it to
+        // reveal the slot while this test waits for the key notification.
+        anchor.isHidden = true
+        paneHost.isHidden = true
+        defer {
+            anchor.isHidden = false
+            paneHost.isHidden = false
+        }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        window.reportsKey = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        await Task.yield()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+        #expect(attachment.isMirroringPane)
+
+        anchor.isHidden = false
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
+
+        #expect(!attachment.isInRenderWindow)
+        #expect(panel.webView.window === window)
+    }
+
+    /// A panel can report logical visibility before its retained portal slot
+    /// is revealed. The visibility callback must keep the WebView in the
+    /// render host until the portal emits its presentability signal.
+    @Test func logicalVisibilityChangeWaitsForPortalReveal() async throws {
+        let (window, anchor, panel, paneHost) = try makePane(key: false)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        #expect(attachment.isInRenderWindow)
+        anchor.isHidden = true
+        paneHost.isHidden = true
+        defer {
+            anchor.isHidden = false
+            paneHost.isHidden = false
+        }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        // The pane window is key while the portal is still hidden. This is
+        // the ordering that made the old visibility callback restore into a
+        // hidden pane.
+        window.reportsKey = true
+        panel.noteWebViewVisibility(false, reason: "test.logicalHidden")
+        panel.noteWebViewVisibility(true, reason: "test.logicalShown")
+        await Task.yield()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+
+        anchor.isHidden = false
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
+
+        #expect(!attachment.isInRenderWindow)
+        #expect(panel.webView.window === window)
+    }
+
+    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.
         let (window, anchor, panel, paneHost) = try makePane(key: false)
@@ -147,6 +264,9 @@ struct BrowserReplRenderHostTests {
 
         window.reportsKey = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        // The key observer crosses into the MainActor explicitly because AppKit
+        // notification callbacks do not carry a Swift executor token.
+        await Task.yield()
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         #expect(panel.webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(panel.webView.window === window)

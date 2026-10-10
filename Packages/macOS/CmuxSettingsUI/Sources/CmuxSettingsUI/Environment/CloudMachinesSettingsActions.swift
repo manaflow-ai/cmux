@@ -3,9 +3,9 @@ import Foundation
 /// Host callbacks used by the Cloud Machines Settings section.
 @MainActor
 public protocol CloudMachinesSettingsActions: AnyObject {
-    /// Whether rollout and managed policy expose Cloud on this Mac.
+    /// Whether managed policy exposes Cloud on this Mac.
     var isCloudMachinesAvailable: Bool { get }
-    /// Whether the activation marker and rollout currently admit operations.
+    /// Whether the local activation marker and managed policy admit operations.
     var isCloudMachinesEnabled: Bool { get }
     /// The shared first-use setup state.
     var cloudMachinesActivationState: CloudMachinesActivationState { get }
@@ -23,6 +23,13 @@ public protocol CloudMachinesSettingsActions: AnyObject {
     func signInForCloudMachines()
     /// The caller's machine plan, or nil when it is not available.
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
+    /// Whether the signed-in account's plan includes Cloud before it is
+    /// enabled: true for Pro and Max, false for Free, nil when signed out or
+    /// the plan could not be loaded (enable then lets the server decide).
+    func cloudMachinesPlanIncludesCloud() async -> Bool?
+    /// The signed-in account's id (observable), so Settings re-checks the
+    /// plan when the user signs in, signs out or switches accounts.
+    var cloudMachinesAccountID: String? { get }
     /// Reveals the right-sidebar Machines panel.
     func openCloudMachinesPanel()
     /// Opens the optional system-wide VPN setup flow.
@@ -43,6 +50,8 @@ public extension CloudMachinesSettingsActions {
     func cloudMachinesActivationUpdates() -> AsyncStream<CloudMachinesActivationState> {
         AsyncStream { $0.yield(.unavailable); $0.finish() }
     }
+    func cloudMachinesPlanIncludesCloud() async -> Bool? { nil }
+    var cloudMachinesAccountID: String? { nil }
     func signInForCloudMachines() {}
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
     func openCloudMachinesPanel() {}

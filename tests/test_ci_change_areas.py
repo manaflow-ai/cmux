@@ -3077,7 +3077,7 @@ def route_ci_workflow_edit(
 
 def test_routing_policy_edits_skip_the_mac_standalone_lanes() -> None:
     real = CI_WORKFLOW.read_text(encoding="utf-8")
-    for job in ("changes", "ci-status", "guards", "tests", "linux-preflight", "macos-admission-gate"):
+    for job in ("changes", "ci-status", "guards", "linux-preflight", "macos-admission-gate"):
         values = route_ci_workflow_edit(edit_job(real, job))
         for name in MAC_STANDALONE_OUTPUTS:
             assert values[name] == "false", (job, name, values)
@@ -3305,20 +3305,20 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "web",
         "linux-preflight",
         "macos",
-        "tests",
     ]:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
     assert "if: ${{ !cancelled() }}" in block
+    assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
-def test_required_tests_status_waits_for_platform_workflows() -> None:
-    block = workflow_job_block("tests")
+def test_ci_status_waits_for_platform_workflows() -> None:
+    block = workflow_job_block("ci-status")
 
-    assert "name: tests" in block
+    assert "name: Check platform workflow routing" in block
     for job_name in ("changes", "linux-preflight", "macos", "web"):
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
@@ -3821,19 +3821,19 @@ def test_macos_admission_gate_admits_whenever_it_cannot_prove_a_failure() -> Non
         assert "already failed" not in result.stdout + result.stderr, label
 
 
-def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
-    script = workflow_job_step_script("tests", "Check platform workflow routing")
+def run_platform_gate(needs: dict) -> subprocess.CompletedProcess:
+    script = workflow_job_step_script("ci-status", "Check platform workflow routing")
     body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(body)],
-        env={**os.environ, "TESTS_NEEDS": json.dumps(needs)},
+        env={**os.environ, "PLATFORM_NEEDS": json.dumps(needs)},
         capture_output=True,
         text=True,
         check=False,
     )
 
 
-def tests_gate_needs(
+def platform_gate_needs(
     macos: str = "true",
     macos_result: str = "success",
     web_result: str = "skipped",
@@ -3855,26 +3855,26 @@ def tests_gate_needs(
     }
 
 
-def test_platform_workflow_results_gate_tests_status() -> None:
-    assert run_tests_gate(tests_gate_needs()).returncode == 0
-    assert run_tests_gate(tests_gate_needs(macos_result="failure")).returncode == 1
-    assert run_tests_gate(tests_gate_needs(macos_result="skipped")).returncode == 1
-    assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
-    assert run_tests_gate(
-        tests_gate_needs(
+def test_platform_workflow_results_gate_ci_status() -> None:
+    assert run_platform_gate(platform_gate_needs()).returncode == 0
+    assert run_platform_gate(platform_gate_needs(macos_result="failure")).returncode == 1
+    assert run_platform_gate(platform_gate_needs(macos_result="skipped")).returncode == 1
+    assert run_platform_gate(platform_gate_needs(macos="false", macos_result="skipped")).returncode == 0
+    assert run_platform_gate(
+        platform_gate_needs(
             macos_result="skipped",
             full_suite="false",
             compile_admitted="true",
         )
     ).returncode == 0
-    assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
+    assert run_platform_gate(platform_gate_needs(web_result="failure")).returncode == 1
 
 
-def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
+def test_linux_failure_still_blocks_ci_status_after_macos_succeeds() -> None:
     for outcome in ("failure", "cancelled", "skipped"):
-        needs = tests_gate_needs(macos_result="success")
+        needs = platform_gate_needs(macos_result="success")
         needs["linux-preflight"]["result"] = outcome
-        result = run_tests_gate(needs)
+        result = run_platform_gate(needs)
         assert result.returncode != 0, outcome
         if outcome == "cancelled":
             assert "cancelled: linux-preflight" in result.stderr
@@ -4370,10 +4370,10 @@ def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
 
 
 def test_full_suite_runs_still_require_the_suite() -> None:
-    assert run_tests_gate(tests_gate_needs("true", macos_result="success")).returncode == 0
-    assert run_tests_gate(tests_gate_needs("true", macos_result="skipped")).returncode == 1
+    assert run_platform_gate(platform_gate_needs("true", macos_result="success")).returncode == 0
+    assert run_platform_gate(platform_gate_needs("true", macos_result="skipped")).returncode == 1
     # A missing route output must never relax the aggregate platform gate.
-    assert run_tests_gate(tests_gate_needs(None, macos_result="skipped")).returncode == 1
+    assert run_platform_gate(platform_gate_needs(None, macos_result="skipped")).returncode == 1
 
 
 def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> None:
@@ -5562,9 +5562,9 @@ def test_the_unit_tier_is_routed_end_to_end() -> None:
 
 
 def test_a_unit_ci_run_still_requires_the_macos_workflow_to_pass() -> None:
-    # The tests job restates the macos `if:` as a result contract; a routed
+    # The ci-status job restates the macos `if:` as a result contract; a routed
     # unit-ci run that skipped macOS must not read as legitimately unrouted.
-    gate = workflow_job_block("tests")
+    gate = workflow_job_block("ci-status")
     assert 'unit_suite = outputs.get("unit_suite") == "true"' in gate
     assert "unit_suite" in gate.split("macos_work_required")[1].split(")")[0]
 
@@ -5989,8 +5989,9 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
 
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
-    assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
+    assert "fetch-depth: 2" in block
     assert "fetch-depth: 0" not in block
+    assert "github.event_name == 'workflow_dispatch'" in block
     assert "Bind package policy to synthetic merge base" in block
     assert "github.event_name == 'pull_request'" in block
     assert "github.event_name == 'merge_group'" in block
@@ -6049,6 +6050,59 @@ def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
         assert output.read_text(encoding="utf-8").splitlines() == [
             f"PACKAGE_RESOLVED_POLICY_BASE_REF={expected_base}"
         ]
+
+
+def test_history_guard_dispatch_fetches_only_main_and_head_history() -> None:
+    script = workflow_job_step_script(
+        "workflow-guard-history",
+        "Fetch main history for a manual dispatch",
+        GUARD_WORKFLOW,
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        origin = Path(directory) / "origin"
+        origin.mkdir()
+
+        def git(*args: str, cwd: Path = origin) -> str:
+            return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "ci@example.test")
+        git("config", "user.name", "CI Test")
+        for index in range(4):
+            (origin / "main.txt").write_text(f"{index}\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-qm", f"main {index}")
+        expected_base = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "feature")
+        for index in range(4):
+            (origin / "feature.txt").write_text(f"{index}\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-qm", f"feature {index}")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        (origin / "main.txt").write_text("moved\n", encoding="utf-8")
+        git("commit", "-qam", "main moves on")
+        git("branch", "unrelated-branch")
+
+        clone = Path(directory) / "clone"
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "2", "--no-tags", "--branch", "feature",
+             origin.as_uri(), str(clone)],
+            check=True,
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=clone,
+            env={**os.environ, "CHECKED_OUT_SHA": head},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.strip() == expected_base
+        assert git("rev-parse", "--is-shallow-repository", cwd=clone) == "false"
+        assert git("for-each-ref", "--format=%(refname)", "refs/remotes/origin/unrelated-branch",
+                   cwd=clone) == ""
 
 
 def test_web_workflow_call_preserves_routes_and_starts_beside_static_checks() -> None:
@@ -6553,6 +6607,17 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install Release helpers" in release_block
+
+
+def test_lag_consumer_does_not_checkout_or_update_source_submodules() -> None:
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["tests-build-and-lag"]
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+
+    assert checkout.get("with", {}).get("submodules") in (None, False, "false")
+    assert all("git submodule update" not in step.get("run", "") for step in job["steps"])
 
 
 def test_swift_package_selection_precedes_optional_tool_setup() -> None:

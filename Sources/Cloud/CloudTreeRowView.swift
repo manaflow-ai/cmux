@@ -16,6 +16,9 @@ final class CloudTreeRowView: NSTableRowView {
     }
 
     private let hoverLayer = CALayer()
+    /// The selection fill is a layer too, not drawn: a drawn fill is
+    /// stretched and redrawn as the sidebar resizes, which flickers.
+    private let selectionLayer = CALayer()
 
     /// Where the highlight starts, set by the outline from the row's level.
     var highlightLeading: CGFloat = CloudTreeHoverStyle.horizontalInset {
@@ -34,7 +37,12 @@ final class CloudTreeRowView: NSTableRowView {
     }
 
     override var isSelected: Bool {
-        didSet { updateHoverLayer(animated: false) }
+        didSet { updateHoverLayer(animated: false); updateSelectionLayer() }
+    }
+
+    /// The outline marks rows emphasized while it has keyboard focus.
+    override var isEmphasized: Bool {
+        didSet { updateSelectionLayer() }
     }
 
     override init(frame frameRect: NSRect) {
@@ -43,6 +51,9 @@ final class CloudTreeRowView: NSTableRowView {
         hoverLayer.opacity = 0
         hoverLayer.cornerRadius = CloudTreeHoverStyle.cornerRadius
         hoverLayer.cornerCurve = .continuous
+        selectionLayer.opacity = 0
+        selectionLayer.cornerRadius = CloudTreeHoverStyle.cornerRadius
+        selectionLayer.cornerCurve = .continuous
     }
 
     @available(*, unavailable)
@@ -54,17 +65,28 @@ final class CloudTreeRowView: NSTableRowView {
         super.layout()
         if hoverLayer.superlayer == nil, let layer {
             layer.insertSublayer(hoverLayer, at: 0)
+            layer.insertSublayer(selectionLayer, at: 0)
             updateHoverColor()
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         hoverLayer.frame = highlightRect
+        selectionLayer.frame = highlightRect
         CATransaction.commit()
+        updateSelectionLayer()
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateHoverColor()
+        updateSelectionLayer()
+    }
+
+    /// The outline asks every visible row to redraw when its focus changes;
+    /// the selection shade follows it here.
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        updateSelectionLayer()
     }
 
     override func prepareForReuse() {
@@ -72,17 +94,22 @@ final class CloudTreeRowView: NSTableRowView {
         setHoverHighlighted(false, animated: false)
     }
 
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let rect = highlightRect
-        let radius = CloudTreeHoverStyle.cornerRadius
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        // Gray in both focus states (no accent blue); keyboard focus reads as a
-        // slightly stronger shade.
-        NSColor.labelColor.withAlphaComponent(
-            isKeyboardFocusActive ? CloudTreeHoverStyle.focusedSelectedOpacity : CloudTreeHoverStyle.selectedOpacity
-        ).setFill()
-        path.fill()
+    /// The selection layer draws the highlight; AppKit's own fill stays off.
+    override func drawSelection(in dirtyRect: NSRect) {}
+
+    private func updateSelectionLayer() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        selectionLayer.opacity = isSelected ? 1 : 0
+        if isSelected {
+            // Gray in both focus states (no accent blue); keyboard focus reads
+            // as a slightly stronger shade.
+            let opacity = isKeyboardFocusActive ? CloudTreeHoverStyle.focusedSelectedOpacity : CloudTreeHoverStyle.selectedOpacity
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                selectionLayer.backgroundColor = NSColor.labelColor.withAlphaComponent(opacity).cgColor
+            }
+        }
+        CATransaction.commit()
     }
 
     private var highlightRect: NSRect {

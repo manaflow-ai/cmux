@@ -17,7 +17,24 @@ extension MachinesPanelViewModel {
     /// The plan's usage without machines being deleted, so the Cloud Machines
     /// header count leaves with the row instead of at the next list read.
     var visibleUsage: CloudMachinesUsage? {
-        Self.usage(plan?.usage, machines: machines, hiding: MachineDeleteCoordinator.shared.hiddenMachineIDs)
+        Self.usage(
+            plan?.usage ?? NewMachineSheetDataCache.shared?.currentData?.plan?.usage,
+            machines: machines,
+            hiding: MachineDeleteCoordinator.shared.hiddenMachineIDs
+        )
+    }
+
+    /// Uses scope-checked sheet-cache usage while the panel's next list read is pending.
+    /// - Parameters:
+    ///   - usage: Usage from the panel's current list read.
+    ///   - fallback: Usage from the current scope's warmed sheet cache.
+    ///   - machines: The fleet list that supplied the usage count.
+    ///   - machineIDs: Provider machine identifiers to leave out.
+    /// - Returns: Usage from the newest available current-scope source, adjusted for hidden rows.
+    static func usage(
+        _ usage: CloudMachinesUsage?, fallback: CloudMachinesUsage?, machines: [MachineSnapshot], hiding machineIDs: Set<String>
+    ) -> CloudMachinesUsage? {
+        Self.usage(usage ?? fallback, machines: machines, hiding: machineIDs)
     }
 
     /// Takes hidden machines out of a usage counted from `machines`.

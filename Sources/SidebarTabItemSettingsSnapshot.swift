@@ -32,6 +32,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let subtleSelection: Bool
+    let brightenInDarkMode: Bool
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
@@ -103,6 +104,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         subtleSelection = settings.value(for: workspaceColors.subtleSelection)
+        brightenInDarkMode = settings.value(for: workspaceColors.brightenInDarkMode)
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)

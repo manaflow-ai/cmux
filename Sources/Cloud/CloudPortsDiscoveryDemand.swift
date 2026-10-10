@@ -1,7 +1,8 @@
 import AppKit
 import CmuxSurfaceCatalogModel
 
-/// Starts a scan only for an expanded, visible Ports group, including restored/default expansion.
+/// Starts a scan for visible Cloud machines so the Ports tab count stays current
+/// before the person opens the tab.
 @MainActor
 final class CloudPortsDiscoveryDemand {
     private var scheduled: Task<Void, Never>?
@@ -27,20 +28,17 @@ final class CloudPortsDiscoveryDemand {
 
     func reconcile(coordinator: CloudTreeOutlineView.Coordinator) {
         guard let outline = coordinator.outlineView, outline.window != nil else { return }
+        // A snapshot can be applied before AppKit has performed the containing
+        // view's first layout pass. Materialize row geometry before checking
+        // the visibility boundary so an already visible machine is not missed.
+        outline.layoutSubtreeIfNeeded()
         for root in candidates where !requested.contains(root.machine) {
-            guard outline.row(forItem: root) >= 0, outline.isItemExpanded(root),
-                  root.children.contains(where: { Self.showsPorts($0, in: outline) }) else { continue }
+            // The machine row is the visibility boundary. Port discovery is a
+            // lightweight cached scan, and waiting for a detail tab to open
+            // leaves its count stale while a dev server starts in a terminal.
+            guard outline.row(forItem: root) >= 0 else { continue }
             requested.insert(root.machine)
             coordinator.nodeActions.discoverPorts(root.machine)
-        }
-    }
-
-    /// An expanded Ports group, or a machine tab row with Ports open.
-    private static func showsPorts(_ node: CloudTreeNode, in outline: NSOutlineView) -> Bool {
-        switch node.kind {
-        case .portsGroup: return outline.isItemExpanded(node)
-        case .machineDetailTabs(let tabs): return tabs.selected == .ports
-        default: return false
         }
     }
 

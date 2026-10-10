@@ -190,7 +190,7 @@ private final class NativePricingWindowController: NSWindowController {
     }
 }
 
-private enum NativePricingPlanID: String, Decodable {
+private enum NativePricingPlanID: String, Decodable, Sendable {
     case free
     case go
     case pro
@@ -222,7 +222,7 @@ private struct NativeBillingPlanResponse: Decodable {
     }
 }
 
-private struct NativePricingSnapshot: Equatable {
+private struct NativePricingSnapshot: Equatable, Sendable {
     var authenticated = false
     var billingAvailable = true
     var planId: NativePricingPlanID = .free
@@ -233,16 +233,21 @@ private struct NativePricingSnapshot: Equatable {
     var isGo: Bool { planId == .go }
 }
 
+private struct NativeBillingTokens: Sendable {
+    let accessToken: String
+    let refreshToken: String
+}
+
+private enum NativePricingPlanLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded(NativePricingSnapshot)
+    case failed(String)
+}
+
 @MainActor
 private final class NativePricingPlanStore: ObservableObject {
-    enum LoadState: Equatable {
-        case idle
-        case loading
-        case loaded(NativePricingSnapshot)
-        case failed(String)
-    }
-
-    @Published private(set) var state: LoadState = .idle
+    @Published private(set) var state: NativePricingPlanLoadState = .idle
 
     private var refreshTask: Task<Void, Never>?
     private var activeRequestID: UUID?
@@ -278,26 +283,36 @@ private final class NativePricingPlanStore: ObservableObject {
 
     static func refreshForProWelcomeChecklist() async {
         // Skip the authenticated /api/billing/plan fetch when the checklist can't be shown
-        // anyway (already seen, or Pro upgrade UI flag off) so Release sign-ins skip the GET.
-        guard ProWelcomeChecklistPresenter.canPresentAutomatically(
-            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled) else { return }
+        // because the checklist has already been seen.
+        guard ProWelcomeChecklistPresenter.canPresentAutomatically() else { return }
         let loadedState = await loadPlanState()
         presentWelcomeChecklistIfPro(loadedState)
     }
 
-    private static func presentWelcomeChecklistIfPro(_ state: LoadState) {
+    private static func presentWelcomeChecklistIfPro(_ state: NativePricingPlanLoadState) {
         guard case let .loaded(snapshot) = state else { return }
         ProWelcomeChecklistPresenter.presentIfNewlyPro(isPro: snapshot.isPro)
     }
 
-    private static func loadPlanState() async -> LoadState {
+    private static func loadPlanState() async -> NativePricingPlanLoadState {
+        let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens()
+        let billingTokens = tokens.map {
+            NativeBillingTokens(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
+        }
+        return await loadPlanStateOffMain(billingTokens: billingTokens)
+    }
+
+    /// Performs the billing request and response decoding away from the main actor.
+    private nonisolated static func loadPlanStateOffMain(
+        billingTokens: NativeBillingTokens?
+    ) async -> NativePricingPlanLoadState {
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        if let billingTokens {
+            request.setValue("Bearer \(billingTokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(billingTokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         }
 
         do {
