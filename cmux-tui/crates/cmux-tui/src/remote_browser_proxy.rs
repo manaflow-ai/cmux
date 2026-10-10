@@ -334,7 +334,8 @@ async fn serve_connect_connection(
         )
         .await;
     }
-    if !policy.allow_remote_network && !policy.allowed_hosts.iter().any(|allowed| allowed == &host) {
+    if !policy.allow_remote_network && !policy.allowed_hosts.iter().any(|allowed| allowed == &host)
+    {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
@@ -481,8 +482,10 @@ async fn serve_websocket_bridge(
         policy.allow_loopback,
         policy.allow_remote_network,
     )?;
-    if (!policy.allow_remote_network && !policy.allowed_hosts.iter().any(|allowed| allowed == &host))
-        || port == 0 || port == 1337
+    if (!policy.allow_remote_network
+        && !policy.allowed_hosts.iter().any(|allowed| allowed == &host))
+        || port == 0
+        || port == 1337
     {
         return Err(anyhow!("WebSocket bridge target is not allowed"));
     }
