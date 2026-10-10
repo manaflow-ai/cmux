@@ -48,12 +48,16 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     private var isClosed = false
 
     /// A remote tab whose page streams from the loopback host at
-    /// `endpoint`; `url` is the first page to load. Nil when the core cannot
-    /// allocate the transport or the client. Call `session(of:)?.start()`.
+    /// `endpoint`, over `carrier` when the host is on another machine (nil:
+    /// this Mac's loopback); `url` is the first page to load. Nil when the
+    /// core cannot allocate the transport or the client. Call
+    /// `session(of:)?.start()`.
     public static func makeTab(
-        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil
+        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil,
+        carrier: (any RemoteRdByteCarrier)? = nil
     ) -> RemoteBrowserTab? {
-        guard let session = RemoteBrowserSession(endpoint: record.endpoint, address: record.address, tabKey: id.rawValue, viewer: viewer,
+        let carrier = carrier ?? RemoteRdLoopbackCarrier(endpoint: record.endpoint)
+        guard let session = RemoteBrowserSession(carrier: carrier, address: record.address, tabKey: id.rawValue, viewer: viewer,
                                                  initialURL: record.initialURL, token: token) else { return nil }
         let tab = RemoteBrowserTab(id: id, profile: profile, url: record.initialURL ?? record.url, pane: session.pane, channel: session)
         session.tab = tab
@@ -65,8 +69,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         tab.channel as? RemoteBrowserSession
     }
 
-    private init?(endpoint: RemoteRdLoopbackEndpoint, address: String, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
-        guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer, token: token),
+    private init?(carrier: any RemoteRdByteCarrier, address: String, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
+        guard let transport = RemoteRdStreamTransport.remoteBrowser(carrier: carrier, user: NSUserName(), install: viewer, token: token),
               let client = RbClient() else { return nil }
         self.transport = transport
         self.client = client

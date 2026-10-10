@@ -22,11 +22,16 @@ nonisolated public struct KeptVersionStore: Sendable {
         if files.fileExists(atPath: folder.path) { try files.removeItem(at: folder) }
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appending(path: bundle.lastPathComponent)
+        // Cloned under a name `list()` never reads, then renamed: a keep cut
+        // short (the app exits for the update while it runs) never leaves a
+        // partial bundle that looks like a rollback target.
+        let partial = folder.appending(path: "." + bundle.lastPathComponent + ".partial")
         // APFS clone of the whole tree; a plain copy where cloning fails
         // (another volume, an old file system).
-        if clonefile(bundle.path, target.path, 0) != 0 {
-            try files.copyItem(at: bundle, to: target)
+        if clonefile(bundle.path, partial.path, 0) != 0 {
+            try files.copyItem(at: bundle, to: partial)
         }
+        try files.moveItem(at: partial, to: target)
         prune(limit: limit)
     }
 

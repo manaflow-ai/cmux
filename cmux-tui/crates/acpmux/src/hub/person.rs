@@ -18,11 +18,24 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
-//! - A connection presents the key in an `initialize` that is its FIRST
-//!   request (`_meta.acpmux.personKey`; stripped before any handler, log or reply).
-//!   A unix socket connection or a proven LocalApp connection that presents
-//!   the current key is the person for its whole life. Web and Peer
-//!   connections never are.
+//! - The key never crosses a socket after enrollment (cx-fcaq): whatever
+//!   listens on the socket path could be a squatter. Each unix socket or
+//!   proven LocalApp connection gets a random nonce. Its FIRST request must
+//!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
+//!   `{nonce, connection}`. Its SECOND request may be
+//!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
+//!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
+//!   id), where transport is `unix` or `app` as the client knows it
+//!   ([`person_proof`]), compared in constant time. A match makes the
+//!   connection the person for its whole life. The proof is bound to the
+//!   nonce and the connection id, so a proof captured anywhere else (a
+//!   squatter that relayed the challenge, another connection) proves
+//!   nothing. A `personKey` field is stripped and never read. Web and Peer
+//!   connections are never the person.
+//! - The app checks the server peer before it enrolls or proves (the code
+//!   signature of the bundled acpmux, or in DEV its executable path), and
+//!   makes a new key for each daemon it starts or enrolls, so a key from a
+//!   daemon that went away proves nothing to the next one.
 //!
 //! [`Hub::person_check`] is the one check, run for every request before it
 //! is handled or forwarded. Without the person, a client may read prompts and
@@ -57,8 +70,12 @@
 
 use super::*;
 
-/// Where the first `initialize` carries the key (`_meta.acpmux`).
+/// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
+/// The challenge in a local connection's `initialize` result (`_meta.acpmux`).
+pub const CHALLENGE_FIELD: &str = "personChallenge";
+/// `error.data.reason` of a `_acpmux/person_prove` that proves nothing.
+pub const PROOF_REFUSED: &str = "person.proof_refused";
 /// `error.data.reason` of a refused allow or grant.
 pub const REASON: &str = "permission.person_required";
 /// `error.data.reason` of `_acpmux/person_enroll` on a daemon that cannot
@@ -135,6 +152,14 @@ impl PersonGate {
         Ok(())
     }
 
+    /// Whether `proof` answers the challenge (`nonce`, `connection`) with
+    /// the current key (constant time).
+    pub fn proves(&self, transport: &str, nonce: &str, connection: &str, proof: &str) -> bool {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        key.and_then(|k| person_proof(&k, transport, nonce, connection))
+            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
     /// Whether `presented` is this launch's key (constant time).
     pub fn matches(&self, presented: &str) -> bool {
         self.key
@@ -165,6 +190,46 @@ impl PersonGate {
         )
         .with_data(json!({"reason": ENROLL_UNAVAILABLE})))
     }
+}
+
+/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
+pub const TRANSPORT_UNIX: &str = "unix";
+/// The transport a proven LocalApp WebSocket connection proves on.
+pub const TRANSPORT_APP: &str = "app";
+
+/// The bytes a person proof covers.
+fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
+    let mut message = b"acpmux-person-v1\0".to_vec();
+    for part in [transport, nonce, connection] {
+        message.extend_from_slice(part.as_bytes());
+        message.push(0);
+    }
+    message.pop();
+    message
+}
+
+/// The proof for one connection's challenge, as lowercase hex; None when
+/// `key` is not a person key. `transport` is the one the CLIENT knows it
+/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
+/// challenge: a relay that hands a unix connection's challenge to the app's
+/// WebSocket gets a proof for the other transport.
+pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
+    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
+    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+        &key,
+        &proof_message(transport, nonce, connection),
+    )))
+}
+
+/// A connection's nonce: 32 random bytes as lowercase hex.
+pub fn new_nonce() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    // No randomness means no safe challenge: the daemon cannot serve.
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .expect("read /dev/urandom for a connection nonce"); // crash-allow: no randomness, no safe challenge
+    cmux_local_auth::frontend_proof::hex(&bytes)
 }
 
 /// 32 bytes as lowercase hex.

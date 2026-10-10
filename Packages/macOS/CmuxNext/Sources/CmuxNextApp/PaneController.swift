@@ -123,7 +123,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // becomes a chat (then the chat's title and icon).
             let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
             let untitled = tab.agentSession != nil
-                ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
+                ? isNewTabPage ? AgentHistoryPage.title(tab.id, services) ?? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
             // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
@@ -198,7 +198,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let page = services.cache.existingBrowser(key)?.tab.state
         let image = services.browserFavicon(key: key, recordFavicon: recordFavicon)
         let url = page?.url ?? recordURL.flatMap(URL.init(string:))
-        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
+        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url, isWaiting: page?.isWaiting ?? false)
     }
 
     /// Pushes daemon truth into the strip. `force` resets optimistic strip

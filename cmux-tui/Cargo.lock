@@ -1009,6 +1009,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-config"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "notify",
+ "plist",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
@@ -1484,6 +1499,7 @@ dependencies = [
  "base64",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-history",

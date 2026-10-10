@@ -159,6 +159,7 @@
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
+.acpmux-favicon{width:16px;height:16px;object-fit:contain;border-radius:3px}
 .acpmux-omni-text{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px;overflow:hidden;white-space:nowrap}
 .acpmux-omni-title{flex:none;max-width:70%;overflow:hidden;text-overflow:ellipsis}
 .acpmux-omni-title b{font-weight:500;color:var(--agent-text)}
@@ -236,6 +237,20 @@
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-project-browse:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+/* The new chat's hero picker (cx-9g0w): the project's name in the question, underlined, with a small
+   chevron; with no project, a quiet Choose project under the question. */
+.acpmux-project-inline{display:inline-flex;vertical-align:baseline;max-width:100%}
+.acpmux-project-inline .acpmux-project-button{height:auto;max-width:min(320px,100%);padding:0 2px;border-radius:4px;color:inherit;font:inherit;gap:3px}
+.acpmux-project-inline .acpmux-project-button>span{overflow:hidden;text-overflow:ellipsis;text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
+.acpmux-project-inline .acpmux-project-button:hover>span,.acpmux-project-inline .acpmux-project-button[aria-expanded="true"]>span{text-decoration-color:currentColor}
+.acpmux-project-inline .acpmux-project-button:hover,.acpmux-project-inline .acpmux-project-button[aria-expanded="true"]{color:inherit}
+.acpmux-project-inline .acpmux-project-button svg{flex:none;color:var(--acpmux-composer-placeholder)}
+.acpmux-empty-choose .acpmux-project-button{font-size:var(--text-body);line-height:var(--text-body--line-height);color:var(--agent-muted)}
+.acpmux-empty-choose .acpmux-project-button>span{text-decoration:none}
+.acpmux-project-host{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:110px;color:var(--acpmux-composer-dim);font-size:var(--text-caption)}
+.acpmux-project-host>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-project-none-icon{margin:0 3px}
+.acpmux-project-browse{display:flex;align-items:center;gap:8px}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--agent-text);opacity:.7}

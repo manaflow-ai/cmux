@@ -2588,7 +2588,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace new-in-group",
+      "cli_name" : "workspace new-like-this",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
@@ -2598,7 +2598,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "workspace.newInGroup",
+      "id" : "workspace.newLikeThis",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -2609,8 +2609,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Workspace in This Group",
-      "title_key" : "action.workspace.newInGroup",
+      "title" : "New Workspace Like This",
+      "title_key" : "action.workspace.newLikeThis",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -2665,33 +2665,6 @@
       "palette_suggested" : null,
       "title" : "New Workspace on Machine…",
       "title_key" : "action.workspace.newOnMachine",
-      "title_table" : "WorkspaceActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "workspace new-in-same-directory",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "workspaceRow"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspace.newInSameDirectory",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "New Workspace in Same Directory",
-      "title_key" : "action.workspace.newInSameDirectory",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -6540,9 +6513,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "offered",
+      "context_menu" : "duplicateOfDefault",
       "context_menus" : [
-        "tab"
+
       ],
       "default_aliases" : [
 
@@ -6554,7 +6527,7 @@
           "cmd"
         ]
       },
-      "id" : "newTab.sameKind",
+      "id" : "newTab.default",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -6566,7 +6539,34 @@
       },
       "palette_suggested" : 0,
       "title" : "New Tab",
-      "title_key" : "action.newTab.sameKind",
+      "title_key" : "action.newTab.default",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "duplicateOfDefault",
+      "cli_name" : "action new-tab-of-kind",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.ofKind",
+      "mcp" : "duplicateOfDefault",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Tab of the Same Kind",
+      "title_key" : "action.newTab.ofKind",
       "title_table" : "ActionCatalog"
     },
     {
@@ -13190,6 +13190,33 @@
       "title" : "Allow Agents in This Tab…",
       "title_key" : "action.browser.allowAgentWithExtensions",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser downloads",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Downloads…",
+      "title_key" : "action.browser.downloads.show",
+      "title_table" : "BrowserToolbarActions"
     },
     {
       "cli" : "guiOnly",
@@ -30648,7 +30675,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.sameKind",
+          "id" : "newTab.ofKind",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -32639,7 +32666,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newAbove",
+              "id" : "workspace.newLikeThis",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -32652,7 +32679,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInGroup",
+              "id" : "workspace.newAbove",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -32678,7 +32705,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.newInSameDirectory",
+              "id" : "workspace.duplicate",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -32691,7 +32718,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicate",
+              "id" : "workspace.duplicateTerminalsOnly",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -32703,27 +32730,14 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateTerminalsOnly",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.openFolderInVSCodeInline",
               "kind" : "action",
-              "order" : 7,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32736,7 +32750,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.openWorkspaceTodoPane",
               "kind" : "action",
-              "order" : 8,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32749,7 +32763,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.layout.open",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

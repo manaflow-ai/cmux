@@ -25,6 +25,20 @@ enum BrowserHitStrings {
         String(format: t("browserHits.download.blocked", "Blocked download of “%@”"), name)
     }
 
+    // The toolbar's Downloads menu (BrowserDownloadsMenu).
+    static var downloadsEmpty: String { t("browserHits.downloads.empty", "No Downloads") }
+    static var downloadsClear: String { t("browserHits.downloads.clear", "Clear Finished Downloads") }
+    static var downloadOpen: String { t("browserHits.downloads.open", "Open") }
+    static var downloadShowInFinder: String { t("browserHits.downloads.showInFinder", "Show in Finder") }
+    static var downloadPause: String { t("browserHits.downloads.pause", "Pause") }
+    static var downloadResume: String { t("browserHits.downloads.resume", "Resume") }
+    static var downloadCancel: String { t("browserHits.downloads.cancel", "Cancel Download") }
+    static var downloadCopyLink: String { t("browserHits.downloads.copyLink", "Copy Download Link") }
+    static var downloadPaused: String { t("browserHits.downloads.paused", "Paused") }
+    static var downloadFailedShort: String { t("browserHits.downloads.failed", "Failed") }
+    static var downloadCancelled: String { t("browserHits.downloads.cancelled", "Cancelled") }
+    static var downloadBlockedShort: String { t("browserHits.downloads.blocked", "Blocked") }
+
     /// The blocked-download notice's button: the site's Site settings.
     static var siteSettings: String { t("browserHits.download.siteSettings", "Site Settings…") }
 

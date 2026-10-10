@@ -42,6 +42,7 @@ struct HistoryPageView: View {
         }
         .background(colors.background)
         .onAppear { searchFocused = true }
+        .sheet(isPresented: $model.showsCookieBackups) { HistoryCookieBackupsView(model: model, colors: colors) }
     }
 
     private var header: some View {
@@ -96,10 +97,12 @@ struct HistoryPageView: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: Metrics.panelInset * 1.5) {
                 groupMenu
+                cookieBackupsButton
                 clearMenu
             }
             VStack(alignment: .leading, spacing: Metrics.panelInset / 2) {
                 groupMenu
+                cookieBackupsButton
                 clearMenu
             }
         }
@@ -113,6 +116,11 @@ struct HistoryPageView: View {
             }
         }
         .menuStyle(.borderlessButton).fixedSize().foregroundStyle(colors.secondary)
+    }
+
+    private var cookieBackupsButton: some View {
+        Button(HistoryStrings.cookieBackups) { model.showCookieBackups() }
+            .buttonStyle(.borderless).fixedSize().foregroundStyle(colors.secondary)
     }
 
     private var clearMenu: some View {
