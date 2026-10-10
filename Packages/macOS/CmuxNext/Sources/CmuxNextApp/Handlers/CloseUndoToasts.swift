@@ -95,11 +95,13 @@ final class CloseUndoToasts {
     /// to the right): announced, then closed, so its undo toast shows.
     /// An action run from automation (CLI, agents) closes without a toast.
     /// A terminal doing work asks once first (`TabCloseGuard`).
+    /// A New Tab page held nothing, so closing it offers no undo (cx-tcju).
     static func close(in pane: PaneController, _ ids: [StripTabID]) {
         let user = isUserClose
         TabCloseGuard.close(ids.compactMap(pane.tab), on: pane.daemon, services: pane.services, window: pane.view.window) { [weak pane] in
             guard let pane else { return }
-            if user { pane.services.closedTabs?.undoToasts.expectGroup(ids, in: pane) }
+            let undoable = ids.filter { !pane.services.agentTabs.isNewTabPage($0.rawValue) }
+            if user, !undoable.isEmpty { pane.services.closedTabs?.undoToasts.expectGroup(undoable, in: pane) }
             pane.close(ids)
         }
     }

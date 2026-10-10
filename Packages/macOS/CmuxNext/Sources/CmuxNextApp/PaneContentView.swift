@@ -293,7 +293,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
-            frost?.dim = Palette.surfaceBackground
         }
         // The strip: clear, or the user's tab bar background (R55).
         stripView.wantsLayer = true
