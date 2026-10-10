@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
-      "size": 67778656,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "f44d6a65abffb0a22fecfd299161c5421a7bc5b48a143bd87b36124d9e2fe98a",
+      "size": 79097184,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
-      "size": 3567048,
+      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
+      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "3851906633bdd78602c9c3ff9c7edc2d54cc49701e2b4426c1957565e5d10a3a",
+      "size": 3676200,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
     },
     {
       "name": "coderouter",

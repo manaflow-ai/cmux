@@ -572,6 +572,8 @@ fn mutations_are_recorded_in_the_session_resource_mutation_ledger() {
     assert_eq!(count(), before + 1, "create is not in resource_mutations");
     ok(create(&mux, &repository, json!({}), "ledger-1"));
     assert_eq!(count(), before + 1, "a replay recorded a second mutation");
+    let actor = mux.workspace_registry.lock().unwrap().resource_mutation_actor_for_test("ledger-1");
+    assert_eq!(actor.unwrap().as_deref(), Some("user:user_local"), "the caller is not recorded");
     let id = created["value"]["checkpoint_id"].clone();
     let fields = json!({"checkpoint_id":id,"pin_id":"user:a","reason":"keep"});
     ok(pin_call(&mux, &repository, "git.checkpoint.pin", fields, "ledger-2"));

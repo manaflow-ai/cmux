@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -23,9 +24,21 @@ final class SettingsPageProvider: PageProvider {
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
+    /// without an app.
+    var agents: AgentHarnessCenter?
+    /// Settings > Agents > Harnesses (cx-mg91, `SettingsHarnesses`): its state, and one gesture;
+    /// nil in tests without an app.
+    var harnessesState: (@MainActor () -> JSONValue)?
+    var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
+    /// Every published theme's colors (`cmux.settings.theme.colors`), for the Theme section's
+    /// preview and swatches; nil in tests without an app.
+    var themeColors: (@MainActor () -> [ThemeFileColors])?
+    /// A folders-only NSOpenPanel returning absolute paths; injectable without opening UI in tests.
+    var pickChatFolders: @MainActor () async -> [String]? = { await ChatRootPicker().choose() }
     /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
     /// they left it.
     var pickFolders: (@MainActor () async -> [String]?)?
@@ -41,6 +54,21 @@ final class SettingsPageProvider: PageProvider {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
+    }
+
+    /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
+    static func json(_ colors: ThemeFileColors) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "name": .string(colors.name),
+            "background": .string(AppTheme.hex(colors.background)),
+            "foreground": .string(AppTheme.hex(colors.foreground)),
+            "palette": .array(colors.palette.map { $0.map { .string(AppTheme.hex($0)) } ?? .null }),
+        ]
+        for (key, color) in [("selectionBackground", colors.selectionBackground), ("selectionForeground", colors.selectionForeground),
+                             ("cursorColor", colors.cursorColor), ("cursorText", colors.cursorText)] {
+            if let color { object[key] = .string(AppTheme.hex(color)) }
+        }
+        return .object(object)
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -74,11 +102,26 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.accounts.run":
             guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
             return try await accountsRun(params)
+        case "cmux.settings.agents.state":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return agents.pageState
+        case "cmux.settings.agents.run":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return try await agents.runPage(params)
+        case "cmux.settings.harnesses.state":
+            guard let harnessesState else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
+            return harnessesState()
+        case "cmux.settings.harnesses.run":
+            guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
+            return try await harnessesRun(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
             return .object([:])
+        case "cmux.settings.theme.colors":
+            guard let themeColors else { throw PageError(code: "cmux.page.unavailable", message: "no theme colors") }
+            return ["themes": .array(themeColors().map(Self.json))]
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
@@ -86,9 +129,14 @@ final class SettingsPageProvider: PageProvider {
             // native cmux picker, so the write is theirs even for a user-only key.
             let descriptor = try descriptor(params)
             guard descriptor.kind == .folderList else { throw PageError.invalidParams("\(descriptor.id) is not a folder list") }
-            guard let pickFolders else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
-            guard let chosen = await pickFolders(), !chosen.isEmpty else { return ["added": []] }
-            let current = (descriptor.effectiveValue(in: settings.snapshot.root)?.arrayValue ?? []).compactMap(\.stringValue)
+            if descriptor.path == ChatSettings.rootsPath, Self.writer(context) != .user {
+                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+            }
+            let picker = descriptor.path == ChatSettings.rootsPath ? pickChatFolders : pickFolders
+            guard let picker else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
+            guard let chosen = await picker(), !chosen.isEmpty else { return ["added": []] }
+            let source = descriptor.path == ChatSettings.rootsPath ? settings.fileRoot : settings.snapshot.root
+            let current = (descriptor.storedValue(in: source)?.arrayValue ?? []).compactMap(\.stringValue)
             let added = chosen.filter { !current.contains($0) }
             if !added.isEmpty {
                 // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
@@ -137,15 +185,41 @@ final class SettingsPageProvider: PageProvider {
         if stream == "cmux.settings.accounts.changed", let accountsState {
             return Self.watch(accountsState, onEvent: onEvent)
         }
+        if stream == "cmux.settings.agents.changed", let agents {
+            // The daemon's harness events reach the list only while a page shows it.
+            agents.beginWatching()
+            let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
+            return PageSubscription {
+                watch.cancel()
+                Task { @MainActor in agents.endWatching() }
+            }
+        }
+        if stream == "cmux.settings.harnesses.changed", let harnessesState {
+            return Self.watch(harnessesState, onEvent: onEvent)
+        }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
+        // Capture before returning the subscription so an immediate mutation cannot become
+        // the task's baseline and disappear from the first event.
+        let initialRoot = settings.snapshot.root
+        let initialFileRoots = settings.fileRoot.value(at: ChatSettings.rootsPath)
+        let initialManagedRoots = settings.managedChatRoots
         let task = Task { @MainActor in
-            var last = settings.snapshot.root
-            for await (count, root) in Observations({ (settings.loadCount, settings.snapshot.root) }) {
-                let keys = SettingsSchema.all.filter { $0.storedValue(in: root) != $0.storedValue(in: last) }.map(\.id)
+            var last = initialRoot
+            var lastFileRoots = initialFileRoots
+            var lastManagedRoots = initialManagedRoots
+            for await (count, root, fileRoots, managedRoots) in Observations({
+                (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
+            }) {
+                let keys = SettingsSchema.all.filter {
+                    $0.storedValue(in: root) != $0.storedValue(in: last)
+                        || ($0.path == ChatSettings.rootsPath && (fileRoots != lastFileRoots || managedRoots != lastManagedRoots))
+                }.map(\.id)
+                lastFileRoots = fileRoots
+                lastManagedRoots = managedRoots
                 last = root
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
@@ -173,13 +247,19 @@ final class SettingsPageProvider: PageProvider {
         let root = settings.snapshot.root
         let file = settings.fileRoot
         return .array(SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }.map { descriptor in
-            [
+            var row: JSONValue = [
                 "key": .string(descriptor.id),
                 "value": descriptor.effectiveValue(in: root) ?? .null,
                 "default": descriptor.defaultValue ?? .null,
                 "customized": .bool(descriptor.isCustomized(in: file)),
                 "managed": settings.managedSource(for: descriptor).map(Self.managedInfo) ?? .null,
             ]
+            if descriptor.path == ChatSettings.rootsPath, case .object(var members) = row {
+                members["folders"] = settings.chatRootRows
+                members["user_roots"] = settings.fileRoot.value(at: ChatSettings.rootsPath) ?? .array([])
+                row = .object(members)
+            }
+            return row
         })
     }
 
@@ -247,7 +327,9 @@ final class SettingsPageProvider: PageProvider {
         } catch let managed as SettingManaged {
             throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
         } catch let refused as SettingRefused {
-            throw PageError(code: "cmux.settings.invalid", message: String(describing: refused))
+            let reasons = descriptor.path == ChatSettings.rootsPath
+                ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
+            throw PageError(code: "cmux.settings.invalid", message: reasons.first ?? String(describing: refused))
         } catch let userOnly as SettingUserOnly {
             throw Self.userOnlyError(userOnly)
         }

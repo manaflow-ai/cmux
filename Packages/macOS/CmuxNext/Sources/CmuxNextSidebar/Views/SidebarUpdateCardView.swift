@@ -19,7 +19,9 @@ final class SidebarUpdateCardView: NSView {
     let button = SidebarUpdateButton()
     let notesView = SidebarUpdateNotesView()
     var popover: NSPopover?
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
+    private var pointerHover: PointerHover?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -38,6 +40,7 @@ final class SidebarUpdateCardView: NSView {
         notesView.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         setAccessibilityElement(false)
         isHidden = true
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
     @available(*, unavailable)
@@ -110,22 +113,18 @@ final class SidebarUpdateCardView: NSView {
 
     // MARK: Hover
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        showNotes()
-    }
-
-    /// The pointer left the card: the popover stays while the pointer went
-    /// into it (to click a link), else it closes.
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
+    /// The pointer came onto the card: the notes show. It left (or the card
+    /// moved or hid under it): the popover stays while the pointer went into
+    /// it (to click a link), else it closes.
+    private func setHovered(_ hovering: Bool) {
+        isHovered = hovering
+        if hovering { return showNotes() }
         guard !pointerIsOverNotes() else { return }
         hideNotes()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerHover?.refresh()
     }
 }

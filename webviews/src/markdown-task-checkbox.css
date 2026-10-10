@@ -21,7 +21,7 @@
   vertical-align: top;
 }
 
-.cmux-markdown-checkbox[data-checked="true"],
+.cmux-markdown-checkbox[data-checked],
 .cmux-markdown-checkbox.is-checked {
   border-color: var(--cmux-markdown-checkbox-accent, currentColor);
   background: var(--cmux-markdown-checkbox-accent, currentColor);

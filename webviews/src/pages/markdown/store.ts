@@ -100,6 +100,11 @@ export class MarkdownStore {
   /** The text on disk as of the last load or save, and its hash. */
   private savedText = "";
   private baseHash: string | null = null;
+  /**
+   * A recovered crash draft (R96) the page loaded as unsaved edits, until a save, a reload or
+   * another file replaces it: an editor that mounts after the load shows it, not the file.
+   */
+  private recovered: string | null = null;
   private cancelAutosave: (() => void) | null = null;
   private saving: Promise<void> | null = null;
   private saveAgain = false;
@@ -191,6 +196,12 @@ export class MarkdownStore {
     this.savedText = config.text;
     this.baseHash = config.hash;
     const readOnly = config.readOnly === true;
+    // A recovered draft opens as unsaved edits on the file's current hash (the editor page's rule).
+    this.recovered =
+      !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
+        ? config.recoveredText
+        : null;
+    const text = this.recovered ?? config.text;
     const look = { settings: config.settings, themeCSS: config.themeCSS, appearance: config.appearance };
     // The settings' default mode applies when the page opens, not on a later settings change.
     const mode = this.started ? this.state.mode : markdownBehavior(config.settings).defaultMode;
@@ -199,7 +210,7 @@ export class MarkdownStore {
       phase: "ready",
       config,
       readOnly,
-      source: config.text,
+      source: text,
       status: "saved",
       revision: this.state.revision + 1,
       look,
@@ -208,7 +219,8 @@ export class MarkdownStore {
     this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
     this.set({ canBack: false, canForward: false });
     this.editor?.setReadOnly(readOnly);
-    this.editor?.load(config.text);
+    this.editor?.load(text);
+    if (this.recovered !== null) this.edited();
     if (!this.stopLook) {
       try {
         this.stopLook = await client.subscribe<MarkdownLook>(MARKDOWN_LOOK, (look) => this.lookChanged(look));
@@ -246,7 +258,7 @@ export class MarkdownStore {
     this.editor = editor;
     if (!editor || this.state.phase !== "ready") return;
     editor.setReadOnly(this.state.readOnly);
-    editor.load(this.state.mode === "source" ? this.state.source : this.savedText);
+    editor.load(this.state.mode === "source" ? this.state.source : (this.recovered ?? this.savedText));
   }
 
   /** The document as the current mode holds it. */
@@ -318,6 +330,7 @@ export class MarkdownStore {
         });
         this.savedText = text;
         this.baseHash = result.hash;
+        this.recovered = null;
         if (snapshot) this.editor?.commit(snapshot);
         this.set({ status: this.currentText() === this.savedText ? "saved" : "edited" });
       } catch (error) {
@@ -419,9 +432,18 @@ export class MarkdownStore {
     this.cancelAutosave = null;
     this.savedText = file.text;
     this.baseHash = file.hash;
+    this.recovered = null;
     const readOnly = file.readOnly === true;
     this.set({
-      config: { ...config, path: file.path, text: file.text, hash: file.hash, readOnly, assetBase: file.assetBase },
+      config: {
+        ...config,
+        path: file.path,
+        text: file.text,
+        hash: file.hash,
+        githubRepository: file.githubRepository,
+        readOnly,
+        assetBase: file.assetBase,
+      },
       readOnly,
       source: file.text,
       status: "saved",
@@ -475,6 +497,7 @@ export class MarkdownStore {
   private replace(text: string, hash: string | null): void {
     this.savedText = text;
     this.baseHash = hash;
+    this.recovered = null;
     this.set({ source: text, status: "saved", revision: this.state.revision + 1 });
     this.editor?.load(text);
   }

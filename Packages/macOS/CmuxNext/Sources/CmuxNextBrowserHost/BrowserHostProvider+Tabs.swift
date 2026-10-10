@@ -74,6 +74,19 @@ extension BrowserHostProvider {
         }
     }
 
+    /// A page of tab `openerTargetID` opened tab `targetID` (a link with a
+    /// new-tab target, window.open). The host learns the tab first
+    /// (`tab.announced`), then `tab.created` with its opener, so a session's
+    /// `waitForEvent("popup")` fires and its calls on the new tab find it.
+    /// Neither tab announced (incognito, another machine's): nothing goes out.
+    public func reportTabCreated(targetID: String, openerTargetID: String) {
+        observeTabs()
+        guard connection != nil, let tab = announced[targetID], announced[openerTargetID] != nil else { return }
+        send(.event(name: "tab.created", payload: .object([
+            "targetId": .string(targetID), "openerTargetId": .string(openerTargetID), "url": .string(tab.url),
+        ])))
+    }
+
     /// A tab left the app: its relay and per-tab state end.
     private func tabGone(_ targetID: String) {
         if relays[targetID] != nil { endRelay(targetID, answering: true) }

@@ -77,7 +77,7 @@ public final class ScrollEdgeFadeView: NSView {
         let center = NotificationCenter.default
         for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
             observers.append(center.addObserver(forName: name, object: clip, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateFade() }
+                MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
             })
         }
         updateFade(animated: false)
@@ -166,7 +166,7 @@ public final class ScrollEdgeFadeView: NSView {
         observedDocument = document
         document.postsFrameChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() }
+            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
         })
     }
 }

@@ -12,8 +12,8 @@ import Observation
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. Nothing asks: updates
-/// download in the background and wait as the rail's update circle
-/// (``indicatorPhase``), and a check that finds nothing leaves a short note.
+/// download in the background and wait as the staged update card, and a
+/// check's progress and result show on the sidebar's notice card (``card``).
 /// The update sheet (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
 @Observable
@@ -41,7 +41,13 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
-    /// Opens the changelog page (set by the App; the what's-new card's click).
+    /// The found update whose notice the user dismissed ("" without a version).
+    public internal(set) var dismissedAvailableVersion: String?
+    /// The notice whose timeout is pending, and its one-shot deadline on the
+    /// injected clock (no `asyncAfter`).
+    @ObservationIgnored var expiringCard: UpdateCard?
+    @ObservationIgnored let cardTimer: DemandTimer
+    /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
@@ -52,8 +58,9 @@ public final class UpdaterService {
     public var announcementsFetch = true
     @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
     @ObservationIgnored var allAnnouncements: [Announcement] = []
-    /// This build's notes while the what's-new card shows, else nil.
-    public internal(set) var whatsNew: ReleaseNotes?
+    /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
+    /// documents and this feed's nightly digests. The App loads it at launch.
+    public let whatsNew: WhatsNewCenter
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -67,6 +74,16 @@ public final class UpdaterService {
     public internal(set) var automaticUpdates = true
     /// Writes `updates.downloadAutomatically` (set by the App).
     @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
+    /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
+    /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
+    public internal(set) var tip: Tip?
+    @ObservationIgnored var tipState = TipState()
+    /// `sidebar.cards.tips` (set by the App).
+    public var tipsEnabled = true { didSet { if oldValue != tipsEnabled { refreshTip() } } }
+    /// Runs a tip's action as the user's own (set by the App: the registry).
+    @ObservationIgnored public var runTipAction: ((String) -> Void)?
+    /// Re-picks the tip when the app becomes active (set by the App).
+    @ObservationIgnored public var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -113,13 +130,17 @@ public final class UpdaterService {
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
-                now: @escaping () -> Date = Date.init) {
+                now: @escaping () -> Date = Date.init,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
+        cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
+        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, defaults: defaults,
+                                  sources: Self.whatsNewSources(identity: identity))
         let log = UpdateLogBuffer()
         self.log = log
         // The managed policy is re-read by the driver on every start and check,
@@ -142,6 +163,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        tipState = TipState(defaults: defaults)
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -158,8 +180,8 @@ public final class UpdaterService {
         guard !started else { return }
         started = true
         observeFlowPhase()
-        loadWhatsNew()
         refreshAnnouncements()
+        refreshTip()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -184,6 +206,13 @@ public final class UpdaterService {
             return nil
         case nil:
             guard let controller else { return nil }
+            syncFlowPhase()
+            if case .ready = flow.phase {
+                // Sparkle ignores a check while an update waits; the staged
+                // update card answers instead (``readyCard``).
+                log.append("check while an update waits: showing the staged update")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
             return nil
@@ -254,17 +283,25 @@ public final class UpdaterService {
         channelSwitchError = nil
         let switcher = switcher
         let task = Task { [weak self] () -> String? in
+            // The switcher reports phases from its own threads. They reach the main actor through
+            // one ordered stream (state-audit U1): the newest phase is applied, in order, before the
+            // switch ends, and a phase reported after the end (a late progress callback) is dropped.
+            let (phases, sink) = AsyncStream.makeStream(of: AppChannelSwitchPhase.self, bufferingPolicy: .bufferingNewest(1))
+            // task-owner: the switch task; ends when the switch finishes the stream below
+            let applier = Task { @MainActor [weak self] in
+                for await phase in phases { self?.channelSwitchPhase = phase }
+            }
             var failure: String?
             do {
-                let outcome = try await switcher.switchTo(target) { phase in
-                    Task { @MainActor in self?.channelSwitchPhase = phase }
-                }
+                let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
                 failure = String(describing: error)
                 self?.channelSwitchError = failure
                 self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
             }
+            sink.finish()
+            await applier.value
             self?.channelSwitchPhase = nil
             self?.switchTask = nil
             return failure

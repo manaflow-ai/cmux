@@ -267,6 +267,7 @@ cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
 cmux tab <selector> zoom <0.25..5>|reset|in|out
 cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
+cmux tab <selector> update --icon <value>|--clear-icon
 cmux tab group list [--pane <pane_id>]
 cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
 cmux tab group <group> show|ungroup|close
@@ -400,11 +401,16 @@ pinned to at most one room, so `unpin` names only the workspace.
 ```text
 cmux closed list
 cmux closed <closed_id> reopen
+cmux closed <closed_id> delete [--members 0,2]
+cmux closed clear [--since-ms <unix ms>]
 ```
 
 The session keeps recently closed tabs, screens and workspaces. A tab reopens in
 its pane (else the focused pane of its workspace), a screen in its workspace, a
-workspace as a new workspace.
+workspace as a new workspace. `delete` and `clear` remove groups for good (and
+their terminal archives; the journals keep what they already recorded). `delete
+--members` removes only those members; `clear --since-ms` removes only the
+groups closed at or after that time.
 
 ### Other daemon scopes
 
@@ -514,7 +520,7 @@ cmux acp ensure|last|pending|history|compare|preset|defaults|guide ...
 cmux acp session <info|cancel|stop|rename|fork|set|allow|deny|export|import|tail> ...
 cmux acp daemon <run|status|shutdown|config|harnesses|reload|models|schema> ...
 cmux acp host <add|ls|rm|setup> ...
-cmux acp web [--no-open]
+cmux acp web [--no-open] [--rotate-token]
 cmux acp stdio [-m HARNESS[/MODEL]] [--policy P] [--effort E] [--preset P]
 cmux acp open <name> [--pane <id>]
 ```

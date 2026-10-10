@@ -34,6 +34,12 @@
 # files' modules (a type spans all its extensions in its module). safe-push
 # passes the files a push changes; CI scans everything.
 #
+# GODFILES_WARN_SLACK=PCT (CI: 20) is the warning tier: an entry over its
+# allowance (its baseline, else its budget) by at most PCT% of its budget is
+# ratchet debt, printed as a `::warning title=ratchet debt::` annotation, and
+# passes; over that hard ceiling (a new type: 1200 lines at 20) it fails. The
+# top-level type count per Swift file has no slack. --update-baseline ignores it.
+#
 # Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [--file PATH]... [package-root]
 set -euo pipefail
 
@@ -84,6 +90,9 @@ rust_test_fn_limit=120
 rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]'
 
 status=0
+slack="${GODFILES_WARN_SLACK:-0}"
+[[ "$slack" =~ ^[0-9]+$ ]] || { echo "GODFILES_WARN_SLACK takes a whole percentage, got '$slack'" >&2; exit 2; }
+(( update )) && slack=0
 
 # Measure ROOT's package and REPO's cmux-tui. REV names the tree the files come
 # from when they are an archive of a commit (ls-tree), not a checkout (ls-files).
@@ -198,7 +207,15 @@ measure "$root" "$repo" > "$measurements"
 # (ARGV[2]; empty until it is measured). A swift-file row's fns is its type count.
 [[ -f "$baseline" ]] || : > "$baseline"
 evaluate() { # scoped (0 or 1) -> report lines
-  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" -v filescoped="${files:+1}" '
+  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" -v filescoped="${files:+1}" -v slack="$slack" '
+  # The warning tier: within the hard ceiling (allowance + slack% of the budget) a
+  # failure is ratchet debt (WARN); over it, the failure names the ceiling.
+  function verdict(kind, key, msg, lines, fns, allow_l, allow_f, llim, flim,   cl, cf) {
+    if (slack <= 0) { printf "FAIL\t%s\t%s\t%s\n", kind, key, msg; return }
+    cl = allow_l + int(llim * slack / 100); cf = allow_f + int(flim * slack / 100)
+    if (lines <= cl && (flim <= 0 || fns <= cf)) printf "WARN\t%s\t%s\t%s\n", kind, key, msg
+    else printf "FAIL\t%s\t%s\t%s (over the hard ceiling of %d lines%s)\n", kind, key, msg, cl, (flim > 0 ? sprintf(", %d fns", cf) : "")
+  }
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
     if (only == "swift" && $1 != "swift-type") next
@@ -217,7 +234,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       if (scoped && (key in was_lines) && was_lines[key] >= lines)
         printf "NOTE\t%s has %d lines (limit %d), over budget on the base too; this change did not grow it\n", $2, lines, limit
       else
-        printf "FAIL\tswift-file\t%s\tgod file: %s has %d lines (limit %d)\n", $2, $2, lines, limit
+        verdict("swift-file", $2, sprintf("god file: %s has %d lines (limit %d)", $2, lines, limit), lines, 0, limit, 0, limit, 0)
     }
     if (tlimit > 0 && types > tlimit) {
       if (scoped && (key in was_fns) && was_fns[key] >= types)
@@ -238,7 +255,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       if (over && kept) {
         printf "NOTE\t%s: %d lines, %d fns, over budget on the base too; this change did not grow it\n", $2, lines, fns
       } else if (over) {
-        printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)\n", $1, $2, what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
+        verdict($1, $2, sprintf("%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)", what, unit, lines, fns, llim, (flim > 0 ? flim : "no")), lines, fns, llim, flim, llim, flim)
       }
       next
     }
@@ -248,7 +265,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       printf "NOTE\t%s: %d lines, %d fns, over its baseline on the base too; this change did not grow it\n", $2, lines, fns
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (lines > bl || fns > bf) {
-      printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)\n", $1, $2, what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)
+      verdict($1, $2, sprintf("%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)", what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)), lines, fns, bl, bf, llim, flim)
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (!over) {
       printf "NOTE\t%s now meets the budget; run --update-baseline to drop it\n", $2
@@ -314,6 +331,10 @@ grower() { # key allowed_lines allowed_fns
     echo "unknown"
   fi
 }
+# Warning tier: ratchet debt annotations; they never fail the check.
+while IFS=$'\t' read -r _ _ _ message; do
+  echo "::warning title=ratchet debt::$message"
+done < <(grep '^WARN' <<<"$report" || true)
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
     if [[ "$kind" == rust-file ]]; then

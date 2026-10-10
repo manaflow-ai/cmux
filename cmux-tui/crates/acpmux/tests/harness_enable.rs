@@ -72,6 +72,7 @@ fn scratch(name: &str) -> (PathBuf, FolderGate) {
             claude_json: root.join("claude.json"),
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
+            agent_home: None,
         },
     };
     (folder, gate)
@@ -178,4 +179,46 @@ async fn web_and_peer_connections_cannot_see_or_enable_a_folder_harness() {
     let shown =
         app.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": "acme"})).await;
     assert_eq!(shown.unwrap()["prompt"]["sha256"], sha);
+}
+
+#[tokio::test]
+async fn the_cli_confirmation_is_the_enable_op_prompt_text() {
+    use acpmux::cli::harness_folder::{Confirmation, confirmation};
+    use std::os::unix::fs::PermissionsExt;
+    let (folder, gate) = scratch("cli");
+    let dir = folder_profiles::profile_dir(&folder);
+    // An absolute program that is a file but not executable: a spawn cannot
+    // run it, so neither prompt may name it as the program.
+    let tool = folder.join("tool");
+    write(&tool, "#!/bin/sh\n");
+    write(&dir.join("plain.toml"), &format!("schema = 1\nid = \"plain\"\ncommand = {tool:?}\n"));
+    // A bare program found on the profile's own PATH (relative to the
+    // folder), as the spawn finds it.
+    std::fs::create_dir_all(folder.join("bin")).unwrap();
+    let agent = folder.join("bin").join("acme-agent");
+    std::fs::write(&agent, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    write(
+        &dir.join("onpath.toml"),
+        "schema = 1\nid = \"onpath\"\ncommand = \"acme-agent\"\n\n[env]\nPATH = \"bin\"\n",
+    );
+    acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
+    let hub = hub(&gate);
+    let mut c = connect(&hub, Origin::Local).await;
+    let cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let mut programs = std::collections::BTreeMap::new();
+    for id in ["acme", "plain", "onpath"] {
+        let shown =
+            c.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": id})).await;
+        let prompt = shown.unwrap()["prompt"].clone();
+        let Confirmation::Ask { text, sha256 } = confirmation(&cfg, &folder, id).unwrap() else {
+            panic!("{id}: the CLI found it already enabled");
+        };
+        assert_eq!(Some(text.as_str()), prompt["text"].as_str(), "{id}: CLI and app differ");
+        assert_eq!(Some(sha256.as_str()), prompt["sha256"].as_str(), "{id}");
+        programs.insert(id, prompt["program"].clone());
+    }
+    assert_eq!(programs["acme"], json!("/bin/echo"));
+    assert_eq!(programs["plain"], Value::Null, "a file without the execute bit is no program");
+    assert_eq!(programs["onpath"], json!(agent), "the profile's own PATH decides, as at spawn");
 }

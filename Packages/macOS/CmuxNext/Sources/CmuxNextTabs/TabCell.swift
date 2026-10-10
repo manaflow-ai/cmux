@@ -14,11 +14,16 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
 
     private(set) var item: TabItem
-    var isSelected = false { didSet { if oldValue != isSelected { stateChanged() } } }
+    /// Instant (L4): the content switches in one frame, so the highlight does too.
+    var isSelected = false { didSet { if oldValue != isSelected { stateChanged(animated: false) } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
+    /// The strip's window is main (in front); off, the selected tab has no fill.
+    var isWindowMain = true { didSet { if oldValue != isWindowMain { updateColors(animated: false) } } }
+    /// The selected (or lifted) tab's fill shows.
+    var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
@@ -73,6 +78,7 @@ final class TabCell {
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
     var badgeLayer: CALayer?
+    var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
@@ -151,6 +157,7 @@ final class TabCell {
         if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
             updateSpinner()
         }
+        if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
@@ -163,12 +170,12 @@ final class TabCell {
         item.title.isEmpty ? Strings.untitled : item.title
     }
 
-    private func stateChanged() {
-        updateColors(animated: true)
+    private func stateChanged(animated: Bool = true) {
+        updateColors(animated: animated)
         updateAccessibility()
         // Hover shows or hides the x: its fade and the title's fade under
         // it animate (Motion `hover`); nothing moves.
-        animatesCloseChange = true
+        animatesCloseChange = animated
         layoutLayers()
         animatesCloseChange = false
         updateMarquee()
@@ -201,7 +208,7 @@ final class TabCell {
     private func applyColors() {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
-            let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
+            let fill: NSColor? = fillsSelection ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
                 // A lifted tab reads as solid so it does not show tabs sliding under it.
@@ -211,7 +218,9 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
-            spinnerLayer?.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            spinnerLayer?.colors = indicatorColors
+            statusGlyphLayer?.colors = indicatorColors
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
@@ -300,7 +309,8 @@ final class TabCell {
             }
         }
 
-        if visibility.showsIcon, badgeColor != nil {
+        let drawsStatusGlyph = layoutStatusGlyph(iconFrame: iconFrame, visible: visibility.showsIcon)
+        if visibility.showsIcon, badgeColor != nil, !drawsStatusGlyph {
             let badgeLayer = makeBadge()
             let badge = m.badgeSize
             badgeLayer.frame = CGRect(

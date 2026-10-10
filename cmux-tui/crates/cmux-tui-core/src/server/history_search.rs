@@ -78,7 +78,3 @@ fn hit_json(hit: &SearchHit) -> Value {
         "at_ms": hit.at_ms,
     })
 }
-
-#[cfg(test)]
-#[path = "history_search_tests.rs"]
-mod tests;

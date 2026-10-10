@@ -17,9 +17,14 @@ public nonisolated struct CuaHelperIdentity: Sendable {
     public static let bundleIdentifier = "com.cmuxterm.cua"
     public static let teamIdentifier = "7WLXT3NR37"
     public static let appName = "cmux Computer Use.app"
-    /// The code requirement every usable helper satisfies. Also in
-    /// scripts/cmux-cua-helper-trust.sh (shell side of the same rule).
+    /// The code requirement every usable helper satisfies: the release
+    /// helper's designated requirement. The two certificate fields are the
+    /// Developer ID intermediate and leaf markers, so an Apple Development or
+    /// Apple Distribution signature of the same team does not pass either.
+    /// Also in scripts/cmux-cua-helper-trust.sh (shell side of the same rule).
     public static let requirement = "identifier \"\(bundleIdentifier)\" and anchor apple generic"
+        + " and certificate 1[field.1.2.840.113635.100.6.2.6]"
+        + " and certificate leaf[field.1.2.840.113635.100.6.1.13]"
         + " and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
 
     /// Why no helper is usable.
@@ -74,22 +79,26 @@ public nonisolated struct CuaHelperIdentity: Sendable {
         return SecStaticCodeCheckValidity(code, flags, compiled) == errSecSuccess
     }
 
-    /// Where an installed release helper can be, most preferred first: this
-    /// app's own nested helper (signed only in a release build), the nested
-    /// helpers of installed cmux, NIGHTLY and RC apps, a standalone install,
-    /// and every copy LaunchServices knows by bundle id. The list holds
-    /// unsigned copies too; `resolve` filters them.
+    /// Where an installed release helper can be, most preferred first. A
+    /// release build: its own nested helper, then the installed apps. A dev
+    /// build (its own helper is ad hoc): NIGHTLY, then RC, then the release
+    /// app, in /Applications and ~/Applications; NIGHTLY first because it is
+    /// closest to the dev build and is the copy that holds the grants on the
+    /// team's machines. Only installed apps count, not every copy
+    /// LaunchServices knows (old downloads, DMGs, DerivedData). Unsigned
+    /// copies stay in the list; `resolve` filters them.
     public static func installedCandidates(mainBundle: URL = Bundle.main.bundleURL,
                                            home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                                           registered: [URL] = []) -> [URL] {
-        var candidates = [mainBundle.appending(path: "Contents/Library/\(appName)")]
+                                           isDevBuild: Bool) -> [URL] {
+        let own = mainBundle.appending(path: "Contents/Library/\(appName)")
+        let apps = isDevBuild ? ["cmux NIGHTLY.app", "cmux RC.app", "cmux.app"] : ["cmux.app", "cmux NIGHTLY.app", "cmux RC.app"]
+        var candidates = isDevBuild ? [] : [own]
         for root in [URL(fileURLWithPath: "/Applications"), home.appending(path: "Applications")] {
-            for app in ["cmux.app", "cmux NIGHTLY.app", "cmux RC.app"] {
+            for app in apps {
                 candidates.append(root.appending(path: "\(app)/Contents/Library/\(appName)"))
             }
             candidates.append(root.appending(path: appName))
         }
-        candidates += registered
         var seen = Set<String>()
         return candidates.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }

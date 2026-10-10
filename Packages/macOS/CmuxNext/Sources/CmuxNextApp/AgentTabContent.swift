@@ -38,18 +38,21 @@ struct AgentTabContent {
             guard let pane else { return false }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
-        if !view.model.hasPainted { drawLastPage(key, until: view.model) }
+        if !view.model.hasPainted { drawLastPage(key, until: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
 
-    /// The tab's page from the last quit, under the pane until `model`'s
+    /// The tab's page from the last quit, under the pane until `view`'s
     /// live page paints (`AgentPaneLaunchImages`): a relaunch never shows
-    /// an empty agent pane.
-    private func drawLastPage(_ key: String, until model: AgentPaneModel?) {
+    /// an empty agent pane. The image is the pane's first frame, so the
+    /// pane's own loading state stays off above it until the image goes.
+    private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
         if paneView.launchImageView == nil, let image = pane.services.agentTabs.launchImages.take(key) { paneView.showLaunchImage(image) }
-        guard paneView.launchImageView != nil, let model else { return }
-        model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
+        guard paneView.launchImageView != nil, let view else { return }
+        view.showsLoadingState = false
+        paneView.onLaunchImageCleared = { [weak view] in view?.showsLoadingState = true }
+        view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
     }
 }

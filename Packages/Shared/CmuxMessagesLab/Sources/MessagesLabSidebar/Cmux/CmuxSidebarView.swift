@@ -63,18 +63,43 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
+    /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
+    /// there). The host changes its order and calls `show` before returning, so the tiles land
+    /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
+    public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+    /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
+    /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
+    /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
+    public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
+    /// An extra search section under the conversations for a query (nil: none), asked once
+    /// per keystroke; a later keystroke cancels the answer.
+    public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
+    /// A row of the extra section was chosen (its id).
+    public var onSelectSearchResult: (String) -> Void = { _ in }
+    /// The unread dot (nil: the system blue) and the key-window selection (nil: the system's).
+    public var unreadColor: NSColor? {
+        get { controller.unreadColor }
+        set { controller.unreadColor = newValue }
+    }
+    public var selectionColor: NSColor? {
+        get { controller.selectionColor }
+        set { controller.selectionColor = newValue }
+    }
 
-    private let controller = SidebarController()
+    let controller = SidebarController()
     private let link = SidebarLink()
     public private(set) var entries: [CmuxSidebarEntry] = []
     public private(set) var pinnedOrder: [String] = []
 
     public override init(frame: NSRect) {
+        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle.
+        SidebarLocalization.bundle = .module
         super.init(frame: frame)
         link.owner = self
         controller.dataSource = link
         controller.delegate = link
+        controller.searchProvider = link
         controller.view.frame = bounds
         controller.view.autoresizingMask = [.width, .height]
         addSubview(controller.view)
@@ -97,18 +122,84 @@ public final class CmuxSidebarView: NSView {
         controller.reloadData()
     }
 
+    /// In the compact (avatar-only) list the search field is hidden rather
+    /// than clipped to a few letters, and a search in progress ends, so no
+    /// hidden filter stays on the rows. (Upstream ask: Messages' compact search.)
+    public override func layout() {
+        super.layout()
+        let compact = bounds.width < SidebarMetrics.compactBelow
+        guard controller.searchField.isHidden != compact else { return }
+        controller.searchField.isHidden = compact
+        if compact, !controller.searchField.stringValue.isEmpty {
+            controller.searchField.stringValue = ""
+            controller.setQuery("")
+        }
+    }
+
+    /// The search field's text.
+    public var searchQuery: String { controller.searchField.stringValue }
+
+    /// True while the list is too narrow for the search field.
+    public var searchHidden: Bool { controller.searchField.isHidden }
+
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: String?) {
         guard id != controller.selectedID else { return }
         controller.select(id, notify: false)
     }
 
+    /// Each pinned tile's and list row's frame in window points from the top-left, in display
+    /// order (automation: drive a pin drag through synthesized mouse events).
+    public var itemFramesInWindow: [(id: String, pinned: Bool, frame: NSRect)] {
+        guard let window else { return [] }
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        let document = controller.document
+        func top(_ r: CGRect) -> NSRect {
+            let w = document.convert(r, to: nil)
+            return NSRect(x: w.minX, y: height - w.maxY, width: w.width, height: w.height)
+        }
+        let tiles = controller.pinnedItems.enumerated().compactMap { t, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, true, top(controller.tileRect(t))) }
+        }
+        let rows = controller.rowItems.enumerated().compactMap { r, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, false, top(controller.rowRect(r))) }
+        }
+        return tiles + rows
+    }
+
     var snapshot: ConversationListSnapshot { ConversationListSnapshot(items: entries.map(\.summary), pinned: pinnedOrder) }
 }
 
-/// The controller's data source and delegate (it holds both weakly).
+/// One row of the host's search section (a teammate, for example).
+public struct CmuxSidebarSearchResult: Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var subtitle: String
+    public var initials: String
+
+    public init(id: String, title: String, subtitle: String = "", initials: String) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.initials = initials
+    }
+}
+
+/// The host's search section: a title and its rows.
+public struct CmuxSidebarSearchSection: Hashable, Sendable {
+    public var title: String
+    public var results: [CmuxSidebarSearchResult]
+
+    public init(title: String, results: [CmuxSidebarSearchResult]) {
+        self.title = title
+        self.results = results
+    }
+}
+
+/// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
-private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate {
+private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
+    @preconcurrency SidebarPinPlacing {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -118,4 +209,41 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
+    func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the
+    // controller picks the title from the entry's unread count; the host keeps the mark). Hide
+    // Alerts and Delete need owner support first: no item that does nothing.
+    func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
+        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
+    }
+    func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
+
+    func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {
+        guard !request.isCancelled, let section = owner?.searchSection(request.query), !section.results.isEmpty else {
+            request.complete(nil)
+            return
+        }
+        request.complete(SidebarSearchSection(title: section.title, results: section.results.map {
+            SidebarSearchResult(id: $0.id, title: $0.title, subtitle: $0.subtitle, avatar: .monogram($0.initials))
+        }))
+    }
+    func sidebar(_ sidebar: SidebarController, didSelectSearchResult id: String) { owner?.onSelectSearchResult(id) }
+}
+
+/// A context-menu item that runs a closure (the host's `menuItems`; MessagesLab's
+/// `SidebarMenuItem` is not public).
+public final class CmuxSidebarMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    public init(title: String, image: NSImage? = nil, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+        self.image = image
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    @objc private func run() { handler() }
 }

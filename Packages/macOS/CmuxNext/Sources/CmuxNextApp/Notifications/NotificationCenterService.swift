@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -21,6 +22,9 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
+    /// OSC 7501 alerts held until their record arrives, by notification id
+    /// (`NotificationCenterService+ProgramStatus`).
+    @ObservationIgnored var heldProgramAlerts: [UInt64: Task<Void, Never>] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored private var lastSeen: UInt64 = 0
@@ -46,6 +50,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
@@ -59,8 +64,9 @@ final class NotificationCenterService {
                 for notification in fresh { self.arrived(notification) }
             }
         })
+        tasks.append(followViewedProgramStatus(store))
         tasks.append(Task { [weak self] in
-            for await count in Observations({ Self.unreadCount(store) }) {
+            for await count in Observations({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
             }
         })
@@ -72,7 +78,7 @@ final class NotificationCenterService {
             for await prefs in Observations({ settings.snapshot.notifications }) {
                 guard let self else { return }
                 if self.preferences != prefs { self.preferences = prefs }
-                self.updateDockBadge(Self.unreadCount(self.services?.daemon.store))
+                self.updateDockBadge(self.currentUnreadCount())
             }
         })
     }
@@ -126,7 +132,11 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
+        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        // Any look at the tab sees its OSC 7501 done and error records and an
+        // agent chat's completed turn (client view state; the owners keep the facts).
+        ProgramStatusSeenStore.shared.markSeen(tab, turns: .shared)
+        guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
         acknowledge(tab)
@@ -188,21 +198,55 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        let program = programStatus(of: notification, source: source, located: located)
+        if program == nil, source == .terminal,
+           ProgramStatusNotification.looksLikeAlert(title: notification.title, level: notification.level) {
+            holdUntilRecord(notification, located: located) { [weak self] found in
+                self?.deliver(notification, source: source, located: located, decision: decision, program: found)
+            }
+            return
+        }
+        deliver(notification, source: source, located: located, decision: decision, program: program)
+    }
+
+    /// The rest of an arrival once its OSC 7501 record (if any) is known.
+    func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
+                 decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
+        // An OSC 7501 done for a terminal the user can see is read at once.
+        if let program, !program.notifies(visibility: visibility(of: located)) {
+            note("program status \(program.reason.rawValue) visible: read at once")
+            acknowledge(located.tab)
+            return
+        }
         // The feed (and the iPhone push) gets only what would alert on this Mac: muted
         // workspaces, quiet hours and banners turned off are not mirrored.
         if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
-        if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
+        if decision.desktop {
+            post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
+                 subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
+        }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 
-    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?) {
+    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
+                      subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
-        desktop.post(id: id, title: title, body: notification.body, surface: notification.surface?.rawValue,
-                     workspace: workspace, defaultSound: sound == "default")
+        desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
+                     workspace: workspace, defaultSound: sound == "default",
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
+    }
+
+    /// A terminal program chose its banner's title and text (OSC 9/777/99,
+    /// an OSC 7501 record), so the banner names the workspace it came from
+    /// and a program cannot pose as one in another terminal. Other sources
+    /// keep no subtitle.
+    nonisolated static func bannerSubtitle(source: NotificationSource, workspace: String?) -> String? {
+        guard source == .terminal, let workspace, !workspace.isEmpty else { return nil }
+        return workspace
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {

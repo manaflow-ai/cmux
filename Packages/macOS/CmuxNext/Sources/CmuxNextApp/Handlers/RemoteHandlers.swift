@@ -11,7 +11,7 @@ import CmuxNextRemote
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh!
+        let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         ssh.offerInstall = { [weak registry] session in
@@ -84,6 +84,13 @@ enum RemoteHandlers {
                 }
             }
             registry.track(work)
+        }
+        // The raw SSH or install error of a machine whose connect failed
+        // (its sidebar header shows it as the tooltip, cx-zdh8).
+        CloudHandlers.bind("remote.copyError", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context)
+            guard let error = RemoteStrings.sshError(session) else { throw ActionFailure(message: RemoteStrings.noSSHError(session.host.label)) }
+            context.copy(error)
         }
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)

@@ -399,7 +399,3 @@ fn highlights(text: &str, words: &[&str]) -> Vec<Range<usize>> {
     }
     merged
 }
-
-#[cfg(test)]
-#[path = "search_index_tests.rs"]
-mod tests;

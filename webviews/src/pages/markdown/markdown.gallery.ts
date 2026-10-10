@@ -41,6 +41,8 @@ export async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promis
 - [ ] Docs for the POST rule
 
 The expected wait is $E[W] = \\sum_{n=1}^{N-1} d_0 2^{n-1}$.
+
+Track the related fixes in #18325 and manaflow-ai/cmux#18321.
 `;
 
 const LONG = Array.from(
@@ -125,7 +127,14 @@ export default markdownPageEntry({
       note: "A README: headings, a table, code, a task list, math, links.",
       path: "/Users/you/src/atlas-web/README.md",
       text: README,
+      githubRepository: "manaflow-ai/cmux",
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
+    },
+    "github-references": {
+      note: "Bare and qualified GitHub references link in the rich viewer; code remains literal.",
+      path: "/Users/you/src/atlas-web/REFERENCES.md",
+      text: "# Review links\n\nFollow #18325 and manaflow-ai/cmux#18321.\n\n`#18325`\n\n```text\n#18321\n```\n",
+      githubRepository: "manaflow-ai/cmux",
     },
     "tasks-checked": {
       note: "Checked task-list items.",

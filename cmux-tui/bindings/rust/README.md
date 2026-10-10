@@ -110,13 +110,17 @@ new idempotency key.
 
 Shared state has typed calls: `Workspace::update` (title, color, icon with
 `Update::Set`, `Update::Clear`, or `Update::Unchanged`), `Tab::pin`,
-`Tab::unpin`, `Tab::update` (zoom, browser back and forward lists, frontend
-owner), `Screen::update_column` (`ColumnUpdateOptions::pin(edge, mode)`,
+`Tab::unpin`, `Tab::update` (zoom, user icon, browser back and forward lists,
+frontend owner), `Screen::update_column` (`ColumnUpdateOptions::pin(edge, mode)`,
 `unpin()`, `width(w)`), and the per-window records of `window-records-v1`:
 `Session::window_records`, `put_window_record`, and `delete_window_record`.
 A window record's `expected_revision` is the record's own revision (`Some(0)`:
 the record must not exist); a mismatch is `Error::Protocol` with code
 `revision.conflict`.
+
+Option structs gain fields when the protocol adds them (for example
+`TabUpdateOptions::icon`, 2026-10). That is a source-breaking change for a
+full struct literal, so always end option literals with `..Default::default()`.
 
 ```rust,no_run
 use cmux::{ColumnEdge, ColumnMode, ColumnUpdateOptions, Update, WorkspaceUpdateOptions};

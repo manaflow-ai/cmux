@@ -116,6 +116,7 @@ fn a_folder_terminal_harness_runs_only_when_enabled() {
             claude_json: dir.join("claude.json"),
             codex_config: dir.join("config.toml"),
             record: dir.join("trust.json"),
+            agent_home: None,
         },
     };
     let mut cfg = config_with(&dir, &[]);

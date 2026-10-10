@@ -150,10 +150,10 @@ fn a_new_conversation_id_starts_from_its_own_cursor() {
     assert_eq!(h.brain.state().logged_seq, 1);
 }
 
+/// Spec 3.3 (gist 3c190e0): the view goes in blocks of 4 lines.
 #[test]
-fn the_view_goes_in_pieces_cut_at_the_cache_marks() {
+fn the_view_goes_in_blocks_of_four_lines() {
     let mut h = Harness::new(default_script());
-    // ~700 short lines: about 76k characters of view, so one mark (50k).
     for i in 0..700 {
         h.chat
             .append(Kind::Note, &format!("{i:04} {}", "n".repeat(90)))
@@ -164,12 +164,13 @@ fn the_view_goes_in_pieces_cut_at_the_cache_marks() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     let blocks = &prompts[0];
-    assert_eq!(blocks.len(), 3, "two view pieces, then the new message");
-    let first = blocks[0]["text"].as_str().unwrap();
-    assert!(first.starts_with("<chat>\n") && first.ends_with('\n'));
-    assert!(first.chars().count() <= 50_000);
-    assert!(blocks[1]["text"].as_str().unwrap().ends_with("</chat>"));
-    assert_eq!(blocks[2]["text"], "what is in my notes?");
+    // The header, 175 whole blocks, the closing tag, then the new message.
+    assert_eq!(blocks.len(), 178);
+    assert_eq!(blocks[0]["text"], "<chat>\n");
+    let first = blocks[1]["text"].as_str().unwrap();
+    assert_eq!(first.lines().count(), optchat_core::BLOCK_LINES);
+    assert_eq!(blocks[176]["text"], "</chat>");
+    assert_eq!(blocks[177]["text"], "what is in my notes?");
 }
 
 fn talk_only() -> Script {
@@ -302,11 +303,18 @@ fn a_crash_before_the_append_answers_the_message_normally() {
 #[test]
 fn a_crash_after_the_append_never_logs_the_message_twice() {
     let h = crashed_while_logging(true);
-    assert!(h.agents.inner.lock().unwrap().prompts.is_empty());
-    assert_eq!(h.log(), vec![("user".to_string(), "hello".to_string())]);
+    // The cut turn resumes (E23): one turn, the message still logged once.
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    let log = h.log();
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1);
-    assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
-    // Seq 1 is in the log; seq 2 is the interrupted notice itself (no log).
-    assert_eq!(h.brain.state().logged_seq, 2);
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
+    // Seq 1 is in the log; seq 2 is the resume turn's own reply, which no
+    // turn takes.
+    assert_eq!(h.brain.state().logged_seq, 1);
 }

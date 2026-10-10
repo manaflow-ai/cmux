@@ -127,6 +127,8 @@ class SizeDeviceKind(str, Enum):
     IPAD = 'ipad'
     TUI = 'tui'
     BROWSER = 'browser'
+    LINUX = 'linux'
+    WINDOWS = 'windows'
     UNKNOWN = 'unknown'
 
 class SizeMode(str, Enum):
@@ -498,6 +500,7 @@ class ColumnPin:
     __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
     edge: str
     mode: str
+    role: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1027,6 +1030,17 @@ class PaneNeighborResult:
 
 
 @dataclass(frozen=True)
+class PaneSurfaceResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PaneSurfaceResult'
+    surface: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    replayed: Union[bool, None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class PingResult:
     __cmux_schema_path__: ClassVar[str] = 'types/PingResult'
     ok: Literal[True]
@@ -1355,6 +1369,28 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsResourceProjection:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
+    commit_apply_us: ServerStatsHistogram
+    commit_journal_us: ServerStatsHistogram
+    commit_prune_us: ServerStatsHistogram
+    commit_us: ServerStatsHistogram
+    commits: int
+    crosscheck_mismatches: int
+    crosschecks: int
+    diff_us: ServerStatsHistogram
+    full_projections: int
+    index_us: ServerStatsHistogram
+    journaled_changes: ServerStatsHistogram
+    projected_changes: ServerStatsHistogram
+    projections: int
+    read_us: ServerStatsHistogram
+    scope_fallbacks: int
+    scoped_projections: int
+    written_changes: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResult'
     connections: ServerStatsConnections
@@ -1362,6 +1398,18 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePath:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePath'
+    effect_intent_batches: int
+    effect_intent_failures: int
+    effect_intents: int
+    request_effect_commits: int
+    writer_registry_locks: int
 
 
 @dataclass(frozen=True)
@@ -2043,6 +2091,21 @@ class BrowserWheelGuardedRequest:
 
 
 @dataclass(frozen=True)
+class ChiefInspectRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/request'
+    path: str
+    query: Union[Dict[str, str], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ChiefInspectResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/result'
+    status: int
+    body: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    error: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ClearHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/clear-history/request'
     surface: Id
@@ -2207,6 +2270,25 @@ class CloudInboxSubscribeRequest:
 @dataclass(frozen=True)
 class CloudInboxUnsubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-unsubscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudMuxAckRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-ack/request'
+    conversation: str
+    seq: int
+
+
+@dataclass(frozen=True)
+class CloudMuxSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-subscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudMuxUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-unsubscribe/request'
     pass
 
 
@@ -3155,8 +3237,10 @@ class NewPaneRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3169,8 +3253,10 @@ class NewPaneRightRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -3586,7 +3672,7 @@ class SendKeyRequest:
 @dataclass(frozen=True)
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
-    pass
+    include: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3626,6 +3712,7 @@ class SetColumnDockRequest:
     edge: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[str, None, MissingType] = field(default=MISSING)
     permanent: Union[bool, None, MissingType] = field(default=MISSING)
+    role: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -3832,8 +3919,10 @@ class SplitRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4224,6 +4313,26 @@ class CloudInboxResetEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-reset/payload'
     event: Literal['cloud-inbox-reset']
     seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudMuxResyncedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-mux-resynced/payload'
+    event: Literal['cloud-mux-resynced']
+    pending: Union[JsonValue, None]
+    seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudMuxWakeEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-mux-wake/payload'
+    event: Literal['cloud-mux-wake']
+    seq: int
+    wakes: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -4848,7 +4957,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4963,6 +5072,7 @@ __all__ = [
     'NotificationMarker',
     'NotifyResult',
     'PaneNeighborResult',
+    'PaneSurfaceResult',
     'PingResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
@@ -4993,7 +5103,9 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
@@ -5066,6 +5178,8 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'ChiefInspectRequest',
+    'ChiefInspectResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',
@@ -5088,6 +5202,9 @@ __all__ = [
     'CloudInboxListRequest',
     'CloudInboxSubscribeRequest',
     'CloudInboxUnsubscribeRequest',
+    'CloudMuxAckRequest',
+    'CloudMuxSubscribeRequest',
+    'CloudMuxUnsubscribeRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
@@ -5323,6 +5440,8 @@ __all__ = [
     'CloudConversationResyncedEvent',
     'CloudInboxChangedEvent',
     'CloudInboxResetEvent',
+    'CloudMuxResyncedEvent',
+    'CloudMuxWakeEvent',
     'CloudSessionNeededEvent',
     'CloudSubscriptionStateEvent',
     'ColorsChangedEvent',

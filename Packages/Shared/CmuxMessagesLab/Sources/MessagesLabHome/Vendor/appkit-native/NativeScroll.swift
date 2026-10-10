@@ -58,11 +58,17 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         documentView = document
         verticalScroller = SequenceScroller()
         let nc = NotificationCenter.default
-        nc.addObserver(self, selector: #selector(clipMoved(_:)), name: NSView.boundsDidChangeNotification, object: clip)
-        nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) }
-        nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) }
+        // cmux: a block observer on queue: .main (inline for the clip's post on main), not a selector:
+        // a selector into this main-actor view trapped on a post off main (crash program). Tokens kept and removed.
+        observers = [
+            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
+            nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
+            nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) },
+        ]
     }
     required init?(coder: NSCoder) { fatalError() }
+    private var observers: [NSObjectProtocol] = []  // cmux
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
 
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
@@ -121,7 +127,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
 
     // MARK: Clip view -> model
 
-    @objc private func clipMoved(_ n: Notification) {
+    private func clipMoved(_ n: Notification) {  // cmux: no selector
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
         let y = clip.bounds.origin.y - shift
@@ -325,6 +331,15 @@ final class SequenceScroller: NSScroller {
     override var knobProportion: CGFloat {
         get { super.knobProportion }
         set { super.knobProportion = fixed?.proportion ?? newValue }
+    }
+    /// AppKit invalidates its own knob rect when the value changes; the drawn bar sits up to
+    /// `knobBottomInset` (plus pixel rounding) above it and spans the expanded width, so every
+    /// invalidation covers the scroller's full width and 2 pt more at each end. (Without it a
+    /// slow knob drag left the bar's old top rows in the track: horizontal streaks above the
+    /// thumb in ours-scrollbar-drag-slow-take84, the row's transcript excess 4.7.)
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        guard !invalidRect.isEmpty else { return super.setNeedsDisplay(invalidRect) }
+        super.setNeedsDisplay(NSRect(x: bounds.minX, y: invalidRect.minY - 2, width: bounds.width, height: invalidRect.height + 4))
     }
     /// Messages' scroll indicator, macOS 27 (lossless scrollbar-* references, right 20 pt strip):
     /// - at rest with overlay scrollers (Show scroll bars: Automatic with a trackpad, or When

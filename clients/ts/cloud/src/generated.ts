@@ -606,6 +606,10 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly orphaned?: {
+    readonly at: number
+    readonly former_owner: UserId
+  }
 }
 
 /** A machine's session host, enrolled by its link. */
@@ -634,7 +638,7 @@ export type Install = {
 /** One app, CLI or daemon install with its own keypair. */
 export type InstallId = string
 
-export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
@@ -758,6 +762,33 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+export type RunWithBody = {
+  readonly id: RunId
+  readonly automation: AutomationId
+  readonly automation_version: number
+  readonly owner: TeamId
+  readonly trigger: {
+    readonly id: TriggerId | null
+    readonly type: string
+    readonly scheduled_at?: number
+    readonly delivery_id?: string
+    readonly parent_run?: RunId
+    readonly root_run?: RunId
+    readonly depth?: number
+  }
+  readonly state: RunState
+  readonly step: number
+  readonly created_at: number
+  readonly started_at: number | null
+  readonly finished_at: number | null
+  readonly error: RunError | null
+  readonly outcome: {
+    readonly goal_met: boolean
+    readonly summary?: string
+  } | null
+  readonly body: Body
+}
+
 export type ServerCapability = string
 
 /** A Cloud machine snapshot. */
@@ -818,6 +849,17 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamAuditEntry = {
+  readonly n: number
+  readonly op: string
+  readonly actor: string
+  readonly at: number
+  readonly category: "admin" | "billing"
+  readonly summary: string
+  readonly detail: unknown
+  readonly hash: string
+}
+
 export type TeamDomain = {
   readonly domain: EmailDomain
   readonly state: "pending" | "verified" | "lost" | "lapsed"
@@ -850,7 +892,7 @@ export type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
 
 export type TeamMember = {
   readonly user: UserId
-  readonly role: "owner" | "admin" | "member"
+  readonly role: TeamRole
   readonly display_name: string
 }
 
@@ -991,6 +1033,15 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamRole = "owner" | "admin" | "member" | "billing" | "guest"
+
+export type TeamVmAccountUser = {
+  readonly user: string
+  readonly uid: number
+  readonly class: SshCertClass
+  readonly principals: ReadonlyArray<string>
+}
+
 export type TeamVmError = {
   readonly code: string
   readonly message: string
@@ -999,8 +1050,25 @@ export type TeamVmError = {
 
 export type TeamVmLeaseId = string
 
+export type TeamVmRetired = {
+  readonly vm: string
+  readonly epoch: number
+  readonly state: "pausing" | "paused"
+  readonly at: number
+  readonly by: string
+  readonly tainted_by: ReadonlyArray<string>
+}
+
 /** Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries. */
 export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+
+export type TeamVmTaint = {
+  readonly epoch: number
+  readonly at: number
+  readonly users: ReadonlyArray<string>
+  readonly accepted_by: string | null
+  readonly accepted_at: number | null
+}
 
 export type TeamVmView = {
   readonly team: TeamId
@@ -1015,6 +1083,9 @@ export type TeamVmView = {
   }>
   readonly last_error: TeamVmError | null
   readonly updated_at: number
+  readonly taint: TeamVmTaint | null
+  readonly retired: ReadonlyArray<TeamVmRetired>
+  readonly no_owner?: boolean
 }
 
 /** RFC 3339 UTC with milliseconds. */
@@ -1092,6 +1163,14 @@ export type UserProfile = {
   readonly personal_team: TeamId
 }
 
+export type UserTeam = {
+  readonly id: TeamId
+  readonly display_name: string
+  readonly kind: "personal" | "stack"
+  readonly role: TeamRole
+  readonly sso_required: boolean
+}
+
 /** A WireGuard public key, standard base64 of 32 bytes. */
 export type WgPublicKey = string
 
@@ -1136,12 +1215,17 @@ export interface CloudOps {
     }
     readonly result: Automation
   }
-  /** List the automations of the caller's team. */
+  /** List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
   readonly "automation.list": {
-    readonly params: Readonly<Record<string, never>>
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+    }
     readonly result: {
       readonly owner: TeamId | null
       readonly automations: ReadonlyArray<Automation>
+      readonly automation_count?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor?: string | null
       readonly revision: string
     }
   }
@@ -1316,7 +1400,7 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
@@ -1328,7 +1412,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.delete": {
     readonly params: {
       readonly machine: MachineId
@@ -1399,7 +1483,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.resize": {
     readonly params: {
       readonly machine: MachineId
@@ -1459,7 +1543,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -1469,7 +1553,7 @@ export interface CloudOps {
       readonly snapshot: CloudSnapshot
     }
   }
-  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.delete": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1487,7 +1571,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -2163,6 +2247,24 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
+  /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
+  readonly "integration.approval.get": {
+    readonly params: {
+      readonly request: string
+    }
+    readonly result: {
+      readonly request: string
+      readonly op: string
+      readonly connection: string
+      readonly target: string
+      readonly summary: string
+      readonly params: unknown
+      readonly digest: string
+      readonly state: "pending" | "done" | "denied" | "expired"
+      readonly created_at: number | "Infinity" | "-Infinity" | "NaN"
+      readonly expires_at: number | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
   readonly "integration.complete": {
     readonly params: {
@@ -2468,6 +2570,27 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Read one kept run with the body of the automation version that fired it. */
+  readonly "run.get": {
+    readonly params: {
+      readonly run: RunId
+    }
+    readonly result: RunWithBody
+  }
+  /** Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages). */
+  readonly "run.list": {
+    readonly params: {
+      readonly automation?: AutomationId
+      readonly state?: RunState
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly runs: ReadonlyArray<Run>
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
   readonly "server.pair.approve": {
     readonly params: {
@@ -2553,6 +2676,14 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
+  readonly "team_vm.accounts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly users: ReadonlyArray<TeamVmAccountUser>
+    }
+  }
   /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
   readonly "team_vm.ensure_awake": {
     readonly params: {
@@ -2625,6 +2756,43 @@ export interface CloudOps {
       readonly released: boolean
     }
   }
+  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.rebuild": {
+    readonly params: {
+      readonly epoch: number
+    }
+    readonly result: {
+      readonly retired: string
+      readonly epoch: number
+    }
+  }
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.retired.delete": {
+    readonly params: {
+      readonly vm: string
+      readonly files_copied: true
+    }
+    readonly result: {
+      readonly vm: string
+      readonly deleted: boolean
+    }
+  }
+  /** Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.retired.export": {
+    readonly params: {
+      readonly vm: string
+    }
+    readonly result: {
+      readonly vm: string
+      readonly path: string
+      readonly expires_at: number
+      readonly files: number
+      readonly bytes: number
+      readonly archive_bytes: number
+      readonly skipped: ReadonlyArray<string>
+      readonly skipped_count: number
+    }
+  }
   /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
   readonly "team_vm.ssh_ca": {
     readonly params: Readonly<Record<string, never>>
@@ -2647,7 +2815,7 @@ export interface CloudOps {
       readonly previous_trusted_until: number | null
     }
   }
-  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash. */
   readonly "team_vm.ssh_cert": {
     readonly params: {
       readonly public_key: string
@@ -2698,6 +2866,32 @@ export interface CloudOps {
   readonly "team_vm.status": {
     readonly params: Readonly<Record<string, never>>
     readonly result: TeamVmView
+  }
+  /** Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited. */
+  readonly "team_vm.taint.accept": {
+    readonly params: {
+      readonly epoch: number
+      readonly users: ReadonlyArray<string>
+    }
+    readonly result: {
+      readonly epoch: number
+      readonly accepted_by: string
+      readonly accepted_at: number
+    }
+  }
+  /** Read the team's audit records, newest first (owners and admins: all; billing: billing records only). */
+  readonly "team.audit.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly before?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly entries: ReadonlyArray<TeamAuditEntry>
+      readonly next_cursor: number | null
+      readonly revision: string
+    }
   }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
@@ -2823,14 +3017,26 @@ export interface CloudOps {
       readonly team?: TeamId
       readonly cursor?: string
       readonly limit?: number
-      readonly role?: "owner" | "admin" | "member"
+      readonly role?: TeamRole
     }
     readonly result: {
       readonly team: TeamId
       readonly members: ReadonlyArray<TeamMember>
       readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly seat_count?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly no_owner?: boolean
       readonly next_cursor: string | null
       readonly revision: string
+    }
+  }
+  /** Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only. */
+  readonly "team.members.remove": {
+    readonly params: {
+      readonly user: UserId
+    }
+    readonly result: {
+      readonly user: UserId
+      readonly removed: boolean
     }
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -2941,6 +3147,15 @@ export interface CloudOps {
       readonly install: string
     }
     readonly result: unknown
+  }
+  /** List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out. */
+  readonly "user.teams.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly teams: ReadonlyArray<UserTeam>
+      readonly incomplete: boolean
+      readonly revision: string
+    }
   }
   /** The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings. */
   readonly "user.text_confirm.get": {
@@ -3068,6 +3283,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
@@ -3099,6 +3315,8 @@ export const cloudOpMeta = {
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
@@ -3108,17 +3326,23 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
   "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.rebuild": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.delete": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.export": { class: "mutation", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
   "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.audit.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
@@ -3131,6 +3355,7 @@ export const cloudOpMeta = {
   "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.members.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
@@ -3143,6 +3368,7 @@ export const cloudOpMeta = {
   "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.teams.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

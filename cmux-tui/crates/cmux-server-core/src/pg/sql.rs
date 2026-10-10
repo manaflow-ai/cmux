@@ -42,9 +42,17 @@ fn stmt(database: &str, sql: String) -> Statement {
     Statement { database: database.to_owned(), sql }
 }
 
+/// Quotes a name this module controls: a constant or `app_<AppId>`
+/// (`AppId::parse` admits only `[a-z0-9_]`), so it is non-empty and free of
+/// NUL. Should it ever not quote, the result is `""`, a zero-length
+/// identifier that Postgres refuses: the statement fails, never runs with
+/// unquoted text, and the process does not panic.
 fn ident(name: &str) -> String {
-    quote_ident(name).expect("validated identifiers are non-empty and NUL-free")
+    quote_ident(name).unwrap_or_else(|| REFUSED_BY_POSTGRES.to_owned())
 }
+
+/// A zero-length delimited identifier: a syntax error in any statement.
+const REFUSED_BY_POSTGRES: &str = "\"\"";
 
 /// A SCRAM verifier: `SCRAM-SHA-256$<iter>:<salt>$<stored>:<server>` with
 /// base64 fields. Anything else is refused, so the value can never close the
@@ -81,7 +89,8 @@ impl PgPlan {
         ]
     }
 
-    /// Role, limits and database (or schema) for one app.
+    /// Role, limits and database (or schema) for one app:
+    /// [`PgPlan::app_role_sql`] followed by [`PgPlan::app_objects_sql`].
     ///
     /// `password_verifier` is a SCRAM verifier from [`super::scram_verifier`]
     /// (never a clear-text password, so it never reaches the server log). It is
@@ -92,24 +101,64 @@ impl PgPlan {
         limits: &AppLimits,
         password_verifier: Option<&str>,
     ) -> Result<Vec<Statement>, PgError> {
-        let needs = self.app_needs_password(app);
-        let password = match (needs, password_verifier) {
+        let mut out = vec![self.app_role_sql(app, limits, password_verifier)?];
+        out.extend(self.app_objects_sql(app, limits));
+        Ok(out)
+    }
+
+    /// The password clause for `app`: required exactly when the role needs
+    /// a password, and only a SCRAM verifier.
+    fn password_clause(
+        &self,
+        app: &AppDb,
+        password_verifier: Option<&str>,
+    ) -> Result<String, PgError> {
+        match (self.app_needs_password(app), password_verifier) {
             (true, Some(v)) if valid_verifier(v) => {
-                format!(" PASSWORD {}", quote_literal(v).ok_or(PgError::BadVerifier)?)
+                Ok(format!(" PASSWORD {}", quote_literal(v).ok_or(PgError::BadVerifier)?))
             }
-            (false, None) => String::new(),
-            _ => return Err(PgError::BadVerifier),
-        };
+            (false, None) => Ok(String::new()),
+            _ => Err(PgError::BadVerifier),
+        }
+    }
+
+    /// `CREATE ROLE` for a role that does not exist yet.
+    pub fn app_role_sql(
+        &self,
+        app: &AppDb,
+        limits: &AppLimits,
+        password_verifier: Option<&str>,
+    ) -> Result<Statement, PgError> {
+        let password = self.password_clause(app, password_verifier)?;
+        let role = ident(&app.id.role());
+        Ok(stmt(
+            ADMIN_DATABASE,
+            format!(
+                "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
+                limits.connection_limit
+            ),
+        ))
+    }
+
+    /// A new password for an existing role (its pgpass file was lost).
+    /// Refused when the role uses peer auth only.
+    pub fn set_password_sql(
+        &self,
+        app: &AppDb,
+        password_verifier: &str,
+    ) -> Result<Statement, PgError> {
+        let clause = self.password_clause(app, Some(password_verifier))?;
+        Ok(stmt(ADMIN_DATABASE, format!("ALTER ROLE {}{clause}", ident(&app.id.role()))))
+    }
+
+    /// Limits and the database (or schema) of an app whose role exists.
+    /// The `ALTER`, `REVOKE` and `GRANT` statements are idempotent; the
+    /// caller skips `CREATE DATABASE` and `CREATE SCHEMA` when the object
+    /// exists.
+    pub fn app_objects_sql(&self, app: &AppDb, limits: &AppLimits) -> Vec<Statement> {
         let role = ident(&app.id.role());
         let a = ADMIN_DATABASE;
         let mut out = vec![
-            stmt(
-                a,
-                format!(
-                    "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
-                    limits.connection_limit
-                ),
-            ),
             stmt(
                 a,
                 format!(
@@ -160,7 +209,7 @@ impl PgPlan {
                 ));
             }
         }
-        Ok(out)
+        out
     }
 
     /// The advisory step at 100% of the quota (server.md 8.3):
@@ -189,7 +238,8 @@ impl PgPlan {
                 ADMIN_DATABASE,
                 format!(
                     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = {}",
-                    quote_literal(&role).expect("validated role name")
+                    // A role name from AppId never holds NUL; see `ident`.
+                    quote_literal(&role).unwrap_or_else(|| REFUSED_BY_POSTGRES.to_owned())
                 ),
             ),
         ]
@@ -206,5 +256,20 @@ impl PgPlan {
                 limits.connection_limit
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name that does not quote (empty, or holding NUL) becomes a
+    /// zero-length identifier that Postgres refuses; it never panics and
+    /// never reaches the SQL unquoted.
+    #[test]
+    fn a_name_that_does_not_quote_is_refused_by_postgres_not_a_panic() {
+        assert_eq!(ident("app_x"), "\"app_x\"");
+        assert_eq!(ident(""), "\"\"");
+        assert_eq!(ident("a\0b"), "\"\"");
     }
 }

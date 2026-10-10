@@ -53,7 +53,7 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 mod remote_link_mux;
-use remote_link_mux::mux_owner_args;
+use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -2416,9 +2416,7 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let explicit_mux_socket = mux_socket_override
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let explicit_mux_socket = socket_for(mux_socket_override, session, state_root, session_state)?;
     let mux_socket_is_derived = explicit_mux_socket.is_none();
     let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
@@ -2436,7 +2434,7 @@ fn ensure_daemon(
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -4189,7 +4187,7 @@ mod tests {
         )
         .expect_err("remote stop terminated an embedded server");
 
-        assert!(error.to_string().contains("cmux server stop"), "{error:#}");
+        assert!(error.to_string().contains("cmux daemon stop"), "{error:#}");
         assert!(error.to_string().contains("SSH"), "{error:#}");
     }
 

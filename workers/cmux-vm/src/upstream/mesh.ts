@@ -10,6 +10,7 @@ import type { Named } from "@gdp-ts/core";
 import { Context, type Effect } from "effect";
 import type { DeviceId, MeshId, TenantId, TunnelId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { MeshProtocol } from "../mesh/acl.ts";
+import type { DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import type { CallerActsOnDevice } from "../proofs/device-owner.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
@@ -71,11 +72,12 @@ export interface UpstreamMeshService {
       readonly owns: TenantOwnsResource<C, M>;
       readonly scope: KeyHasScope<C, "mesh:join">;
       readonly mayCreate: TenantMayCreate<C, "device">;
+      /** The tunnel's client key is the key the device's install key signed for this mesh, never another. */
+      readonly holds: DeviceHoldsKey<C, M>;
     },
     options: {
       readonly tenantId: TenantId;
       readonly deviceId: DeviceId;
-      readonly clientPublicKey: string;
       readonly routes: ReadonlyArray<string>;
     },
   ) => Effect.Effect<CreatedTunnel, UpstreamError>;
@@ -94,6 +96,22 @@ export interface UpstreamMeshService {
     proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, "mesh:join">; readonly acts: CallerActsOnDevice<C, D> },
   ) => Effect.Effect<void, UpstreamError>;
 
+  /**
+   * Replaces the device tunnel's client key with the key the install key
+   * signed for this device (`rotate_tunnel_key`). The tunnel keeps its id,
+   * routes and attachments; the server key changes. Fails (without returning
+   * it) if the provider minted a private key.
+   */
+  readonly rotateTunnelKey: <C, D>(
+    device: Named<D, DeviceId>,
+    proofs: {
+      readonly owns: TenantOwnsResource<C, D>;
+      readonly scope: KeyHasScope<C, "mesh:join">;
+      readonly acts: CallerActsOnDevice<C, D>;
+      readonly holds: DeviceHoldsKey<C, D>;
+    },
+  ) => Effect.Effect<TunnelInfo, UpstreamError>;
+
   /** Puts the VM on the mesh's network (live; a VM is on at most one). Returns its IPv4 address there. */
   readonly attachVm: <C, M, V>(
     mesh: Named<M, MeshId>,
@@ -110,15 +128,21 @@ export interface UpstreamMeshService {
     proofs: { readonly ownsVm: TenantOwnsResource<C, V>; readonly vmScope: KeyHasScope<C, "vm:write"> },
   ) => Effect.Effect<void, UpstreamError>;
 
-  /** `{device's tunnel} -> {vm, protocol, port}`; both ends proven members of the same mesh of the caller's tenant. */
+  /**
+   * `{device's tunnel} -> {vm, protocol, port}`, or with `sourceCidr` the
+   * device's published address `{cidr} -> {vm, protocol, port}` (an address
+   * rule); both ends proven members of the same mesh of the caller's tenant.
+   */
   readonly createRule: <C, M, S, D>(
     mesh: Named<M, MeshId>,
     source: Named<S, DeviceId>,
     destination: Named<D, VmId>,
     proofs: { readonly source: SameMesh<C, M, S>; readonly destination: SameMesh<C, M, D> },
-    matcher: { readonly protocol: MeshProtocol | null; readonly port: number | null },
+    matcher: { readonly protocol: MeshProtocol | null; readonly port: number | null; readonly sourceCidr: string | null },
   ) => Effect.Effect<CreatedRule, UpstreamError>;
   readonly deleteRule: <C, M>(rule: OwnedMeshRule<C, M>) => Effect.Effect<void, UpstreamError>;
+  /** Deletes a rule whose row could not be recorded. Accepts only a value `createRule` returned. */
+  readonly discardCreatedRule: (created: CreatedRule) => Effect.Effect<void, UpstreamError>;
 }
 
 export class UpstreamMesh extends Context.Tag("cmux-vm/UpstreamMesh")<UpstreamMesh, UpstreamMeshService>() {}

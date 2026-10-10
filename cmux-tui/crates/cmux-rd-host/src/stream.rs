@@ -9,6 +9,7 @@ use crate::clock::now_ns;
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::fdwait::wait_readable;
 use crate::inject::Injector;
+use crate::upstream::{UpstreamSink, Upstreams};
 use crate::wire::{
     write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
@@ -43,6 +44,12 @@ pub struct SessionCfg {
     pub stats_every_ms: u64,
     /// Quiet time after damage before a capture (0 disables).
     pub settle_us: u64,
+    /// Development only (`--upstream-record DIR`): write the viewer's
+    /// upstream streams to files in this directory. `None` offers no
+    /// upstream media.
+    pub upstream_record: Option<std::path::PathBuf>,
+    /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
+    pub upstream_record_max_bytes: u64,
 }
 
 pub struct MediaSession {
@@ -52,6 +59,8 @@ pub struct MediaSession {
     pic: I420,
     au: Vec<u8>,
     engine: MediaEngine,
+    /// Upstream media the viewer opened (rd change C4).
+    upstreams: Upstreams<Box<dyn UpstreamSink>>,
     out: DatagramOut,
     /// Where the viewer's datagrams come from (UDP carrier); `None` on the stream carrier.
     peer_udp: Option<std::net::SocketAddr>,
@@ -96,6 +105,8 @@ impl MediaSession {
         max_datagram: usize,
         out: DatagramOut,
         _peer_ip: IpAddr,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
@@ -135,6 +146,7 @@ impl MediaSession {
             pic: I420::new(w as usize, h as usize),
             au: Vec::new(),
             engine,
+            upstreams: Upstreams::new(sink, negotiated_caps),
             out,
             peer_udp,
             deferred_error: None,
@@ -210,9 +222,21 @@ impl MediaSession {
             loop {
                 match reader.next() {
                     Ok(Some((FRAME_CONTROL, payload))) => {
-                        if matches!(serde_json::from_slice::<Control>(&payload), Ok(Control::Stop))
-                        {
-                            return "stopped by viewer".into();
+                        match serde_json::from_slice::<Control>(&payload) {
+                            Ok(Control::Stop) => return "stopped by viewer".into(),
+                            Ok(control) => {
+                                let may_control = table.may_inject_input(session, viewer);
+                                if let Some(answer) = self.upstreams.on_control(
+                                    &mut self.engine,
+                                    &control,
+                                    may_control,
+                                ) {
+                                    if let Err(e) = write_control(stream, &answer) {
+                                        return format!("control write failed: {e}");
+                                    }
+                                }
+                            }
+                            Err(_) => {}
                         }
                     }
                     Ok(Some((FRAME_DATAGRAM, payload))) => {
@@ -258,8 +282,18 @@ impl MediaSession {
                 }
             }
             let may_inject = table.may_inject_input(session, viewer);
+            if !may_inject {
+                // Control ended: the viewer's microphone and camera stop with it.
+                for closed in self.upstreams.close_all(&mut self.engine) {
+                    let _ = write_control(stream, &Control::StreamClose { stream: closed });
+                }
+            }
             let out = self.engine.tick(may_inject, now_us());
             self.apply(stream, out, table, session, viewer);
+            // Acks, NACKs and arrivals for the viewer's upstream senders.
+            while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
+                let _ = self.out.send(stream, &datagram);
+            }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(stream);
             }
@@ -335,6 +369,7 @@ impl MediaSession {
         for datagram in &out.datagrams {
             let _ = self.out.send(stream, datagram);
         }
+        self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.injector.release_all();
         }
@@ -377,6 +412,11 @@ impl MediaSession {
         if let Err(e) = self.injector.apply(event) {
             eprintln!("inject failed: {e}");
         }
+    }
+
+    /// Ends every upstream stream (called on every end of a session).
+    pub fn close_upstreams(&mut self) {
+        let _ = self.upstreams.close_all(&mut self.engine);
     }
 
     /// Releases every key and button the viewer holds on the host and forgets held input
