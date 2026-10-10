@@ -85,8 +85,22 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
 /// bound at `path` with the same peer checks, each accepted connection
 /// bridged into tokio and handed to the router.
 pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
-    let listener = cmux::local_socket::listen_explicit(path)
-        .with_context(|| format!("bind {}", path.display()))?;
+    // A router of another build that just released the router lock may
+    // still hold the old socket for a moment: remove and bind again, bounded.
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let listener = loop {
+        match cmux::local_socket::listen_explicit(path) {
+            Ok(listener) => break listener,
+            Err(e) if std::time::Instant::now() < deadline => {
+                tracing::debug!("bind {}: {e}; retrying", path.display());
+                let _ = std::fs::remove_file(path);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!("bind {}", path.display())));
+            }
+        }
+    };
     let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
     std::thread::Builder::new()
         .name("router-admin-accept".into())
