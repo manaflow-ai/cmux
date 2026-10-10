@@ -184,11 +184,19 @@ fn a_new_change_during_publication_stays_pending_after_the_claimed_commit() {
         "a newer revision must wait for the in-flight publication"
     );
     records.finish_change_publication(first, true);
-    let second = records.claim_pending_change().unwrap();
-    assert_ne!(second.0, first);
-    assert_eq!(second.1["event"], "report");
-    assert_eq!(second.1["record"]["state"], "done");
-    records.finish_change_publication(second.0, true);
+    // The terminal publisher drains claims after each commit. A newer report
+    // must be delivered in the same flush instead of waiting for more PTY
+    // output to trigger another call.
+    let mut drained = Vec::new();
+    while let Some((revision, change)) = records.claim_pending_change() {
+        drained.push((revision, change));
+        records.finish_change_publication(revision, true);
+    }
+    assert_eq!(drained.len(), 1);
+    let (second_revision, second) = &drained[0];
+    assert_ne!(*second_revision, first);
+    assert_eq!(second["event"], "report");
+    assert_eq!(second["record"]["state"], "done");
     assert!(records.claim_pending_change().is_none());
 }
 
