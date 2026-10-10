@@ -730,13 +730,15 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_subscribe_reports_tree_changed(&server);
 }
 
-/// `history clear` on a shell without prompt marks keeps the visible screen
-/// (a pending command line included) and drops the scrollback (cx-6so.48).
+/// `history clear` (Cmd-K) on a shell without prompt marks keeps only the
+/// cursor's line (the pending command line) and drops every row above it and
+/// the scrollback, like Ghostty's clear_screen away from a prompt (cx-6so.55;
+/// before, only the scrollback went and Cmd-K looked like it did nothing).
 /// Deterministic on purpose: bash without rc files and a fixed one-cell
 /// prompt, so neither a long user prompt nor a resize redraw can wrap the
 /// pending line, and every step waits for the screen it needs.
 #[test]
-fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
+fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
     let server = HeadlessServer::start_without_shell_integration("history-clear");
     let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
     assert_success(&created);
@@ -791,8 +793,12 @@ fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
     assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
     let cleared_screen = screen();
     assert!(
-        cleared_screen.contains(&marker) && cleared_screen.contains(&pending),
-        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+        cleared_screen.trim_start().starts_with(&format!("$ {pending}")),
+        "clear-history did not move the pending line to the top row: {cleared_screen:?}"
+    );
+    assert!(
+        !cleared_screen.contains(&marker) && !cleared_screen.contains("old_"),
+        "clear-history left output above the cursor line: {cleared_screen:?}"
     );
     assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
 }
