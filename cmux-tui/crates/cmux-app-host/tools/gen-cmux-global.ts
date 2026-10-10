@@ -21,6 +21,8 @@ interface Field { required: boolean; type: TypeIR; description?: string }
 interface Op {
   class: string; risk?: string; params?: { selectors?: Record<string, string>; fields?: Record<string, Field> }; result?: TypeIR; docs?: string
   source: "local" | "cloud" | "app"
+  /** Backend ops: who may call it; an op without "install" is for a signed-in person only. */
+  principals?: string[]
   /** App catalog ops: the owning app and JSON Schema input/output instead of params/result. */
   owner?: string; input?: Record<string, unknown>; output?: Record<string, unknown>
 }
@@ -36,11 +38,16 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
 const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|send)$)/
 
+/** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
+export const NEVER_OPS = new Set(["cloud.machine.link_token"])
+
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 
-export function scopeFor(name: string, op: Pick<Op, "class" | "risk">): string | null {
+export function scopeFor(name: string, op: Pick<Op, "class" | "risk" | "principals">): string | null {
   const family = name.split(".")[0]!
-  if (NEVER_FAMILIES.has(family) || NEVER.test(name)) return null
+  if (NEVER_FAMILIES.has(family) || NEVER.test(name) || NEVER_OPS.has(name)) return null
+  // Money moves and person-only ops (no install principal) never reach apps.
+  if (op.risk === "money" || (op.principals && !op.principals.includes("install"))) return null
   const scopeFamily = SCOPE_FAMILY[family] ?? family
   if (op.risk) {
     switch (op.risk) {
