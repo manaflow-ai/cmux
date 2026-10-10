@@ -36,6 +36,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     }
     /// Every download of both engines, with a notice when one ends.
     let downloads = BrowserDownloadList()
+    /// Every tab's media, for the toolbar's media hub.
+    let media = BrowserMediaHub()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Pages created by an engine for a daemon tab that is still being

@@ -20,6 +20,11 @@ public final class CEFAgentRelay {
     private var sink: ((String) -> Void)?
     private var onEnd: (() -> Void)?
     private var waiters: [OneShot<Bool>] = []
+    /// The media hub's binding reports arrive as protocol events too: the
+    /// bridge takes its own, and the browser's events stay on while it
+    /// listens, relay or not.
+    private lazy var media = tab.map(CEFMediaBridge.init(tab:))
+    var mediaListens = false { didSet { updateWatch() } }
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -31,7 +36,11 @@ public final class CEFAgentRelay {
     public func set(onMessage: ((String) -> Void)?, onEnd: (() -> Void)?) {
         sink = onMessage
         self.onEnd = onMessage == nil ? nil : onEnd
-        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, onMessage == nil ? 0 : 1) }
+        updateWatch()
+    }
+
+    private func updateWatch() {
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens ? 1 : 0) }
     }
 
     /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
@@ -84,11 +93,15 @@ public final class CEFAgentRelay {
 
     // MARK: Tab lifetime (CEFTab)
 
-    func deliver(_ json: String) { sink?(json) }
+    func deliver(_ json: String) {
+        if media?.handle(json) == true { return }
+        sink?(json)
+    }
 
     func browserAttached() {
         resumeWaiters(true)
-        if sink != nil, let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, 1) }
+        if let browser = tab?.browserID { media?.attach(browser) }
+        if sink != nil || mediaListens { updateWatch() }
     }
 
     func resumeWaiters(_ created: Bool) {
