@@ -315,6 +315,10 @@ rest. Measurements: [performance.md](performance.md).
   assigned nodes): past 2,000 nodes, 20,000 characters or 100 levels the
   name is read directly from the same sources, at most 20,000 characters.
   `page.elementAt` names its element the same way.
+  An `aria-labelledby` or `aria-owns` list is read from its first 4,096
+  characters only (each id charged; an id cut there is dropped, and a
+  name with a longer list is read directly), and a slot whose name is
+  longer than 4,096 characters shows its own fallback content.
   Labels come from an index of the read's `<label>` elements, each one
   counted and read one at a time (a document's from its live `<label>`
   collection, a shadow root's by a walk of at most 250,000 elements),

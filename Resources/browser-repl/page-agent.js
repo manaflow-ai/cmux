@@ -541,13 +541,35 @@
   const NAME_ATTRS = ["aria-label", "title", "alt", "placeholder", "value", "aria-description"];
   const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
   const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) + CUT : v || "");
-  function labelledTargets(el, ctx) {
-    const value = el.getAttribute("aria-labelledby");
-    if (!value) return [];
-    const out = [];
+  // An IDREF list (aria-labelledby, aria-owns) or a slot name is read only
+  // within its first ID_LIST_CHARS characters: the page sets its length,
+  // and splitting, scanning or escaping the whole value would run outside
+  // the read's budget.
+  const ID_LIST_CHARS = 4096;
+  const idListTooLong = (el) => {
+    const a = el.getAttribute("aria-labelledby");
+    const b = el.getAttribute("aria-owns");
+    return (a !== null && a.length > ID_LIST_CHARS) || (b !== null && b.length > ID_LIST_CHARS);
+  };
+  // The ids of `value`, an IDREF list: at most `max`, each charged to
+  // `ctx` when given, from its first ID_LIST_CHARS characters (an id cut
+  // there is dropped).
+  function* idRefs(value, ctx, max) {
+    if (!value) return;
+    const cut = value.length > ID_LIST_CHARS;
+    const text = cut ? value.slice(0, ID_LIST_CHARS) : value;
     const ids = /\S+/g;
-    for (let m = ids.exec(value); m && out.length < 64 && spend(ctx, 1); m = ids.exec(value)) {
-      const t = el.ownerDocument.getElementById(m[0]);
+    let count = 0;
+    for (let m = ids.exec(text); m && count < max && (!ctx || spend(ctx, 1)); m = ids.exec(text)) {
+      if (cut && m.index + m[0].length === text.length) return;
+      count++;
+      yield m[0];
+    }
+  }
+  function labelledTargets(el, ctx) {
+    const out = [];
+    for (const id of idRefs(el.getAttribute("aria-labelledby"), ctx, 64)) {
+      const t = el.ownerDocument.getElementById(id);
       if (t) out.push(t);
     }
     return out;
@@ -580,6 +602,7 @@
   // value, generated content, shadow content, slotted nodes and
   // aria-labelledby or aria-owns targets.
   function nameFits(el, roots, ctx) {
+    if (idListTooLong(el)) return false;
     for (const a of NAME_ATTRS) {
       const v = el.getAttribute(a);
       if (v && v.length > NAME_CHARS) return false;
@@ -628,9 +651,11 @@
           // the content are read too.
           if (n.shadowRoot) queue.push(n.shadowRoot);
           if (n !== root && n.hasAttribute("aria-labelledby")) queue.push(...labelledTargets(n, ctx));
-          const owns = n.getAttribute("aria-owns");
-          if (owns) for (const id of owns.split(/\s+/).slice(0, 64)) {
-            const t = id && n.ownerDocument.getElementById(id);
+          // Playwright's name reads the whole list: past the bound the
+          // bounded name is taken instead.
+          if (idListTooLong(n)) return (over = true), STOP;
+          for (const id of idRefs(n.getAttribute("aria-owns"), null, 64)) {
+            const t = n.ownerDocument.getElementById(id);
             if (t) queue.push(t);
           }
         }
@@ -1351,6 +1376,9 @@
       return;
     }
     const name = slot.getAttribute("name") || "";
+    // A name past the bound is never escaped or matched: the slot shows
+    // its own fallback content.
+    if (name.length > ID_LIST_CHARS) return;
     const first = root.querySelector(name ? `slot[name="${global.CSS.escape(name)}"]` : 'slot:not([name]), slot[name=""]');
     if (first !== slot) return;
     for (let c = host.firstChild; c; c = c.nextSibling) {
@@ -1379,13 +1407,9 @@
     }
     // Each id in aria-owns is charged, also one that names a node already
     // read: the page sets how many there are.
-    const owns = el.getAttribute("aria-owns");
-    if (owns) {
-      const ids = /\S+/g;
-      for (let m = ids.exec(owns); m && spend(ctx, 1); m = ids.exec(owns)) {
-        const owned = el.ownerDocument.getElementById(m[0]);
-        if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
-      }
+    for (const id of idRefs(el.getAttribute("aria-owns"), ctx, Infinity)) {
+      const owned = el.ownerDocument.getElementById(id);
+      if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
     }
     if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after", ctx)));
   }
