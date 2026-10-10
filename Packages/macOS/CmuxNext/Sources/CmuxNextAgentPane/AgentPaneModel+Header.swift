@@ -2,13 +2,18 @@ import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
 /// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
+/// toggles a quick action's split (`mode: "toggle"`: close the one it opened, else open),
 /// and reads the tab's state the "..." menu's labels show (`{pinned}`).
 public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
+    public var toggle: @MainActor (String, String?) -> Void
     public var tabState: @MainActor () -> [String: Any]
 
-    public init(run: @escaping @MainActor (String, String?) -> Void, tabState: @escaping @MainActor () -> [String: Any]) {
+    public init(run: @escaping @MainActor (String, String?) -> Void,
+                toggle: (@MainActor (String, String?) -> Void)? = nil,
+                tabState: @escaping @MainActor () -> [String: Any]) {
         self.run = run
+        self.toggle = toggle ?? run
         self.tabState = tabState
     }
 }
@@ -25,12 +30,13 @@ extension AgentPaneModel {
     /// reads the tab's pin; `chat.archive` tags the pane's session and, archiving, closes its tab.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
-        case .paneAction(let id, let cwd):
+        case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
             // The Terminal split names the chat's folder; agent-home is the chat's only.
-            header.run(id, folderForOtherTabs(cwd))
+            let folder = folderForOtherTabs(cwd)
+            if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
             return AgentPaneReply.success()
         case .tabState:
             guard let header else {
