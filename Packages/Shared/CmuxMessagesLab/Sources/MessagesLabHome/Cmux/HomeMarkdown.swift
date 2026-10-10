@@ -8,7 +8,8 @@ import Foundation
 /// monospaced), `#` headings (bold), `-`/`*`/`+` bullets (`•`), numbered
 /// items (kept), and inline `**bold**`/`__bold__`, `*italic*`/`_italic_`,
 /// `~~strike~~`, `` `code` ``, `[label](url)` and `<url>`. Only http, https
-/// and mailto URLs become links; another scheme shows its label as text.
+/// and mailto URLs, and a Chief subagent link (HomeAppLinks), become links;
+/// another scheme shows its label as text.
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
@@ -204,9 +205,8 @@ enum HomeMarkdown {
             return (Array(c.slice(i + 1, j)), url, k + 1)
         }
 
-        private static func safe(_ url: String) -> String? {
-            guard let scheme = URL(string: url)?.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) else { return nil }
-            return url
-        }
+        /// The one link rule (MarkdownLinkPolicy: http, https, mailto, and Home's app form,
+        /// a Chief subagent link, HomeAppLinks), so this renderer and MessagesLab's agree.
+        private static func safe(_ url: String) -> String? { MarkdownLinkPolicy.sanitize(url) }
     }
 }

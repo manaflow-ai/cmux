@@ -28,7 +28,7 @@ const ADOPTED_PTY_FD: libc::c_int = 3;
 
 /// The PTY and session an adopting host serves.
 #[derive(Debug)]
-pub(super) struct AdoptSpec {
+pub(crate) struct AdoptSpec {
     fd: RawFd,
     child_pid: u32,
     session_id: u32,
@@ -124,7 +124,7 @@ fn parse_fd(text: &str) -> Option<RawFd> {
 }
 
 /// The adopted PTY descriptor of the hidden host's arguments, if any.
-pub(super) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
+pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
     match args {
         [mode] if mode == "--bootstrap-stdio" => Ok(None),
         [mode, flag, fd] if mode == "--bootstrap-stdio" && flag == ADOPT_PTY_FD_FLAG => {
@@ -146,13 +146,13 @@ pub(super) fn adopt_pty_fd_from_process_args() -> Option<RawFd> {
 
 /// Both `Launch` (with its optional respawn seed, cx-6so.49 L2) and
 /// `LaunchAdopt` may carry a seed blob on top of the launch budget.
-pub(super) fn max_payload(_adopt_fd: Option<RawFd>) -> usize {
+pub(crate) fn max_payload(_adopt_fd: Option<RawFd>) -> usize {
     MAX_LAUNCH_ADOPT_PAYLOAD
 }
 
 /// Decode the private-pipe launch frame. An adopting host takes the
 /// incarnation it adopts in place of the one `Bootstrap` drew.
-pub(super) fn decode(
+pub(crate) fn decode(
     frame: &Frame,
     adopt_fd: Option<RawFd>,
     bootstrapped: &mut crate::terminal_host::BootstrappedHost,
@@ -180,7 +180,7 @@ pub(super) fn decode(
 /// Take the incarnation's PTY ownership lock, then start the runtime on a
 /// new child or on the adopted session. The lock is held for the process
 /// lifetime; failing to take it is a launch failure.
-pub(super) fn start(
+pub(crate) fn start(
     launch: &HostLaunch,
     adopt: Option<AdoptSpec>,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
