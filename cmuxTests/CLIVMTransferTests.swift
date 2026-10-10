@@ -1284,6 +1284,59 @@ extension CLINotifyProcessIntegrationRegressionTests {
 // MARK: - vm snapshot ls / rm
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMSimpleCommandsRejectTrailingArgumentsBeforeRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-arity")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(id: id, ok: false, error: [
+                "code": "unexpected",
+                "message": "Malformed command reached the socket",
+            ])
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-arity-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let malformedCommands: [[String]] = [
+            ["vm", "ls", "unexpected"],
+            ["cloud", "list", "unexpected"],
+            ["vm", "status", "brave-otter", "unexpected"],
+            ["vm", "info", "brave-otter", "unexpected"],
+        ]
+        for arguments in malformedCommands {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 30
+            )
+            XCTAssertFalse(result.timedOut, "Timed out for \(arguments): \(result.stderr)")
+            XCTAssertNotEqual(result.status, 0, "Malformed command unexpectedly succeeded: \(arguments)")
+            XCTAssertTrue(result.stderr.contains("Usage: cmux vm"), "Missing usage for \(arguments): \(result.stderr)")
+        }
+
+        let requests = state.snapshot()
+        XCTAssertFalse(requests.contains { $0.contains(#""method":"vm.list""#) }, requests.description)
+        XCTAssertFalse(requests.contains { $0.contains(#""method":"vm.status""#) }, requests.description)
+    }
+
     func testVMSnapshotLsListsRowsNewestFirstAndRawJSON() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-snap-ls")
