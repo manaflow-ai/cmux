@@ -1644,6 +1644,11 @@ function AcpmuxPane() {
       toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
+        if (name === "find") findRef.current.show();
+        if (name === "findNext") findRef.current.next();
+        if (name === "findPrevious") findRef.current.previous();
+        if (name === "hideFind") findRef.current.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));

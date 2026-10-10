@@ -4,7 +4,8 @@
 // - the bar opens with the query and counts the transcript's matches;
 // - the matches draw as custom highlights, with the current one apart;
 // - Enter and Shift-Enter step through the matches, wrapping, and the current one scrolls into view;
-// - Escape closes the bar and clears the highlights.
+// - Escape closes the bar and clears the highlights;
+// - the app's Find, Find Next and Hide Find bridge commands do the same.
 //
 // Headless Chromium from Playwright; skipped where it is not installed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -135,6 +136,16 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect(closed.open).toBe(false);
       expect(closed.active).toEqual([]);
       expect(closed.others).toBe(0);
+
+      // The app's Find commands arrive as bridge commands: Find opens the bar again with the last
+      // query, Find Next steps, Hide Find closes.
+      await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("find"));
+      await page.waitForSelector(".acpmux-find__field");
+      await page.fill(".acpmux-find__field", query);
+      await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("findNext"));
+      expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
+      await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("hideFind"));
+      expect((await state(page)).open).toBe(false);
       await page.close();
     });
   });
