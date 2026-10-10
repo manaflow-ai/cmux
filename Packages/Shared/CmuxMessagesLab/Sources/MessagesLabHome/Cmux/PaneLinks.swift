@@ -32,7 +32,7 @@ extension ChatController {
         switch linkTarget(hit, at: p) {
         case let .text(url)?:
             // An app link (a Chief subagent) goes to the host, never to the system.
-            if let url, HomeAppLinks.isSubagentLink(url) { onAppLink?(url) } else if let url { NSWorkspace.shared.open(url) }
+            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { NSWorkspace.shared.open(url) }
         case let .card(raw, url)?:
             if let url { intents?.linkTapped(hit.row.ref, url: raw); NSWorkspace.shared.open(url) }
         case nil:
