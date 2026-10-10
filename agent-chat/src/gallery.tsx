@@ -2,12 +2,14 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
 import { StatusRow } from "./components/StatusRow";
-import { ActivityIndicatorBlock, Blocks, ToolBlock, TurnActions, type ToolBlockVariant } from "./components/Transcript";
+import { ActivityIndicatorBlock, AgentMessageRow, Blocks, ToolBlock, TurnActions, type ToolBlockVariant } from "./components/Transcript";
 import { BarsIcon, PinwheelSpinner, ProviderIcon } from "./components/icons";
 import { HintTooltip } from "./components/Tooltips";
 import { useOverlayScrollbars } from "./hooks/useOverlayScrollbars";
 import type { OptionValue, SessionOption } from "./session";
 import {
+  agentMessageBlocks,
+  queuedAgentMessages,
   activityScenarios,
   galleryActions,
   galleryCommands,
@@ -18,8 +20,10 @@ import {
   turnSummaryBlocks,
 } from "./gallery-fixtures";
 import { groupTurns } from "./turns";
+import { agentChatText } from "./i18n";
+import { RepositorySlugContext } from "./context";
 
-const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
+const cwd = "/Users/dev/project/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
 
@@ -340,6 +344,22 @@ export function GalleryApp() {
           </div>
         </Section>
 
+        <Section id="agent-messages" title="cmux agent messages">
+          <div className="gallery-grid two">
+            <div className="gallery-transcript small">
+              <div className="gallery-label">Delivered, in the turn they arrived in</div>
+              <Blocks blocks={agentMessageBlocks} status="idle" actions={galleryActions} onFork={() => {}} forkPending={false} />
+            </div>
+            <div className="gallery-transcript small">
+              <div className="gallery-label">Queued, above the composer</div>
+              <div className="agent-messages-queued" role="status">
+                <div className="agent-messages-queued-label">{agentChatText("agentMessageQueued")}</div>
+                {queuedAgentMessages.map((message) => <AgentMessageRow key={message.id} message={message} />)}
+              </div>
+            </div>
+          </div>
+        </Section>
+
         <Section id="transcript" title={`Transcript (${longConversationBlocks.length} blocks)`}>
           <div className="gallery-transcript">
             <Blocks
@@ -365,7 +385,9 @@ export function GalleryApp() {
             {activityScenarios.map((scenario) => (
               <div key={scenario.id} className="gallery-transcript small">
                 <div className="gallery-label">{scenario.label}</div>
-                <Blocks blocks={scenario.blocks} status={scenario.status} actions={galleryActions} onFork={() => {}} forkPending={false} thinkingDefaultOpen />
+                <RepositorySlugContext.Provider value={scenario.repositorySlug ?? null}>
+                  <Blocks blocks={scenario.blocks} status={scenario.status} actions={galleryActions} onFork={() => {}} forkPending={false} thinkingDefaultOpen />
+                </RepositorySlugContext.Provider>
               </div>
             ))}
             <div className="gallery-transcript small">

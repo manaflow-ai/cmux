@@ -8,9 +8,19 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var color: GroupColor
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
-    /// Chrome saved tab group, and clicking it while empty reopens it.
+    /// saved tab group, and clicking it while empty reopens it.
     public var isPinned: Bool
+    /// The group's icon (`workspace-group-icon-v1`), drawn in its label
+    /// before the name; nil draws the name alone.
+    public var icon: WorkspaceIcon?
     public var workspaces: [SidebarWorkspace]
+
+    /// `name`, or the localized default for a group made without one (an
+    /// onto-drop, "group selected"): the home daemon refuses an empty name.
+    public static func named(_ name: String) -> String {
+        guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return name }
+        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .module)
+    }
 
     public init(
         id: GroupID,
@@ -18,9 +28,11 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         color: GroupColor = .grey,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
+        icon: WorkspaceIcon? = nil,
         workspaces: [SidebarWorkspace]
     ) {
         self.isPinned = isPinned
+        self.icon = icon
         self.id = id
         self.name = name
         self.color = color
@@ -40,12 +52,8 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     }
 
     /// Strongest activity among children, shown on a collapsed group header.
-    public var aggregateActivity: AgentActivity {
-        let all = workspaces.map(\.activity)
-        if all.contains(.error) { return .error }
-        if all.contains(.needsInput) { return .needsInput }
-        if all.contains(.running) { return .running }
-        return .idle
+    public var aggregateActivity: StatusIndicatorState {
+        StatusStack.resolve(workspaces.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }
 }
 

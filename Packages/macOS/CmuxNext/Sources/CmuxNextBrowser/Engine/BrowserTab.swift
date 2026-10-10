@@ -7,6 +7,7 @@ public import Observation
 ///
 /// Conforming types are `@Observable`, so `state`, `favicon`, and
 /// `pendingPrompts` can be tracked with Observation.
+@MainActor
 public protocol BrowserTab: AnyObject, Observable, Sendable {
     var id: BrowserTabID { get }
     var engineKind: BrowserEngineKind { get }
@@ -42,6 +43,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Page pixels for hover previews and occlusion placeholders.
     func snapshot() async throws -> CGImage
 
+    /// Page pixels for a tab thumbnail (hover card, drag image), taken each
+    /// time a page leaves the screen. May trade fidelity for a cheaper
+    /// capture than `snapshot()`; the default is `snapshot()`.
+    func thumbnail() async throws -> CGImage
+
     /// Evaluates a script and returns its completion value.
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
 
@@ -56,11 +62,32 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     func showDevTools()
 
+    /// An agent is driving this tab (browser automation): saved passwords
+    /// stop filling in it for the rest of its life, so a page script cannot
+    /// read one after an automated click. Agents sign in only through the
+    /// secure sign-in sheet (plans/cmux-next/browser.md, "Secure sign-in").
+    func markAgentDriven()
+
+    /// Whether `markAgentDriven` has run on this page.
+    var isAgentDriven: Bool { get }
+
+    /// The tab's profile allows Chromium's password filling: false while an
+    /// extension is the profile's password manager or the person turned
+    /// autofill off (`PasswordFillPolicy`, plans/cmux-next/passwords.md).
+    func setPasswordFillAllowedByProfile(_ allowed: Bool)
+
     /// Tears the page down. Pending prompts are dismissed. Idempotent.
     func close()
 }
 
 extension BrowserTab {
+    public func thumbnail() async throws -> CGImage { try await snapshot() }
+
+    /// Engines without Chromium password autofill have nothing to withhold.
+    public func markAgentDriven() {}
+    public var isAgentDriven: Bool { false }
+    public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
+
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }
     public func zoomOut() { setZoom(BrowserZoom.zoomOut(from: state.zoom)) }
     public func resetZoom() { setZoom(1) }

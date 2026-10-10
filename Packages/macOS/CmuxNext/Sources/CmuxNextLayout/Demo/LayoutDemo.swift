@@ -8,6 +8,7 @@ import CmuxNextDesign
 /// Cmd-W close pane, Cmd-1...9 screens,
 /// Cmd-I toggle inactive dimming, Cmd-E toggle centered focus.
 /// Drag the "Tab" chip onto panes or column gaps.
+@MainActor
 public final class LayoutDemoController: NSObject {
     public let source: MockLayoutSource
     public let provider = MockPaneContentProvider()
@@ -85,7 +86,7 @@ public final class LayoutDemoController: NSObject {
                 let modes = CenterFocusedColumn.allCases
                 model.centerFocusedColumnOverride = modes[((modes.firstIndex(of: model.centerFocusedColumn) ?? 0) + 1) % modes.count]
             case let digit? where Int(digit).map({ (1...9).contains($0) }) == true:
-                let index = Int(digit)! - 1
+                let index = (Int(digit) ?? 0) - 1
                 if model.screens.indices.contains(index) { model.selectScreen(model.screens[index].id) }
             default: return false
             }
@@ -128,7 +129,8 @@ private final class DemoTabChip: NSView, NSDraggingSource {
         let dragItem = NSDraggingItem(pasteboardWriter: item)
         let image = NSImage(size: bounds.size, flipped: false) { [weak self] rect in
             guard let self else { return false }
-            self.layer?.render(in: NSGraphicsContext.current!.cgContext)
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            self.layer?.render(in: context)
             return true
         }
         dragItem.setDraggingFrame(bounds, contents: image)

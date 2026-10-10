@@ -7,7 +7,7 @@ import Testing
 @Suite struct CmxPairingQRBitmapTests {
     private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
     private let twoRoutePayload =
-        "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
+        "cmux-ios://attach?v=2&r=my-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
     private let irohPayload =
         "cmux-ios-dev://attach?v=3&i=\(String(repeating: "c", count: 64))"
 

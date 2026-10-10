@@ -662,6 +662,7 @@ class QueueBudget(unittest.TestCase):
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
         step = doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        self.assertEqual(step["env"]["SIDE_RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertNotIn("macos-pool-queued", (ROOT / ".github/workflows/ci.yml").read_text())
 
 
@@ -1071,6 +1072,16 @@ class SideLanes(unittest.TestCase):
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
+    def test_a_marked_cmux_next_run_is_adopted_as_a_side_lane(self):
+        # cmux-next.yml lives on feat-cmux-next only and uploads the watch marker itself.
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", head_branch="feat-cmux-next-x",
+                              status="queued")["workflow_run"])
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        self.assertTrue(target.side)
+        self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
+        fork = dict(run, head_repository={"full_name": "someone/cmux"})
+        self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
+
     def test_trusted_non_pull_request_side_runs_are_watched_without_a_head(self):
         # A push, schedule or dispatch runs this repository's own branch: owned-eligible, and no
         # pull request head can move under it.
@@ -1117,14 +1128,177 @@ class SideLanes(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-        # Attempt 2 takes the lane's Blacksmith default, so the watch ends.
+        # Other side lanes retain their existing Blacksmith fallback.
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
+
+    def test_a_stuck_push_run_superseded_by_a_newer_push_is_not_cancelled(self):
+        # 2026-10-07 00:20Z to 01:05Z: with a push about once a minute, this rescue
+        # cancelled every cmux-next push run on feat-cmux-next while a newer push run
+        # existed (run 37552678540: "cancelled but not re-run: a newer push run ...
+        # covers the branch instead"), running jobs included, so no tip swift test
+        # completed. cmux-next.yml queues each push Mac job in a group per branch
+        # (one runs, one waits), so a newer push never makes this one cancel it.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        self.assertEqual(target.push_branch, "feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, side_run(), newer=[RUN_ID + 7])
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn(f"a newer push run on feat-cmux-next ({RUN_ID + 7})", summary)
+        self.assertIn("never cancelled", summary)
+
+    def test_a_refused_cmux_next_push_job_in_a_superseded_run_is_not_cancelled(self):
+        # A mini refused a job, the run still goes at the watch's end, and a newer push
+        # run exists: the running jobs finish, and the newer run covers the branch.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        running = job("cmux-next Release compile (Xcode 26)", status="in_progress", labels=[SIDE],
+                      runner="mini-2-glaeda-2")
+        api = SupersedingAPI(clock, lambda seconds: [refused_job("cmux-next swift test", labels=(SIDE,)), running],
+                             newer=[RUN_ID + 3])
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_a_refused_cmux_next_push_job_is_still_rerun(self):
+        # The refusal re-run stays: with no newer push run, the finished run's
+        # failed jobs are re-run, and nothing is cancelled.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, lambda seconds: [refused_job("cmux-next swift test", labels=(SIDE,))],
+                             finished=lambda seconds: True)
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertIn("re-ran the failed jobs", summary)
+
+    def test_a_stuck_push_run_with_no_newer_push_is_rescued(self):
+        # The branch head is no test: a head commit outside the workflow's paths has
+        # no run, and the newest covering push run must still finish.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, side_run(), head="0" * 40)
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("branch:feat-cmux-next", api.calls)
+
+    def test_schedule_and_dispatch_side_runs_are_never_superseded(self):
+        for kind in ("schedule", "workflow_dispatch"):
+            target = rescue.target_from_event(side_event(event=kind, pull_requests=[], head_branch="main"),
+                                              "manaflow-ai/cmux")
+            self.assertEqual(target.push_branch, "", kind)
+            clock = Clock()
+            api = SupersedingAPI(clock, lambda s: [], newer=[RUN_ID + 1])
+            self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "", kind)
+            self.assertNotIn("newer:main", api.calls, kind)
+
+    def test_newer_push_runs_skips_cancelled_and_older_runs(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        seen = []
+        runs = [{"id": RUN_ID + 3, "status": "queued", "event": "push"},
+                {"id": RUN_ID + 2, "status": "completed", "conclusion": "success", "event": "push"},
+                {"id": RUN_ID + 1, "status": "completed", "conclusion": "cancelled", "event": "push"},
+                {"id": RUN_ID + 4, "status": "queued", "event": "workflow_dispatch"},
+                {"id": RUN_ID, "status": "in_progress", "event": "push"},
+                {"id": RUN_ID - 1, "status": "queued", "event": "push"}]
+        api.request = lambda method, path, **_: seen.append((method, path)) or {"workflow_runs": runs}
+        self.assertEqual(api.newer_push_runs(".github/workflows/cmux-next.yml", RUN_ID, "feat-cmux-next"),
+                         [RUN_ID + 2, RUN_ID + 3])
+        self.assertEqual(seen, [("GET", "/actions/workflows/cmux-next.yml/runs"
+                                        "?branch=feat-cmux-next&event=push&per_page=20")])
+
+    def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
+        # cmux-next's explicit rescue window is the overflow boundary. A queued
+        # side job moves with the bot rerun even when another side job is still
+        # running; attempt 2 remains minis-first and attempt 3 is Blacksmith.
+        def cmux_next(done_at):
+            def jobs(seconds):
+                test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
+                test["started_at"] = stamp(5)
+                if done_at is not None and seconds >= done_at:
+                    test.update(status="completed", conclusion="success")
+                return [test, job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+            return jobs
+
+        payload = side_event(path=".github/workflows/cmux-next.yml")
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=payload,
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("overflowing the queued side jobs", summary)
+        self.assertIn("attempt 2 stays on the side lane's owned label", summary)
+
+        # A non-cmux-next side lane keeps the historical sibling protection.
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("watch limit reached", summary)
+
+    def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
+        running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
+        running["started_at"] = stamp(5)
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([running, stuck], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("running on a persistent runner", look.reason)
+        look = rescue.assess([running, stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "refused")
+        closing = late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1)
+        look = rescue.assess([running, stuck, setup_job()], now=late, budget_seconds=90, deadline=closing)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
 
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
-        self.assertIn("Blacksmith default", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
+        target = rescue.target_from_event(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH), "manaflow-ai/cmux")
+        self.assertIn("stays on the side lane's owned label", rescue.next_attempt(target))
+        self.assertIn("Blacksmith overflow", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
+
+    def test_a_cmux_next_job_queued_past_the_ci_budget_is_not_cancelled(self):
+        # 2026-10-06: main judged cmux-next on the 30 s CI budget and cancelled
+        # 13 of 20 PR runs whose Mac jobs were queued minutes on the minis.
+        clock = Clock()
+        api = FakeAPI(clock, side_run(started_at=180))
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30"},
+                                 payload=side_event(path=".github/workflows/cmux-next.yml"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("the fleet accepted the side-lane jobs", summary)
+
+    def test_side_lane_budget_is_ten_minutes_not_the_ninety_second_default(self):
+        self.assertEqual(rescue.SIDE_DEFAULT_BUDGET_SECONDS, 600)
+
+    def test_side_lane_bot_attempt_two_is_watched_but_attempt_three_overflows(self):
+        path = ".github/workflows/cmux-next.yml"
+        self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 2,
+                                            "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
+        self.assertFalse(rescue.owned_rerun({"path": path, "run_attempt": 3,
+                                             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
+        self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 3,
+                                           "triggering_actor": {"login": "teamleaderleo"}}))
 
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
@@ -1135,8 +1309,8 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=side_event())
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
-        # Attempt 2 is on the lane's Blacksmith default: not watched.
-        self.assertNotIn("jobs:2", api.calls)
+        # Other side lanes still overflow on attempt 2.
+        self.assertNotIn("attempt 2 stays on the side lane's owned label", summary)
 
 
 TRUSTED = "glaeda-trusted-std-xcode-26.6"
@@ -1164,6 +1338,16 @@ def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
         return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
                                  status="in_progress", runner="bs")]
     return jobs
+
+
+class SupersedingAPI(FakeAPI):
+    def __init__(self, *args, newer=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.newer = list(newer)
+
+    def newer_push_runs(self, path, run_id, branch):
+        self.calls.append(f"newer:{branch}")
+        return self.newer
 
 
 class NightlyAPI(FakeAPI):
@@ -1250,6 +1434,21 @@ class Nightly(unittest.TestCase):
         failing = set()
         api.marked_runs("owned-pool-watch", 2, oldest, 2, log=logs.append)
         self.assertIn("without reaching", logs[-1])
+
+    def test_owned_reruns_lists_cmux_next_attempt_two(self):
+        """A sweep that adopted cmux-next attempt 1 by its marker returns after starting the re-run, and the run
+        is already in `seen`, so attempt 2 is found only through this listing."""
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        workflows = {"ci.yml": [], "cmux-next.yml": [
+            {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
+             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
+
+        def request(method, path, **_):
+            name = path.split("/actions/workflows/")[1].split("/")[0]
+            return {"workflow_runs": workflows[name] if "status=queued" in path else []}
+
+        api.request = request
+        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2)])
 
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
@@ -1559,15 +1758,16 @@ def listed(run_id, **overrides):
 
 
 class Sweeper(unittest.TestCase):
-    def sweep(self, api, *, follow=None, ticks=3):
+    def sweep(self, api, *, follow=None, ticks=3, light_retry=False):
         clock, watched = Clock(), []
 
         def fake_follow(client, target, **kwargs):
-            watched.append((target.run_id, target.attempt, target.late))
+            watched.append((target.run_id, target.attempt, target.full_rerun) if light_retry
+                           else (target.run_id, target.attempt, target.late))
             return follow(kwargs["sleep"]) if follow else "stopped: the run finished"
 
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0",
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=light_retry,
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
@@ -1751,19 +1951,25 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_when_dispatched_or_for_a_screenshots_or_side_lane_run(self):
+    def test_runs_when_dispatched_or_for_a_screenshots_or_nightly_run(self):
         triggers = self.doc[True]
         self.assertEqual(sorted(triggers), ["schedule", "workflow_dispatch", "workflow_run"])
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], False)
         # release.yml calls ios-screenshots.yml with contents: read only, so
-        # it cannot upload through a job asking for more; the side lanes have
-        # no picker and are all on the fleet. Both keep the event trigger.
+        # it cannot upload through a job asking for more. Side lanes are swept
+        # periodically and must not create one rescue run per workflow_run.
         self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
-        self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
+        self.assertEqual(
+            triggers["workflow_run"]["workflows"],
+            ["iOS App Store screenshots", "Nightly macOS build"],
+        )
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
-        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS,
-                                      rescue.NIGHTLY_WORKFLOW_PATH})
+        self.assertEqual(
+            set(paths),
+            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH},
+        )
+        self.assertTrue(set(paths).isdisjoint(rescue.SIDE_WORKFLOW_PATHS))
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
         names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
         self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)
@@ -1806,8 +2012,13 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
-    def test_polls_from_a_github_hosted_runner(self):
-        self.assertEqual(self.doc["jobs"]["rescue"]["runs-on"], "ubuntu-24.04")
+    def test_polls_from_an_ephemeral_runner(self):
+        # Never from an owned pool it may rescue, and never only from
+        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+        self.assertEqual(
+            self.doc["jobs"]["rescue"]["runs-on"],
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+        )
 
     def test_marker_steps_never_fail_the_changes_job(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["changes"]["steps"]

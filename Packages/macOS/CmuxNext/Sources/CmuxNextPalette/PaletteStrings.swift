@@ -7,7 +7,7 @@ nonisolated enum PaletteStrings {
     static var sectionWorkspaces: String { String(localized: "palette.section.workspaces", defaultValue: "Workspaces", bundle: .module) }
     static var sectionTabs: String { String(localized: "palette.section.tabs", defaultValue: "Tabs", bundle: .module) }
     static var sectionOpenIn: String { String(localized: "palette.section.openIn", defaultValue: "Open In", bundle: .module) }
-    static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Settings", bundle: .module) }
+    static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Change Settings", bundle: .module) }
     static var sectionRecentDirectories: String { String(localized: "palette.section.recentDirectories", defaultValue: "Recent Directories", bundle: .module) }
     static var commandsTitle: String { String(localized: "palette.page.commands", defaultValue: "Commands", bundle: .module) }
     static var searchPlaceholder: String { String(localized: "palette.placeholder.commands", defaultValue: "Search for commands…", bundle: .module) }
@@ -19,12 +19,15 @@ nonisolated enum PaletteStrings {
     static var tabsPlaceholder: String { String(localized: "palette.placeholder.tabs", defaultValue: "Search tabs…", bundle: .module) }
     static var openInTitle: String { String(localized: "palette.page.openIn", defaultValue: "Open Current Directory", bundle: .module) }
     static var openInPlaceholder: String { String(localized: "palette.placeholder.openIn", defaultValue: "Search apps…", bundle: .module) }
-    static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Toggle Setting", bundle: .module) }
+    static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
+    static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }
+    static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .module) }
+    static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .module) }
     static var back: String { String(localized: "palette.back", defaultValue: "Back", bundle: .module) }
     static var unbound: String { String(localized: "palette.unbound", defaultValue: "Not bound", bundle: .module) }
     static var copyActionID: String { String(localized: "palette.command.copyActionID", defaultValue: "Copy Action ID", bundle: .module) }
@@ -37,6 +40,7 @@ nonisolated enum PaletteStrings {
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
+    static var customValue: String { String(localized: "palette.setting.customValue", defaultValue: "Custom Value…", bundle: .module) }
     static var turnOn: String { String(localized: "palette.command.turnOn", defaultValue: "Turn On", bundle: .module) }
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }
     static var workspaceKeyword: String { String(localized: "palette.keyword.workspace", defaultValue: "workspace", bundle: .module) }

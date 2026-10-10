@@ -7,7 +7,11 @@ extension AppServices {
     /// owns its explicit target (`ActionRouting`); otherwise the active
     /// window's machine (the local daemon, or its Cloud machine).
     var activeDaemon: DaemonService {
-        routedDaemon ?? windows?.active.flatMap { machines.daemon(machine: $0.state.machineID) } ?? daemon
+        if let routedDaemon { return routedDaemon }
+        guard let machine = windows.active?.state.machineID else { return daemon }
+        // A window of a machine turned off by policy (DisabledFeatures) keeps
+        // its blocked daemon: commands fail there, never land on this Mac.
+        return machines.daemon(machine: machine) ?? machines.anyDaemon(machine: machine) ?? daemon
     }
 
     /// Publishes `signedIn` / `signedOut` / `cloudWorkspace` to the action
@@ -21,7 +25,7 @@ extension AppServices {
         let signedIn = cloud.isSignedIn
         context.remove([.signedIn, .signedOut, .cloudWorkspace])
         context.insert(signedIn ? .signedIn : .signedOut)
-        if signedIn, let machine = windows?.active?.state.machineID, machines.session(machine) != nil {
+        if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
             context.insert(.cloudWorkspace)
         }
         if registry.context != context { registry.context = context }
@@ -29,8 +33,9 @@ extension AppServices {
 
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
+        cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
-        let cloud = cloud!, machines = machines
+        let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?
             for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {

@@ -1,0 +1,108 @@
+{
+ "rust": {
+  "exit": {
+   "acpmux": 5,
+   "chatmux-relay": 12,
+   "cmux-app-host": 2,
+   "cmux-browser-host": 2,
+   "cmux-rd-host": 3,
+   "cmux-tui": 1
+  },
+  "expect": {
+   "acpmux": 10,
+   "chatmux-relay": 83,
+   "cmux-app-host": 2,
+   "cmux-browser-host": 1,
+   "cmux-remote": 60,
+   "cmux-terminal-client": 1,
+   "cmux-tui": 87,
+   "cmux-tui-core": 284,
+   "cmux-tui-platform": 1,
+   "cmux-tui-remote-access": 1,
+   "cmux-tui-util": 1,
+   "cmux-wg": 15
+  },
+  "panic_macro": {
+   "acpmux": 2,
+   "chatmux-relay": 1,
+   "cmux-remote": 13,
+   "cmux-tui": 33,
+   "cmux-tui-core": 36
+  },
+  "unwrap": {
+   "acpmux": 182,
+   "chatmux-relay": 7,
+   "cmux-remote": 30,
+   "cmux-terminal-client": 30,
+   "cmux-tui": 435,
+   "cmux-tui-core": 1587,
+   "cmux-tui-image-paste": 22,
+   "cmux-tui-platform": 17,
+   "cmux-tui-remote-access": 5,
+   "cmux-tui-util": 12
+  }
+ },
+ "swift": {
+  "async_closure_default_arg": {
+   "CMUXMobileCore": 3,
+   "CmuxAuthRuntime": 7,
+   "CmuxInstallAuthCore": 1,
+   "CmuxIrohTransport": 4,
+   "CmuxNextApp": 5,
+   "CmuxNextBrowserHost": 1,
+   "CmuxNextDaemon": 1,
+   "CmuxNextPalette": 1
+  },
+  "dynamic_dispatch": {
+   "CmuxNextAgentActivity": 2,
+   "CmuxNextAgentCursor": 1,
+   "CmuxNextAgentPane": 2,
+   "CmuxNextApp": 8,
+   "CmuxNextBrowser": 12,
+   "CmuxNextBrowserAutomation": 19,
+   "CmuxNextDesign": 14,
+   "CmuxNextPages": 4,
+   "CmuxNextSidebar": 3,
+   "MessagesLabHome": 20
+  },
+  "render_font": {
+   "CmuxHomeRender": 4,
+   "MessagesLabHome": 25,
+   "MessagesLabSidebar": 4
+  },
+  "unchecked": {
+   "CMUXAuthCore": 3,
+   "CMUXMobileCore": 7,
+   "CmuxAuthRuntime": 1,
+   "CmuxHomeCore": 1,
+   "CmuxHomeRender": 5,
+   "CmuxIrohTransport": 7,
+   "CmuxIrxTransport": 14,
+   "CmuxMobileRPC": 3,
+   "CmuxMobileSSH": 7,
+   "CmuxMobileShellModel": 7,
+   "CmuxMobileSupport": 4,
+   "CmuxMobileTunnel": 4,
+   "CmuxNextAgentActivity": 1,
+   "CmuxNextAgentPane": 2,
+   "CmuxNextApp": 5,
+   "CmuxNextApps": 1,
+   "CmuxNextBridge": 1,
+   "CmuxNextBrowser": 5,
+   "CmuxNextBrowserAutomation": 1,
+   "CmuxNextBrowserImport": 1,
+   "CmuxNextControl": 3,
+   "CmuxNextDaemon": 4,
+   "CmuxNextDesign": 1,
+   "CmuxNextDictation": 6,
+   "CmuxNextRemoteView": 5,
+   "CmuxNextServerHelper": 6,
+   "CmuxNextSettings": 1,
+   "CmuxNextTabs": 5,
+   "CmuxNextTerminal": 7,
+   "CmuxUpdater": 1,
+   "MessagesLabHome": 14,
+   "MessagesLabSidebar": 2
+  }
+ }
+}

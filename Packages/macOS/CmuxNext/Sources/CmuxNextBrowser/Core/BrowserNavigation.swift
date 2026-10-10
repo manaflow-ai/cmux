@@ -37,6 +37,15 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
         )
     }
 
+    /// A TLS certificate the system does not trust (the interstitial with
+    /// Go Back and Proceed).
+    public var isCertificateError: Bool {
+        domain == NSURLErrorDomain && [
+            NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate,
+            NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+        ].contains(code)
+    }
+
     /// True for failures that are not user-visible errors: a cancelled load
     /// (Stop, or a new navigation replacing this one) or WebKit's
     /// "frame load interrupted" when a response becomes a download.

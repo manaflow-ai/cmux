@@ -1,0 +1,105 @@
+/* Reasoning menu: one checked row per level the model offers. The track below is the model
+   menu's inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+.acpmux-effort-menu {
+  width: max-content;
+  min-width: 140px;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--acpmux-menu-bg);
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-effort-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: var(--text-control);
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-effort-item .ui-menu-check { order: 2; color: var(--agent-text); }
+.acpmux-effort-track {
+  --acpmux-effort-inset: 13px;
+  position: relative;
+  height: 23.5px;
+  margin-top: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-effort-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text) 45%, transparent);
+  transition: width 160ms ease;
+}
+.acpmux-effort-stop {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-stop));
+  width: 15px;
+  height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+.acpmux-effort-stop::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 35%, transparent);
+}
+.acpmux-effort-thumb {
+  position: absolute;
+  top: -2.5px;
+  left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border-radius: 50%;
+  background: var(--agent-text);
+  box-shadow: 0 1px 3px var(--agent-shadow);
+  pointer-events: none;
+  transition: left 160ms ease;
+}
+.acpmux-effort-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: default;
+}
+.acpmux-effort-range:focus-visible + .acpmux-effort-thumb,
+.acpmux-effort-track:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-effort-fill,
+  .acpmux-effort-thumb {
+    transition: none;
+  }
+}
+/* The approval menu's question above the modes (permissions-menu.png). */
+.acpmux-menu-heading {
+  padding: 6px 10px 4px;
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--agent-muted);
+  white-space: normal;
+}

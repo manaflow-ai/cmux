@@ -1,0 +1,58 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
+@@ -240,7 +240,13 @@
+     }()
+     /// Timestamps keep the conversation's offset (-07:00) so rendering is
+     /// independent of the machine's zone.
+-    static let zone = TimeZone(secondsFromGMT: -7 * 3600)!
++    /// cmux: a live Home transcript shows the user's zone and locale; it
++    /// sets `liveZone` / `liveLocale` before the first date is formatted.
++    /// Unset (fixtures, the differential harness), the conversation's -07:00.
++    static var liveZone: TimeZone?
++    static var liveLocale: Locale?
++    static let zone = liveZone ?? TimeZone(secondsFromGMT: -7 * 3600) ?? .gmt // cmux: no force unwrap
++    static let locale = liveLocale ?? Locale(identifier: "en_US")
+     private static let writer: ISO8601DateFormatter = {
+         let f = ISO8601DateFormatter()
+         f.formatOptions = [.withInternetDateTime]
+@@ -268,7 +274,7 @@
+         guard b.count == 20 || b.count == 25 else { return nil }
+         func num(_ i: Int, _ n: Int) -> Int? {
+             var v = 0
+-            for k in i..<(i + n) { let c = b[k]; guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
++            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // cmux: no index math
+             return v
+         }
+         guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
+@@ -324,7 +330,9 @@
+ enum Fixtures {
+     /// conversation.json and assets/ from shared/ are bundled (not copied
+     /// into this variant's sources).
+-    static var sharedDirectory: URL { Bundle.main.resourceURL! }
++    /// cmux: fixtures are not in the app bundle; the harness sets `root`.
++    static var root: URL?
++    static var sharedDirectory: URL { root ?? Bundle.main.resourceURL ?? Bundle.main.bundleURL } // cmux: no force unwrap
+     /// The repo's shared/ directory, for the large generated stores that are
+     /// not bundled.
+     static var repoShared: URL {
+@@ -333,12 +341,17 @@
+     }
+     static func loadConversation() -> Conversation {
+         let url = sharedDirectory.appendingPathComponent("conversation.json")
+-        let data = try! Data(contentsOf: url)
+-        return try! JSONDecoder().decode(Conversation.self, from: data)
++        // cmux: no try! (crash program); a missing or unreadable fixture is an empty conversation.
++        guard let data = try? Data(contentsOf: url),
++              let conversation = try? JSONDecoder().decode(Conversation.self, from: data) else {
++            return Conversation(id: "", title: "", participants: [], messages: [])
++        }
++        return conversation
+     }
+     /// Resolve an AssetRef: a path relative to shared/assets or a file URL.
+     static func assetURL(_ ref: String) -> URL {
+-        if ref.hasPrefix("file:") { return URL(string: ref)! }
++        // cmux: no force unwrap; a file: ref that does not parse resolves like any other ref.
++        if ref.hasPrefix("file:"), let url = URL(string: ref) { return url }
+         // Catalyst fixture assets (Fixtures/real, bundled as `real/`).
+         if ref.hasPrefix("real/") { return sharedDirectory.appendingPathComponent(ref) }
+         return sharedDirectory.appendingPathComponent("assets").appendingPathComponent(ref)

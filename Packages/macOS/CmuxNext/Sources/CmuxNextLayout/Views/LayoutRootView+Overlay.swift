@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
 /// frames, and the rects of overlays that take the mouse are reported.
@@ -19,11 +20,14 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
+            let covers = screen.coverRects.map { convert($0, from: screen) }
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
+                // A strip pane's ring never draws over a docked column.
+                chrome.setExcluded(screen.isStripHost(host) ? covers.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) } : [])
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
@@ -35,6 +39,7 @@ extension LayoutRootView {
             view.removeFromSuperview()
         }
         reportInteractiveRects()
+        notifyOverlaySync()
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
@@ -66,7 +71,7 @@ extension LayoutRootView {
     /// click-catching panel above a page.
     public func setDividerHovered(_ id: String, _ hovered: Bool) {
         guard let active = model.activeScreenID else { return }
-        screenViews[active]?.setDividerHovered(id, hovered)
+        screenViews[active]?.refreshDividerHover()
     }
 
     private func reportInteractiveRects() {
@@ -79,18 +84,31 @@ extension LayoutRootView {
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 
-    /// Displayed pane rings, for `debug.layers`: pane id, frame in window
-    /// coordinates, and whether the ring shows.
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool)] {
+    /// Displayed pane rings, for `debug.layers`: pane id, the pane's frame
+    /// in window coordinates, whether the ring shows, the rect the ring
+    /// strokes and the pane's rounded content rect it must equal (both in
+    /// window coordinates; the plane has the root's coordinates wherever it
+    /// lives, so the ring rect is read from the overlay itself).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
-            (host.pane.rawValue, host.convert(host.bounds, to: nil), host.chrome.showsRing && !host.chrome.isHidden)
+            let chrome = host.chrome
+            let ring = chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY)
+            return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
+                    convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
         }
     }
 
-    /// The drop highlight's frame in window coordinates while it shows.
+    /// The drop highlight's material (`debug.layers`), and a pin for it
+    /// (`debug.drop_highlight`; nil follows this Mac).
+    public var dropHighlightMaterial: OverlayMaterial { highlight.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.pinMaterial(material) }
+    /// The drop overlay style drawing now (`drop.overlay.style`).
+    public var dropHighlightStyle: DropOverlayStyle { highlight.style }
+
+    /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
         guard highlight.isShowing, window != nil else { return nil }
-        return convert(highlight.frame, to: nil)
+        return highlight.convert(highlight.targetRect, to: nil)
     }
 }

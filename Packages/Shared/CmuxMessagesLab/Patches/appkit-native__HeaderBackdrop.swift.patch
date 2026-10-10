@@ -1,0 +1,58 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
+@@ -39,7 +39,7 @@
+         static func fromArguments() -> Params {
+             var p = Params()
+             let args = ProcessInfo.processInfo.arguments
+-            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]).map { CGFloat($0) } : nil } }
++            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { args.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } /* cmux: no index math */ }
+             if let x = v("--hb-height") { p.height = x }
+             if let x = v("--hb-r1") { p.r1 = x }
+             if let x = v("--hb-r2") { p.r2 = x }
+@@ -52,11 +52,17 @@
+     }
+ 
+     let params = Params.fromArguments()
+-    private let root = CALayer()
++    /// cmux: internal, for the top fade (HeaderFade.swift).
++    let root = CALayer()
+     private var a: CALayer?, b: CALayer?
+     private let tint = CALayer()
+     private let fadeMask = CAGradientLayer()
+     private(set) var available = false
++    /// cmux: the light top fade that replaces the blur (HeaderFade.swift);
++    /// nil keeps MessagesLab's always-on blurred header.
++    var topFade: CAGradientLayer?
++    /// cmux: the length of the last show or hide of the top fade.
++    var lastFadeDuration: TimeInterval = 0
+ 
+     override init(frame: NSRect) {
+         super.init(frame: frame)
+@@ -87,7 +93,7 @@
+     override func layout() {
+         super.layout()
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+-        for l in [a, b, tint].compactMap({ $0 }) { l.frame = bounds }
++        for l in [a, b, tint, topFade].compactMap({ $0 }) { l.frame = bounds }
+         fadeMask.frame = bounds
+         let h = max(1, bounds.height)
+         let solid = (params.height) / h
+@@ -95,6 +101,18 @@
+         CATransaction.commit()
+     }
+ 
++    /// cmux: the tint in the theme's background, so the header over empty
++    /// transcript is the background itself (Messages' grey `c` read as a
++    /// lighter band on a darker cmux pane); rows under it keep the fitted
++    /// gain (1 - a) and blur. A clear background (see-through window)
++    /// leaves the blur alone.
++    func setTint(_ color: NSColor) {
++        CATransaction.begin(); CATransaction.setDisableActions(true)
++        tint.backgroundColor = color.withAlphaComponent(1).cgColor
++        tint.opacity = Float(params.a * color.alphaComponent)
++        CATransaction.commit()
++    }
++
+     /// The view's height: the header plus its fade.
+     var totalHeight: CGFloat { params.height + params.fade }
+ 

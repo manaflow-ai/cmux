@@ -30,8 +30,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
+source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-1"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -55,16 +56,41 @@ if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then
   remove_invalid_embed
   exit 0
 fi
-if [[ " ${ARCHS:-arm64} " != *" arm64 "* ]]; then
-  echo "warning: CEF artifact is arm64 only; ARCHS=${ARCHS:-}, not embedding CEF"
-  remove_invalid_embed
-  exit 0
-fi
-
+# Which artifacts this build needs. A universal build (ARCHS has both) embeds
+# a lipo-merged framework (merge-cef-universal.sh) and a universal shim when
+# the manifest has an x86_64 artifact; without one it embeds the arm64 engine
+# and scripts/cmux-next/drop-cef-without-arch.sh removes it from the thin
+# x86_64 variant. An x86_64-only build uses the x86_64 artifact alone.
+want_arm=0; want_x86=0
+[[ " ${ARCHS:-arm64} " == *" arm64 "* ]] && want_arm=1
+[[ " ${ARCHS:-arm64} " == *" x86_64 "* ]] && want_x86=1
 ensure_args=(--optional)
 [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]] && ensure_args=()
-cef_dir="$("$SCRIPT_DIR/ensure-cef.sh" "${ensure_args[@]}")"
+arm_dir=""; x86_dir=""
+if (( want_arm )); then
+  # `${a[@]+...}`: bash 3.2 (Xcode's /bin/bash) treats an empty array as
+  # unset under `set -u`, so CMUX_NEXT_REQUIRE_CEF=1 failed here.
+  arm_dir="$("$SCRIPT_DIR/ensure-cef.sh" ${ensure_args[@]+"${ensure_args[@]}"})"
+fi
+if (( want_x86 )); then
+  # Optional even with CMUX_NEXT_REQUIRE_CEF while the x86_64 engine is new:
+  # a universal build then keeps the arm64 engine.
+  x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
+fi
+cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
+shim_archs=()
+if [[ -n "$arm_dir" && -n "$x86_dir" ]]; then
+  cef_dir="$("$SCRIPT_DIR/merge-cef-universal.sh" "$arm_dir" "$x86_dir" "$cache_root/universal" | tail -n 1)"
+  shim_archs=(arm64 x86_64)
+elif [[ -n "$arm_dir" ]]; then
+  cef_dir="$arm_dir"; shim_archs=(arm64)
+elif [[ -n "$x86_dir" ]]; then
+  cef_dir="$x86_dir"; shim_archs=(x86_64)
+else
+  cef_dir=""
+fi
 if [[ -z "$cef_dir" ]]; then
+  echo "warning: no CEF artifact for ARCHS=${ARCHS:-}; not embedding CEF"
   remove_invalid_embed
   exit 0
 fi
@@ -78,8 +104,27 @@ identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 # cache is content-addressed and its entries are immutable
 # (build-cef-shim.sh), so concurrent builds from several worktrees share it
 # without a lock.
-cache_root="${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}"
-shim_out="$("$SCRIPT_DIR/build-cef-shim.sh" "$cef_dir" "$cache_root/shim" | tail -n 1)"
+# Each arch's shim builds against that arch's own dist; a universal build
+# lipo-merges the two into a content-addressed directory.
+shim_for() { # <arch> <dist>
+  CMUX_CEF_ARCH="$1" "$SCRIPT_DIR/build-cef-shim.sh" "$2" "$cache_root/shim" | tail -n 1
+}
+if (( ${#shim_archs[@]} == 2 )); then
+  arm_shim="$(shim_for arm64 "$arm_dir")"
+  x86_shim="$(shim_for x86_64 "$x86_dir")"
+  universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
+  shim_out="$cache_root/shim/universal-${universal_key:0:16}"
+  if [[ ! -f "$shim_out/.build-key" ]]; then
+    shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
+    lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
+    lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
+    chmod +x "$shim_tmp/cmux-cef-helper"
+    printf '%s' "$universal_key" > "$shim_tmp/.build-key"
+    /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
+  fi
+else
+  shim_out="$(shim_for "${shim_archs[0]}" "$cef_dir")"
+fi
 
 # 2. Framework and shim.
 mkdir -p "$frameworks"
@@ -91,6 +136,27 @@ stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
 source_value="$cef_dir $LAYOUT"
+# Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
+# cmux's 21 app languages and their regional macOS variants, including
+# es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
+CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+keep_cef_locale() {
+  case $'\n'"$CEF_LOCALE_ALLOWLIST"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+prune_cef_locales() {
+  local resources="$1" locale_dir locale
+  for locale_dir in "$resources"/*.lproj; do
+    [[ -d "$locale_dir" ]] || continue
+    locale="$(basename "$locale_dir" .lproj)"
+    if ! keep_cef_locale "$locale"; then
+      rm -rf "$locale_dir"
+    fi
+  done
+}
+
 if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$(cat "$source_stamp")" != "$source_value" ]]; then
   fw="$frameworks/$FW_NAME"
   rm -rf "$fw"
@@ -98,6 +164,21 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   for item in "$FW_BINARY" Libraries Resources; do
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
+  prune_cef_locales "$fw/Versions/A/Resources"
+  # Chromium's CREDITS.html (license notices), before signing seals Resources:
+  # the artifact's own file, else the INTERIM stock credits for the pinned
+  # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
+  chromium_version="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["chromium"])' "$SCRIPT_DIR/cef-manifest.json")"
+  if ! "$SCRIPT_DIR/install-cef-credits.sh" "$cef_dir" "$fw/Versions/A/Resources" "$chromium_version"; then
+    if [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]]; then
+      echo "error: no Chromium CREDITS.html for this CEF; a release must ship it" >&2
+      exit 1
+    fi
+    echo "warning: no Chromium CREDITS.html for this CEF; this dev build ships without it"
+  fi
+  # CEF's own LICENSE.txt (BSD-3-Clause): the artifact's, else the pinned stock
+  # copy (cef-license/README.md). Release gate: bundle-map.json.
+  "$SCRIPT_DIR/install-cef-license.sh" "$cef_dir" "$fw/Versions/A/Resources"
   ln -s A "$fw/Versions/Current"
   for item in "$FW_BINARY" Libraries Resources; do
     ln -s "Versions/Current/$item" "$fw/$item"

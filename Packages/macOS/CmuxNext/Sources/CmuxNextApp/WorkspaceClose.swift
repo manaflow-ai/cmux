@@ -11,11 +11,18 @@ import CmuxNextDaemon
 enum WorkspaceClose {
     typealias Terminal = (id: TerminalID, incarnation: TerminalIncarnation?)
 
-    /// The PTY terminals to close before the workspace: only for a daemon
-    /// that neither batch-closes nor reaps detached terminals.
+    /// Told of every workspace a close path is about to close (the App
+    /// releases its remote-terminal tabs' terminals, data-model.md 1.2b).
+    @MainActor static var willClose: ((WorkspaceModel) -> Void)?
+
+    /// Every close path calls this right before closing `workspace`: it
+    /// tells `willClose`, and returns the PTY terminals to close before the
+    /// workspace, only for a daemon that neither batch-closes nor reaps
+    /// detached terminals.
     @MainActor
-    static func terminals(of workspace: WorkspaceModel, on daemon: DaemonService) -> [Terminal] {
-        guard !daemon.supports(DaemonCapabilities.batchClose), !daemon.supports(DaemonCapabilities.terminalReap) else {
+    static func closing(_ workspace: WorkspaceModel, on daemon: DaemonService) -> [Terminal] {
+        willClose?(workspace)
+        guard !daemon.supports(DaemonCapabilities.shared.batchClose), !daemon.supports(DaemonCapabilities.shared.terminalReap) else {
             return []
         }
         return workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in

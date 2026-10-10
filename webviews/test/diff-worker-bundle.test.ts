@@ -5,7 +5,7 @@ import { basename, dirname, resolve } from "node:path";
 // The highlight worker is built by the same Rollup graph as `main.mjs`, so it
 // shares the eager `shiki-core` chunk and the lazy `shiki-wasm` chunk with the
 // main thread instead of carrying a vendored copy of shiki. These tests read
-// the committed bundle under `Resources/markdown-viewer/webviews-app`.
+// the built bundle under `Resources/markdown-viewer/webviews-app` (scripts/cmux-next/build-web-bundles.sh).
 const bundleDirectory = resolve(import.meta.dir, "../../Resources/markdown-viewer/webviews-app");
 const chunksDirectory = resolve(bundleDirectory, "chunks");
 const workerEntry = resolve(chunksDirectory, "diff-worker.mjs");
@@ -39,7 +39,9 @@ test("the highlight worker is emitted as a Vite entry next to the other chunks",
   expect(existsSync(workerEntry)).toBe(true);
   const chunkNames = readdirSync(chunksDirectory).filter((name) => name.endsWith(".mjs"));
   const spawningChunks = chunkNames.filter((name) =>
-    readFileSync(resolve(chunksDirectory, name), "utf8").includes('new URL("./diff-worker.mjs",import.meta.url)'),
+    /new URL\((["'`])\.\/diff-worker\.mjs\1,import\.meta\.url\)/.test(
+      readFileSync(resolve(chunksDirectory, name), "utf8"),
+    ),
   );
   // Only the diff surface spawns workers, and it resolves the entry as a
   // sibling of its own chunk, so `import.meta.url` must live under `chunks/`.
@@ -56,7 +58,7 @@ test("the worker entry shares shiki with the main thread and stays lazy for gram
   // The worker must not evaluate the main-thread renderer or React.
   expect(closure).not.toContain("diff-vendor.mjs");
   expect(closure).not.toContain("vendor.mjs");
-  expect(readFileSync(workerEntry, "utf8")).toContain('import("./shiki-wasm.mjs")');
+  expect(readFileSync(workerEntry, "utf8")).toMatch(/import\((["'`])\.\/shiki-wasm\.mjs\1\)/);
 });
 
 test("no vendored worker copy remains in Resources", () => {

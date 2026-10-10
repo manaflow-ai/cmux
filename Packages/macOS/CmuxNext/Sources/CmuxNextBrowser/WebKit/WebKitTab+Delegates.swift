@@ -12,8 +12,7 @@ extension WebKitTab: WKNavigationDelegate {
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         if navigationAction.shouldPerformDownload {
-            decisionHandler(.download, preferences)
-            return
+            return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
         }
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow, preferences)
@@ -21,10 +20,16 @@ extension WebKitTab: WKNavigationDelegate {
         }
 
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
-        if isUserLinkClick, let disposition = Self.newTabDisposition(for: navigationAction), Self.isWebScheme(url) {
-            decisionHandler(.cancel, preferences)
-            emit(.openURL(url, disposition))
-            return
+        if isUserLinkClick, Self.isWebScheme(url) {
+            switch LinkClick(navigationAction, in: self) {
+            case .pageDefault, .navigate: break
+            case .open(let disposition):
+                decisionHandler(.cancel, preferences)
+                emit(.openURL(url, disposition))
+                return
+            case .download:
+                return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
+            }
         }
 
         if !Self.isWebScheme(url) {
@@ -36,8 +41,12 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
+        if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         applySiteSettings(to: preferences, for: navigationAction)
-        decisionHandler(.allow, preferences)
+        guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
+        navigationSourceSite = pageSite
+        engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
     }
 
     public func webView(
@@ -45,36 +54,38 @@ extension WebKitTab: WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
     ) {
+        mainFrameStatuses.record(navigationResponse)
         let isAttachment = (navigationResponse.response as? HTTPURLResponse)
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
         if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
-            decisionHandler(.download)
+            // The page that started the navigation counts the download.
+            admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {
             decisionHandler(.allow)
         }
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        register(download, source: navigationAction.request.url)
+        downloads.register(download, source: navigationAction.request.url)
     }
 
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        register(download, source: navigationResponse.response.url)
+        downloads.register(download, source: navigationResponse.response.url)
     }
 
-    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: true) else { return }
         apply(.started(id, url: webView.url))
     }
 
-    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.redirected(id, url: webView.url))
     }
 
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -85,7 +96,7 @@ extension WebKitTab: WKNavigationDelegate {
         syncSecurity()
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.finished(id))
@@ -94,13 +105,13 @@ extension WebKitTab: WKNavigationDelegate {
         refreshFavicon()
     }
 
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
     }
 
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
@@ -111,14 +122,6 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
-    /// Cmd-click opens in the background, Cmd-Shift-click in the foreground,
-    /// middle click in the background. nil means "navigate in place".
-    static func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
-        let flags = action.modifierFlags
-        let isMiddleClick = action.buttonNumber == 2
-        guard flags.contains(.command) || isMiddleClick else { return nil }
-        return flags.contains(.shift) ? .foregroundTab : .backgroundTab
-    }
 
     static func isWebScheme(_ url: URL) -> Bool {
         switch url.scheme?.lowercased() {
@@ -138,8 +141,11 @@ extension WebKitTab: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
-        guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
-        if let explicit = Self.newTabDisposition(for: navigationAction) {
+        // The modified click's mapping (the link menu's rows open by URL).
+        let click = LinkClick(navigationAction, in: self)
+        guard hasDelegate, !click.runsInOpener(navigationAction.request, tab: self),
+              let child = makeChildTab(configuration: configuration) else { return nil }
+        if case .open(let explicit) = click {
             emit(.adoptTab(child, explicit))
         } else if windowFeatures.width != nil || windowFeatures.height != nil {
             // A sized popup (OAuth, payment): a floating panel, with opener.
@@ -246,6 +252,10 @@ extension WebKitTab: WKUIDelegate {
 
 extension WebKitTab: WKScriptMessageHandler {
     public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == WebKitContextHit.handlerName {
+            contextHit = BrowserContextMenuTarget.webKitHit(message.body).map { (target: $0, at: ContinuousClock.now) }
+            return
+        }
         guard message.name == PaneFullscreenScript.messageHandlerName,
               message.frameInfo.isMainFrame,
               let on = message.body as? Bool else { return }

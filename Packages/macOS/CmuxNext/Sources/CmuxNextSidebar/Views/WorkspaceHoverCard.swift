@@ -1,220 +1,237 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextResources
 import CmuxNextWakeups
 
-/// The workspace hover card: title, cwd, and the workspace's CPU and memory
-/// summed over its tabs (each process once), its heaviest tabs, and the
-/// shared processes on their own line. It replaces the row tooltip.
+/// The workspace hover card (Codex parity, Leo 2026-10-08): a title row
+/// (the name, a kind or host icon, the relative age) and one row per
+/// meaningful fact (`WorkspaceHoverCardContent`); CPU and memory summed over
+/// its tabs show as one muted line, only when notable. It replaces the row
+/// tooltip.
 ///
 /// Resources are sampled from hover start (the CPU baseline) until the
 /// card hides; nothing is sampled while no card is pending or shown.
-final class WorkspaceHoverCardController {
+final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Ends a card an action opened (not the pointer).
-    private let pin = PinnedCardDismissal()
-    /// Hover time before the first card; later cards show at once while one
-    /// is visible (moving down the list).
-    var delay: Duration = .milliseconds(600)
-    private let showTimer: DemandTimer
-    private var panel: WorkspaceHoverCardPanel?
-    private(set) var shownID: WorkspaceID?
-    private var pendingID: WorkspaceID?
+    /// Hover time before the first card: none, the card shows on the first
+    /// hit (Leo 2026-10-08); moving down the list slides it over.
+    var delay: Duration = .zero
+    weak var list: SidebarListView?
+    /// The app's one coordinator; the App injects it.
+    var coordinator: HoverCardCoordinator {
+        didSet {
+            guard coordinator !== oldValue else { return }
+            oldValue.unregister(self)
+            if list?.window != nil { coordinator.register(self) }
+        }
+    }
+    private var body: WorkspaceHoverCardView?
+    private var bodyID: HoverTargetID?
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
-        showTimer = DemandTimer(owner: "Sidebar.hoverCard", clock: clock)
+    init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
+        self.coordinator = coordinator
+    }
+
+    static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("ws:\(id.rawValue)") }
+
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
+        id.rawValue.hasPrefix("ws:") ? WorkspaceID(String(id.rawValue.dropFirst(3))) : nil
+    }
+
+    /// This list's workspace whose card shows now.
+    var shownID: WorkspaceID? {
+        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.workspaces[ws] != nil else { return nil }
+        return ws
     }
 
     var isVisible: Bool { shownID != nil }
 
-    /// The pointer is over `workspace`'s row, whose frame on screen is `anchor`.
-    func hover(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        guard shownID != workspace.id, pendingID != workspace.id else { return }
-        pin.disarm()
-        startResources(for: workspace)
-        if isVisible {
-            show(workspace, anchor: anchor, parent: parent)
-            return
-        }
-        pendingID = workspace.id
-        showTimer.schedule(after: delay) { @MainActor [weak self] in
-            guard let self, self.pendingID == workspace.id else { return }
-            self.show(workspace, anchor: anchor, parent: parent)
+    // MARK: HoverCardSource
+
+    var hoverCardWindow: NSWindow? { list?.window }
+
+    func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
+        guard let list, let window = list.window,
+              let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
+              let anchor = list.hoverCardAnchor(for: id)
+        else { return nil }
+        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay), anchor: anchor)
+    }
+
+    func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
+        workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
+    }
+
+    func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
+        guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        let body = body ?? WorkspaceHoverCardView()
+        self.body = body
+        let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
+        body.configure(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()))
+        body.setResources(resources.report)
+        bodyID = id
+        return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
+    }
+
+    func hoverCardActivated(_ id: HoverTargetID) {
+        guard let ws = workspaceID(id) else { return }
+        resources.open(.workspace(ws.rawValue)) { [weak self] report in
+            guard let self, self.bodyID == id else { return }
+            self.body?.setResources(report)
+            self.coordinator.contentChanged(id)
         }
     }
 
-    /// Shows the card now, without the hover delay, until the next key
-    /// press, click or scroll (the "Show Resource Usage" actions).
-    func showPinned(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        showTimer.cancel()
-        pendingID = nil
-        startResources(for: workspace)
-        show(workspace, anchor: anchor, parent: parent)
-        guard shownID == workspace.id else {
-            resources.close()
-            return
-        }
-        pin.arm { [weak self] in self?.hide() }
-    }
-
-    private func startResources(for workspace: SidebarWorkspace) {
-        resources.open(.workspace(workspace.id.rawValue)) { [weak self] report in
-            guard let self, self.shownID == workspace.id else { return }
-            self.panel?.setResources(report)
-        }
-    }
-
-    /// The hovered workspace's row content changed.
-    func refresh(_ workspace: SidebarWorkspace) {
-        guard shownID == workspace.id else { return }
-        panel?.configure(workspace)
-    }
-
-    func hide() {
-        showTimer.cancel()
-        pendingID = nil
-        pin.disarm()
+    func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
-        guard shownID != nil else { return }
-        shownID = nil
-        panel?.dismiss()
+        bodyID = nil
     }
 
-    private func show(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        guard let parent, parent.isVisible else { return }
-        pendingID = nil
-        let panel = panel ?? WorkspaceHoverCardPanel()
-        self.panel = panel
-        let sliding = isVisible
-        shownID = workspace.id
-        panel.configure(workspace)
-        panel.setResources(resources.report)
-        panel.present(beside: anchor, parent: parent, sliding: sliding)
-    }
-
-    /// Design tokens changed: rebuild the card at the new sizes next time.
+    /// Design tokens changed: the next card rebuilds at the new sizes.
     func tokensChanged() {
-        hide()
-        if let panel {
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
-        }
-        panel = nil
+        coordinator.dismiss(.action)
+        body = nil
+        bodyID = nil
     }
 }
 
-/// Borderless, non-activating child window hosting the glass card.
-final class WorkspaceHoverCardPanel: NSPanel {
-    private static var padding: CGFloat { Metrics.space5 }
+/// The workspace card body. One instance is reused for every workspace
+/// card; the app's one `HoverCardPanel` hosts it.
+final class WorkspaceHoverCardView: NSView {
+    private static var padding: CGFloat { Metrics.space4 }
+    /// The card sizes to its content between these widths (POLISH: no
+    /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { 280 }
+    static var minCardWidth: CGFloat { 180 }
+    private static var iconSize: CGFloat { 13 }
 
-    private let glass: NSGlassEffectView
     private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(labelWithString: "")
-    let resources = ResourceSummaryView()
-    private weak var parentWindowRef: NSWindow?
-    private var anchor: CGRect = .zero
+    private let kindIcon = NSImageView()
+    private let ageLabel = NSTextField(labelWithString: "")
+    private let factsStack = NSStackView()
+    private let resourceLabel = NSTextField(labelWithString: "")
+    private var factViews: [(icon: NSImageView, label: NSTextField)] = []
 
     init() {
-        let content = NSView()
-        glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
-        ignoresMouseEvents = true
-        isReleasedWhenClosed = false
-        // A no-activate test run is never active; its cards must still show.
-        hidesOnDeactivate = !WindowPlacement.noActivate
-        animationBehavior = .none
-        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        contentView = glass
-
+        super.init(frame: .zero)
+        let content = self
         titleLabel.font = Typography.bodyEmphasized
-        titleLabel.textColor = Palette.textPrimary
-        titleLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.font = Typography.caption
-        subtitleLabel.textColor = Palette.textSecondary
-        subtitleLabel.lineBreakMode = .byTruncatingMiddle
-        resources.style = .workspace(topConsumers: 3)
+        // The whole name, wrapped: the card is where a clipped row title
+        // reads in full (also under Reduce Motion, which has no marquee).
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.maximumNumberOfLines = 6
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        ageLabel.font = Typography.caption
+        ageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        ageLabel.setContentHuggingPriority(.required, for: .horizontal)
+        kindIcon.setContentHuggingPriority(.required, for: .horizontal)
+        resourceLabel.font = Typography.caption
+        resourceLabel.lineBreakMode = .byTruncatingTail
 
-        let stack = NSStackView(views: [titleLabel, subtitleLabel, resources])
+        let titleRow = NSStackView(views: [titleLabel, kindIcon, ageLabel])
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .firstBaseline
+        titleRow.spacing = Metrics.space2
+        titleRow.setCustomSpacing(Metrics.space4, after: kindIcon)
+        factsStack.orientation = .vertical
+        factsStack.alignment = .leading
+        factsStack.spacing = Metrics.space2
+
+        let stack = NSStackView(views: [titleRow, factsStack, resourceLabel])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space1
-        stack.setCustomSpacing(Metrics.space3, after: subtitleLabel)
+        stack.spacing = Metrics.space3
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         let p = Self.padding
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: Self.cardWidth),
+            content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth),
+            content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            titleLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            subtitleLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            resources.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
         ])
     }
 
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(_ workspace: SidebarWorkspace) {
-        titleLabel.stringValue = workspace.title
-        subtitleLabel.stringValue = workspace.subtitle ?? ""
-        subtitleLabel.isHidden = (workspace.subtitle ?? "").isEmpty
+    /// The text the card shows, one entry per row (tests, accessibility).
+    var lines: [String] {
+        var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
+            .filter { !$0.isEmpty }.joined(separator: " ")]
+        lines += factViews.filter { !$0.label.isHidden }.map(\.label.stringValue)
+        if !resourceLabel.isHidden { lines.append(resourceLabel.stringValue) }
+        return lines
+    }
+
+    func configure(_ content: WorkspaceHoverCardContent) {
+        titleLabel.stringValue = content.title
+        kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
+        ageLabel.stringValue = content.age ?? ""
+        ageLabel.isHidden = content.age == nil
+        // The width the title wraps at (the panel sizes the card in one
+        // pass): the row less its icon and the age.
+        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
+        while factViews.count < content.facts.count { addFactRow() }
+        for (index, row) in factViews.enumerated() {
+            let fact = index < content.facts.count ? content.facts[index] : nil
+            row.icon.superview?.isHidden = fact == nil
+            row.label.isHidden = fact == nil
+            guard let fact else { continue }
+            row.icon.image = NSImage.icon(fact.icon, size: Self.iconSize)
+            row.label.stringValue = fact.text
+        }
+        factsStack.isHidden = content.facts.isEmpty
+        applyColors()
     }
 
     func setResources(_ report: ResourceReport?) {
-        resources.show(report)
-        // The heaviest-tabs rows can appear with the first sample.
-        if isVisible { place(sliding: false) }
+        let line = WorkspaceHoverCardContent.resourceLine(report)
+        resourceLabel.stringValue = line ?? ""
+        resourceLabel.isHidden = line == nil
     }
 
-    /// Shows the card to the right of the row, top-aligned with it.
-    func present(beside anchor: CGRect, parent: NSWindow, sliding: Bool) {
-        if parentWindowRef !== parent {
-            parentWindowRef?.removeChildWindow(self)
-            parent.addChildWindow(self, ordered: .above)
-            parentWindowRef = parent
-        }
-        self.anchor = anchor
-        place(sliding: sliding)
-        if !isVisible || alphaValue < 1 {
-            if !isVisible { alphaValue = 0 }
-            orderFront(nil)
-            Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
-        }
+    private func addFactRow() {
+        let icon = NSImageView()
+        let label = NSTextField(labelWithString: "")
+        label.font = Typography.body
+        label.lineBreakMode = .byTruncatingMiddle
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let row = NSStackView(views: [icon, label])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = Metrics.space2
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+        ])
+        factsStack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
+        factViews.append((icon, label))
     }
+}
 
-    private func place(sliding: Bool) {
-        glass.layoutSubtreeIfNeeded()
-        let size = glass.fittingSize
-        var origin = CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
-        if let screen = parentWindowRef?.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let margin = Metrics.space2
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
-            origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
+extension WorkspaceHoverCardView {
+    /// Recolors the labels in the card's theme scope; the panel runs it on
+    /// adopt and on every change of that scope.
+    func applyColors() {
+        performWithTheme {
+            titleLabel.textColor = Palette.textPrimary
+            ageLabel.textColor = Palette.textSecondary
+            kindIcon.contentTintColor = Palette.textSecondary
+            for row in factViews {
+                row.label.textColor = Palette.textPrimary
+                row.icon.contentTintColor = Palette.textSecondary
+            }
+            resourceLabel.textColor = Palette.textSecondary
         }
-        let frame = CGRect(origin: origin, size: size)
-        if sliding, isVisible, Motion.animatesMovement {
-            Motion.animateTimed(.panel) { animator().setFrame(frame, display: true) }
-        } else {
-            setFrame(frame, display: true)
-        }
-    }
-
-    func dismiss() {
-        Motion.animateTimed(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
-            guard let self, self.alphaValue == 0 else { return }
-            self.parentWindowRef?.removeChildWindow(self)
-            self.parentWindowRef = nil
-            self.orderOut(nil)
-        })
     }
 }

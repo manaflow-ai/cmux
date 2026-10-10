@@ -33,6 +33,8 @@ struct CreationSlot {
     /// `None` until the slot's launch step finished; then the terminal id of
     /// its prelaunched host, if it has one.
     launched: Mutex<Option<Option<String>>>,
+    /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
+    trace: Mutex<Option<crate::debug_spans::Trace>>,
 }
 
 impl Command {
@@ -44,41 +46,111 @@ impl Command {
                 | Self::NewPane { .. }
                 | Self::NewPaneRight { .. }
                 | Self::Split { .. }
-                | Self::NewScreen { .. }
+                | Self::NewScreen(_)
                 | Self::NewWorkspace { .. }
                 | Self::CreateTerminal { .. }
         )
     }
 }
 
-/// What a create can launch before its commit: the host of a `new-tab`
-/// that did not choose its own terminal id.
+/// What a create can launch before its commit: the host of a `new-tab`,
+/// under the terminal id the caller chose (`terminal-placement-env-v1`, as
+/// the app always does) or a fresh one.
 struct PrelaunchRequest {
     pane: Option<PaneId>,
+    terminal_id: Option<crate::terminal_host::TerminalId>,
     cwd: Option<String>,
+    /// The argv `shell_args` resolves to; the create adopts this host, so
+    /// it must run the same program.
+    argv: Option<Vec<String>>,
     env: Vec<(String, String)>,
     size: Option<(u16, u16)>,
 }
 
 impl PrelaunchRequest {
-    fn of(command: &Command) -> Option<Self> {
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id: None, .. } = command else {
+    fn of(command: &Command, frontend_shell: bool) -> Option<Self> {
+        // A pane creation adopts the spare only with the new pane's size
+        // (`split_kind::PanePrelaunch`).
+        let pane_prelaunch = match command {
+            Command::Split(params) => params.prelaunch(),
+            Command::NewPaneRight(params) => params.prelaunch(),
+            Command::NewPane { pane, cols, rows, cwd, env, terminal_id, shell_args, .. } => {
+                optional_surface_size(*cols, *rows).map(|size| split_kind::PanePrelaunch {
+                    pane: *pane,
+                    terminal_id: terminal_id.as_ref(),
+                    cwd: cwd.as_ref(),
+                    env: env.as_ref(),
+                    shell_args: shell_args.as_ref(),
+                    size,
+                })
+            }
+            _ => None,
+        };
+        if let Some(prelaunch) = pane_prelaunch {
+            return Self::build(
+                Some(prelaunch.pane),
+                prelaunch.terminal_id,
+                prelaunch.cwd,
+                prelaunch.env,
+                prelaunch.shell_args,
+                Some(prelaunch.size),
+                frontend_shell,
+            );
+        }
+        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
+        else {
             return None;
         };
+        Self::build(
+            *pane,
+            terminal_id.as_ref(),
+            cwd.as_ref(),
+            env.as_ref(),
+            shell_args.as_ref(),
+            optional_surface_size(*cols, *rows),
+            frontend_shell,
+        )
+    }
+
+    fn build(
+        pane: Option<PaneId>,
+        terminal_id: Option<&String>,
+        cwd: Option<&String>,
+        env: Option<&BTreeMap<String, String>>,
+        shell_args: Option<&Vec<String>>,
+        size: Option<(u16, u16)>,
+        frontend_shell: bool,
+    ) -> Option<Self> {
+        // An invalid caller id is reported by the create itself.
+        let terminal_id = match terminal_id {
+            Some(hex) => Some(crate::terminal_host::TerminalId::from_hex(hex)?),
+            None => None,
+        };
         // An invalid environment is reported by the create itself.
-        let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose().ok()?;
+        let env = env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
         Some(Self {
-            pane: *pane,
-            cwd: cwd.clone(),
-            env: env.unwrap_or_default(),
-            size: optional_surface_size(*cols, *rows),
+            pane,
+            terminal_id,
+            cwd: cwd.cloned(),
+            argv: shell_argv(&env, shell_args.cloned(), frontend_shell),
+            env,
+            size,
         })
     }
 
     fn launch(self, mux: &Arc<Mux>) -> Option<String> {
         // A failed prelaunch falls back to the create's own launch, which
         // reports the failure through the usual creation error path.
-        mux.prelaunch_tab_terminal(self.pane, self.cwd, self.env, self.size).ok().flatten()
+        mux.prelaunch_tab_terminal(
+            self.pane,
+            self.terminal_id,
+            self.cwd,
+            self.argv,
+            self.env,
+            self.size,
+        )
+        .ok()
+        .flatten()
     }
 }
 
@@ -92,10 +164,17 @@ impl ConnectionSurfaceScheduler {
         pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
-        let prelaunch = PrelaunchRequest::of(&pending.request.cmd);
+        let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
+        let label = match (&pending.request.cmd, prelaunch.is_some()) {
+            (Command::NewTab { .. }, true) => "new-tab",
+            (_, true) => "pane-create",
+            _ => "create",
+        };
+        let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
+            trace: Mutex::new(None),
         });
         self.begin_creation();
         self.creations.state.lock().unwrap().slots.push_back(slot.clone());
@@ -103,7 +182,12 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            crate::debug_spans::install(trace);
+            crate::debug_spans::mark("job.start");
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
+            crate::debug_spans::mark("prelaunch.done");
+            let trace = crate::debug_spans::take();
+            *slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = trace;
             *slot.launched.lock().unwrap() = Some(launched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
         });
@@ -155,19 +239,32 @@ impl ConnectionSurfaceScheduler {
     ) -> bool {
         let launched = slot.launched.lock().unwrap().take().flatten();
         let pending = slot.request.lock().unwrap().take();
+        let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        crate::debug_spans::install(trace);
+        crate::debug_spans::mark("commit.start");
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
             Some(_) if self.cancelled.is_cancelled() => true,
             Some(mut pending) => {
-                if let (Some(terminal_hex), Command::NewTab { terminal_id, .. }) =
-                    (launched.as_ref(), &mut pending.request.cmd)
-                {
-                    *terminal_id = Some(terminal_hex.clone());
+                if let Some(terminal_hex) = launched.as_ref() {
+                    match &mut pending.request.cmd {
+                        Command::NewTab { terminal_id, .. }
+                        | Command::NewPane { terminal_id, .. } => {
+                            *terminal_id = Some(terminal_hex.clone());
+                        }
+                        Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),
+                        Command::NewPaneRight(params) => {
+                            params.set_terminal_id(terminal_hex.clone());
+                        }
+                        _ => {}
+                    }
                 }
                 run_pending_request(self, mux, client, pending, writer)
             }
             None => true,
         };
+        crate::debug_spans::mark("reply.queued");
+        crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = launched {
             mux.discard_prelaunched_terminal(&terminal_hex);
         }
@@ -182,5 +279,23 @@ impl ConnectionSurfaceScheduler {
         let mut state = self.state.lock().unwrap();
         state.active_creations -= 1;
         self.changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The prelaunched host runs the program the create commits, so it
+    /// resolves `terminal-frontend-shell-integration-v1` the same way.
+    #[test]
+    fn prelaunch_follows_the_frontend_shell_flag() {
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "new-tab", "env": {"SHELL": "/opt/frontend/bin/zsh"},
+        }))
+        .unwrap();
+        let frontend = PrelaunchRequest::of(&command, true).unwrap();
+        assert_eq!(frontend.argv, Some(vec!["/opt/frontend/bin/zsh".to_string()]));
+        assert_eq!(PrelaunchRequest::of(&command, false).unwrap().argv, None);
     }
 }

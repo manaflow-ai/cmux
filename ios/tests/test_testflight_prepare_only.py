@@ -94,12 +94,13 @@ class PrepareCandidateTests(unittest.TestCase):
             self.assertEqual(eval(expression, {"__builtins__": {}}, {}), expected,
                              (upload, package, prepare, cancelled))
 
-    def test_manual_beta_release_defaults_to_registered_extension(self):
+    def test_manual_release_defaults_to_app_store_identity(self):
         config = (ROOT / 'ios/Config/Release.xcconfig').read_text()
         values = dict(line.split(' = ', 1) for line in config.splitlines()
                       if ' = ' in line and not line.startswith('//'))
+        self.assertEqual(values.get('CMUX_APP_BUNDLE_IDENTIFIER'), 'com.cmux.app')
         self.assertEqual(values.get('CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER'),
-                         'dev.cmux.app.beta.NotificationServiceV2')
+                         '$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService')
 
     def test_candidate_cannot_claim_uploaded_metadata(self):
         text = WORKFLOW.read_text()

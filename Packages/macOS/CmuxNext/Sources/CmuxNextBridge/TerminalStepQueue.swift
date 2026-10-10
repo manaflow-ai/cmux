@@ -35,7 +35,7 @@ public nonisolated final class TerminalStepQueue: Sendable {
     /// Queues `step`, first waiting while the consumer is behind. Returns
     /// at once after ``finish()``.
     public func push(_ step: TerminalStreamPlan.Step) async {
-        if case .replay = step {
+        if Self.supersedes(step) {
             enqueue(step, supersede: true)
             return
         }
@@ -49,6 +49,12 @@ public nonisolated final class TerminalStepQueue: Sendable {
                 if !parked { producer.resume() }
             }
         }
+        enqueue(step, supersede: false)
+    }
+
+    /// Queues a control step (a link status) at once, after what is queued.
+    /// Never waits: callers hold no suspension point.
+    public func pushControl(_ step: TerminalStreamPlan.Step) {
         enqueue(step, supersede: false)
     }
 
@@ -113,11 +119,10 @@ public nonisolated final class TerminalStepQueue: Sendable {
         let consumer = state.withLock { state -> CheckedContinuation<TerminalStreamPlan.Step?, Never>? in
             guard !state.finished else { return nil }
             if supersede {
-                // Grids stay: they are ordered with the replay and cheap.
-                state.items = state.items[state.head...].filter {
-                    if case .output = $0 { return false }
-                    return true
-                }
+                // Grids and link status stay: ordered with the replay and
+                // cheap. Output, older replays and READYs and their history
+                // are replaced by it.
+                state.items = state.items[state.head...].filter { Self.outputSize($0) == 0 && !Self.supersedes($0) }
                 state.head = 0
                 state.outputBytes = 0
             }
@@ -132,8 +137,23 @@ public nonisolated final class TerminalStepQueue: Sendable {
         consumer?.resume(returning: step)
     }
 
+    /// Bulk bytes of a step: output and snapshot history pages.
     private static func outputSize(_ step: TerminalStreamPlan.Step) -> Int {
-        if case .output(let data) = step { return data.count }
-        return 0
+        switch step {
+        case .output(let data): data.count
+        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
+        default: 0
+        }
+    }
+
+    /// A replay or READY snapshot holds the whole screen: it never waits and
+    /// replaces queued bulk steps. A local-history READY does not: its
+    /// restore reflows the screen that every earlier byte built.
+    private static func supersedes(_ step: TerminalStreamPlan.Step) -> Bool {
+        switch step {
+        case .replay: true
+        case .snapshot(let frame): frame.phase == .ready && frame.localHistory == nil
+        default: false
+        }
     }
 }

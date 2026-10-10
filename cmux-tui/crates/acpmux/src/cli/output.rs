@@ -151,6 +151,17 @@ fn agent_activity(m: &str, p: &Value) -> bool {
     }
 }
 
+/// A `session/update` that shows agent output (text, thoughts, tools, a
+/// plan), as opposed to metadata such as commands, modes or usage; only
+/// output makes a failed turn unsafe to retry.
+fn renders_output(p: &Value) -> bool {
+    let kind = p.pointer("/update/sessionUpdate").and_then(Value::as_str).unwrap_or("");
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update" | "plan"
+    )
+}
+
 /// How a turn handles permissions when nobody is there to answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OnPermission {
@@ -298,7 +309,11 @@ pub(crate) async fn stream_prompt(
                     }
                 }
                 if json_out {
-                    let p = if m == method::MUX_EVENT && suppress_reads { suppressor.apply(p) } else { p };
+                    let p = match m.as_str() {
+                        method::MUX_EVENT if suppress_reads => suppressor.apply(p),
+                        method::SESSION_UPDATE if suppress_reads => suppressor.apply_update(p),
+                        _ => p,
+                    };
                     println!("{}", json!({"method": m, "params": p}));
                     continue;
                 }
@@ -326,7 +341,9 @@ pub(crate) async fn stream_prompt(
                     }
                     method::MUX_PERMISSION_PENDING => {
                         let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: acpmux allow {id} | acpmux deny {id})");
+                        let request = p.get("request").cloned().unwrap_or(Value::Null);
+                        let hint = crate::question_answer::pending_hint(&request, id);
+                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: {hint})");
                     }
                     _ => {}
                 }
@@ -377,11 +394,21 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
     }
-    for item in &t.items {
-        print_item(item);
-    }
     let mut printed = t.items.len();
     let mut assistant_len = 0usize;
+    for (i, item) in t.items.iter().enumerate() {
+        match item {
+            // A trailing assistant item may still be streaming: leave its
+            // line open so the deltas below continue it.
+            Item::Assistant { text } if i + 1 == t.items.len() && !text.is_empty() => {
+                print!("\x1b[1massistant:\x1b[0m {text}");
+                let _ = std::io::stdout().flush();
+                printed = i;
+                assistant_len = text.len();
+            }
+            _ => print_item(item),
+        }
+    }
     while let Some(m) = notes.recv().await {
         let Message::Notification { method: m, params } = m else { continue };
         if m == method::MUX_DISCONNECTED {
@@ -398,7 +425,13 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
         }
         // Print new whole items, and stream the trailing assistant item.
         while printed < t.items.len().saturating_sub(1) {
-            print_item(&t.items[printed]);
+            match &t.items[printed] {
+                // The streamed assistant item: finish its open line.
+                Item::Assistant { text } if assistant_len > 0 => {
+                    println!("{}", text.get(assistant_len..).unwrap_or(""));
+                }
+                item => print_item(item),
+            }
             printed += 1;
             assistant_len = 0;
         }
@@ -484,7 +517,10 @@ pub(crate) async fn collect_reply(
             Err(e) => {
                 let retryable = e
                     .downcast_ref::<crate::cli::errors::AppError>()
-                    .map(|a| a.retryable)
+                    // A closed connection is retryable for the caller (resend
+                    // with the same --prompt-id), never here under a new id:
+                    // the turn may have run.
+                    .map(|a| a.retryable && a.detail == "agent_error")
                     .unwrap_or(false);
                 if !retryable || attempt >= opts.retries {
                     return Err(e);
@@ -558,7 +594,12 @@ async fn collect_once(
                     activity = true;
                 }
                 match m.as_str() {
-                    method::SESSION_UPDATE => { produced = true; t.apply_update(&p) }
+                    method::SESSION_UPDATE => {
+                        if renders_output(&p) {
+                            produced = true;
+                        }
+                        t.apply_update(&p)
+                    }
                     method::MUX_EVENT => {
                         // Rules and policies answer on the server; count those too.
                         if p.get("kind").and_then(Value::as_str) == Some("permission_auto") {
@@ -636,13 +677,49 @@ async fn collect_once(
         })
         .unwrap_or_default();
     // A resent prompt id streams nothing: its turn already ran, so read the
-    // reply from the log.
+    // reply of that turn (not necessarily the newest) from the log.
     if reply.is_empty() && result.pointer("/_meta/acpmux/duplicate") == Some(&json!(true)) {
-        reply = last_replies(&client, id, 1).await?.pop().unwrap_or_default();
+        reply = match result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str) {
+            Some(turn) => turn_reply(&client, id, turn).await?,
+            None => last_replies(&client, id, 1).await?.pop().unwrap_or_default(),
+        };
     }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
+}
+
+/// The assistant reply of one turn, read from the session's log: the last
+/// assistant item between that turn's start and its result.
+async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
+    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    Ok(reply_of_turn(&events, turn))
+}
+
+fn reply_of_turn(events: &[Value], turn: &str) -> String {
+    let of_turn = |e: &Value| e.pointer("/msg/turnId").and_then(Value::as_str) == Some(turn);
+    let kind = |e: &Value| e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
+    let mut t = Transcript::default();
+    let mut inside = false;
+    for e in events {
+        if !inside {
+            inside = kind(e) == "turn_started" && of_turn(e);
+            continue;
+        }
+        if kind(e) == "turn_result" && of_turn(e) {
+            break;
+        }
+        t.apply_event(e);
+    }
+    t.items
+        .iter()
+        .rev()
+        .find_map(|i| match i {
+            Item::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// The last `count` assistant replies of a session, oldest first.
@@ -677,7 +754,14 @@ mod prompt_tests {
     use std::collections::BTreeMap;
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
-    async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
+    async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
+        daemon_with_env(BTreeMap::new()).await
+    }
+
+    /// `daemon` with extra environment for the fake agent.
+    async fn daemon_with_env(
+        env: BTreeMap<String, String>,
+    ) -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut harnesses = BTreeMap::new();
         harnesses.insert(
@@ -685,7 +769,7 @@ mod prompt_tests {
             HarnessProfile {
                 kind: Default::default(),
                 argv: vec!["python3".into(), fake.into()],
-                env: BTreeMap::new(),
+                env,
                 description: None,
                 fallback: None,
                 family: None,
@@ -701,13 +785,40 @@ mod prompt_tests {
         cfg.permission_policy = PermissionPolicy::ApproveAll;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = crate::hub::Hub::new(cfg, store);
-        let dir = std::env::temp_dir().join(format!("acpmux-queue-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("d.sock");
+        // The shared helper keeps the socket path under sun_path whatever
+        // $TMPDIR is (104 bytes on macOS).
+        let dir = cmux_unix_socket::short_test_dir("acpmux-q");
+        let path = dir.path().join("d.sock");
         let listener = crate::server::bind_unix(&path).await.unwrap();
         tokio::spawn(crate::server::serve_unix(hub.clone(), listener));
         let client = Client::connect(&path).await.unwrap();
         (hub, client, dir)
+    }
+
+    #[test]
+    fn duplicate_reply_comes_from_its_own_turn() {
+        let chunk = |seq: u64, text: &str| json!({"seq": seq, "dir": "in", "kind": "session/update", "msg": {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
+        let mux = |seq: u64, kind: &str, turn: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": turn}});
+        let events = vec![
+            mux(1, "turn_started", "t1"),
+            chunk(2, "one"),
+            mux(3, "turn_result", "t1"),
+            mux(4, "turn_started", "t2"),
+            chunk(5, "two"),
+            mux(6, "turn_result", "t2"),
+        ];
+        assert_eq!(reply_of_turn(&events, "t1"), "one");
+        assert_eq!(reply_of_turn(&events, "t2"), "two");
+        assert_eq!(reply_of_turn(&events, "t3"), "");
+    }
+
+    #[test]
+    fn only_agent_output_blocks_a_retry() {
+        let update = |kind: &str| json!({"update": {"sessionUpdate": kind}});
+        assert!(renders_output(&update("agent_message_chunk")));
+        assert!(renders_output(&update("tool_call")));
+        assert!(!renders_output(&update("available_commands_update")));
+        assert!(!renders_output(&update("current_mode_update")));
     }
 
     #[tokio::test]
@@ -731,6 +842,83 @@ mod prompt_tests {
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
+        drop(dir);
+    }
+
+    /// A prompt to a session whose agent must start again (it died, or the daemon restarted)
+    /// is acknowledged when acpmux records it, before the agent has started (P1 v2).
+    #[tokio::test]
+    async fn a_prompt_is_accepted_when_recorded_before_the_agent_starts() {
+        let gate = std::path::PathBuf::from("/tmp")
+            .join(format!("acpmux-gate-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]));
+        std::fs::write(&gate, b"").unwrap();
+        let env =
+            BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+        let (hub, client, dir) = daemon_with_env(env).await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        // The agent is gone; its next start waits on the gate.
+        hub.detach_child(&session).await;
+        std::fs::remove_file(&gate).unwrap();
+        let prompt = PromptId::new(None);
+        let accepted = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            queue_prompt(client.clone(), &id, "hello", false, &prompt),
+        )
+        .await
+        .expect("accepted while the agent is still starting")
+        .unwrap();
+        assert_eq!(accepted["promptId"], prompt.id.as_str());
+        let kinds: Vec<String> =
+            hub.events(&id, 0, 1000).unwrap().iter().map(|e| e.kind.clone()).collect();
+        assert!(kinds.iter().any(|k| k == "user_message"), "recorded: {kinds:?}");
+        // Let the agent start; the turn completes.
+        std::fs::write(&gate, b"").unwrap();
+        for _ in 0..200 {
+            if hub.events(&id, 0, 1000).unwrap().iter().any(|e| e.kind == "turn_result") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let _ = std::fs::remove_file(&gate);
+        drop(dir);
+    }
+
+    /// A turn whose backend refuses the model (unsupported_parameter, streamed as the reply)
+    /// makes `_acpmux/models` report that model unavailable with the backend's message.
+    #[tokio::test]
+    async fn a_refused_model_is_reported_unavailable_in_the_model_catalog() {
+        let (hub, client, dir) = daemon().await;
+        hub.config.write().await.harnesses.get_mut("fake").unwrap().models =
+            vec![crate::config::DeclaredModel::Id("m-refused".into())];
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        crate::hub::model_availability::set_model_for_test(&session, "m-refused");
+        client
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "refuse"}]}),
+            )
+            .await
+            .unwrap();
+        let catalog = client.request("_acpmux/models", json!({})).await.unwrap();
+        let fake = catalog["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == "fake")
+            .unwrap();
+        let model =
+            fake["models"].as_array().unwrap().iter().find(|m| m["id"] == "m-refused").unwrap();
+        assert_eq!(model["unavailable"], "Image web search is not supported by the backend.");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

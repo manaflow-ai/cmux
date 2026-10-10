@@ -1,7 +1,7 @@
-//! Chrome-style tab groups and saved (pinned) groups.
+//! Tab groups (named, colored, collapsible tab runs) and saved (pinned) groups.
 //!
 //! A tab group lives in one pane's tab strip: an id, a name (may be empty),
-//! one of Chrome's nine colors, and a shared collapsed flag. Each tab
+//! one of nine named colors, and a shared collapsed flag. Each tab
 //! placement belongs to at most one group, and members are contiguous in
 //! tab order. Membership is keyed by the public tab id and is valid only
 //! while the tab sits in the group's pane, so a tab moved away by another
@@ -25,6 +25,11 @@ use crate::workspace_registry::{
     TabGroupState, new_saved_tab_group_id, new_tab_group_id, validate_tab_group_color,
     validate_tab_group_name, validate_workspace_group_id,
 };
+mod blocks;
+pub(crate) use blocks::place_block;
+mod public_ids;
+mod reopen_saved;
+pub(crate) use public_ids::{is_pinned, pane_by_public_id, pane_public_id, tab_public_id};
 
 /// One contiguous group run in a pane's tab strip, as frontends see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +48,7 @@ pub enum TabGroupDestination {
     Strip { pane: PaneId, index: Option<usize> },
     /// Into a new split beside `pane`.
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// Into a new niri column on `pane`'s screen.
+    /// Into a new strip column on `pane`'s screen.
     Column { pane: PaneId, after_column: Option<SplitId>, width: Option<f32> },
     /// Into a new workspace, optionally in a sidebar group at an index.
     NewWorkspace { group: Option<String>, index: Option<usize> },
@@ -100,34 +105,8 @@ pub(crate) fn pane_tab_groups(
     runs
 }
 
-pub(super) fn tab_public_id(state: &State, surface: SurfaceId) -> anyhow::Result<String> {
-    state
-        .resource_indexes
-        .tab_ids
-        .get(&surface)
-        .map(|tab| tab.as_str().to_string())
-        .with_context(|| format!("surface {surface} has no tab identity"))
-}
-
-pub(super) fn pane_public_id(state: &State, pane: PaneId) -> anyhow::Result<String> {
-    state
-        .resource_indexes
-        .pane_ids
-        .get(&pane)
-        .map(|id| id.as_str().to_string())
-        .with_context(|| format!("unknown pane {pane}"))
-}
-
-pub(super) fn pane_by_public_id(state: &State, pane: &str) -> Option<PaneId> {
-    state
-        .resource_indexes
-        .panes
-        .iter()
-        .find_map(|(id, slot)| (id.as_str() == pane).then_some(*slot))
-}
-
 /// The current members of `group` in strip order.
-pub(super) fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<SurfaceId> {
+pub(crate) fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<SurfaceId> {
     let Some(record) = groups.groups.get(group) else { return Vec::new() };
     let Some(pane) = pane_by_public_id(state, &record.pane_id) else { return Vec::new() };
     state.panes[&pane]
@@ -147,7 +126,7 @@ pub(super) fn group_members(state: &State, groups: &TabGroupState, group: &str) 
 
 /// Remove `group` from `groups` and return its member placements, for a
 /// batch close that commits the group rows with the closed members.
-pub(super) fn take_tab_group(
+pub(crate) fn take_tab_group(
     state: &State,
     groups: &mut TabGroupState,
     group: &str,
@@ -159,28 +138,9 @@ pub(super) fn take_tab_group(
     Ok(members)
 }
 
-/// Reorder `pane` so `block` sits contiguously starting at insertion index
-/// `index` among the pane's other tabs. The active tab stays active.
-pub(super) fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], index: usize) {
-    let Some(record) = state.panes.get_mut(&pane) else { return };
-    let active = record.active_surface();
-    let mut rest =
-        record.tabs.iter().copied().filter(|surface| !block.contains(surface)).collect::<Vec<_>>();
-    let index = index.min(rest.len());
-    rest.splice(index..index, block.iter().copied());
-    record.tabs = rest;
-    if let Some(active) = active {
-        record.active_tab =
-            record.tabs.iter().position(|surface| *surface == active).unwrap_or(record.active_tab);
-    }
-    for surface in block {
-        state.resource_indexes.tab_pane.insert(*surface, pane);
-    }
-}
-
 /// Drop memberships whose tab is gone or left the group's pane, and groups
 /// left without members.
-pub(super) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
+pub(crate) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
     let live = state
         .panes
         .values()
@@ -207,21 +167,9 @@ pub(super) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
     groups.groups.retain(|id, _| occupied.contains(id));
 }
 
-pub(super) fn is_pinned(
-    state: &State,
-    presentation: &PresentationSnapshot,
-    surface: SurfaceId,
-) -> bool {
-    state
-        .resource_indexes
-        .tab_ids
-        .get(&surface)
-        .is_some_and(|tab| presentation.pinned_tabs.contains(tab.as_str()))
-}
-
 /// Move `members` (in order) into `pane` at insertion index `index`, across
 /// panes when needed. Returns the members that changed workspace.
-pub(super) fn move_members_into(
+pub(crate) fn move_members_into(
     mux: &Mux,
     state: &mut State,
     members: &[SurfaceId],
@@ -244,12 +192,13 @@ impl Mux {
     /// Commit a raw tab group command (a local mutation that never replays).
     fn commit_tab_group_change<R>(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: &str,
         workspace_group: Option<String>,
         mutate: impl FnOnce(&Arc<Mux>, &mut State, &mut TabGroupState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
         let (output, _) = self.commit_tab_strip_change(
-            StripRequest::local(operation),
+            StripRequest::local(actor, operation),
             workspace_group,
             |mux, state, edit| mutate(mux, state, &mut edit.groups),
         )?;
@@ -278,8 +227,9 @@ impl Mux {
     /// Create a group from tabs of one pane. The members become contiguous
     /// at the strip position of the first of them; tabs leave any group
     /// they were in. Pinned tabs cannot be grouped.
-    pub fn create_tab_group(
+    pub fn create_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surfaces: &[SurfaceId],
         name: Option<String>,
         color: Option<String>,
@@ -290,7 +240,7 @@ impl Mux {
         let id = id.unwrap_or_else(new_tab_group_id);
         let requested = surfaces.to_vec();
         self.tab_group_create(
-            StripRequest::local("tab.group.create"),
+            StripRequest::local(actor, "tab.group.create"),
             move |_| Ok(requested),
             name,
             color,
@@ -370,15 +320,16 @@ impl Mux {
     }
 
     /// Rename, recolor, or collapse a group. A linked saved group follows.
-    pub fn update_tab_group(
+    pub fn update_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<TabGroupOutcome> {
         self.tab_group_update(
-            StripRequest::local("tab.group.update"),
+            StripRequest::local(actor, "tab.group.update"),
             group,
             name,
             color,
@@ -404,11 +355,10 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
-                let record = edit
-                    .groups
-                    .groups
-                    .get_mut(&group_id)
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
+                let record =
+                    edit.groups.groups.get_mut(&group_id).ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
                 if let Some(name) = name {
                     record.name = name;
                 }
@@ -427,14 +377,20 @@ impl Mux {
 
     /// Add tabs to a group, at the end of its run. Tabs in other panes move
     /// into the group's pane in the same commit.
-    pub fn add_tabs_to_tab_group(
+    pub fn add_tabs_to_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         surfaces: &[SurfaceId],
         transaction: Option<&str>,
     ) -> anyhow::Result<TabGroupOutcome> {
         let added = surfaces.to_vec();
-        self.tab_group_add(StripRequest::local("tab.group.add"), group, move |_| Ok(added), None)?;
+        self.tab_group_add(
+            StripRequest::local(actor, "tab.group.add"),
+            group,
+            move |_| Ok(added),
+            None,
+        )?;
         let outcome = self.tab_group_outcome(group);
         self.emit_tab_group_members(surfaces, transaction);
         Ok(outcome)
@@ -452,13 +408,19 @@ impl Mux {
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let presentation = mux.presentation_snapshot();
-                let record = edit
-                    .groups
-                    .groups
-                    .get(&group_id)
-                    .cloned()
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
-                let added = tabs(state)?;
+                let record =
+                    edit.groups.groups.get(&group_id).cloned().ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
+                // First occurrence only: a repeated surface would be spliced
+                // into the pane's tab order twice and committed as the
+                // durable order.
+                let mut added = Vec::new();
+                for surface in tabs(state)? {
+                    if !added.contains(&surface) {
+                        added.push(surface);
+                    }
+                }
                 let pane =
                     pane_by_public_id(state, &record.pane_id).context("tab group pane is gone")?;
                 for surface in &added {
@@ -494,14 +456,17 @@ impl Mux {
     }
 
     /// Remove tabs from their groups; each lands just after its old group.
-    pub fn remove_tabs_from_tab_group(
+    pub fn remove_tabs_from_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surfaces: &[SurfaceId],
         transaction: Option<&str>,
     ) -> anyhow::Result<Vec<String>> {
         let removed = surfaces.to_vec();
-        let (touched, _) =
-            self.tab_group_remove(StripRequest::local("tab.group.remove"), move |_| Ok(removed))?;
+        let (touched, _) = self
+            .tab_group_remove(StripRequest::local(actor, "tab.group.remove"), move |_| {
+                Ok(removed)
+            })?;
         self.emit_tab_group_members(surfaces, transaction);
         Ok(touched.unwrap_or_default())
     }
@@ -550,8 +515,9 @@ impl Mux {
     /// Move a whole group: within or across strips, into a new split or
     /// column, or into a new workspace. Members keep their order and stay
     /// grouped; the group is not layout-undoable.
-    pub fn move_tab_group(
+    pub fn move_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         destination: TabGroupDestination,
         transaction: Option<&str>,
@@ -574,6 +540,7 @@ impl Mux {
         let workspace_id = self.next_id();
         let presentation = self.presentation_snapshot();
         self.commit_tab_group_change(
+            actor,
             "tab.group.move",
             workspace_group.clone(),
             |mux, state, groups| {
@@ -621,7 +588,7 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Column { pane, after_column, width },
+                            TabDragDestination::Column { pane, after_column, width, dock: None },
                             &ids,
                             false,
                         )?;
@@ -660,7 +627,7 @@ impl Mux {
                                 root: Node::Leaf(ids.pane),
                                 active_pane: ids.pane,
                                 zoomed_pane: None,
-                                zellij_auto_layout: Some(vec![ids.pane]),
+                                creation_order_auto_layout: Some(vec![ids.pane]),
                                 viewport_splits: Default::default(),
                                 viewport_base_width: None,
                                 layout_columns: Vec::new(),
@@ -695,9 +662,13 @@ impl Mux {
     }
 
     /// Ungroup: the members stay in place without a group.
-    pub fn ungroup_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<Vec<SurfaceId>> {
+    pub fn ungroup_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<Vec<SurfaceId>> {
         let members = self.tab_group_outcome(group).members;
-        self.tab_group_ungroup(StripRequest::local("tab.group.ungroup"), group)?;
+        self.tab_group_ungroup(StripRequest::local(actor, "tab.group.ungroup"), group)?;
         Ok(members)
     }
 
@@ -711,7 +682,7 @@ impl Mux {
             let members = group_members(state, &edit.groups, &group_id);
             anyhow::ensure!(
                 edit.groups.groups.remove(&group_id).is_some(),
-                state_commit::state_not_found("tab_group", &group_id)
+                crate::state::commit::state_not_found("tab_group", &group_id)
             );
             edit.groups.members.retain(|_, member| member != &group_id);
             let tabs = members
@@ -727,8 +698,13 @@ impl Mux {
     /// Close a group: close every member placement in one commit. Terminal
     /// processes keep running (closing a view never ends a terminal);
     /// browsers close with their only tab. A linked saved group remains.
-    pub fn close_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<Vec<SurfaceId>> {
-        let (closed, _) = self.tab_group_close(StripRequest::local("tab.group.close"), group)?;
+    pub fn close_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let (closed, _) =
+            self.tab_group_close(StripRequest::local(actor, "tab.group.close"), group)?;
         closed.context("tab group close committed no result")
     }
 
@@ -743,7 +719,7 @@ impl Mux {
             self.commit_tab_strip_change(request, None, |mux, state, edit| {
                 let members = group_members(state, &edit.groups, &group_id);
                 if members.is_empty() {
-                    return Err(state_commit::state_not_found("tab_group", &group_id));
+                    return Err(crate::state::commit::state_not_found("tab_group", &group_id));
                 }
                 let tabs = members
                     .iter()
@@ -789,7 +765,7 @@ impl Mux {
                 let presentation = mux.presentation_snapshot();
                 let members = group_members(state, &edit.groups, &group_id);
                 if members.is_empty() {
-                    return Err(state_commit::state_not_found("tab_group", &group_id));
+                    return Err(crate::state::commit::state_not_found("tab_group", &group_id));
                 }
                 let target = match &pane {
                     Some(pane) => pane_by_public_id(state, pane).ok_or_else(|| {
@@ -818,8 +794,9 @@ impl Mux {
     }
 
     /// Add a new view of a running terminal to `pane` (its last tab).
-    pub(super) fn project_terminal_into_pane(
+    pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
+        actor: &Actor,
         terminal_id: &str,
         pane: PaneId,
     ) -> anyhow::Result<SurfaceId> {
@@ -843,7 +820,7 @@ impl Mux {
             index,
             None,
             None,
-            &WorkspaceMutation::local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
@@ -875,7 +852,7 @@ impl Mux {
 
     /// The refreshed saved record of a live group linked to one, built from
     /// `state` (the projected state of the change being committed).
-    pub(super) fn saved_record_for(
+    pub(crate) fn saved_record_for(
         &self,
         state: &State,
         groups: &TabGroupState,
@@ -904,8 +881,13 @@ impl Mux {
     }
 
     /// Save (pin) a live group. Returns the saved record's id.
-    pub fn save_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<String> {
-        let commit = self.tab_group_save(StripRequest::local("tab.group.save"), group, None)?;
+    pub fn save_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<String> {
+        let commit =
+            self.tab_group_save(StripRequest::local(actor, "tab.group.save"), group, None)?;
         commit.result["id"].as_str().map(str::to_string).context("saved group has no id")
     }
 
@@ -923,11 +905,10 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
-                let record = edit
-                    .groups
-                    .groups
-                    .get_mut(&group_id)
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
+                let record =
+                    edit.groups.groups.get_mut(&group_id).ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
                 let saved_id = record.saved_id.get_or_insert_with(new_saved_tab_group_id).clone();
                 let mut saved = mux
                     .saved_record_for(state, &edit.groups, &group_id)
@@ -943,7 +924,7 @@ impl Mux {
     }
 
     /// Unsave a live group: delete its saved record and keep the group.
-    pub fn unsave_tab_group(&self, group: &str) -> anyhow::Result<bool> {
+    pub fn unsave_tab_group_as(&self, actor: &Actor, group: &str) -> anyhow::Result<bool> {
         let saved_id = self
             .presentation_snapshot()
             .tab_groups
@@ -953,13 +934,13 @@ impl Mux {
             .saved_id
             .clone();
         let Some(saved_id) = saved_id else { return Ok(false) };
-        self.delete_saved_tab_group(&saved_id)
+        self.delete_saved_tab_group_as(actor, &saved_id)
     }
 
     /// Delete a saved group. A live group linked to it stays, unlinked.
-    pub fn delete_saved_tab_group(&self, saved_id: &str) -> anyhow::Result<bool> {
+    pub fn delete_saved_tab_group_as(&self, actor: &Actor, saved_id: &str) -> anyhow::Result<bool> {
         let commit = self.saved_tab_group_delete(
-            &WorkspaceMutation::local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
             None,
             saved_id,
             true,
@@ -970,258 +951,7 @@ impl Mux {
     pub fn saved_tab_groups(&self) -> Vec<SavedTabGroupRecord> {
         self.presentation_snapshot().saved_tab_groups.clone()
     }
-
-    /// Reopen a saved group into `pane`. A live group already linked to the
-    /// record is returned unchanged. Otherwise each member is restored: a
-    /// terminal still running is reattached (a new view of the same
-    /// terminal), other terminals start in their saved directory, and
-    /// browsers reopen at their saved URL.
-    pub fn reopen_saved_tab_group(
-        self: &Arc<Self>,
-        saved_id: &str,
-        pane: PaneId,
-        transaction: Option<&str>,
-    ) -> anyhow::Result<TabGroupOutcome> {
-        let presentation = self.presentation_snapshot();
-        let saved = presentation
-            .saved_tab_groups
-            .iter()
-            .find(|record| record.id == saved_id)
-            .cloned()
-            .ok_or_else(|| state_commit::state_not_found("saved_tab_group", saved_id))?;
-        if let Some(live) = presentation
-            .tab_groups
-            .groups
-            .values()
-            .find(|group| group.saved_id.as_deref() == Some(saved_id))
-        {
-            return Ok(self.tab_group_outcome(&live.id));
-        }
-        anyhow::ensure!(
-            self.with_state(|state| state.panes.contains_key(&pane)),
-            "unknown pane {pane}"
-        );
-        let mut surfaces = Vec::new();
-        for member in &saved.members {
-            let surface = match member {
-                SavedTabMember::Terminal { terminal_id, cwd, .. } => {
-                    let reattached = terminal_id
-                        .as_deref()
-                        .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                        .filter(|resolution| {
-                            resolution.terminal.lifecycle == TerminalLifecycle::Running
-                        })
-                        .and_then(|resolution| {
-                            self.project_terminal_into_pane(&resolution.terminal.terminal_id, pane)
-                                .ok()
-                        });
-                    match reattached {
-                        Some(surface) => surface,
-                        None => self.new_tab(Some(pane), cwd.clone(), None)?.id,
-                    }
-                }
-                SavedTabMember::Browser { url, engine, profile_id, title } => match engine {
-                    Some(engine) => {
-                        self.new_frontend_browser_tab(
-                            Some(pane),
-                            crate::workspace_registry::FrontendBrowserRecord {
-                                engine: engine.clone(),
-                                url: url.clone(),
-                                title: title.clone(),
-                                favicon_url: None,
-                                profile_id: profile_id.clone(),
-                            },
-                            None,
-                        )?
-                        .id
-                    }
-                    None => self.new_browser_tab(url.clone(), Some(pane), None)?.id,
-                },
-            };
-            surfaces.push(surface);
-        }
-        let outcome = self.create_tab_group(
-            &surfaces,
-            Some(saved.name),
-            Some(saved.color),
-            None,
-            transaction,
-        )?;
-        let group = outcome
-            .group
-            .as_ref()
-            .map(|group| group.id.clone())
-            .context("reopened group missing")?;
-        let link = saved_id.to_string();
-        let room = saved.room;
-        let linked = group.clone();
-        self.commit_tab_strip_change(
-            StripRequest::local("tab.group.save"),
-            None,
-            move |mux, state, edit| {
-                let group = linked;
-                if let Some(record) = edit.groups.groups.get_mut(&group) {
-                    record.saved_id = Some(link.clone());
-                }
-                if let Some(mut record) = mux.saved_record_for(state, &edit.groups, &group) {
-                    record.room = room;
-                    edit.saved = Some(record);
-                }
-                Ok(())
-            },
-        )?;
-        Ok(self.tab_group_outcome(&group))
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
-        mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone()))
-            .unwrap_or_default()
-    }
-
-    fn runs(mux: &Mux, pane: PaneId) -> Vec<(String, Vec<SurfaceId>)> {
-        let presentation = mux.presentation_snapshot();
-        mux.with_state(|state| {
-            pane_tab_groups(state, &presentation, pane)
-                .into_iter()
-                .map(|run| (run.group.id, run.members))
-                .collect()
-        })
-    }
-
-    #[test]
-    fn cmux_next_tab_groups_keep_members_contiguous_through_edits() {
-        let mux = Mux::new_for_test("tab-groups", SurfaceOptions::default());
-        let t1 = mux.new_workspace(None, None).unwrap().id;
-        let pane = mux.with_state(|state| state.pane_of(t1)).unwrap();
-        let t2 = mux.new_tab(Some(pane), None, None).unwrap().id;
-        let t3 = mux.new_tab(Some(pane), None, None).unwrap().id;
-        let t4 = mux.new_tab(Some(pane), None, None).unwrap().id;
-        mux.set_tab_pinned(t1, true).unwrap();
-        assert!(mux.create_tab_group(&[t1], None, None, None, None).is_err());
-        assert!(mux.create_tab_group(&[t2], None, Some("blurple".into()), None, None).is_err());
-
-        let created = mux
-            .create_tab_group(
-                &[t4, t2],
-                Some("Agents".into()),
-                Some("green".into()),
-                Some("g1".into()),
-                Some("tx-1"),
-            )
-            .unwrap();
-        assert_eq!(created.members, vec![t2, t4]);
-        assert_eq!(tabs(&mux, pane), vec![t1, t2, t4, t3]);
-        assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t2, t4])]);
-        let durable = mux.workspace_registry.lock().unwrap().presentation_snapshot().unwrap();
-        assert_eq!(durable.tab_groups.groups["g1"].color, "green");
-        assert_eq!(durable.tab_groups.members.len(), 2);
-
-        mux.update_tab_group("g1", Some("".into()), Some("cyan".into()), Some(true)).unwrap();
-        let group = mux.presentation_snapshot().tab_groups.groups["g1"].clone();
-        assert_eq!(
-            (group.name.as_str(), group.color.as_str(), group.collapsed),
-            ("", "cyan", true)
-        );
-
-        mux.add_tabs_to_tab_group("g1", &[t3], None).unwrap();
-        assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t2, t4, t3])]);
-        mux.remove_tabs_from_tab_group(&[t2], None).unwrap();
-        assert_eq!(tabs(&mux, pane), vec![t1, t4, t3, t2]);
-        assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t4, t3])]);
-
-        // Moving the group within its strip cannot pass the pinned tab.
-        mux.move_tab_group("g1", TabGroupDestination::Strip { pane, index: Some(0) }, None)
-            .unwrap();
-        assert_eq!(tabs(&mux, pane), vec![t1, t4, t3, t2]);
-        mux.move_tab_group("g1", TabGroupDestination::Strip { pane, index: None }, None).unwrap();
-        assert_eq!(tabs(&mux, pane), vec![t1, t2, t4, t3]);
-
-        let decorations = mux.tree_decorations();
-        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
-        let pane_json = &tree["workspaces"][0]["screens"][0]["panes"][0];
-        assert_eq!(pane_json["tab_groups"][0]["id"], "g1");
-        assert_eq!(pane_json["tab_groups"][0]["start"], 2);
-        assert_eq!(pane_json["tab_groups"][0]["count"], 2);
-        assert_eq!(pane_json["tabs"][2]["group"], "g1");
-        assert!(pane_json["tabs"][1]["group"].is_null());
-
-        // The whole group moves into a new split and stays grouped.
-        let moved = mux
-            .move_tab_group(
-                "g1",
-                TabGroupDestination::Split { pane, edge: TabDropEdge::Right, ratio: None },
-                None,
-            )
-            .unwrap();
-        let new_pane = moved.pane.unwrap();
-        assert_ne!(new_pane, pane);
-        assert_eq!(tabs(&mux, new_pane), vec![t4, t3]);
-        assert_eq!(tabs(&mux, pane), vec![t1, t2]);
-        assert_eq!(runs(&mux, new_pane), vec![("g1".to_string(), vec![t4, t3])]);
-
-        // Ungroup leaves the tabs in place.
-        assert_eq!(mux.ungroup_tab_group("g1").unwrap(), vec![t4, t3]);
-        assert!(runs(&mux, new_pane).is_empty());
-        assert_eq!(tabs(&mux, new_pane), vec![t4, t3]);
-    }
-
-    #[test]
-    fn cmux_next_saved_tab_groups_outlive_close_and_reopen() {
-        let mux = Mux::new_for_test("saved-tab-groups", SurfaceOptions::default());
-        let t1 = mux.new_workspace(None, None).unwrap().id;
-        let pane = mux.with_state(|state| state.pane_of(t1)).unwrap();
-        let t2 = mux.new_tab(Some(pane), None, None).unwrap().id;
-        let t3 = mux.new_tab(Some(pane), None, None).unwrap().id;
-        mux.create_tab_group(
-            &[t2, t3],
-            Some("Build".into()),
-            Some("orange".into()),
-            Some("g".into()),
-            None,
-        )
-        .unwrap();
-        let saved = mux.save_tab_group("g").unwrap();
-        let record = mux.saved_tab_groups().into_iter().find(|record| record.id == saved).unwrap();
-        assert_eq!((record.name.as_str(), record.members.len()), ("Build", 2));
-        // Rename syncs to the saved record.
-        mux.update_tab_group("g", Some("Release".into()), None, None).unwrap();
-        assert_eq!(mux.saved_tab_groups()[0].name, "Release");
-
-        let closed = mux.close_tab_group("g").unwrap();
-        assert_eq!(closed, vec![t2, t3]);
-        assert_eq!(tabs(&mux, pane), vec![t1]);
-        assert!(mux.presentation_snapshot().tab_groups.groups.is_empty());
-        assert_eq!(mux.saved_tab_groups().len(), 1);
-
-        let reopened = mux.reopen_saved_tab_group(&saved, pane, Some("tx-reopen")).unwrap();
-        let group = reopened.group.clone().unwrap();
-        assert_eq!(group.name, "Release");
-        assert_eq!(group.color, "orange");
-        assert_eq!(group.saved_id.as_deref(), Some(saved.as_str()));
-        assert_eq!(reopened.members.len(), 2);
-        // Reopening again returns the live group.
-        let again = mux.reopen_saved_tab_group(&saved, pane, None).unwrap();
-        assert_eq!(again.group.unwrap().id, group.id);
-
-        // Moving the group into a new workspace carries it along.
-        let moved = mux
-            .move_tab_group(
-                &group.id,
-                TabGroupDestination::NewWorkspace { group: None, index: None },
-                None,
-            )
-            .unwrap();
-        let workspace = moved.workspace.unwrap();
-        assert!(mux.with_state(|state| state.workspace_index(workspace).is_some()));
-        assert_eq!(runs(&mux, moved.pane.unwrap()).len(), 1);
-
-        assert!(mux.unsave_tab_group(&group.id).unwrap());
-        assert!(mux.saved_tab_groups().is_empty());
-        assert!(!mux.delete_saved_tab_group(&saved).unwrap());
-    }
-}
+mod tests;

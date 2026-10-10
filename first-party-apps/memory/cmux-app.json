@@ -1,0 +1,146 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/memory",
+  "name": {
+    "en": "Agent Memory",
+    "ja": "エージェントメモリ"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Browse, search, edit and delete what your agents remember: CLAUDE.md, AGENTS.md, Claude project memory and the other agents' files, on every machine and project. Every edit shows a diff before it is saved; deleted files go to the Trash.",
+    "ja": "エージェントが覚えていること（CLAUDE.md、AGENTS.md、Claudeのプロジェクトメモリ、ほかのエージェントのファイル）を、すべてのマシンとプロジェクトで閲覧、検索、編集、削除します。編集は保存前に差分を表示し、削除したファイルはゴミ箱に入ります。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "productivity"
+  ],
+  "keywords": [
+    "memory",
+    "claude.md",
+    "agents.md",
+    "instructions",
+    "agents"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "machine:read": "List this Mac, your cmux servers and the team VM.",
+    "memory:read": "List and search agent memory files in your home folder and your workspace folders. Only memory files, never other files.",
+    "document:read": "Read the memory file you open."
+  },
+  "optionalScopes": {
+    "document:write": "Save an edit to a memory file after you review its diff and tap Save.",
+    "fs:write": "Move a memory file to the Trash when you tap Move to Trash after reviewing it."
+  },
+  "contributes": {
+    "sidebarSections": [
+      {
+        "id": "memory",
+        "title": {
+          "en": "Memory",
+          "ja": "メモリ"
+        },
+        "symbol": "brain",
+        "defaultRegion": "bottom",
+        "render": "renderSection"
+      }
+    ],
+    "paneKinds": [
+      {
+        "id": "memoryHub",
+        "title": {
+          "en": "Agent Memory",
+          "ja": "エージェントメモリ"
+        },
+        "symbol": "brain",
+        "render": "renderPane"
+      }
+    ],
+    "commands": [
+      {
+        "id": "openMemory",
+        "title": {
+          "en": "Open Agent Memory",
+          "ja": "エージェントメモリを開く"
+        },
+        "symbol": "brain",
+        "run": "openMemory",
+        "keywords": [
+          "memory",
+          "claude.md",
+          "agents.md"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:memory"
+        ]
+      },
+      {
+        "id": "reload",
+        "title": {
+          "en": "Reload Agent Memory",
+          "ja": "エージェントメモリを再読み込み"
+        },
+        "symbol": "arrow.clockwise",
+        "run": "reload",
+        "keywords": [
+          "refresh"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:memory"
+        ]
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Agent Memory Variant",
+          "ja": "エージェントメモリの次のバリアント"
+        },
+        "run": "cycleVariant",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-devOnly": true
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "files",
+            "entries",
+            "split"
+          ],
+          "default": "files",
+          "title": "Design variant",
+          "description": "files: files by machine and project with the selected file below. entries: every entry in one filterable list. split: file list left, file right.",
+          "x-cmux-devOnly": true
+        }
+      }
+    }
+  },
+  "activation": [
+    "onSidebarSection:memory",
+    "onPane:memoryHub",
+    "onCommand:openMemory",
+    "onCommand:reload"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "strings/"
+  ]
+}

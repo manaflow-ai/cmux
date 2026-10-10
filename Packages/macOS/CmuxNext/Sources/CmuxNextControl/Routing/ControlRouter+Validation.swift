@@ -15,17 +15,37 @@ extension ControlRouter {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownCLIAction", "No CLI command '%@'", name),
                                    data: ["action": .string(name), "cli": true])
             }
+            try refuseDisabledFeature(action, name)
             return action
         }
         guard let action = catalog.resolve(name) else {
             throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", name), data: ["action": .string(name)])
         }
+        try refuseDisabledFeature(action, name)
         return action
     }
 
+    /// `feature.disabled` for an action whose feature an administrator turned off.
+    static func refuseDisabledFeature(_ action: ControlActionInfo, _ name: String) throws {
+        guard let feature = action.disabledFeature else { return }
+        try check(.featureDisabled(feature), action: name)
+    }
+
     /// Checks target and arguments against the schema.
-    static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String]) throws -> ControlActionRequest {
+    /// `connection` decides whether the caller may name the user
+    /// (``ControlOrigin``): a socket caller never may.
+    static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String],
+                                 connection: ControlConnectionID) throws -> ControlActionRequest {
         var request = ControlActionRequest(actionID: action.id)
+        if let origin = try ControlOrigin().validated(params["origin"], connection: connection) {
+            request.origin = origin
+        }
+        if let focus = params["focus"], !focus.isNull {
+            guard let value = focus.boolValue else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.focusShape", "focus must be true or false"))
+            }
+            request.focus = value
+        }
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }
@@ -36,17 +56,19 @@ extension ControlRouter {
         default: throw ControlError.invalidParams(ControlStrings.text("control.error.argsShape", "args must be an object of name: value"))
         }
         let schema = Dictionary(action.arguments.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-        for (name, raw) in rawArguments {
+        for (given, raw) in rawArguments {
+            // Rooms became Spaces: `--room` still names the `space` argument.
+            let name = schema[given] == nil ? Self.renamedArguments[given].flatMap { schema[$0] == nil ? nil : $0 } ?? given : given
             guard let argument = schema[name] else {
                 throw ControlError.invalidParams(
                     ControlStrings.format("control.error.noSuchArgument", "%1$@ has no argument '%2$@'", action.id, name),
                     data: ["valid": .array(action.arguments.map { .string($0.name) })]
                 )
             }
-            request.arguments[name] = try value(raw, for: argument, action: action.id, knownKinds: knownKinds)
+            request.arguments.updateValue(try value(raw, for: argument, action: action.id, knownKinds: knownKinds), forKey: name)
         }
         let interactive = params["interactive"]?.boolValue ?? false
-        let missing = action.arguments.filter { $0.isRequired && request.arguments[$0.name] == nil }.map(\.name)
+        let missing = action.arguments.filter { $0.isRequired && request.arguments.index(forKey: $0.name) == nil }.map(\.name)
         if !missing.isEmpty, !interactive {
             throw ControlError.invalidParams(
                 ControlStrings.format("control.error.missingArguments", "%1$@ requires %2$@", action.id, missing.map { "--\($0)" }.joined(separator: ", ")),
@@ -55,6 +77,9 @@ extension ControlRouter {
         }
         return request
     }
+
+    /// Old argument names and the ones that replaced them (data-model.md 3.4).
+    static let renamedArguments = ["room": "space"]
 
     static func value(_ raw: JSONValue, for argument: ControlArgumentInfo, action: String, knownKinds: [String]) throws -> ControlValue {
         func fail(_ expected: String) -> ControlError {
@@ -68,7 +93,7 @@ extension ControlRouter {
             default: throw fail("a string")
             }
         case .int:
-            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces), radix: 10) }
             guard let number else { throw fail("an integer") }
             if let range = argument.range, !range.contains(number) { throw fail("an integer in \(range.lowerBound)...\(range.upperBound)") }
             return .int(number)
@@ -100,12 +125,12 @@ extension ControlRouter {
         switch raw {
         case .string(let text):
             let trimmed = text.trimmingCharacters(in: .whitespaces)
-            let colon = trimmed.firstIndex(of: ":")
-            let prefix = colon.map { String(trimmed[..<$0]) } ?? ""
-            if let colon, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
+            let parts = trimmed.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let prefix = parts.count == 2 ? String(parts.first ?? "") : ""
+            if parts.count == 2, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
                 || allowedKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) }) {
                 kindText = prefix
-                id = String(trimmed[trimmed.index(after: colon)...])
+                id = String(parts.last ?? "")
             } else {
                 kindText = nil
                 id = trimmed

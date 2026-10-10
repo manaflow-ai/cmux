@@ -12,7 +12,11 @@
 # runner (model names drift across Xcode versions); setting them here too would
 # override that, so they live only in the Fastfile.
 
-# Drives the shared scheme's UI test target; only the snapshot test runs.
+# DISABLED: the snapshot UI test (cmuxUITests/SnapshotUITests) drove the
+# legacy app and was deleted with it. The rewritten app (ios/CmuxiOS) has no
+# snapshot test yet, so `.github/workflows/ios-screenshots.yml` skips the
+# capture. When a new snapshot UI test lands, point only_testing at it and
+# re-enable that job. Metadata, frame assets, and the frame/upload lanes stay.
 scheme("cmux-ios")
 only_testing(["cmuxUITests/SnapshotUITests"])
 

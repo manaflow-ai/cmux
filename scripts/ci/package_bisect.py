@@ -7,8 +7,8 @@ the probed commit's tree with today's iOS CI files laid over it and the
 package-lint gate dropped (old sources fail today's lint baseline). The
 package suite then runs exactly as it does now.
 
-    package_bisect.py --package CmuxMobileShell start --points 6 GOOD..BAD
-    package_bisect.py --package CmuxMobileShell start SHA [SHA ...]
+    package_bisect.py --package CMUXMobileCore start --points 6 GOOD..BAD
+    package_bisect.py --package CMUXMobileCore start SHA [SHA ...]
     package_bisect.py probe SHA [SHA ...]  # add chosen commits to this bisect
     package_bisect.py adopt SHA RUN_ID     # count a run that already exists
     package_bisect.py status [--wait]      # failure matrix + per-test windows
@@ -529,7 +529,7 @@ def cmd_cleanup(args) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--package", default="CmuxMobileShell")
+    parser.add_argument("--package", default="CMUXMobileCore")
     parser.add_argument("--bisect", help="name for this bisect (default: the package); lets experiments coexist")
     sub = parser.add_subparsers(dest="command", required=True)
     start = sub.add_parser("start")

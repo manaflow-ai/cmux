@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Chrome's nine group colors, shared by tab groups and workspace groups so
+/// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon
 /// stores and `cmux.json` / the CLI accept.
 ///
@@ -17,6 +17,13 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case purple
     case cyan
     case orange
+
+    /// The color a new space or browser profile gets: the first color not in
+    /// `used`, never blue (the no-blue rule covers what the app picks by
+    /// itself) or grey (no color). Nil when every such color is in use.
+    public static func automatic(used: Set<String>) -> GroupColor? {
+        allCases.first { $0 != .grey && $0 != .blue && !used.contains($0.rawValue) }
+    }
 
     /// The color itself: swatches, group underlines, sidebar rails.
     public var swatch: NSColor { tint(saturation: (0.42, 0.40), brightness: (0.64, 0.68)) }

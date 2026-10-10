@@ -9,7 +9,7 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         control: None,
     });
     let command: Command = serde_json::from_value(request)?;
-    handle_command(mux, 0, command, &writer)
+    handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
 fn identity_mux() -> Arc<Mux> {

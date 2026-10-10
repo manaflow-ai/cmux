@@ -1,12 +1,16 @@
 import AppKit
-
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
-
 extension SidebarListView {
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let contextMenuProvider else { return nil }
         let point = convert(event.locationInWindow, from: nil)
+        if case let .group(id)? = displayed.row(at: point.y)?.key {
+            // A right-click on a group opens its editor (cx-rcby); the
+            // editor's last row shows the group's full menu.
+            groupEditing.open(id)
+            return nil
+        }
+        guard let contextMenuProvider else { return nil }
         let target: SidebarContextTarget
         switch displayed.row(at: point.y)?.key {
         case let .workspace(id)?:
@@ -15,10 +19,12 @@ extension SidebarListView {
                 reload(animated: true)
             }
             target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
-        case let .group(id)?:
-            target = .group(id)
-        case let .section(id)?, let .emptySection(id)?:
+        case .group?:
+            return nil
+        case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .tab(workspace, tab)?:
+            target = .tab(workspace, tab)
         case nil:
             target = .background
         }

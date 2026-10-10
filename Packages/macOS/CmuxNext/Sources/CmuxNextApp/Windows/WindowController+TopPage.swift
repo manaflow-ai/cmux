@@ -1,0 +1,65 @@
+import AppKit
+import CmuxNextDaemon
+
+extension WindowController {
+    /// Shows top page `route` in the content area (TOP-SECTION-ITEMS-ARE-PAGES):
+    /// the shown workspace parks and stays mounted, `state.workspaceID` stays,
+    /// so selecting a workspace swaps it back in the same frame. One
+    /// synchronous swap, like a workspace switch. False when no provider
+    /// serves the route (the window then shows its workspace).
+    @discardableResult
+    func showTopPage(_ route: TopPageRoute) -> Bool {
+        guard let view = topPages.view(for: route, in: self) else { return false }
+        if root.content === view { return true }
+        parkContentForPage()
+        root.show(view)
+        // Pages draw in the room theme (the window's own scope).
+        themeScope.show(nil)
+        root.titlebar.title = topPages.title(for: route)
+        services.windows.recordSaver.stateDidChange(state)
+        services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
+        return true
+    }
+
+    /// Shows the Home page in place of the store's home workspace while the
+    /// Home item stands for it (its row is hidden then). False: show `workspace`.
+    func showsHomePage(instead workspace: WorkspaceModel) -> Bool {
+        guard workspace.kind == "home", SidebarBridge.hidesHome(services.sidebarLayout.document) else { return false }
+        if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
+        if state.page != .home { state.page = .home }
+        return showTopPage(.home)
+    }
+
+    /// The content of the workspace this window names: the shown one, else
+    /// the parked one under a top page (a tab opened behind the page lands
+    /// there).
+    var workspaceContent: WorkspaceContentController? {
+        content ?? parked.last { $0.workspace.id == state.workspaceID }
+    }
+
+    /// Leaves the top page for the window's workspace at once
+    /// (SIDEBAR-SELECTION-ONE-MODEL: one selection, so showing something in
+    /// the workspace selects it). True when a page was left.
+    @discardableResult
+    func leaveTopPage() -> Bool {
+        guard state.page != nil else { return false }
+        state.page = nil
+        services.windows.recordSaver.stateDidChange(state)
+        showWorkspace(requested: state.workspaceID)
+        return true
+    }
+
+    /// Every content swap, a top page or a workspace: the titlebar's Back and
+    /// Forward re-read the shown page's history. The sidebar never shows Back
+    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
+    func followContentChanges() {
+        root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
+    }
+
+    /// The top page this window shows, if any.
+    var shownTopPage: TopPageRoute? {
+        guard let route = state.page, let view = topPages.views[route], root.content === view else { return nil }
+        return route
+    }
+}

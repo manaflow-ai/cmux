@@ -1,0 +1,26 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/home",
+  "name": { "en": "Home", "ja": "ホーム" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Your chief and your conversations, next to your workspaces.",
+    "ja": "チーフと会話を、ワークスペースの隣に。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "house" },
+  "categories": ["communication", "agents"],
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.pane/1": { "native": "home", "title": { "en": "Home", "ja": "ホーム" }, "symbol": "house" }
+  },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 0 },
+    "screen": "appColumn",
+    "tab": true,
+    "primaryInput": "home.composer"
+  }
+}

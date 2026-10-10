@@ -4,13 +4,23 @@ on:
   push:
     branches:
       - main
+      # feat-cmux-next lands by direct push (no PRs), so its pushes run the
+      # spec, inventory and SDK generator checks here (R92: stale SDK count
+      # pins landed unnoticed).
+      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/scripts/cmux-tui-fmt-changed.py"
+      - ".github/scripts/test_cmux_tui_fmt_changed.py"
+      - ".github/actions/setup-cmux-tui-rust/**"
   pull_request:
     paths:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/scripts/cmux-tui-fmt-changed.py"
+      - ".github/scripts/test_cmux_tui_fmt_changed.py"
+      - ".github/actions/setup-cmux-tui-rust/**"
   workflow_dispatch:
 
 concurrency:
@@ -57,3 +67,42 @@ jobs:
 
       - name: Check generated SDK wire layers
         run: python3 cmux-tui/bindings/codegen/generate.py --check
+
+  # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
+  # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
+  # change touches: no build and no dependency download.
+  rustfmt:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test the changed-package rustfmt check
+        run: python3 .github/scripts/test_cmux_tui_fmt_changed.py
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Pull requests compare with the base their merge commit was made on
+      # (its first parent; the event's base.sha can be older), pushes with the
+      # commit before them; a dispatch (or a new branch) checks every package.
+      - name: Fetch the comparison base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; checking every package"
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: cargo fmt --check on changed cmux-tui packages
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA"

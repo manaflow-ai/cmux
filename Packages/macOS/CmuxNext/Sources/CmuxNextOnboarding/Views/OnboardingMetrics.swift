@@ -1,27 +1,23 @@
 import AppKit
 import CmuxNextDesign
 
-/// Sizes for the onboarding window, derived from the design tokens so they
-/// follow density.
+/// Sizes and type for the onboarding window: one calm size, system font.
 enum OnboardingMetrics {
-    static var compact: Bool { Metrics.density == .compact }
-    static var windowSize: NSSize { compact ? NSSize(width: 760, height: 540) : NSSize(width: 840, height: 600) }
-    /// Side inset of titles and step content.
-    static var contentInset: CGFloat { Metrics.space6 * 3 }
-    static var titleTop: CGFloat { Metrics.titlebarHeight + Metrics.space5 }
-    static var footerHeight: CGFloat { Metrics.space6 * 3.5 }
-    static var buttonHeight: CGFloat { compact ? 28 : 32 }
-    static var rowHeight: CGFloat { compact ? 34 : 40 }
-    static var themeCardSize: NSSize { compact ? NSSize(width: 112, height: 72) : NSSize(width: 124, height: 80) }
-    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
-    static var itemRadius: CGFloat { Metrics.itemCornerRadius }
-    /// Distance a step slides in from.
-    static let slideDistance: CGFloat = 18
+    static let windowSize = NSSize(width: 640, height: 520)
+    /// Margin around everything.
+    static let margin: CGFloat = 40
+    /// Top of the title (below the close button).
+    static let titleTop: CGFloat = 52
+    static let footerHeight: CGFloat = 64
+    static let previewCornerRadius: CGFloat = 10
+    static var titleFont: NSFont { .systemFont(ofSize: 22, weight: .semibold) }
+    static var bodyFont: NSFont { .systemFont(ofSize: 13) }
+    static var captionFont: NSFont { .systemFont(ofSize: 11) }
 }
 
 /// Label factory: non-editable, theme colors, wraps when `lines` is not 1.
 enum OnboardingLabel {
-    static func make(_ text: String = "", font: NSFont = Typography.body, color: NSColor = Palette.textPrimary, lines: Int = 1) -> NSTextField {
+    static func make(_ text: String = "", font: NSFont = OnboardingMetrics.bodyFont, color: NSColor = Palette.textPrimary, lines: Int = 1) -> NSTextField {
         let label = lines == 1 ? NSTextField(labelWithString: text) : NSTextField(wrappingLabelWithString: text)
         label.font = font
         label.textColor = color

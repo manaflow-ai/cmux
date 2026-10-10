@@ -5,7 +5,7 @@ public import Foundation
 /// keyword) in the omnibar starts a keyword session: the field then holds
 /// only the text after the keyword, the extension gets every change and
 /// answers with suggestions, and Enter hands the text to the extension
-/// (Chrome's keyword mode).
+/// (keyword mode).
 public nonisolated struct OmnibarKeyword: Hashable, Sendable {
     public var extensionID: String
     public var keyword: String
@@ -45,7 +45,7 @@ public nonisolated struct OmnibarKeyword: Hashable, Sendable {
         components.scheme = "cmux-omnibox"
         components.host = extensionID.isEmpty ? "extension" : extensionID
         components.path = "/" + content
-        let url = components.url ?? URL(string: "cmux-omnibox://extension/")!
+        let url = components.url ?? URL(string: "cmux-omnibox://extension/") ?? URL(fileURLWithPath: "/dev/null")
         var row = BrowserSuggestion(kind: .keyword, title: description.isEmpty ? content : description,
                                     detail: description.isEmpty || description == content ? "" : content,
                                     url: url, score: Double(1000 - rank))

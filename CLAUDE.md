@@ -4,6 +4,8 @@ Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTI
 [area instructions](#area-instructions) and [task skills](skills/README.md).
 Read the matching skill before changing an area, then only the references needed.
 
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
@@ -27,6 +29,24 @@ Read the matching skill before changing an area, then only the references needed
 - App-linked code (`App/`, `CLI/` and their packages) must
   remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
+## Swift namespace convention
+
+Public and package types in package source must expose an instance surface or
+be scoped onto the owning type; caseless namespace enums and all-static public
+or package types are lint violations. Run
+`./scripts/lint-ios-package-conventions.sh --namespace-fix` before committing.
+When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
+pre-push hook runs the fixer and stops so changed files can be reviewed,
+staged, and committed. CI keeps the non-mutating lint as the backstop.
+
+Claude Code and Codex also have repo-local post-edit hooks in
+`.claude/settings.json` and `.codex/hooks.json`. They pass only edited
+`Packages/**/*.swift` files to `scripts/ci/lint-swift-post-edit.sh`, which runs
+the same fixer without blocking the edit. A clean scoped check is silent; a
+repair is printed, and a fixer failure is an advisory warning. The hook is
+best-effort so an unavailable Python interpreter or an incomplete edit never
+turns an agent edit into a failed tool call.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
@@ -46,7 +66,7 @@ close it; never close an outside PR without a human-written explanation.
 
 The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
 `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
-`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+`cmux-tui/relays/cloudflare-do/`, `backend/`) use the Business Source License, which needs
 every outside author's CLA grant. Do not merge a PR that changes those
 directories while CLA Assistant is red, and do not copy an outside
 contributor's work there under a `Co-authored-by` trailer unless that person
@@ -65,8 +85,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
   Add `full-ci` only for a user-requested or agreed broad validation plan,
   naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
-- Let PR catch-up handle main. When needed locally, use `scripts/merge-main.sh`;
-  never overwrite a catch-up merge with a force-push ([branch updates](docs/ci/merge-main.md)).
+- Keep branches current locally with `scripts/merge-main.sh`; follow
+  [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness

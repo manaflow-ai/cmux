@@ -1,13 +1,14 @@
 import CmuxNextActions
 import CmuxNextPalette
+import Darwin
 import Foundation
 import Testing
 
-/// Search latency over 2,000 items. The budget is 1 ms per keystroke in an
-/// optimized build; debug builds (the default `swift test`) run several times
-/// slower, so they get a looser bound. Run the strict check with
+/// Search cost (CPU time of the searching thread) over 2,000 items. The
+/// budget is 1 ms per keystroke in an optimized build; debug builds (the
+/// default `swift test`) run several times slower, so they get a looser bound. Run the strict check with
 /// `swift test -c release --filter PaletteBenchmark`.
-@Suite struct PaletteBenchmarkTests {
+@Suite(.paletteRanker) struct PaletteBenchmarkTests {
     static var budgetMilliseconds: Double {
         #if DEBUG
         25
@@ -34,12 +35,18 @@ import Testing
         }
     }
 
+    /// The median CPU time of this thread per iteration. Wall time also
+    /// counts the time the thread waited for a core: with 32 suite processes
+    /// on one host the ranking median read 123 ms against a 50 ms budget
+    /// (78 s for the test), and the full scan beside it in this suite takes
+    /// cores too. The body is synchronous (JavaScriptCore runs on the
+    /// calling thread), so this thread's CPU time is the search cost.
     static func medianMilliseconds(iterations: Int, _ body: () -> Void) -> Double {
         var samples: [Double] = []
-        let clock = ContinuousClock()
         for _ in 0..<iterations {
-            let elapsed = clock.measure(body)
-            samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+            let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+            body()
+            samples.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start) / 1e6)
         }
         samples.sort()
         return samples[samples.count / 2]
@@ -68,11 +75,12 @@ import Testing
         var frecency = FrecencyStore()
         let now = Date()
         for i in stride(from: 0, to: 2000, by: 37) { frecency.record("item\(i)", at: now) }
+        let ranker = PaletteRanker()
         let queries = ["sp", "tab", "new", "move", "close"]
         let median = Self.medianMilliseconds(iterations: 40) {
             for query in queries {
-                _ = PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
-                _ = PaletteRanker.rank(index: &index, query: "q", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                _ = ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                _ = ranker.rank(index: &index, version: 1, query: "q", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
             }
         } / Double(queries.count * 2)
         print("palette benchmark: rank of 2000 items, median \(String(format: "%.3f", median)) ms per query")

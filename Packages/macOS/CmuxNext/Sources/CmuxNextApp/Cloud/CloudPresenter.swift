@@ -1,18 +1,17 @@
 import AppKit
+import CmuxNextDesign
 
-/// Sheets for Cloud prompts and results. Sheets are asynchronous (never
-/// `runModal`), attached to the active window; with no window they fall
-/// back to the result being logged only.
+/// cmux dialogs for Cloud prompts and results, on the active window; with
+/// no window a result is only logged and a question answers cancel.
 enum CloudPresenter {
     /// Shows a result; `copyable` text gets a Copy button.
     static func show(_ title: String, _ body: String, copyable: Bool = false, in window: NSWindow?) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = body
-        alert.addButton(withTitle: CloudStrings.ok)
-        if copyable { alert.addButton(withTitle: CloudStrings.copy) }
-        present(alert, in: window) { response in
-            if response == .alertSecondButtonReturn { copy(body) }
+        var buttons: [CmuxDialogButton] = []
+        if copyable { buttons.append(CmuxDialogButton(id: "copy", title: CloudStrings.copy)) }
+        buttons.append(CmuxDialogButton(id: "ok", title: CloudStrings.ok, role: .default))
+        let spec = CmuxDialogSpec(title: title, lines: [body], buttons: buttons, identifier: "cmux.dialog.cloud.result")
+        present(spec, in: window) { answer in
+            if answer?.button == "copy" { copy(body) }
         }
     }
 
@@ -20,33 +19,38 @@ enum CloudPresenter {
         show(CloudStrings.failedTitle, String(describing: error), in: window)
     }
 
+    /// The money confirmation of a machine create: only the person answers
+    /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
+    static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+
+    /// Asks a yes/no question; `done(true)` only for a click on `button`.
+    static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
+                        in window: NSWindow?, done: @escaping (Bool) -> Void) {
+        let spec = CmuxDialogSpec(title: title, lines: [body],
+                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                                  identifier: identifier)
+        present(spec, in: window) { answer in done(answer?.button == "confirm") }
+    }
+
     /// Asks for a line of text. Calls `done` with the text, or nil on cancel.
     static func askText(_ title: String, initial: String, button: String, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let alert = NSAlert()
-        alert.messageText = title
-        let field = NSTextField(string: initial)
-        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
-        alert.accessoryView = field
-        alert.addButton(withTitle: button)
-        alert.addButton(withTitle: CloudStrings.cancel)
-        alert.window.initialFirstResponder = field
-        present(alert, in: window) { done($0 == .alertFirstButtonReturn ? field.stringValue : nil) }
+        let spec = CmuxDialogSpec(title: title, fields: [.text("text", initial: initial)],
+                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                                  identifier: "cmux.dialog.cloud.text")
+        present(spec, in: window) { answer in
+            done(answer?.button == "confirm" ? answer?.text("text") : nil)
+        }
     }
 
     /// Asks to pick one of `choices` (title, value).
     static func choose(_ title: String, _ choices: [(String, String)], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let alert = NSAlert()
-        alert.messageText = title
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
-        for (label, value) in choices {
-            popup.addItem(withTitle: label)
-            popup.lastItem?.representedObject = value
-            if value == selected { popup.select(popup.lastItem) }
+        let options = choices.map { CmuxDialogOption(label: $0.0, value: $0.1) }
+        let spec = CmuxDialogSpec(title: title, fields: [.choice(id: "choice", label: nil, options: options, selected: selected)],
+                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "select", title: CloudStrings.select, role: .default)],
+                                  identifier: "cmux.dialog.cloud.choose")
+        present(spec, in: window) { answer in
+            done(answer?.button == "select" ? answer?.text("choice") : nil)
         }
-        alert.accessoryView = popup
-        alert.addButton(withTitle: CloudStrings.select)
-        alert.addButton(withTitle: CloudStrings.cancel)
-        present(alert, in: window) { done($0 == .alertFirstButtonReturn ? popup.selectedItem?.representedObject as? String : nil) }
     }
 
     static func copy(_ text: String) {
@@ -54,8 +58,9 @@ enum CloudPresenter {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private static func present(_ alert: NSAlert, in window: NSWindow?, done: @escaping (NSApplication.ModalResponse) -> Void) {
-        guard let window else { return done(.cancel) }
-        alert.beginSheetModal(for: window, completionHandler: done)
+    /// nil when there is no window to ask in.
+    private static func present(_ spec: CmuxDialogSpec, in window: NSWindow?, done: @escaping (CmuxDialogAnswer?) -> Void) {
+        guard let window else { return done(nil) }
+        CmuxDialogCenter.shared.present(spec, in: .window(window)) { done($0) }
     }
 }

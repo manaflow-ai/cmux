@@ -1120,6 +1120,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("surface.report_shell_state", "surface.report_shell_state", lambda c: {**p_surface(c), "state": "running"}),
         SocketCase("surface.ports_kick", "surface.ports_kick", p_surface, expect_ok=None),
         SocketCase("surface.read_text", "surface.read_text", lambda c: {**p_surface(c), "lines": 5, "scrollback": True}, expect_ok=None),
+        SocketCase("surface.input_state", "surface.input_state", lambda c: p_surface(c), expect_ok=None),
         SocketCase("surface.clear_history", "surface.clear_history", p_surface, expect_ok=None),
         SocketCase("surface.trigger_flash", "surface.trigger_flash", p_surface, expect_ok=None),
         SocketCase("surface.create", "surface.create", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "type": "terminal", "focus": False}, layout_mutation=True),
@@ -1151,6 +1152,11 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("notification.mark_read", "notification.mark_read", lambda c: {"all": True}, expect_ok=None),
         SocketCase("notification.open", "notification.open", lambda c: {"id": c.create_notification_for_case("open")}, expect_ok=None),
         SocketCase("notification.jump_to_unread", "notification.jump_to_unread", lambda c: {}, expect_ok=None),
+        SocketCase("agent.message.send", "agent.message.send", lambda c: {"target": require(c.surface_id, "surface"), "from": "stress", "body": "socket"}),
+        SocketCase("agent.message.list", "agent.message.list", lambda c: {"surface": require(c.surface_id, "surface"), "limit": 5}),
+        SocketCase("agent.message.claim", "agent.message.claim", lambda c: {"surface_id": require(c.surface_id, "surface"), "via": "stress"}),
+        SocketCase("agent.message.mark_read", "agent.message.mark_read", lambda c: {"surface_id": require(c.surface_id, "surface")}),
+        SocketCase("agent.message.poll", "agent.message.poll", lambda c: {"surface_id": require(c.surface_id, "surface"), "poller_key": "stress"}),
         SocketCase("app.focus_override.set", "app.focus_override.set", lambda c: {"state": "clear"}, expect_ok=None),
         SocketCase("app.simulate_active", "app.simulate_active", lambda c: {}),
         SocketCase("debug.terminals", "debug.terminals", lambda c: {}),
@@ -1547,12 +1553,16 @@ def resolve_cli_path(raw: str | None, tag: str | None) -> str:
     if tag:
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app/Contents/Resources/bin/cmux"))
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux"))
-    last_cli = pathlib.Path("/tmp/cmux-last-cli-path")
-    if last_cli.exists():
-        try:
-            candidates.append(last_cli.read_text(encoding="utf-8").strip())
-        except OSError:
-            pass
+    # The app opened last writes its CLI path; reload.sh's /tmp pointer is legacy.
+    for last_cli in (
+        pathlib.Path.home() / "Library/Application Support/cmux/last-app-cli",
+        pathlib.Path("/tmp/cmux-last-cli-path"),
+    ):
+        if last_cli.exists():
+            try:
+                candidates.append(last_cli.read_text(encoding="utf-8").strip())
+            except OSError:
+                pass
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmux"), recursive=True))
     for candidate in candidates:
         if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):

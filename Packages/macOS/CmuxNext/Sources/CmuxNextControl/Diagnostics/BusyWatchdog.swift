@@ -51,7 +51,7 @@ public final class BusyWatchdog: Sendable {
     private let log: HangLog
     private let ledger: WakeupLedger
     private let activity: ExpectedActivity
-    private let helpers: Mutex<@Sendable () -> [Helper]>
+    private let helpers: Mutex<HelperSource>
     private let mainThread: Mutex<thread_act_t?> = Mutex(nil)
     private let sampler: Mutex<ThreadStackSampler?> = Mutex(nil)
     private let measuring = Atomic<Bool>(false)
@@ -59,6 +59,12 @@ public final class BusyWatchdog: Sendable {
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
+
+    /// A value wrapper prevents inout Mutex reads from reabstracting and
+    /// writing back the function, accumulating a thunk on every read.
+    private struct HelperSource: Sendable {
+        let list: @Sendable () -> [Helper]
+    }
 
     struct Window {
         var process: ProcessUsage?
@@ -74,7 +80,7 @@ public final class BusyWatchdog: Sendable {
         self.log = log
         self.ledger = ledger
         self.activity = activity
-        self.helpers = Mutex({ [] })
+        self.helpers = Mutex(HelperSource(list: { [] }))
         self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
     }
 
@@ -87,7 +93,12 @@ public final class BusyWatchdog: Sendable {
 
     /// Supplies the helper processes to watch (the App lists Chromium helpers).
     public func setHelperSource(_ source: @escaping @Sendable () -> [Helper]) {
-        helpers.withLock { $0 = source }
+        helpers.withLock { $0 = HelperSource(list: source) }
+    }
+
+    /// Snapshots the callback under the lock, for invocation after releasing it.
+    func helperSource() -> @Sendable () -> [Helper] {
+        helpers.withLock { $0.list }
     }
 
     /// The main run loop woke. Cheap: one atomic store, plus opening a
@@ -100,7 +111,7 @@ public final class BusyWatchdog: Sendable {
 
     private func openWindow() {
         awakeDuringWindow.store(false, ordering: .relaxed)
-        let helperList = helpers.withLock { $0 }()
+        let helperList = helperSource()()
         var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
         for helper in helperList {
             if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
@@ -147,13 +158,13 @@ public final class BusyWatchdog: Sendable {
             ["owner": .string(entry.owner), "reason": .string(entry.reason), "per_second": .number(entry.perSecond)]
         }
         var details: [String: JSONValue] = [
-            "scope": .string(scope), "pid": JSONValue(Int(pid)), "process": .string(name),
+            "scope": .string(scope), "pid": JSONValue(Int(clamping: pid)), "process": .string(name),
             "cpu_share": .number(share), "wakeups": .array(top),
         ]
         if let label { details["serves"] = .string(label) }
-        let duration = Duration.nanoseconds(Int64(wall))
-        let record = log.append(startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- UInt64(wall), duration: duration,
-                                cpu: .nanoseconds(Int64(share * wall)), addresses: addresses, kind: .busy, details: details)
+        let duration = Duration.nanoseconds(wall.saturatedInteger(Int64.self) ?? 0)
+        let record = log.append(startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- (wall.saturatedInteger(UInt64.self) ?? 0), duration: duration,
+                                cpu: .nanoseconds((share * wall).saturatedInteger(Int64.self) ?? 0), addresses: addresses, kind: .busy, details: details)
         if configuration.logBusy {
             logger.error("busy \(scope, privacy: .public) \(name, privacy: .public) at \(share * 100, format: .fixed(precision: 0))% CPU for \(wall / 1e9, format: .fixed(precision: 1)) s with no input, animation or output (hang \(record.sequence); see debug.hangs)")
         }
@@ -164,11 +175,11 @@ public final class BusyWatchdog: Sendable {
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        let user = UInt64(info.user_time.seconds) * 1_000_000_000 + UInt64(info.user_time.microseconds) * 1_000
-        let system = UInt64(info.system_time.seconds) * 1_000_000_000 + UInt64(info.system_time.microseconds) * 1_000
+        let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000
+        let system = UInt64(clamping: info.system_time.seconds) * 1_000_000_000 + UInt64(clamping: info.system_time.microseconds) * 1_000
         return user + system
     }
 }

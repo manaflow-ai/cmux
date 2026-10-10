@@ -108,17 +108,58 @@ impl Picker {
         }
         self.cursor = c;
     }
+    /// Move to the next selectable row in `dir`, skipping headers. At either
+    /// end the cursor stays put; it never wraps around.
     pub fn move_by(&mut self, dir: isize) {
         let n = self.visible.len();
         if n == 0 {
             return;
         }
-        self.cursor =
-            if dir > 0 { (self.cursor + 1).min(n - 1) } else { self.cursor.saturating_sub(1) };
-        self.snap_cursor(dir);
+        let mut c = self.cursor.min(n - 1);
+        loop {
+            let next = if dir > 0 { c + 1 } else { c.wrapping_sub(1) };
+            if next >= n {
+                break;
+            }
+            c = next;
+            if !self.rows[self.visible[c]].header {
+                self.cursor = c;
+                break;
+            }
+        }
         self.reveal = true;
     }
     pub fn selected(&self) -> Option<&PickRow> {
         self.visible.get(self.cursor).map(|&i| &self.rows[i])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(label: &str, header: bool) -> PickRow {
+        PickRow {
+            value: label.into(),
+            label: label.into(),
+            header,
+            group: String::new(),
+            note: String::new(),
+        }
+    }
+
+    #[test]
+    fn up_from_the_first_row_stays_at_the_top() {
+        let rows = vec![row("H1", true), row("a", false), row("H2", true), row("b", false)];
+        let mut p = Picker::new("t", rows, None, PickTarget::Action, "");
+        assert_eq!(p.selected().unwrap().value, "a");
+        p.move_by(-1);
+        assert_eq!(p.selected().unwrap().value, "a");
+        p.move_by(1);
+        assert_eq!(p.selected().unwrap().value, "b");
+        p.move_by(1);
+        assert_eq!(p.selected().unwrap().value, "b");
+        p.move_by(-1);
+        assert_eq!(p.selected().unwrap().value, "a");
     }
 }

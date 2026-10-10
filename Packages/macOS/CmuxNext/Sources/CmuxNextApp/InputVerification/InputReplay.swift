@@ -127,6 +127,9 @@ nonisolated enum InputReplay {
         case "visible": return .visibility(true)
         case "hidden": return .visibility(false)
         case "close": return .close
+        case "reconnect": return .reconnect
+        case "processExited": return .processExited
+        case "processRevived": return .processRevived
         case "ended:overflow": return record.link.map { .ended($0, .overflow) }
         case "ended:other": return record.link.map { .ended($0, .surfaceGone) }
         case "focused": return .focused

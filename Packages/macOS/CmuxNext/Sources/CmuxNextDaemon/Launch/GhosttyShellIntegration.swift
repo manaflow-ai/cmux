@@ -8,13 +8,15 @@ public import Foundation
 /// cursor shape, title, `sudo` and `ssh` wrappers, from the user's
 /// `shell-integration` and `shell-integration-features` config.
 ///
-/// The injection is environment only, because the daemon picks the shell's
-/// argv (`$SHELL`, no arguments). That covers zsh (`ZDOTDIR`), fish and
-/// elvish (`XDG_DATA_DIRS`), and the module part of nushell. Ghostty also
-/// rewrites argv for bash (`--posix` with `ENV`) and nushell
-/// (`--execute 'use ghostty *'`); those shells get the features variable
-/// and can source the scripts by hand. Ghostty itself never integrates
-/// Apple's `/bin/bash`.
+/// zsh (`ZDOTDIR`), fish and elvish (`XDG_DATA_DIRS`) are integrated through
+/// the environment. bash (`ENV` with `--posix`) and nushell (`XDG_DATA_DIRS`
+/// with `--execute 'use ghostty *'`) also need arguments: `apply` writes
+/// their environment and `shellArguments(for:)` reads it back into the
+/// arguments, which `DaemonConnection` sends as `shell_args`
+/// (`terminal-shell-args-v1`; the daemon runs the env's `SHELL` with them).
+/// Against a daemon without that capability, bash ignores `ENV` (it reads it
+/// only in POSIX mode) and nushell has the module without the `use`, as
+/// before. Ghostty itself never integrates Apple's `/bin/bash`.
 public struct GhosttyShellIntegration: Sendable, Equatable {
     /// `shell-integration`.
     public enum Mode: String, Sendable, CaseIterable {
@@ -43,8 +45,9 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     /// The Ghostty resources directory (`<Resources>/ghostty`).
     public var resourcesDirectory: String?
     /// The bundled Ghostty CLI (`<Resources>/bin/ghostty`). The `ssh-env`
-    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN +ssh`; without it they
-    /// stay off, as in Ghostty.
+    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`;
+    /// without a CLI those features are dropped (`featuresValue`), so plain
+    /// `ssh` runs.
     public var ghosttyBinary: String?
 
     public init(mode: Mode = .detect, features: Features = .ghosttyDefault, cursorBlink: Bool? = nil,
@@ -57,8 +60,11 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     }
 
     /// `GHOSTTY_SHELL_FEATURES`: enabled names sorted, `cursor` with its
-    /// blink state; nil when none is enabled (`setupFeatures`).
+    /// blink state; nil when none is enabled (`setupFeatures`). The ssh
+    /// features need the Ghostty CLI and are left out without one.
     public var featuresValue: String? {
+        var features = features
+        if (ghosttyBinary ?? "").isEmpty { features.subtract([.sshEnv, .sshTerminfo]) }
         var names: [String] = []
         if features.contains(.cursor) { names.append((cursorBlink ?? true) ? "cursor:blink" : "cursor:steady") }
         if features.contains(.path) { names.append("path") }
@@ -103,6 +109,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
             let binDirectory = (ghosttyBinary as NSString).deletingLastPathComponent
             env["GHOSTTY_BIN"] = ghosttyBinary
             env["GHOSTTY_BIN_DIR"] = binDirectory
+            // The bundled `cmux` goes first on PATH through
+            // `BundledCLIEnvironment`, with or without a Ghostty CLI.
             let path = env["PATH"] ?? ""
             if path.isEmpty {
                 env["PATH"] = binDirectory
@@ -131,11 +139,47 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
             guard isDirectory(integration) else { break }
             env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] = integration
             env["XDG_DATA_DIRS"] = integration + ":" + (env["XDG_DATA_DIRS"] ?? Self.defaultXDGDataDirs)
-        case .bash, .none, .detect:
+        case .bash:
+            // `setupBash`: POSIX mode reads the integration from `ENV`, which
+            // restores the user's `ENV`, rc files and history afterwards.
+            guard isDirectory(integration + "/bash") else { break }
+            if let old = env["ENV"] { env["GHOSTTY_BASH_ENV"] = old }
+            env["ENV"] = integration + Self.bashScript
+            env["GHOSTTY_BASH_INJECT"] = "1"
+            // POSIX mode defaults HISTFILE to ~/.sh_history.
+            if env["HISTFILE"] == nil {
+                let home = env["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+                env["HISTFILE"] = home + "/.bash_history"
+                env["GHOSTTY_BASH_UNEXPORT_HISTFILE"] = "1"
+            }
+        case .none, .detect:
             break
         }
         return env
     }
+
+    /// The shell arguments Ghostty adds for the integration `apply` wrote
+    /// into `env`, for the shell in `env["SHELL"]` (the one the daemon
+    /// starts): bash `--posix`, nushell `--execute 'use ghostty *'`; nil for
+    /// every other shell or when no integration was applied.
+    public static func shellArguments(for env: [String: String]) -> [String]? {
+        guard let shell = env["SHELL"], !shell.isEmpty else { return nil }
+        switch (shell as NSString).lastPathComponent {
+        case "bash":
+            guard shell != "/bin/bash", env["GHOSTTY_BASH_INJECT"] != nil,
+                  env["ENV"]?.hasSuffix(bashScript) == true || BundledCLIEnvironment.wrapsGhosttyBash(env)
+            else { return nil }
+            return ["--posix"]
+        case "nu":
+            guard env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] != nil else { return nil }
+            return ["--execute", "use ghostty *"]
+        default:
+            return nil
+        }
+    }
+
+    /// Ghostty's bash integration script, relative to `shell-integration`.
+    static let bashScript = "/bash/ghostty.bash"
 
     /// The XDG base-directory default when `XDG_DATA_DIRS` is unset.
     static let defaultXDGDataDirs = "/usr/local/share:/usr/share"

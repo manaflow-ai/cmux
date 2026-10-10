@@ -1,0 +1,275 @@
+{
+  "family": "inbox_app",
+  "operations": [
+    {
+      "name": "inbox_app.open",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Open Inbox"
+      },
+      "docs": "Open the Inbox pane.",
+      "since": "inbox_app/1",
+      "export": "openInbox",
+      "gesture": "optional"
+    },
+    {
+      "name": "inbox_app.mark_all_read",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "mark-all-read",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Mark All Inbox Items as Read"
+      },
+      "docs": "Mark every inbox item as read.",
+      "since": "inbox_app/1",
+      "export": "markAllRead"
+    },
+    {
+      "name": "inbox_app.next_item",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "open": {
+            "type": "boolean",
+            "default": true,
+            "description": "Also open the item."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "next-item",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Inbox Item"
+      },
+      "docs": "Select the next inbox item and, by default, open it.",
+      "since": "inbox_app/1",
+      "export": "nextItem",
+      "gesture": "optional"
+    },
+    {
+      "name": "inbox_app.previous_item",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "open": {
+            "type": "boolean",
+            "default": true,
+            "description": "Also open the item."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "previous-item",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Previous Inbox Item"
+      },
+      "docs": "Select the previous inbox item and, by default, open it.",
+      "since": "inbox_app/1",
+      "export": "previousItem",
+      "gesture": "optional"
+    },
+    {
+      "name": "inbox_app.open_item",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Item id (fi_…); the selected item when omitted."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "open-item",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Open Selected Inbox Item"
+      },
+      "docs": "Open an inbox item (the selected one when no id is given).",
+      "since": "inbox_app/1",
+      "export": "openItem",
+      "gesture": "optional"
+    },
+    {
+      "name": "inbox_app.mark_done",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be marked done."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "mark-done",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Mark Inbox Item as Done"
+      },
+      "docs": "Mark an inbox item as done. Open requests cannot be marked done.",
+      "since": "inbox_app/1",
+      "export": "markDone"
+    },
+    {
+      "name": "inbox_app.snooze",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be snoozed."
+          },
+          "minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 43200,
+            "default": 60,
+            "description": "How long to snooze."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "snooze",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Snooze Inbox Item"
+      },
+      "docs": "Snooze an inbox item. Open requests cannot be snoozed.",
+      "since": "inbox_app/1",
+      "export": "snooze"
+    },
+    {
+      "name": "inbox_app.cycle_variant",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Inbox Variant"
+      },
+      "docs": "Switch to the next Inbox design variant (DEV and NIGHTLY).",
+      "since": "inbox_app/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

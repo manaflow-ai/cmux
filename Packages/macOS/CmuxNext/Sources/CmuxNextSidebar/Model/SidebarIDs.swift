@@ -24,4 +24,3 @@ public nonisolated struct MachineID: Hashable, Sendable, Codable, CustomStringCo
     public static let local = MachineID("local")
     public var description: String { rawValue }
 }
-

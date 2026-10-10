@@ -4,18 +4,30 @@ import Foundation
 import Testing
 @testable import CmuxNextMobile
 
-/// The pinned hosted cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch), or
+/// The hosted build of this checkout's cmux-tui tree
+/// (scripts/cmux-next/pin-cmux-tui.sh fetch; `path` names it), or
 /// `CMUX_NEXT_TUI_BIN`.
 enum LiveBinary {
     static let url: URL? = {
         if let override = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_BIN"],
            FileManager.default.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+        // `pin-cmux-tui.sh path`, resolved once by the suite runner.
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty {
+            return FileManager.default.isExecutableFile(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
-        guard let pin = try? String(contentsOf: root.appendingPathComponent("scripts/cmux-next/cmux-tui.pin"), encoding: .utf8),
-              let commit = pin.split(separator: "\n").first(where: { $0.hasPrefix("commit=") })?.dropFirst(7) else { return nil }
-        let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
-        return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path, "path"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return nil }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let path = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0, FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
     }()
 }
 
@@ -35,7 +47,7 @@ enum LiveDaemon {
         let launcher = DaemonLauncher(
             configuration: .init(binary: try #require(LiveBinary.url), session: "cnm-it-\(id)",
                                  stateDirectory: root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment, overrides: [:]) })
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment, overrides: [:]) })
         let ensured = try await launcher.ensure()
         let control = DaemonConnection(endpointProvider: launcher.endpointProvider)
         try await control.start()

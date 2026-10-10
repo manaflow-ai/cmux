@@ -23,8 +23,9 @@ enum WorkspaceVerbHandlers {
         })
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
+            let byUser = invocation.origin == .user
             try create(context, invocation, anchorFree: nil) { id, bridge in
-                bridge.handle(.createGroup(.make(), name: name, color: .grey, workspaces: [SidebarWorkspaceID(id)]))
+                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser)
             }
         })
         registry.bind("workspace.newInSameDirectory", run: { invocation in
@@ -47,8 +48,8 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.moveToBottom", run: { try place(context, $0) { .bottom(anchor: $0.id) } })
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
-            try sidebar(showing: workspace, context).handle(.createGroup(.make(), name: invocation["name"]?.stringValue ?? "", color: .grey,
-                                                                         workspaces: [SidebarWorkspaceID(workspace.id)]))
+            try sidebar(showing: workspace, context).groupFlow.newGroup(of: [SidebarWorkspaceID(workspace.id)], name: invocation["name"]?.stringValue ?? "",
+                                                              byUser: invocation.origin == .user)
         })
         registry.bind("workspace.closeOthersInGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
@@ -75,29 +76,34 @@ enum WorkspaceVerbHandlers {
 
     // MARK: Create
 
-    /// New workspace (one terminal) next to the target workspace: in its
-    /// window and on its machine, placed at `slot` once the daemon reports it.
+    /// New workspace (on the New Tab page for a person, else one terminal)
+    /// next to the target workspace: in its window and on its machine,
+    /// placed at `slot` once the daemon reports it.
     private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, cwd: String? = nil,
                                _ slot: (WorkspaceModel) throws -> WorkspaceSlot) throws {
         let anchor = try context.workspace(invocation).model
-        try spawn(context, anchor: anchor, cwd: cwd, slot: try slot(anchor))
+        try spawn(context, anchor: anchor, cwd: cwd, slot: try slot(anchor), newTabPage: invocation.origin == .user)
     }
 
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
     private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
                                then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
-        try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, then: then)
+        try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
+                  then: then)
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
-                              then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
-        let windows = context.services.windows!
+                              newTabPage: Bool, then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+        let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
+        // `then` places it itself (New Workspace in New Group): no second write.
+        spawn.placesBySetting = then == nil
+        spawn.opensNewTabPage = newTabPage
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
         context.services.registry.track(Task {
             do {
@@ -124,7 +130,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar of the window that lists `workspace`, else the active one.
     static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarBridge {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         if let owner = windows.registry.value.owner(of: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
         return try context.sidebar()
     }
@@ -155,14 +161,14 @@ enum WorkspaceVerbHandlers {
     static func close(_ ids: [String], _ context: AppActionContext) {
         for id in ids {
             guard let (workspace, daemon) = context.services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
     }
 
     private static func select(_ context: AppActionContext, _ pick: ([SidebarWorkspaceID]) -> SidebarWorkspaceID?) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        guard let id = pick(window.sidebar.model.allWorkspaces.map(\.id)) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        guard let id = pick(window.sidebar.model.selectableWorkspaces.map(\.id)) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
         context.services.windows.show(workspaceID: id.rawValue, in: window.state)
     }
 

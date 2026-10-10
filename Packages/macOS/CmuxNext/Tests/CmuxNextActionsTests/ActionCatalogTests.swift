@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Foundation
 import Testing
 
 /// Catalog completeness against plans/cmux-next/inventory.md section 1.
@@ -55,34 +56,26 @@ import Testing
         "reloadConfiguration", "sendFeedback",
     ]
 
-    /// Rows per inventory domain after splitting compound rows ("Focus
-    /// Left/Right/Up/Down") into one action each. Dynamic families (workspace
-    /// switcher rows, per-app open targets, per-setting toggles) are served by
-    /// palette providers and appear here once as their parent list action.
-    /// Workspace and tab include the group families (architecture.md section 7).
-    /// Pane, tab, and terminal also count the cmux-next rows in
-    /// `ActionCatalog+Layout.swift` (19 pane/column, 6 tab, 10 terminal).
-    /// Screen counts the screen and screen group families
-    /// (`ActionCatalog+Screens.swift`, `ActionCatalog+ScreenGroups.swift`).
-    /// Settings counts the pane border, padding and corner toggles and the
-    /// two titlebar styles, the focus ring and border width toggles and the
-    /// border color reset, and Make cmux the Default Browser. Window
-    /// counts Minimize (no inventory row; used by idle and visibility checks).
-    static let expectedCounts: [ActionCategory: Int] = [
-        .window: 24,
-        .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
-        .pane: 66, // + Move Pane to New Workspace
-        .screen: 62,
-        .tab: 75, // + Show Tab (`tab.focus`, state-ownership.md 3)
-        .terminal: 33,
-        .browser: 78,
-        .sidebar: 30,
-        .notifications: 18,
-        .agents: 16,
-        .cloud: 23,
-        .remote: 6, // SSH machines (Connect to Machine…)
-        .settings: 47,
-    ]
+    /// Counts generated from the catalog and checked into plans/cmux-next/actions.md.
+    /// Regenerate with `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests`.
+    static func generatedCounts() throws -> [ActionCategory: Int] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plans/cmux-next/actions.md")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(text.range(of: "## Catalog counts\n\n"))
+        let end = try #require(text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex))
+        var counts: [ActionCategory: Int] = [:]
+        for line in text[start.upperBound..<end.lowerBound].split(separator: "\n") {
+            let fields = line.split { $0 == "`" || $0 == ":" }
+            guard fields.count == 3, fields[0].hasPrefix("- "), let count = Int(fields[2].trimmingCharacters(in: .whitespaces)) else { continue }
+            guard let category = ActionCategory(rawValue: String(fields[1])) else { continue }
+            counts[category] = count
+        }
+        return counts
+    }
+
 
     @Test func everyKeyboardShortcutIDExists() {
         let ids = Set(ActionCatalog.all.map(\.id))
@@ -90,15 +83,14 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() {
+    @Test func countsByDomainMatchInventory() throws {
+        let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
         for category in ActionCategory.allCases where category != .other {
-            #expect(counts[category] == Self.expectedCounts[category], "\(category)")
+            #expect(counts[category] == expected[category], "\(category)")
         }
-        // Inventory estimate is about 290 merged rows; splitting compound
-        // rows lands above it.
-        #expect(ActionCatalog.all.count >= 290)
+        #expect(counts == expected)
     }
 
     @Test func idsAreUniqueAndTitlesPresent() {
@@ -107,13 +99,42 @@ import Testing
         for descriptor in ActionCatalog.all {
             #expect(!descriptor.title.isEmpty, "\(descriptor.id)")
             #expect(!descriptor.symbol.isEmpty, "\(descriptor.id)")
-            #expect(!descriptor.surfaces.isEmpty, "\(descriptor.id)")
+            // An automation-only action (agent.openSessionWorkspace) has no
+            // human surface; its surface plan names why the palette omits it.
+            #expect(!descriptor.surfaces.isEmpty || descriptor.surfacePlan.palette.exemption != nil, "\(descriptor.id)")
         }
+    }
+
+    @Test func cloudMachineIOActionsAreTerminalAndReachable() throws {
+        let ssh = try #require(ActionCatalog.all.first { $0.id == "cloudSSH" })
+        #expect(ssh.startsTerminal)
+        #expect(ssh.cliName == "cloud ssh")
+        #expect(ssh.surfacePlan.contextMenus.map(\.context) == [.cloudMachine])
+
+        let exec = try #require(ActionCatalog.all.first { $0.id == "cloudExec" })
+        #expect(exec.startsTerminal)
+        #expect(exec.cliName == "cloud exec")
+        #expect(exec.arguments.map(\.name) == ["command"])
     }
 
     @Test func standardCatalogHasNoUnresolvableShortcutConflicts() {
         let registry = ActionRegistry.standard()
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
+    }
+
+    @Test func browserHistoryOwnsCmdYAndRightSidebarHasNoDigitDefaults() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let browserHistory = try #require(byID["browserShowHistory"])
+        #expect(browserHistory.defaultShortcut == Shortcut("y", modifiers: [.command]))
+        #expect(browserHistory.requires.contains(.browserFocused))
+        #expect(byID["newCloudMachine"]?.defaultShortcut != Shortcut("y", modifiers: [.command]))
+
+        for id: ActionID in [
+            "switchRightSidebarToFiles", "switchRightSidebarToFind", "switchRightSidebarToSessions",
+            "switchRightSidebarToFeed", "switchRightSidebarToDock", "switchRightSidebarToMachines",
+        ] {
+            #expect(byID[id]?.defaultShortcut == nil, "\(id) must not claim a default shortcut")
+        }
     }
 
     @Test func legacyAliasesPointAtCatalogIDs() {

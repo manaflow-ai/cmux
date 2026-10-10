@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1a3580a84cdeefbb38733d6fc53ee6a7a3b64f6933ac7cf8e51e9fae6009d4ea",
+  "catalog_sha256": "aa7d7f6e289ec089f035fd898982ccf022c7edf06a065733ce880a57edcba704",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -52,6 +52,15 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "chief.engine.get": {
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.stop": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -73,10 +82,40 @@
     "client.sizing.set": {
       "class": "connection_control"
     },
+    "closed.delete": {
+      "class": "mutation"
+    },
     "closed.list": {
       "class": "read"
     },
     "closed.reopen": {
+      "class": "mutation"
+    },
+    "column.update": {
+      "class": "mutation"
+    },
+    "conversation.draft": {
+      "class": "mutation"
+    },
+    "conversation.events": {
+      "class": "stream_open"
+    },
+    "conversation.get": {
+      "class": "read"
+    },
+    "conversation.history": {
+      "class": "read"
+    },
+    "conversation.list": {
+      "class": "read"
+    },
+    "conversation.search": {
+      "class": "read"
+    },
+    "conversation.send": {
+      "class": "mutation"
+    },
+    "conversation.typing": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -84,6 +123,33 @@
     },
     "frontend_projection.put": {
       "class": "mutation"
+    },
+    "git.checkpoint.create": {
+      "class": "mutation"
+    },
+    "git.checkpoint.diff": {
+      "class": "read"
+    },
+    "git.checkpoint.get": {
+      "class": "read"
+    },
+    "git.checkpoint.list": {
+      "class": "read"
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation"
+    },
+    "git.checkpoint.unpin": {
+      "class": "mutation"
+    },
+    "git.diff": {
+      "class": "read"
+    },
+    "git.files.search": {
+      "class": "read"
+    },
+    "git.status": {
+      "class": "read"
     },
     "machine.get": {
       "class": "read"
@@ -103,10 +169,28 @@
     "notification.list": {
       "class": "read"
     },
+    "origin.confirmation.issue": {
+      "class": "connection_control"
+    },
     "pairing_request.list": {
       "class": "read"
     },
     "pairing_request.resolve": {
+      "class": "mutation"
+    },
+    "palette_usage.forget": {
+      "class": "mutation"
+    },
+    "palette_usage.get": {
+      "class": "read"
+    },
+    "palette_usage.hide": {
+      "class": "mutation"
+    },
+    "palette_usage.import": {
+      "class": "mutation"
+    },
+    "palette_usage.record": {
       "class": "mutation"
     },
     "pane.close": {
@@ -149,6 +233,24 @@
       "class": "mutation"
     },
     "pane.zoom": {
+      "class": "mutation"
+    },
+    "project.add": {
+      "class": "mutation"
+    },
+    "project.list": {
+      "class": "read"
+    },
+    "project.observe": {
+      "class": "mutation"
+    },
+    "project.remove": {
+      "class": "mutation"
+    },
+    "project.sync": {
+      "class": "mutation"
+    },
+    "project.update": {
       "class": "mutation"
     },
     "request.cancel": {
@@ -310,6 +412,12 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "sidebar_layout.get": {
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "class": "mutation"
+    },
     "sidebar_view.attach": {
       "class": "stream_open"
     },
@@ -460,10 +568,25 @@
     "terminal.wait_exit": {
       "class": "read"
     },
+    "window_record.delete": {
+      "class": "mutation"
+    },
+    "window_record.list": {
+      "class": "read"
+    },
+    "window_record.put": {
+      "class": "mutation"
+    },
+    "workspace.agent_folder.set": {
+      "class": "mutation"
+    },
     "workspace.close": {
       "class": "mutation"
     },
     "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.ensure_home": {
       "class": "mutation"
     },
     "workspace.focus": {

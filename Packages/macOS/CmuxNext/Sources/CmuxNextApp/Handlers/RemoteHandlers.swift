@@ -11,7 +11,7 @@ import CmuxNextRemote
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh!
+        let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         ssh.offerInstall = { [weak registry] session in
@@ -34,6 +34,24 @@ enum RemoteHandlers {
                 do { try connect(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
             }
         }
+        // A terminal of another machine in this pane (a mixed workspace,
+        // plans/cmux-next/data-model.md 1.2b): any connected session, SSH,
+        // Cloud or this Mac; the pane's own machine just gets a new tab.
+        registry.bind("remote.openTerminalHere", run: { invocation in
+            guard let pane = context.daemonPane(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noPaneID(invocation.target?.id ?? "focused")) }
+            guard let machine = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue,
+                  let daemon = context.services.machines.daemon(machine: machine) else {
+                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
+            }
+            let home = context.services.daemon(for: pane)
+            if daemon === home {
+                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
+                return
+            }
+            if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: nil) {
+                throw ActionFailure(message: failure.message)
+            }
+        })
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
@@ -66,6 +84,13 @@ enum RemoteHandlers {
                 }
             }
             registry.track(work)
+        }
+        // The raw SSH or install error of a machine whose connect failed
+        // (its sidebar header shows it as the tooltip, cx-zdh8).
+        CloudHandlers.bind("remote.copyError", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context)
+            guard let error = RemoteStrings.sshError(session) else { throw ActionFailure(message: RemoteStrings.noSSHError(session.host.label)) }
+            context.copy(error)
         }
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)

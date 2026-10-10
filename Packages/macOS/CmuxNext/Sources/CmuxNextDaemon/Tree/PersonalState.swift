@@ -13,20 +13,27 @@ public struct PersonalState: Sendable, Hashable, Decodable {
     public var pins: [WorkspacePin]
     public var groups: [WorkspaceGroupSnapshot]
     public var workspaces: [PersonalWorkspace]
+    /// Per-terminal themes (`personal-terminals-v1`; empty on older daemons).
+    public var terminals: [PersonalTerminal]
+    /// Browser profile records (`browser-profiles-v1`), in order; empty on
+    /// an older daemon.
+    public var browserProfiles: [BrowserProfileSnapshot] = []
 
     public init(revision: UInt64 = 0, sessions: [SessionRecord] = [], profiles: [ProfileSnapshot] = [], pins: [WorkspacePin] = [],
-                groups: [WorkspaceGroupSnapshot] = [], workspaces: [PersonalWorkspace] = []) {
+                groups: [WorkspaceGroupSnapshot] = [], workspaces: [PersonalWorkspace] = [], terminals: [PersonalTerminal] = []) {
         self.revision = revision
         self.sessions = sessions
         self.profiles = profiles
         self.pins = pins
         self.groups = groups
         self.workspaces = workspaces
+        self.terminals = terminals
     }
 
     enum CodingKeys: String, CodingKey {
-        case sessions, profiles, pins, groups, workspaces
+        case sessions, profiles, pins, groups, workspaces, terminals
         case revision = "personal_revision"
+        case browserProfiles = "browser_profiles"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -37,6 +44,8 @@ public struct PersonalState: Sendable, Hashable, Decodable {
         pins = try c.decodeIfPresent([WorkspacePin].self, forKey: .pins) ?? []
         groups = try c.decodeIfPresent([WorkspaceGroupSnapshot].self, forKey: .groups) ?? []
         workspaces = try c.decodeIfPresent([PersonalWorkspace].self, forKey: .workspaces) ?? []
+        terminals = try c.decodeIfPresent([PersonalTerminal].self, forKey: .terminals) ?? []
+        browserProfiles = try c.decodeIfPresent([BrowserProfileSnapshot].self, forKey: .browserProfiles) ?? []
     }
 }
 

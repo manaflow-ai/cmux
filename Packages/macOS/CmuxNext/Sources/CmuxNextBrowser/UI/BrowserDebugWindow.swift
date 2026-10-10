@@ -32,14 +32,14 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     @discardableResult
     public static func showIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         guard let engineName = environment["CMUX_NEXT_DEBUG_BROWSER"], !engineName.isEmpty else { return nil }
-        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com")!
+        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com") ?? URL(fileURLWithPath: "/dev/null")
         let report = environment["CMUX_NEXT_DEBUG_BROWSER_REPORT"].map { URL(filePath: $0) }
         let configuration = BrowserTabConfiguration(initialURL: url, pane: BrowserPaneID(rawValue: "debug-window"))
         do {
             let tab: any BrowserTab = if engineName == "cef" {
                 try CEFEngine().makeCEFTab(configuration)
             } else {
-                WebKitEngine().makeWebKitTab(configuration)
+                try WebKitEngine().makeWebKitTab(configuration)
             }
             let debugWindow = BrowserDebugWindow(tab: tab, report: report, activate: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
             open.append(debugWindow)
@@ -50,6 +50,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             return message
         }
     }
+
+    private let contextMenus = BrowserContextMenuBuilder.shared
 
     private init(tab: any BrowserTab, report: URL?, activate: Bool) {
         tabs = [tab]
@@ -63,7 +65,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.contentView = chrome
+        window.install(kind: .browserDebug, content: chrome, scope: .app)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)
@@ -88,8 +90,10 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
-        case .unhandledEscape:
+        case .unhandledEscape, .unhandledKey, .resizePopup:
             break
+        case .takeFocus:
+            chrome.perform(.focusAddressBar)
         case .openURL(let url, _):
             chrome.tab.load(url)
         case .close:
@@ -101,11 +105,14 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             chrome.tab = tab
             observe()
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.present(request, in: tab.contentView)
+            contextMenus.present(request, in: tab.contentView)
         case .notice(let text):
             chrome.showNotice(text)
         case .rerouteStore:
             // The debug window has no machines, so it never sets a guard.
+            break
+        case .openLocalFile:
+            // The debug window has no file pages or WebKit tab to hand to.
             break
         }
     }

@@ -17,9 +17,10 @@ public import CmuxNextActions
         self.model = model
         core = ShortcutRecorder(
             registry: registry,
-            state: { [unowned model] in model.shortcutRecorder },
-            setState: { [unowned model] in model.shortcutRecorder = $0 },
-            didFinish: { [unowned model] id, notice in
+            state: { [weak model] in model?.shortcutRecorder },
+            setState: { [weak model] in model?.shortcutRecorder = $0 },
+            didFinish: { [weak model] id, notice in
+                guard let model else { return }
                 model.reload()
                 if let notice { model.showNotice(notice, on: id) }
             })
@@ -43,6 +44,13 @@ public import CmuxNextActions
 
     /// A click on an option, or the key for it.
     public func choose(_ option: PaletteShortcutOption) { core.choose(option) }
+
+    /// Closes the recorder without a change, which also lets the
+    /// system-wide hot keys register again.
+    public func cancel() { core.cancel() }
+
+    /// The palette dropped the recorder's state (it hid or reset its page).
+    func abandon() { core.abandon() }
 }
 
 extension PaletteShortcutRecorder {

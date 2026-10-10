@@ -1,0 +1,1004 @@
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
+/// Long messages (agent output: logs, code, 100k-line pastes). shared/LONG-MESSAGES.md.
+/// A long text part is cut into blocks of about 4 KB (index, width independent);
+/// each block has an estimated line count until Core Text measures it (layout, per
+/// width); the row's height is the sum in a Fenwick tree. TiledBubble.swift draws it.
+enum LongText {
+    static let minBytes = 8192
+    static let minLines = 120
+    static let blockBytes = 4096
+    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-long-text")
+    /// Long markdown in tiles (MarkdownLong.swift). Off until its e2e and benches pass;
+    /// `--long-markdown` turns it on for one run.
+    static var markdownTiles = ProcessInfo.processInfo.arguments.contains("--long-markdown")
+    /// Streaming tail measured and its end tiles drawn off main, published together (no empty
+    /// tile). Off until its benches pass; `--long-tail-off-main` turns it on for one run.
+    static var offMainTail = ProcessInfo.processInfo.arguments.contains("--long-tail-off-main")
+
+    /// O(1) above 8 KB; scans at most 8 KB below.
+    static func isLong(_ t: String) -> Bool {
+        guard enabled else { return false }
+        let n = t.utf8.count
+        if n > minBytes { return true }
+        if n < minLines { return false }
+        var nl = 0
+        for b in t.utf8 where b == 10 {
+            nl += 1
+            if nl >= minLines { return true }
+        }
+        return false
+    }
+
+    /// Whether a row is a long text row (O(1): long text rows carry no TextLayout).
+    static func isLongRow(_ spec: RowSpec) -> Bool {
+        guard case let .part(p) = spec.kind, case .text = p.part else { return false }
+        return p.text == nil
+    }
+}
+
+/// Prefix sums of line counts per block.
+struct Fenwick {
+    private(set) var values: [Int32]
+    private var tree: [Int]
+    init(_ v: [Int32]) {
+        values = v
+        // cmux: checked writes (crash program); tree has v.count + 1 slots, k and j stay inside.
+        var tree = [Int](repeating: 0, count: v.count + 1)
+        for (i, x) in v.enumerated() {
+            let k = i + 1
+            if let s = tree.checkedIndex(k) { tree[s] += Int(truncatingIfNeeded: x) }
+            let j = k + (k & -k)
+            if j <= v.count, let s = tree.checkedIndex(j), let add = tree[checked: k] { tree[s] += add }
+        }
+        self.tree = tree
+    }
+    var count: Int { values.count }
+    mutating func set(_ i: Int, _ v: Int32) {
+        guard let old = values[checked: i] else { return } // cmux: a block index from another layout sets nothing
+        let d = Int(truncatingIfNeeded: v) - Int(truncatingIfNeeded: old)
+        guard d != 0 else { return }
+        if let slot = values.checkedIndex(i) { values[slot] = v }
+        var k = i + 1
+        while k <= values.count { if let s = tree.checkedIndex(k) { tree[s] += d }; k += k & -k } // cmux
+    }
+    /// Sum of values[0..<i].
+    func prefix(_ i: Int) -> Int {
+        var s = 0, k = min(i, values.count)
+        while k > 0 { s += tree[checked: k] ?? 0; k -= k & -k } // cmux: checked
+        return s
+    }
+    var total: Int { prefix(values.count) }
+    /// The index whose range [prefix(i), prefix(i+1)) holds `x` (clamped).
+    func find(_ x: Int) -> Int {
+        guard !values.isEmpty else { return 0 }
+        var pos = 0, rem = x
+        var step = 1
+        while step * 2 <= values.count { step *= 2 }
+        while step > 0 {
+            if pos + step <= values.count, let t = tree[checked: pos + step], t <= rem { pos += step; rem -= t } // cmux: checked
+            step /= 2
+        }
+        return min(pos, values.count - 1)
+    }
+}
+
+/// Block index of one text (immutable, thread safe).
+final class LongTextIndex: @unchecked Sendable {
+    let lineage: Int
+    let text: String
+    let count: Int
+    /// Block b is UTF-8 [starts[b], starts[b + 1]); starts.last == count.
+    let starts: [Int]
+    /// UTF-16 offset of each block start (last: the UTF-16 length).
+    let u16Starts: [Int]
+    /// Paragraph pieces per block (its minimum line count).
+    let pieces: [Int32]
+    /// Estimated advance per block (points at the body font).
+    let units: [Float]
+    /// Estimated lines per block at `refColumn` (per paragraph, with wrap waste).
+    let estRef: [Int32]
+    /// Newlines per block, and the text's hard line count ("Show all N lines").
+    let newlines: [Int32]
+    let hardLines: Int
+    static var refColumn: Float { Float(Metrics(width: Fixture.windowWidth).maxTextWidth) }
+    /// False while a large text is scanned off main (placeholder).
+    let ready: Bool
+    var blockCount: Int { max(0, starts.count - 1) }
+    /// The text may hold markdown (MarkdownLong.swift): blocks are cut off fences and tables,
+    /// and `carries` holds the parser state at each block start.
+    let markdown: Bool
+    let carries: [MDCarry]
+    /// Selection offset of each block start (last: the selection length). Plain: the UTF-16
+    /// starts. Markdown: a slot of 2 x the block's UTF-16 length + 64 per block, which holds
+    /// the block's display string (markers, tabs, newlines) at any width, so offsets never move
+    /// when a block is laid out (offsets past a block's display string are unused).
+    let selStarts: [Int]
+    func carry(_ b: Int) -> MDCarry { b >= 0 && b < carries.count ? carries[checked: b] ?? .none : .none } // cmux: checked
+
+    init(lineage: Int, text: String, starts: [Int], u16Starts: [Int], pieces: [Int32], units: [Float], estRef: [Int32],
+         newlines: [Int32] = [], ready: Bool, markdown: Bool = false, carries: [MDCarry] = [], selStarts: [Int]? = nil) {
+        self.lineage = lineage; self.text = text; self.count = text.utf8.count
+        self.starts = starts; self.u16Starts = u16Starts; self.pieces = pieces; self.units = units; self.estRef = estRef; self.ready = ready
+        self.newlines = newlines
+        self.markdown = markdown; self.carries = carries; self.selStarts = selStarts ?? u16Starts
+        hardLines = newlines.reduce(1) { $0 + Int(truncatingIfNeeded: $1) } // cmux: Int32 widens exactly
+    }
+
+    static func placeholder(_ text: String, lineage: Int) -> LongTextIndex {
+        LongTextIndex(lineage: lineage, text: text, starts: [0], u16Starts: [0], pieces: [], units: [], estRef: [], ready: false)
+    }
+
+    /// Whether a long text takes the markdown cut and layout (MarkdownLong.swift).
+    static func isMarkdown(_ text: String) -> Bool { LongText.markdownTiles && Markdown.enabled && Markdown.mightContain(text) }
+
+    func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
+        if let r = text.utf8.withContiguousStorageIfAvailable(body) { return r }
+        let a = Array(text.utf8)
+        return a.withUnsafeBufferPointer(body)
+    }
+
+    /// Scan `text` into blocks; with `prefix`, keep its blocks before `keep` (streaming).
+    static func build(_ text: String, lineage: Int, prefix: LongTextIndex? = nil, keep: Int = 0, markdown: Bool? = nil) -> LongTextIndex {
+        var t = text
+        t.makeContiguousUTF8()
+        let md = markdown ?? prefix?.markdown ?? isMarkdown(t)
+        var carries = md ? Array(prefix?.carries.prefix(keep) ?? []) : []
+        var sel = Array(prefix?.selStarts.prefix(keep) ?? [])
+        var selPos = prefix.map { keep < $0.selStarts.count ? $0.selStarts[keep] : 0 } ?? 0
+        var st: MDCarry = md ? (prefix?.carry(keep) ?? .none) : .none
+        var starts = Array(prefix?.starts.prefix(keep) ?? [])
+        var u16 = Array(prefix?.u16Starts.prefix(keep) ?? [])
+        var pieces = Array(prefix?.pieces.prefix(keep) ?? [])
+        var units = Array(prefix?.units.prefix(keep) ?? [])
+        var estRef = Array(prefix?.estRef.prefix(keep) ?? [])
+        var newlines = Array(prefix?.newlines.prefix(keep) ?? [])
+        let wrap = LongTextIndex.refColumn * 0.93
+        let from = prefix.map { keep < $0.starts.count ? $0.starts[keep] : $0.count } ?? 0
+        var u16Pos = prefix.map { keep < $0.u16Starts.count ? $0.u16Starts[keep] : 0 } ?? 0
+        let size = Fixture.bodyFont.pointSize
+        let ascii = Float(size * 0.5), wide = Float(size), emoji = Float(size * 1.25)
+        t.utf8.withContiguousStorageIfAvailable { p in
+            let n = p.count
+            var i = from
+            while i < n {
+                let limit = min(n, i + LongText.blockBytes)
+                var end = limit
+                if limit < n {
+                    // cmux: searches on slices, no index math (p is an unsafe buffer: its subscript does not check in release).
+                    if let j = p.prefix(limit).dropFirst(i).lastIndex(of: 10) {
+                        end = j + 1
+                    } else {
+                        // One paragraph longer than a block: cut at a space, else at a character boundary.
+                        let floor = max(i + 1, limit - 1024)
+                        if let k = p.prefix(limit).dropFirst(floor).lastIndex(where: { $0 == 32 || $0 == 9 }) { end = k + 1 } else {
+                            // The last byte in (i + 1, limit] that starts a character, else i + 1.
+                            end = p.prefix(limit + 1).dropFirst(i + 2).lastIndex(where: { $0 & 0xC0 != 0x80 }) ?? (i + 1)
+                        }
+                    }
+                }
+                let carryHere = st
+                if md { (end, st) = MarkdownLong.cut(p, from: i, plainEnd: end, block: starts.count, state: st) }
+                var nl: Int32 = 0, w: Float = 0, c16 = 0, para: Float = 0, est: Int32 = 0
+                for b in p.prefix(end).dropFirst(i) { // cmux: no index math
+                    if b < 0x80 {
+                        c16 += 1
+                        if b == 10 { nl += 1; est += max(1, Int32(clamping: CrashGuard.int(Double((para / wrap).rounded(.up))))); para = 0 } // cmux
+                        else if b == 9 { w += 4 * ascii; para += 4 * ascii } else { w += ascii; para += ascii }
+                    } else if b >= 0xF0 { c16 += 2; w += emoji; para += emoji } else if b >= 0xE0 { c16 += 1; w += wide; para += wide }
+                    else if b >= 0xC0 { c16 += 1; w += ascii; para += ascii }
+                }
+                let lastByte = p.prefix(end).last // cmux: the block's last byte, no index math
+                if lastByte != 10 || end == n { est += max(1, Int32(clamping: CrashGuard.int(Double((para / wrap).rounded(.up))))) }
+                let endsNL = lastByte == 10
+                starts.append(i); u16.append(u16Pos); sel.append(selPos)
+                if md { carries.append(carryHere) }
+                selPos += md ? 2 * c16 + 64 : c16
+                pieces.append(nl + (endsNL && end < n ? 0 : 1))
+                units.append(w)
+                estRef.append(est)
+                newlines.append(nl)
+                u16Pos += c16
+                i = end
+            }
+            starts.append(n); u16.append(u16Pos); sel.append(selPos)
+        }
+        return LongTextIndex(lineage: lineage, text: t, starts: starts, u16Starts: u16, pieces: pieces, units: units, estRef: estRef, newlines: newlines, ready: true,
+                             markdown: md, carries: carries, selStarts: sel)
+    }
+
+    func isFinal(_ b: Int) -> Bool { b == blockCount - 1 }
+
+    /// The block's text as an NSString (UTF-16, for Core Text).
+    func blockString(_ b: Int) -> NSString {
+        guard let a = starts[checked: b], let e = starts[checked: b + 1], a <= e else { return "" } // cmux: a stale block is empty
+        return withBytes { p in
+            guard let base = p.baseAddress else { return "" } // cmux: no force unwrap
+            return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
+        }
+    }
+
+    /// Block holding selection offset `o`.
+    func block(sel o: Int) -> Int {
+        var lo = 0, hi = blockCount - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if (selStarts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+        }
+        return max(0, lo)
+    }
+
+    /// Block holding UTF-16 offset `o`.
+    func block(u16 o: Int) -> Int {
+        var lo = 0, hi = blockCount - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if (u16Starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+        }
+        return max(0, lo)
+    }
+
+    /// Find: the first UTF-8 range of `needle` at or after `from` (memmem, call off main).
+    func find(_ needle: String, from: Int = 0) -> Range<Int>? {
+        let n = Array(needle.utf8)
+        guard !n.isEmpty, from < count else { return nil }
+        return withBytes { p in
+            n.withUnsafeBufferPointer { q in
+                // cmux: no force unwraps (crash program)
+                guard let base = p.baseAddress, let needle = q.baseAddress,
+                      let r = memmem(base + from, count - from, needle, q.count) else { return nil }
+                let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
+                return o..<(o + q.count)
+            }
+        }
+    }
+
+    /// UTF-16 offset of a UTF-8 offset (block start plus the block's prefix).
+    func u16Offset(utf8 o: Int) -> Int {
+        var lo = 0, hi = blockCount - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if (starts[checked: mid] ?? .max) <= o { lo = mid } else { hi = mid - 1 } // cmux: checked
+        }
+        let a = starts[checked: lo] ?? 0
+        let local = withBytes { p in
+            // cmux: the slice is clamped to the buffer (an unsafe buffer does not check its range).
+            let from = min(max(0, a), p.count), to = min(max(from, o), p.count)
+            return String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
+        }
+        return (u16Starts[checked: lo] ?? 0) + local
+    }
+}
+
+/// Line breaks of one block (Core Text, the rules of `TextLayout.make`).
+final class BlockLayout: @unchecked Sendable {
+    let string: NSString
+    let lines: [NSRange]
+    let widths: [CGFloat]
+    /// A markdown block (MarkdownLong.layout): drawn and hit-tested from this; `string` is its
+    /// display string and `lines` is empty.
+    let md: MarkdownLayout?
+    /// Its line count in the Fenwick tree (markdown: its height in 16 pt lines, rounded up).
+    let lineCount: Int
+    private let lock = NSLock()
+    private var drawAttr: [Bool: NSAttributedString] = [:]
+
+    init(md: MarkdownLayout, lines n: Int) {
+        self.md = md
+        string = md.plain as NSString
+        lines = []; widths = []
+        lineCount = n
+    }
+
+    /// `reuse`: the same block before text was appended (streaming): its lines before its last
+    /// paragraph are kept and only the rest is typeset (paragraphs break independently).
+    init(string: NSString, column: CGFloat, final: Bool, reuse: BlockLayout? = nil) {
+        self.string = string
+        var lines: [NSRange] = [], widths: [CGFloat] = []
+        var from = 0
+        if let r = reuse, r.string.length <= string.length, r.string.length > 0,
+           string.substring(to: r.string.length) == r.string as String {
+            let nl = r.string.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: r.string.length - 1))
+            if nl.location != NSNotFound {
+                from = nl.location + 1
+                for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // cmux: no index math
+            }
+        }
+        let tail = from == 0 ? string : string.substring(from: from) as NSString
+        let attr = NSAttributedString(string: tail as String, attributes: [.font: Fixture.bodyFont])
+        let ts = CTTypesetterCreateWithAttributedString(attr)
+        let len = tail.length
+        var start = 0
+        while start < len {
+            var n = CTTypesetterSuggestLineBreak(ts, start, Double(column))
+            if n <= 0 { n = 1 }
+            var range = NSRange(location: start, length: n)
+            let endsNL = tail.character(at: start + n - 1) == 10
+            if endsNL { range.length -= 1 }
+            let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
+            lines.append(NSRange(location: range.location + from, length: range.length))
+            widths.append(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+            start += n
+            if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
+        }
+        if lines.isEmpty { lines = [NSRange(location: 0, length: 0)]; widths = [0] }
+        self.lines = lines
+        self.widths = widths
+        md = nil
+        lineCount = lines.count
+    }
+
+    /// Drawing attributes (the bubble's text colour, kern, links detected in this block).
+    func attributed(outgoing: Bool) -> NSAttributedString {
+        lock.lock(); defer { lock.unlock() }
+        if let a = drawAttr[outgoing] { return a }
+        let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
+        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let a = NSMutableAttributedString(string: string as String,
+                                          attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
+        if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+            // Long text is untrusted too: only URLs the link policy allows look like links
+            // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
+            for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+                guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
+                a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
+            }
+        }
+        drawAttr[outgoing] = a
+        return a
+    }
+    // cmux: optional, no try! (crash program); without it no link is underlined.
+    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+}
+
+/// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
+final class BlockLayoutCache: @unchecked Sendable {
+    static let shared = BlockLayoutCache()
+    struct Key: Hashable { var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat; var md: Bool = false }
+    private var map: [Key: (BlockLayout, Int)] = [:]
+    private var tick = 0
+    private let lock = NSLock()
+    static let capacity = 256
+    func get(_ k: Key) -> BlockLayout? {
+        lock.lock(); defer { lock.unlock() }
+        guard let e = map[k] else { return nil }
+        tick += 1
+        map.updateValue((e.0, tick), forKey: k) // cmux: dictionary write
+        return e.0
+    }
+    func put(_ k: Key, _ v: BlockLayout) {
+        lock.lock(); defer { lock.unlock() }
+        tick += 1
+        map.updateValue((v, tick), forKey: k) // cmux: dictionary write
+        if map.count > BlockLayoutCache.capacity + 64 {
+            let keep = map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
+            map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+        }
+    }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
+}
+
+/// Line counts of one index at one width: estimates until measured.
+final class LongTextLayout: @unchecked Sendable {
+    let index: LongTextIndex
+    let width: CGFloat
+    let column: CGFloat
+    /// Markdown blocks render as markdown (false: the message is shown as source).
+    let markdown: Bool
+    /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
+    /// its tiles near the end are drawn off main, then both reach the screen in one publish.
+    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
+    var tileHint: TileHint? { get { lock.lock(); defer { lock.unlock() }; return hint } set { lock.lock(); hint = newValue; lock.unlock() } }
+    private var hint: TileHint?
+    private var pendingTiles: [(TileCache.Key, CGImage)] = []
+    private let lock = NSLock()
+    private var tree: Fenwick
+    private var exact: [Bool]
+    private var pending: [Int: Int32] = [:]
+    private var inFlight = Set<Int>()
+    private(set) var measured = 0
+    /// Replaced by a newer index (streaming) or a scanned one (placeholder).
+    var retired = false
+    private let placeholderLines: Int
+    /// Lines from the index estimate alone (deterministic per text and width: the fold
+    /// decision never flips when blocks are measured).
+    private(set) var estimatedLines = 0
+
+    static let measureQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 2
+        q.qualityOfService = .utility
+        q.name = "longtext.measure"
+        return q
+    }()
+
+    /// `provisional`: streaming. Blocks from `keep` on keep the previous layout's count for block
+    /// `keep` and 0 for new blocks (not exact) until the tail is measured, so the row's height
+    /// changes only in the publish that brings the measured tail and its tiles.
+    init(index: LongTextIndex, width: CGFloat, carry: LongTextLayout? = nil, markdown: Bool? = nil, provisional keep: Int? = nil) {
+        self.index = index
+        self.width = width
+        self.markdown = index.markdown && (markdown ?? true)
+        column = Metrics(width: width).maxTextWidth
+        let col = Float(column)
+        var ex = [Bool](repeating: false, count: index.blockCount)
+        let k = LongTextIndex.refColumn / col
+        // cmux: built with map and checked reads (crash program).
+        var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
+            max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
+        }
+        if let c = carry, c.column == column, c.markdown == self.markdown {
+            c.lock.lock()
+            let n = min(c.index.blockCount, index.blockCount)
+            // cmux: checked reads and writes (crash program).
+            for b in 0..<n where (c.exact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
+                && c.index.starts[checked: b + 1] == index.starts[checked: b + 1]
+                && !(c.index.isFinal(b) != index.isFinal(b)) && c.index.carry(b + 1) == index.carry(b + 1) {
+                if let vs = v.checkedIndex(b), let es = ex.checkedIndex(b), let kept = c.tree.values[checked: b] { v[vs] = kept; ex[es] = true }
+            }
+            if let k = keep, k >= 0, k < index.blockCount {
+                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? c.tree.values[checked: k] ?? 0 : 0 }
+                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // cmux: no index writes
+            }
+            hint = c.hint
+            c.lock.unlock()
+        }
+        tree = Fenwick(v)
+        estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // cmux: Int32 widens exactly
+        exact = ex
+        measured = ex.filter { $0 }.count
+        placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
+                                                                   in: CrashGuard.countRange)) // cmux: no trap on a zero column
+        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // cmux: a negative keep built an inverted range
+    }
+
+    var totalLines: Int {
+        lock.lock(); defer { lock.unlock() }
+        return index.ready ? max(1, tree.total) : placeholderLines
+    }
+    var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
+    var size: CGSize {
+        CGSize(width: column + 2 * Fixture.bubblePadX, height: textHeight + 2 * Fixture.bubblePadY)
+    }
+    var blockCount: Int { index.blockCount }
+    func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) } // cmux
+    func firstLine(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.prefix(b) }
+    func block(containingLine l: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.find(max(0, l)) }
+    func isExact(_ b: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return exact[checked: b] ?? false } // cmux
+    var exactCount: Int { lock.lock(); defer { lock.unlock() }; return measured }
+
+    func key(_ b: Int) -> BlockLayoutCache.Key {
+        // A markdown block's layout also depends on whether the next block continues it.
+        BlockLayoutCache.Key(lineage: index.lineage, start: index.starts[checked: b] ?? -1, end: index.starts[checked: b + 1] ?? -1, // cmux
+                             final: index.isFinal(b) || (markdown && index.carry(b + 1).isOpen), column: column, md: markdown)
+    }
+
+    /// The block's line breaks or markdown layout (cached, else measured on this thread). Reports the count.
+    func blockLayout(_ b: Int, reuse: BlockLayout? = nil) -> BlockLayout {
+        let k = key(b)
+        if let l = BlockLayoutCache.shared.get(k) { report(b, l.lineCount); return l }
+        var l: BlockLayout?
+        if markdown, let r = MarkdownLong.layout(index, b, column: column, tableColumns: { [self] s in
+            blockLayout(s).md.flatMap(MarkdownLong.lastTableColumns)
+        }) {
+            l = BlockLayout(md: r.0, lines: r.lines)
+        }
+        let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
+        BlockLayoutCache.shared.put(k, out)
+        LongTextStats.blocksMeasured += 1
+        report(b, out.lineCount)
+        return out
+    }
+    /// The block's layout if it is cached (main thread: never measures).
+    func cachedBlockLayout(_ b: Int) -> BlockLayout? { BlockLayoutCache.shared.get(key(b)) }
+
+    static let tailQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .userInitiated
+        q.name = "longtext.tail"
+        return q
+    }()
+
+    /// Streaming: measure the tail blocks off main and draw their tiles near the text's end
+    /// (2 screens), then publish counts and tiles together.
+    func measureTail(_ blocks: Range<Int>) {
+        guard !blocks.isEmpty else { return }
+        lock.lock()
+        for b in blocks { inFlight.insert(b) }
+        lock.unlock()
+        LongTextLayout.tailQueue.addOperation { [weak self] in
+            guard let self, !self.retired else { return }
+            // Lines of the first tail block before this append: its tiles above them did not change.
+            let oldFirst = self.lines(ofBlock: blocks.lowerBound)
+            var counts: [(Int, Int)] = []
+            var layouts: [Int: BlockLayout] = [:]
+            for b in blocks {
+                let k = self.key(b)
+                let l: BlockLayout
+                if let c = BlockLayoutCache.shared.get(k) { l = c } else {
+                    l = self.blockLayoutNoReport(b)
+                }
+                layouts[b] = l
+                counts.append((b, l.lineCount))
+            }
+            var tiles: [(TileCache.Key, CGImage)] = []
+            if let h = self.tileHint {
+                let n = TiledBubble.linesPerTile
+                // Lines of the text after the tail is measured: the prefix before the tail plus the new counts.
+                let first = self.firstLine(ofBlock: blocks.lowerBound)
+                let total = first + counts.reduce(0) { $0 + $1.1 }
+                var line = first
+                for (b, c) in counts {
+                    // Every block in `counts` has its layout; guard anyway (no force unwrap in vendored code).
+                    guard let layout = layouts[b] else { line += c; continue }
+                    let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
+                    for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
+                        let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
+                        // cmux: a tile that could not be allocated is not prerendered.
+                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
+                    }
+                    line += c
+                }
+            }
+            self.lock.lock()
+            for (b, c) in counts { self.inFlight.remove(b); if !(self.exact[checked: b] ?? true) { self.pending.updateValue(Int32(clamping: c), forKey: b) } } // cmux
+            self.pendingTiles += tiles
+            self.lock.unlock()
+            LongTextCenter.schedule(self)
+        }
+    }
+    private func blockLayoutNoReport(_ b: Int) -> BlockLayout {
+        var l: BlockLayout?
+        if markdown, let r = MarkdownLong.layout(index, b, column: column, tableColumns: { [self] s in
+            blockLayout(s).md.flatMap(MarkdownLong.lastTableColumns)
+        }) {
+            l = BlockLayout(md: r.0, lines: r.lines)
+        }
+        let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
+        BlockLayoutCache.shared.put(key(b), out)
+        LongTextStats.blocksMeasured += 1
+        return out
+    }
+
+    /// Measure the unmeasured blocks holding these lines, off main.
+    func require(lines: Range<Int>) {
+        guard index.ready, !lines.isEmpty, blockCount > 0 else { return }
+        let a = block(containingLine: lines.lowerBound), b = block(containingLine: lines.upperBound - 1)
+        require(blocks: a..<(b + 1))
+    }
+    func require(blocks: Range<Int>) {
+        var todo: [Int] = []
+        lock.lock()
+        for b in blocks where !(exact[checked: b] ?? true) && !pending.keys.contains(b) && !inFlight.contains(b) { inFlight.insert(b); todo.append(b) } // cmux
+        lock.unlock()
+        guard !todo.isEmpty else { return }
+        // Chunks of 8 blocks per operation (fewer queue hops).
+        for i in stride(from: 0, to: todo.count, by: 8) {
+            let chunk = Array(todo.dropFirst(i).prefix(8)) // cmux: no range subscript
+            LongTextLayout.measureQueue.addOperation { [weak self] in
+                guard let self, !self.retired else { return }
+                for b in chunk { _ = self.blockLayout(b) }
+            }
+        }
+    }
+
+    /// Measure blocks now (tests).
+    func measureNow(_ blocks: Range<Int>, reuse: BlockLayout? = nil) {
+        for b in blocks { _ = blockLayout(b, reuse: b == blocks.lowerBound ? reuse : nil) }
+        _ = applyPending()
+    }
+
+    func report(_ b: Int, _ n: Int) {
+        lock.lock()
+        inFlight.remove(b)
+        let fresh = !(exact[checked: b] ?? true) && !pending.keys.contains(b) // cmux: checked
+        if fresh { pending.updateValue(Int32(clamping: n), forKey: b) }
+        lock.unlock()
+        if fresh { LongTextCenter.schedule(self) }
+    }
+
+    /// Main thread: published counts take the measured ones. Returns whether a height changed.
+    @discardableResult
+    func applyPending() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        var changed = false
+        for (b, n) in pending where !(exact[checked: b] ?? true) { // cmux: checked
+            if tree.values[checked: b] != n { changed = true }
+            tree.set(b, n)
+            if let slot = exact.checkedIndex(b) { exact[slot] = true }
+            measured += 1
+        }
+        pending.removeAll()
+        // Tiles drawn with the measurement: in the cache before the new height is laid out.
+        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration && k.scale == Fixture.renderScale { TileCache.shared.put(k, img) }
+        pendingTiles.removeAll()
+        return changed
+    }
+    var hasPending: Bool { lock.lock(); defer { lock.unlock() }; return !pending.isEmpty || !pendingTiles.isEmpty }
+
+    // MARK: Anchors (text-local y: 0 at the first line's slot top)
+
+    struct Anchor { var start: Int; var dy: CGFloat; var fraction: CGFloat }
+    func anchor(atTextY y: CGFloat) -> Anchor {
+        let lh = Fixture.lineHeight
+        let frac = y / max(1, textHeight)
+        guard index.ready, blockCount > 0 else { return Anchor(start: -1, dy: 0, fraction: frac) }
+        let line = CrashGuard.int(floor(max(0, y) / lh), in: CrashGuard.countRange) // cmux: no trap on NaN
+        let b = block(containingLine: line)
+        return Anchor(start: index.starts[checked: b] ?? -1, dy: y - CGFloat(firstLine(ofBlock: b)) * lh, fraction: frac)
+    }
+    func textY(of a: Anchor) -> CGFloat {
+        guard index.ready, a.start >= 0, blockCount > 0 else { return a.fraction * textHeight }
+        var lo = 0, hi = blockCount - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if (index.starts[checked: mid] ?? .max) <= a.start { lo = mid } else { hi = mid - 1 } // cmux: checked
+        }
+        return CGFloat(firstLine(ofBlock: lo)) * Fixture.lineHeight + a.dy
+    }
+
+    // MARK: Selection, copy, accessibility (UTF-16 offsets of the whole text)
+
+    /// Selection length: the UTF-16 length (plain), or the end of the last block's slot (markdown).
+    var selectionLength: Int { index.selStarts.last ?? 0 }
+    /// The selectable string of the block holding a selection offset, and its base offset
+    /// (word and paragraph rules). Plain: the block's source; markdown: its display string.
+    func selectionBlock(_ offset: Int) -> (NSString, Int) {
+        let b = index.block(sel: max(0, min(offset, max(0, selectionLength - 1))))
+        return (selectionString(b), index.selStarts[checked: b] ?? 0) // cmux
+    }
+    func selectionBlockIndex(_ offset: Int) -> Int { index.block(sel: max(0, min(offset, max(0, selectionLength - 1)))) }
+    func selectionString(_ b: Int) -> NSString { markdown ? blockLayout(b).string : index.blockString(b) }
+
+    /// Markdown block geometry: text-local y of the block's top (MarkdownLayout y = padY + local).
+    private func mdTop(_ b: Int) -> CGFloat { CGFloat(firstLine(ofBlock: b)) * Fixture.lineHeight }
+
+    /// Text offset at a text-local point (x from the text's left edge).
+    func offset(at p: CGPoint) -> Int {
+        guard index.ready, blockCount > 0 else { return 0 }
+        let line = max(0, min(totalLines - 1, CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux
+        let b = block(containingLine: line)
+        let bl = blockLayout(b)
+        if let md = bl.md {
+            let local = CGPoint(x: p.x + Fixture.bubblePadX, y: p.y - mdTop(b) + Fixture.bubblePadY)
+            return (index.selStarts[checked: b] ?? 0) + min(md.length, md.offset(at: local)) // cmux
+        }
+        let j = max(0, min(bl.lines.count - 1, line - firstLine(ofBlock: b)))
+        guard let r = bl.lines[checked: j] else { return index.selStarts[checked: b] ?? 0 } // cmux: a block with no lines
+        let attr = NSAttributedString(string: bl.string.substring(with: r), attributes: [.font: Fixture.bodyFont])
+        let ct = CTLineCreateWithAttributedString(attr)
+        var i = CTLineGetStringIndexForPosition(ct, CGPoint(x: p.x, y: 0))
+        if i == kCFNotFound { i = 0 }
+        return (index.selStarts[checked: b] ?? 0) + r.location + min(i, r.length) // cmux
+    }
+
+    /// Selection rects (text-local) of `range`, only for lines in `visible` (text-local y).
+    func rects(for range: NSRange, visible: ClosedRange<CGFloat>) -> [CGRect] {
+        guard index.ready, blockCount > 0, range.length > 0 else { return [] }
+        let lh = Fixture.lineHeight
+        let l0 = max(0, CrashGuard.int(floor(visible.lowerBound / lh), in: CrashGuard.countRange)) // cmux: no trap on NaN
+        let l1 = min(totalLines, CrashGuard.int(ceil(visible.upperBound / lh), in: CrashGuard.countRange))
+        guard l0 < l1 else { return [] }
+        var out: [CGRect] = []
+        var line = l0
+        while line < l1 {
+            let b = block(containingLine: line)
+            let first = firstLine(ofBlock: b)
+            let bl = blockLayout(b)
+            let base = index.selStarts[checked: b] ?? 0 // cmux
+            if let md = bl.md {
+                let top = CGFloat(first) * lh
+                let local = NSRange(location: range.location - base, length: range.length)
+                let lo = max(0, local.location), hi = min(md.length, NSMaxRange(local))
+                if lo < hi {
+                    let v0 = max(visible.lowerBound, top) - top + Fixture.bubblePadY, v1 = min(visible.upperBound, CGFloat(l1) * lh) - top + Fixture.bubblePadY
+                    for r in md.selectionRects(NSRange(location: lo, length: max(0, hi - lo)), visible: v0...max(v0, v1)) {
+                        out.append(r.offsetBy(dx: -Fixture.bubblePadX, dy: top - Fixture.bubblePadY))
+                    }
+                }
+                line = first + max(1, bl.lineCount)
+                if b + 1 >= blockCount { break }
+                continue
+            }
+            for (j, lr) in bl.lines.enumerated().dropFirst(max(0, line - first)) { // cmux: no range that can invert
+                let gl = first + j
+                if gl >= l1 { break }
+                let lineRange = NSRange(location: base + lr.location, length: lr.length)
+                // A hard line end owns its newline; a soft wrap does not (the next line starts there).
+                let soft = bl.lines.dropFirst(j + 1).first.map { $0.location == NSMaxRange(lr) } ?? false // cmux
+                let s = max(range.location, lineRange.location), e = min(NSMaxRange(range), NSMaxRange(lineRange) + (soft ? 0 : 1))
+                if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
+                    let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
+                    let ct = CTLineCreateWithAttributedString(attr)
+                    let x0 = CTLineGetOffsetForStringIndex(ct, max(0, s - lineRange.location), nil)
+                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : /* cmux */ CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
+                    out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
+                }
+            }
+            line = first + max(1, bl.lines.count)
+            if b + 1 >= blockCount { break }
+            line = max(line, firstLine(ofBlock: b + 1))
+        }
+        return out
+    }
+
+    /// Text in a selection range (Copy, accessibility value ranges): the source (plain) or the
+    /// display strings of the blocks (markdown: a table copies as TSV, code exactly).
+    func substring(_ range: NSRange) -> String {
+        guard index.ready, blockCount > 0, range.length > 0 else { return "" }
+        var out = ""
+        var b = index.block(sel: range.location)
+        while b < blockCount, let base = index.selStarts[checked: b], base < NSMaxRange(range) { // cmux: checked
+            let s = selectionString(b)
+            let lo = max(0, range.location - base), hi = min(s.length, NSMaxRange(range) - base)
+            if lo < hi { out += s.substring(with: NSRange(location: lo, length: hi - lo)) }
+            b += 1
+        }
+        return out
+    }
+}
+
+enum LongTextStats {
+    static var blocksMeasured = 0
+    static var publishes = 0
+    static var indexBuilds = 0
+    static var streamExtends = 0
+    /// Phases of the last fold change (ms), for the bench.
+    static var lastFoldMs: [String: Double] = [:]
+}
+
+/// Main-thread delivery of measured line counts, in batches. `handler(lineages, apply)`
+/// must call `apply` once (the window view keeps its anchor around it).
+enum LongTextCenter {
+    static var handler: ((Set<Int>, () -> Void) -> Void)?
+    private static let lock = NSLock()
+    private static var dirty: [ObjectIdentifier: LongTextLayout] = [:]
+    private static var replaced: [() -> Void] = []
+    private static var replacedLineages = Set<Int>()
+    private static var scheduled = false
+
+    static func schedule(_ l: LongTextLayout) {
+        lock.lock()
+        dirty.updateValue(l, forKey: ObjectIdentifier(l)) // cmux: dictionary write
+        let go = !scheduled
+        scheduled = true
+        lock.unlock()
+        if go { DispatchQueue.main.async { publish() } }
+    }
+    static func scheduleReplace(lineage: Int, _ apply: @escaping () -> Void) {
+        lock.lock()
+        replaced.append(apply)
+        replacedLineages.insert(lineage)
+        let go = !scheduled
+        scheduled = true
+        lock.unlock()
+        if go { DispatchQueue.main.async { publish() } }
+    }
+
+    static func publish() {
+        lock.lock()
+        let ls = Array(dirty.values).filter { !$0.retired }
+        let rs = replaced
+        var lineages = replacedLineages
+        dirty.removeAll(); replaced.removeAll(); replacedLineages.removeAll()
+        scheduled = false
+        lock.unlock()
+        lineages.formUnion(ls.map(\.index.lineage))
+        guard !lineages.isEmpty else { return }
+        LongTextStats.publishes += 1
+        let apply = {
+            rs.forEach { $0() }
+            ls.forEach { $0.applyPending() }
+        }
+        if let h = handler { h(lineages, apply) } else { apply() }
+    }
+}
+
+/// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
+final class LongTextStore: @unchecked Sendable {
+    static let shared = LongTextStore()
+    private let lock = NSLock()
+    private struct Addr: Hashable { var base: UInt; var count: Int }
+    private struct Print: Hashable { var count: Int; var head: Int; var tail: Int }
+    private var byAddr: [Addr: LongTextIndex] = [:]
+    private var byPrint: [Print: LongTextIndex] = [:]
+    private var byHead: [Int: LongTextIndex] = [:]
+    /// Per index: layouts by width, negative widths for markdown shown as source.
+    private var layouts: [ObjectIdentifier: [CGFloat: LongTextLayout]] = [:]
+    private var recent: [ObjectIdentifier: Int] = [:]
+    private var tick = 0
+    private var lineageSerial = 0
+    static let maxIndexes = 12
+    static let syncBytes = 512 << 10
+
+    func size(_ text: String, width: CGFloat) -> CGSize { layout(text, width: width).size }
+    /// The row size of a message's long text part: folded (LongTextFold) or full.
+    func size(_ text: String, width: CGFloat, message id: ID, markdown: Bool) -> CGSize {
+        let l = layout(text, width: width, message: id, markdown: markdown)
+        if LongTextFold.isFolded(id, l) { return LongTextFold.size(l) }
+        // Expanded: the "Show less" band follows the last line.
+        if LongTextFold.isFoldable(l) { return CGSize(width: l.size.width, height: l.size.height + LongTextFold.bandHeight) }
+        return l.size
+    }
+
+    /// The layout of a long text at a width. Markdown tiles only for a message the host marked
+    /// markdown (`markdown`, Message.format; plain by default) and not shown as source
+    /// (MarkdownStore.showsSource); otherwise a markdown index is laid out as plain text.
+    func layout(_ text: String, width: CGFloat, message: ID? = nil, markdown: Bool = false) -> LongTextLayout {
+        // cmux: index(for:) builds one when asked to; an unregistered index stands in (crash program).
+        let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
+        let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
+        let wk = md || !idx.markdown ? width : -width
+        lock.lock()
+        let id = ObjectIdentifier(idx)
+        tick += 1
+        recent.updateValue(tick, forKey: id) // cmux: dictionary write
+        if let l = layouts[id]?[wk] { lock.unlock(); return l }
+        let carry = layouts[id]?.values.first { $0.markdown == md }
+        lock.unlock()
+        let l = LongTextLayout(index: idx, width: width, carry: carry?.column == Metrics(width: width).maxTextWidth ? carry : nil, markdown: md)
+        lock.lock()
+        var per = layouts[id] ?? [:]
+        if per.count >= 3 { per.values.forEach { $0.retired = true }; per.removeAll() }
+        per.updateValue(l, forKey: wk) // cmux: dictionary write
+        layouts[id] = per
+        lock.unlock()
+        return l
+    }
+
+    /// The lineage of a text if it is indexed.
+    func lineage(_ text: String) -> Int? { index(for: text, create: false)?.lineage }
+
+    private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
+        var h = Hasher(), t = Hasher()
+        let n = p.count, k = min(n, 1024)
+        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // cmux: no range subscripts
+        t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
+        return Print(count: n, head: h.finalize(), tail: t.finalize())
+    }
+    private static func head(_ p: UnsafeBufferPointer<UInt8>) -> Int {
+        var h = Hasher()
+        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // cmux: no range subscript
+        return h.finalize()
+    }
+
+    private func index(for text: String, create: Bool = true) -> LongTextIndex? {
+        var t = text
+        if t.utf8.withContiguousStorageIfAvailable({ _ in true }) == nil { t.makeContiguousUTF8() }
+        return t.utf8.withContiguousStorageIfAvailable { p -> LongTextIndex? in
+            let addr = Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
+            lock.lock()
+            if let i = byAddr[addr] { lock.unlock(); return i }
+            let pr = LongTextStore.print(p)
+            if let i = byPrint[pr] { byAddr[addr] = i; lock.unlock(); return i }
+            let hd = LongTextStore.head(p)
+            let prev = byHead[hd]
+            lock.unlock()
+            guard create else { return nil }
+            // Streaming: the same text with more at the end keeps every block but the last
+            // (a plain stream that turns into markdown is indexed again from its start).
+            if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
+               prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* cmux: the last block start, no index math */, as: UTF8.self)) {
+                let keep = prev.blockCount - 1
+                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // cmux: checked
+                let same = prev.withBytes { q in // cmux: no force unwraps
+                    guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
+                    return memcmp(qb + from, pb + from, prev.count - from) == 0
+                }
+                if same {
+                    let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
+                    LongTextStats.streamExtends += 1
+                    let old = layoutsOf(prev)
+                    register(i, addr: addr, print: pr, head: hd, replacing: prev)
+                    // Layouts carry the measured blocks. The tail keeps its previous line count (and
+                    // its tiles their pixels) until it is measured and its end tiles are drawn off
+                    // main; then counts and tiles are published together (no empty tile, no main
+                    // thread measurement).
+                    for o in old {
+                        let tailOffMain = LongText.offMainTail
+                        let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
+                        lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
+                        if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // cmux: never an inverted range
+                        // The previous rule: the new tail is measured now (about 4 KB).
+                        let reuse = BlockLayoutCache.shared.get(o.key(keep))
+                        let tail = max(0, keep)..<max(max(0, keep), i.blockCount) // cmux: never an inverted range
+                        if i.count - (i.starts[checked: tail.lowerBound] ?? 0) <= 16 * 1024 /* cmux */ { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
+                    }
+                    return i
+                }
+            }
+            lineageSerial += 1
+            let lineage = lineageSerial
+            LongTextStats.indexBuilds += 1
+            if p.count <= LongTextStore.syncBytes {
+                let i = LongTextIndex.build(t, lineage: lineage)
+                register(i, addr: addr, print: pr, head: hd, replacing: nil)
+                return i
+            }
+            // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
+            let ph = LongTextIndex.placeholder(t, lineage: lineage)
+            register(ph, addr: addr, print: pr, head: hd, replacing: nil)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let i = LongTextIndex.build(t, lineage: lineage)
+                LongTextCenter.scheduleReplace(lineage: lineage) {
+                    self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
+                }
+            }
+            return ph
+        } ?? nil
+    }
+
+    private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
+        lock.lock(); defer { lock.unlock() }
+        return Array(layouts[ObjectIdentifier(i)]?.values ?? [:].values)
+    }
+
+    private func register(_ i: LongTextIndex, addr: Addr, print: Print, head: Int, replacing old: LongTextIndex?) {
+        lock.lock(); defer { lock.unlock() }
+        if let old {
+            let oid = ObjectIdentifier(old)
+            layouts[oid]?.values.forEach { $0.retired = true }
+            layouts[oid] = nil
+            recent.removeValue(forKey: oid) // cmux: dictionary write
+            byAddr = byAddr.filter { $0.value !== old }
+            byPrint = byPrint.filter { $0.value !== old }
+        }
+        byAddr[addr] = i
+        byPrint[print] = i
+        byHead[head] = i
+        tick += 1
+        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // cmux: dictionary write
+        // Bounded: the least recently used indexes go (their texts with them).
+        let live = Set(byAddr.values.map { ObjectIdentifier($0) })
+        if live.count > LongTextStore.maxIndexes {
+            let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
+            byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
+            byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
+            byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
+            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) } // cmux
+        }
+    }
+
+    var indexCount: Int { lock.lock(); defer { lock.unlock() }; return Set(byAddr.values.map { ObjectIdentifier($0) }).count }
+}
+
+/// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
+/// 3 screens shows its first and last 40 lines and a "Show all N lines" band between them,
+/// until the band is clicked (`MessagesWindowView.expandLongText`). The folded height is
+/// fixed (80 lines and the band), so measurement never changes it.
+enum LongTextFold {
+    static let headLines = 40, tailLines = 40
+    /// 3 screens (the 1041 pt window).
+    static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) } // cmux
+    static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
+    static let defaultsKey = "messageslab.collapseLongMessages"
+    /// Setting (UserDefaults, default on). `--no-collapse` turns it off for one run.
+    private static let disabledByArgument = ProcessInfo.processInfo.arguments.contains("--no-collapse")
+    static var enabled: Bool {
+        if disabledByArgument { return false }
+        return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
+    }
+    private static let lock = NSLock()
+    private static var expanded = Set<ID>()
+    /// Session only: expanded messages are not stored (they fold again at launch).
+    static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
+    static func collapse(_ id: ID) { lock.lock(); expanded.remove(id); lock.unlock() }
+    /// A text still scanned off main (above 512 KB, thousands of lines) folds from its first
+    /// frame, so the end of the scan changes no height.
+    static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && (l.index.ready ? l.estimatedLines > maxLines : l.totalLines > maxLines) }
+    static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
+    static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
+    static func size(_ l: LongTextLayout) -> CGSize {
+        CGSize(width: l.column + 2 * Fixture.bubblePadX,
+               height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
+    }
+    static func label(_ n: Int) -> String {
+        String(format: MessagesLabLocalization.string("longtext.showAll", "Show all %lld lines"), n)
+    }
+    static var lessLabel: String { MessagesLabLocalization.string("longtext.showLess", "Show less") }
+}

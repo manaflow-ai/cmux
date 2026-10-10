@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import UniformTypeIdentifiers
 
-/// Chrome's certificate viewer: a General tab (Issued To, Issued By,
+/// The certificate viewer: a General tab (Issued To, Issued By,
 /// Validity Period, SHA-256 Fingerprints) and a Details tab (hierarchy,
 /// fields, field value, Export).
 final class CertificateViewerWindow: PageInfoWindow {
@@ -48,7 +48,7 @@ final class CertificateViewerWindow: PageInfoWindow {
         }
         constraints.append(container.bottomAnchor.constraint(equalTo: bottom, constant: -PageInfoStyle.inset))
         NSLayoutConstraint.activate(constraints)
-        contentView = root
+        installContent(root)
         showTab(0)
     }
 
@@ -77,7 +77,7 @@ final class CertificateViewerWindow: PageInfoWindow {
 
     private func generalView(_ certificate: PageInfoCertificate) -> NSView {
         let missing = PageInfoStrings.notPartOfCertificate
-        func value(_ text: String?) -> String { text?.isEmpty == false ? text! : missing }
+        func value(_ text: String?) -> String { text.flatMap { $0.isEmpty ? nil : $0 } ?? missing }
         let dates = DateFormatter()
         dates.dateStyle = .full
         dates.timeStyle = .long

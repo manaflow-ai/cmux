@@ -17,7 +17,11 @@ name = "acpmux"
 path = "src/main.rs"
 
 [dependencies]
+cmux-chat-index.workspace = true
+cmux-coderouter.workspace = true
+cmux-local-auth.workspace = true
 anyhow = "1"
+cmux-unix-socket.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
@@ -26,6 +30,8 @@ futures-util = "0.3"
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2.workspace = true
+toml.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
@@ -34,9 +40,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
+notify.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
 wait-timeout.workspace = true
+zeroize.workspace = true
 regex = "1"
+# The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the
+# workspace's reqwest and ring rustls provider.
+reqwest.workspace = true
+rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+
+[dev-dependencies]
+cmux-unix-socket = { workspace = true, features = ["test-support"] }

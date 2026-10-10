@@ -1,0 +1,35 @@
+.variant-pick {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+}
+.variant-pick-options {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 3px;
+}
+.variant-pick-option {
+  flex: 1 0 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--cmux-background, Canvas);
+  border: var(--cmux-border-width, 1px) solid var(--cmux-separator, currentColor);
+  border-radius: 8px;
+}
+.variant-pick-option[data-picked] { background: var(--cmux-hover, Canvas); }
+.variant-pick-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.variant-pick-heading span { color: var(--cmux-text-secondary, currentColor); }
+.variant-pick-button { align-self: flex-start; margin-top: auto; color: inherit; background: var(--cmux-hover, Canvas); }
+.variant-pick-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.variant-pick-button[aria-pressed="true"] { font-weight: bold; }
+.variant-pick-note { display: flex; flex-direction: column; gap: 4px; margin-block: 8px; }
+.variant-pick-note textarea { font: inherit; color: inherit; background: var(--cmux-background, Canvas); }
+
+.variant-pick output { display: block; min-height: 1.4em; }

@@ -20,8 +20,24 @@ public struct ControlTopology: Sendable, Hashable {
     /// daemon event up to it is reflected. Compat reads wait for it to pass
     /// a write's barrier instead of refetching the tree.
     public var daemonSequence: UInt64 = 0
+    /// Every session the app knows (plans/cmux-next/data-model.md 1.1):
+    /// the home session first, then each connected remote session.
+    public var sessions: [ControlSessionInfo] = []
+    /// `DaemonStore.appliedSequence` of each remote session's store when
+    /// this topology was built, by `ControlSessionInfo.id` (the home
+    /// session's is `daemonSequence`).
+    public var sessionSequences: [String: UInt64] = [:]
 
     public init() {}
+
+    /// The session `id` names (a `ControlSessionInfo.id`); nil for the home session or an unknown id.
+    public func session(id: String?) -> ControlSessionInfo? {
+        guard let id else { return nil }
+        return sessions.first { $0.id == id }
+    }
+
+    /// The home session, when the App reported one.
+    public var homeSession: ControlSessionInfo? { sessions.first(where: \.isHome) }
 
     public func workspace(id: String) -> ControlWorkspaceInfo? {
         workspaces.first { $0.id == id || $0.handle == id || ($0.resourceID != nil && $0.resourceID == id) }

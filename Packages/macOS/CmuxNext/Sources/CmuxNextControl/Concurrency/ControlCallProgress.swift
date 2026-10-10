@@ -44,12 +44,13 @@ public final class ControlCallProgress: Sendable {
 extension ControlError {
     /// This error with `data.not_run` and `data.state` set: a `busy` or a
     /// timeout before the work started is `not_run` (safe to retry); a
-    /// timeout after it started is `in_progress`.
+    /// timeout after it started is `in_progress`, unless the error already
+    /// says `not_run` (an idempotent join whose run never started).
     func annotated(progress: ControlCallProgress) -> ControlError {
         let notRun: Bool
         switch code {
         case "busy": notRun = true
-        case "timeout": notRun = progress.abandonIfPending()
+        case "timeout": notRun = data?["not_run"]?.boolValue ?? progress.abandonIfPending()
         default: return self
         }
         var error = self

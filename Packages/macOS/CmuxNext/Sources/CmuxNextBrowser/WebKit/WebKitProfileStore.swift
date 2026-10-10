@@ -59,6 +59,9 @@ public final class WebKitProfileStore {
         return store
     }
 
+    /// Whether `profile` is off the record (an incognito window).
+    public func isOffTheRecord(_ profile: BrowserProfileID) -> Bool { offTheRecord.isOffTheRecord(profile) }
+
     /// Profiles with a live store in this process.
     public var loadedProfiles: Set<BrowserProfileID> {
         Set(stores.keys)
@@ -69,5 +72,16 @@ public final class WebKitProfileStore {
     public func removeData(for profile: BrowserProfileID) async throws {
         stores[profile] = nil
         try await factory.removeStore(identifier: profile.rawValue)
+    }
+
+    /// Deletes every record of a deleted profile's store (cookies, storage,
+    /// caches) through a store instance. The static
+    /// `WKWebsiteDataStore.remove(forIdentifier:)` crashed on WebKit's IO
+    /// queue at launch for a store no page used in the process; the empty
+    /// container stays behind.
+    public func clearData(for profile: BrowserProfileID) async {
+        stores[profile] = nil
+        let store = factory.makeStore(identifier: profile.rawValue)
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
     }
 }

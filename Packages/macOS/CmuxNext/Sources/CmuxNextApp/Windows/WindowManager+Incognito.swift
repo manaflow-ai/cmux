@@ -22,31 +22,34 @@ extension WindowManager {
         // The session begins now, so the window's first page is incognito.
         _ = incognitoProfile()
         let daemon = services.daemon
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
             choice
         } else {
             BrowserEngineChoice(engine: .webkit)
         }
         let address = url?.absoluteString ?? "about:blank"
+        if EphemeralWorkspaces.localDaemonServes(self) {
+            EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice)
+            return windowID
+        }
         // Claimed before anything else runs: the pending claim keeps the
         // session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        Task {
+        Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
                 return endIncognitoSessionIfUnused()
             }
             do {
-                _ = try await services.emptyWorkspaces.populating(key) {
-                    let workspace = try await connection.createWorkspace(name: nil, key: key)
-                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
+                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
                     if let pane = terminal.pane {
-                        _ = try await browserTabs.open(choice, in: pane, url: address, incognito: true)
+                        _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
                     }
-                    return workspace.key.rawValue
+                    return created.rawValue
                 }
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
@@ -70,7 +73,7 @@ extension WindowManager {
     /// closed one (its pages must still never use a normal store).
     func isIncognito(workspace workspaceID: String) -> Bool {
         let value = registry.value
-        if value.discarding.contains(workspaceID) { return true }
+        if value.discarding.contains(workspaceID) || EphemeralWorkspaces.isEphemeral(workspaceID, self) { return true }
         if let owner = value.owner(of: workspaceID) { return value.isIncognito(owner) }
         return pendingClaims[workspaceID].map(value.isIncognito) ?? false
     }
@@ -93,7 +96,7 @@ extension WindowManager {
     func discard(_ workspaceIDs: [String]) {
         for id in workspaceIDs {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
         endIncognitoSessionIfUnused()
@@ -107,14 +110,16 @@ extension WindowManager {
         var ids = value.discarding
         for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
         for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
-        incognitoLedger.record(ids)
+        // The daemon closes ephemeral workspaces itself; the ledger keeps
+        // only incognito workspaces it does not know as such.
+        incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) })
     }
 
     func endIncognitoSessionIfUnused() {
         guard let profile = incognitoSession else { return }
         let value = registry.value
         let open = value.windows.contains { value.isIncognito($0.id) }
-        let pending = pendingClaims.values.contains(where: value.isIncognito)
+        let pending = pendingClaims.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
         guard !open, !pending else { return }
         incognitoSession = nil
         incognitoHistoryReset?()
@@ -130,7 +135,7 @@ extension WindowManager {
         for id in ids {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key,
                   let connection = daemon.connection else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             try? await WorkspaceClose.close(key, terminals: terminals, on: connection)
         }
     }
@@ -164,17 +169,18 @@ extension WindowManager {
     /// in a window of the origin's kind: `preferred` (usually the active
     /// window) when it matches, else the origin's window. `newWindow` opens
     /// a new window of that kind (incognito even before the daemon reports
-    /// the workspace).
-    func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool) {
+    /// the workspace); an open one places it by `workspaces.newPlacement`.
+    func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool, select shows: Bool = true) {
         if newWindow {
-            openWindow(workspaces: [key], incognito: origin.incognito)
+            openWindow(workspaces: [key], incognito: origin.incognito, behind: !shows)
             return
         }
-        if let preferred, isIncognito(window: preferred.id) == origin.incognito {
-            claim(workspaceID: key, in: preferred)
-        } else if let window = origin.window, let state = states[window], registry.value.window(window)?.isOpen == true {
-            claim(workspaceID: key, in: state)
-        }
+        let target = preferred.flatMap { isIncognito(window: $0.id) == origin.incognito ? $0 : nil }
+            ?? origin.window.flatMap { registry.value.window($0)?.isOpen == true ? states[$0] : nil }
+        guard let target else { return }
+        let rule = NewWorkspacePlacements.rule(for: target.id, in: self)
+        claim(workspaceID: key, in: target, select: shows)
+        NewWorkspacePlacements.expect(key, in: target.id, byDefault: rule, windows: self)
     }
 
     /// The window a workspace is shown in, for move checks.

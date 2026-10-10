@@ -62,9 +62,12 @@ impl Client {
                         other => {
                             // Whoever holds the current receiver gets it; a
                             // dropped receiver just loses notifications and
-                            // never kills the connection.
+                            // never kills the connection. A full queue drops
+                            // the notification rather than stall responses.
                             let tx = notif_tx.lock().await.clone();
-                            let _ = tx.send(other).await;
+                            if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other) {
+                                tracing::debug!("notification queue full; dropping a notification");
+                            }
                         }
                     }
                 }
@@ -130,22 +133,28 @@ impl Client {
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
         let context = format!("sending {m}");
-        if self.closed.load(Ordering::SeqCst) {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let key = Value::from(id).to_string();
+        let (tx, rx) = oneshot::channel();
+        {
+            // Check and register under the lock the reader drains with after
+            // it marks the connection closed, so no request slips between.
+            let mut pending = self.pending.lock().await;
+            if self.closed.load(Ordering::SeqCst) {
+                return Err(self.closed(&context));
+            }
+            pending.insert(key.clone(), tx);
+        }
+        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+            self.pending.lock().await.remove(&key);
             return Err(self.closed(&context));
         }
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(Value::from(id).to_string(), tx);
-        self.out
-            .send(Message::request(id, m, params).to_line())
-            .await
-            .map_err(|_| self.closed(&context))?;
         match rx.await {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(e)) if e.message == "daemon connection closed" => {
                 Err(self.closed(&format!("waiting for the reply to {m}")))
             }
-            Ok(Err(e)) => Err(anyhow!("{}", e.message)),
+            Ok(Err(e)) => Err(DaemonError(e).into()),
             Err(_) => Err(self.closed(&format!("waiting for the reply to {m}"))),
         }
     }
@@ -157,6 +166,20 @@ impl Client {
             .map_err(|_| self.closed(&format!("sending {m}")))
     }
 }
+
+/// An error reply from the daemon. It prints as the message alone and
+/// keeps the JSON-RPC code, so callers can tell invalid params (-32602)
+/// from internal errors.
+#[derive(Debug)]
+pub struct DaemonError(pub RpcError);
+
+impl std::fmt::Display for DaemonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.message)
+    }
+}
+
+impl std::error::Error for DaemonError {}
 
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an

@@ -3,7 +3,7 @@
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, flatten};
+use crate::cli::command::{Cli, Command, RouterCmd, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
@@ -39,6 +39,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         libc::pthread_sigmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
+    // An agent host serves one harness for its controller; it has no CLI.
+    if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        return crate::agent_host::host::main();
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
@@ -57,15 +61,18 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let mut argv: Vec<OsString> = Vec::with_capacity(args.len() + 2);
     argv.push(invocation.display_name.clone().into());
     argv.extend(args);
+    // The command word, past any global flags before it
+    // (`acpmux --json exec …`), so these rewrites see the same command.
+    let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if argv.len() == 2 && argv[1] == "daemon" {
+    if at + 1 == argv.len() && argv[at] == "daemon" {
         argv.push("run".into());
     }
-    if argv.get(1).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[1] = "skill".into();
+    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
+        argv[at] = "skill".into();
     }
-    let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);
-    let exec_alias = argv.get(1).map(|a| a == "exec").unwrap_or(false);
+    let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
+    let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
     let matches = Cli::command().name(name).bin_name(name).get_matches_from(argv);
@@ -86,7 +93,18 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
-        Some(Command::DaemonRun { listen, token, memory, log, ready_fd }) => {
+        Some(Command::Router(RouterCmd::Serve)) => {
+            cmux_coderouter::serve(crate::config::home()).await
+        }
+        Some(Command::DaemonRun {
+            listen,
+            token,
+            memory,
+            log,
+            ready_fd,
+            allow_dev_origin,
+            dev,
+        }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
@@ -98,6 +116,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 ws_token: token,
                 memory,
                 ready_fd,
+                dev_origins: allow_dev_origin,
+                dev,
             })
             .await?;
             // The daemon has stopped its agents and synced its store. Exit
@@ -122,6 +142,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Harness(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::harness::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -134,5 +161,29 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+    }
+}
+
+/// Index of the first argument after the program name that is not a global
+/// flag (`--json`, `--suppress-reads`); `argv.len()` when there is none.
+fn command_index(argv: &[OsString]) -> usize {
+    argv.iter()
+        .skip(1)
+        .position(|a| a != "--json" && a != "--suppress-reads")
+        .map(|i| i + 1)
+        .unwrap_or(argv.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_index_skips_leading_global_flags() {
+        let argv = |list: &[&str]| list.iter().map(|s| OsString::from(*s)).collect::<Vec<_>>();
+        assert_eq!(command_index(&argv(&["acpmux", "exec", "hi"])), 1);
+        assert_eq!(command_index(&argv(&["acpmux", "--json", "exec", "hi"])), 2);
+        assert_eq!(command_index(&argv(&["acpmux", "--json", "--suppress-reads", "daemon"])), 3);
+        assert_eq!(command_index(&argv(&["acpmux", "--json"])), 2);
     }
 }

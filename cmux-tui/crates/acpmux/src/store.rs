@@ -27,6 +27,10 @@ pub struct EventRecord {
     pub kind: String,
     /// Raw JSON-RPC message, or the acpmux payload.
     pub msg: Value,
+    /// The agent host entry this record logs (`hostSeq`), so a controller
+    /// that adopts the host resumes after it (agent hosts, durable sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -126,10 +130,50 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The Claude conversation acpmux started with a fresh id has not
+    /// finished a turn, so Claude may never have stored it (a launcher that
+    /// died before the prompt reached Claude stores nothing). A respawn (a
+    /// fallback profile, a dead process, a daemon restart) then starts a
+    /// fresh conversation instead of `--resume`, which would fail the turn
+    /// with "No conversation found with session ID".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored: bool,
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
+    /// current Claude conversation: the one that started or forked it. A
+    /// respawn on another profile (a failover) resumes only when that
+    /// profile's store has the conversation, else starts fresh (E1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Created over a remote-origin connection (the WebSocket listener):
+    /// its harness never spawns with a preset's args or system prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_origin: bool,
+    /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
+    /// socket on session/new or session/fork, applied over the preset env at
+    /// every spawn. Never copied to a fork or a handoff.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_env: BTreeMap<String, String>,
+    /// Chat store roots the harness's launch env named at its last spawn
+    /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harness_roots: Vec<HarnessRoot>,
+    /// Unsent composer text owned by this acpmux session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_draft: Option<String>,
+}
+
+/// One chat store root a spawn's env named: `harness` is a chat index
+/// adapter id (`claude-code`, `codex`, ...) or, for a profile's own `sessions`
+/// roots, the profile id. Never carries other env values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRoot {
+    pub harness: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +214,11 @@ pub trait Store: Send + Sync {
     }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Where handoff records live: `handoffs/` beside `sessions/`, or none
+    /// (in memory) for the memory store.
+    fn handoff_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -412,6 +461,10 @@ impl Store for LocalStore {
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
         Some(self.dir(id))
     }
+
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("handoffs"))
+    }
 }
 
 #[cfg(test)]
@@ -451,7 +504,13 @@ mod tests {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
+            remote_origin: false,
+            session_env: Default::default(),
+            harness_roots: vec![],
+            composer_draft: None,
         }
     }
 
@@ -462,6 +521,7 @@ mod tests {
             dir: "mux".into(),
             kind: "status".into(),
             msg: serde_json::json!({"seq": seq}),
+            host_seq: None,
         }
     }
 
@@ -492,5 +552,28 @@ mod tests {
         store.append("m", &rec(1)).unwrap();
         store.append("m", &rec(2)).unwrap();
         assert_eq!(store.events("m", 1, 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn local_store_round_trips_composer_draft() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-draft-store-{}", uuid::Uuid::now_v7()));
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let mut saved = meta("draft");
+        saved.composer_draft = Some("keep this across relaunch".into());
+        store.save(&saved).unwrap();
+        assert_eq!(store.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
+
+        let reopened = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        assert_eq!(reopened.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_session_meta_defaults_composer_draft_to_none() {
+        let mut value = serde_json::to_value(meta("legacy")).unwrap();
+        value.as_object_mut().unwrap().remove("composerDraft");
+        let loaded: SessionMeta = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.composer_draft, None);
     }
 }

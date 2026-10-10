@@ -11,7 +11,10 @@ import Foundation
 final class ThreadStackSampler: @unchecked Sendable {
     let thread: thread_act_t
     let maxFrames: Int
-    // Only the watchdog thread touches the buffer.
+    // The watchdog thread writes the buffer while the target is suspended.
+    // The target reads it (``copy(count:)``) only after a sample was
+    // published for its current stall, and the next sample waits for that
+    // stall to end, so the two never overlap.
     private let buffer: UnsafeMutablePointer<UInt>
 
     init(thread: thread_act_t, maxFrames: Int = 64) {
@@ -27,10 +30,31 @@ final class ThreadStackSampler: @unchecked Sendable {
     /// Return addresses, innermost first. Empty when the thread could not be
     /// suspended or its state could not be read.
     func sample() -> [UInt] {
+        sample { _ in }
+    }
+
+    /// Same as ``sample()``, and runs `whileSuspended` with the frame count
+    /// before the thread resumes. `whileSuspended` must not allocate or take
+    /// a lock (atomics only): the suspended thread may hold them.
+    func sample(whileSuspended: (Int) -> Void) -> [UInt] {
         guard thread_suspend(thread) == KERN_SUCCESS else { return [] }
         let count = walk()
+        whileSuspended(count)
         thread_resume(thread)
-        return (0..<count).map { buffer[$0] }
+        return copy(count: count)
+    }
+
+    /// Writes one frame when `index` is inside the buffer. Pointer arithmetic
+    /// and `pointee` are transparent, so the suspended section makes no runtime
+    /// call and no allocation (a generic accessor could, at -Onone).
+    private func store(_ address: UInt, at index: Int) {
+        guard index >= 0, index < maxFrames else { return }
+        (buffer + index).pointee = address
+    }
+
+    /// The first `count` addresses of the last sample.
+    func copy(count: Int) -> [UInt] {
+        Array(UnsafeBufferPointer(start: buffer, count: min(max(count, 0), maxFrames)))
     }
 
     /// Caller has suspended the thread. No allocation in here.
@@ -42,31 +66,31 @@ final class ThreadStackSampler: @unchecked Sendable {
         var state = arm_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
                 thread_get_state(thread, ARM_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        pc = UInt(state.__pc)
-        fp = UInt(state.__fp)
-        lr = UInt(state.__lr)
+        pc = UInt(clamping: state.__pc)
+        fp = UInt(clamping: state.__fp)
+        lr = UInt(clamping: state.__lr)
         #elseif arch(x86_64)
         var state = x86_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
                 thread_get_state(thread, x86_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        pc = UInt(state.__rip)
-        fp = UInt(state.__rbp)
+        pc = UInt(clamping: state.__rip)
+        fp = UInt(clamping: state.__rbp)
         #endif
         var frames = 0
-        buffer[frames] = Self.strip(pc)
+        store(Self.strip(pc), at: frames)
         frames += 1
         if lr != 0, frames < maxFrames {
-            buffer[frames] = Self.strip(lr)
+            store(Self.strip(lr), at: frames)
             frames += 1
         }
         var pair: (UInt, UInt) = (0, 0)
@@ -79,7 +103,7 @@ final class ThreadStackSampler: @unchecked Sendable {
             guard read == KERN_SUCCESS else { break }
             let (next, returnAddress) = pair
             guard returnAddress != 0 else { break }
-            buffer[frames] = Self.strip(returnAddress)
+            store(Self.strip(returnAddress), at: frames)
             frames += 1
             // Frames grow toward higher addresses; anything else is a loop or garbage.
             guard next > fp else { break }

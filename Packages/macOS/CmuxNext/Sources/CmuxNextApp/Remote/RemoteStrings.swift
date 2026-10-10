@@ -3,6 +3,41 @@ import Foundation
 
 /// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings.
 enum RemoteStrings {
+    // Remote-terminal tab placeholder (plans/cmux-next/data-model.md 1.4).
+    static func placeholderReconnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
+    }
+    static func placeholderOffline(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
+    }
+    static func placeholderUnknown(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine)
+    }
+    // An agent chat tab whose session another Mac's acpmux runs.
+    static func agentTabElsewhere(_ machine: String) -> String {
+        String(format: String(localized: "remote.agentTab.elsewhere", defaultValue: "This chat runs on %@", table: "Remote", bundle: .module), machine)
+    }
+    static var agentTabElsewhereUnknown: String {
+        String(localized: "remote.agentTab.elsewhereUnknown", defaultValue: "This chat runs on another Mac", table: "Remote", bundle: .module)
+    }
+    static var placeholderConnect: String {
+        String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module)
+    }
+    static var placeholderNoSnapshot: String {
+        String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module)
+    }
+    static func terminalOn(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine)
+    }
+    static var moveBrowserAcrossMachines: String {
+        String(localized: "remote.terminal.moveBrowser", defaultValue: "Browser tabs cannot move to a workspace on another machine yet.", table: "Remote", bundle: .module)
+    }
+    static var needsRemoteTerminalTabs: String {
+        String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module)
+    }
+    static var machineHasNoTerminal: String {
+        String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module)
+    }
     static var noClient: String {
         String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module)
     }
@@ -54,7 +89,7 @@ enum RemoteStrings {
         String(format: String(localized: "remote.forget.title", defaultValue: "Forget %@?", table: "Remote", bundle: .module), name)
     }
     static var forgetBody: String {
-        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and room pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
+        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
     }
     static var forget: String { String(localized: "remote.button.forget", defaultValue: "Forget", table: "Remote", bundle: .module) }
 
@@ -93,6 +128,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
+            if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
@@ -107,6 +143,47 @@ enum RemoteStrings {
         case .installFailed(let message), .failed(let message):
             return message
         }
+    }
+
+    /// The machine's raw failure (ssh's own words, or the install or link
+    /// error) for Copy SSH Error; nil when it has none.
+    static func sshError(_ session: SSHMachineSession) -> String? {
+        let text: String? = switch session.linkStatus {
+        case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
+             .installFailed(let message), .failed(let message): message
+        case .needsInstall(let need): needText(need, session)
+        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .offline, .installing: session.lastError
+        }
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The header detail of a machine whose cmux-tui did not start; `error`
+    /// is the daemon's error and the link's output.
+    static func daemonFailed(_ error: String) -> String {
+        String(format: String(localized: "remote.status.daemonFailed",
+                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
+                              table: "Remote", bundle: .module), error)
+    }
+
+    /// The one-time notice of a browser tab opened in another machine's
+    /// workspace: the page renders and runs on this Mac (cx-2cob slice 1a).
+    static func browserRunsOnThisMac(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.runsOnThisMac",
+                              defaultValue: "This tab runs on this Mac, not on %@.", table: "Remote", bundle: .module), machine)
+    }
+
+    /// The refusal of a new browser tab in a workspace of a machine that is not connected.
+    static func browserMachineNotConnected(_ machine: String) -> String {
+        String(format: String(localized: "remote.browser.notConnected",
+                              defaultValue: "%@ is not connected. Reconnect it to open a browser tab in its workspace.",
+                              table: "Remote", bundle: .module), machine)
+    }
+
+    /// The refusal of Copy SSH Error for a machine without a failure.
+    static func noSSHError(_ machine: String) -> String {
+        String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine)
     }
 
     static func needText(_ need: InstallNeed, _ session: SSHMachineSession) -> String {

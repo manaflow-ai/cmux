@@ -2,14 +2,24 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Small borderless icon button with a gray hover fill (no blue).
+/// Small borderless icon button with the shared chrome hover and pressed
+/// fills (`ChromeHover`, no blue).
 final class SidebarIconButton: NSButton {
-    private var hovering = false { didSet { needsDisplay = true } }
+    private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
 
-    private let symbol: String
+    /// Replacing the symbol or label redraws the button (a disclosure's chevron).
+    var symbol: String { didSet { if symbol != oldValue { renderedSize = 0; renderSymbol() } } }
     private let weight: NSFont.Weight
-    private let label: String
+    var label: String {
+        didSet {
+            guard label != oldValue else { return }
+            setAccessibilityLabel(label)
+            toolTip = label
+            renderedSize = 0
+            renderSymbol()
+        }
+    }
     /// Point size read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
@@ -23,14 +33,14 @@ final class SidebarIconButton: NSButton {
         renderSymbol()
         imagePosition = .imageOnly
         isBordered = false
-        contentTintColor = Palette.textSecondary
         setAccessibilityLabel(label)
         toolTip = label
         wantsLayer = true
-        layer?.cornerCurve = .continuous
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
+        // Hover follows the pointer and the button's frame (cx-3wu5).
+        hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
     @available(*, unavailable)
@@ -55,15 +65,36 @@ final class SidebarIconButton: NSButton {
 
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.backgroundColor = hovering ? resolvedCGColor(Palette.hoverFill) : nil
+        performWithTheme {
+            contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
+        }
+        hover.refresh(animated: false)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        change(&hover.state)
+        needsDisplay = true
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    /// NSButton tracks the click inside `super.mouseDown` and returns on release.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        changeHover { $0.pressed = true }
+        super.mouseDown(with: event)
+        changeHover { $0.pressed = false }
+    }
+
+    /// A button hidden under the pointer (the header + while the sidebar
+    /// is not hovered) gets no exit event; the hover owner clears it, and it
+    /// reappears with the hover the pointer gives it then.
+    override func viewDidHide() {
+        super.viewDidHide()
+        changeHover { $0.pressed = false }
+        hover.pointer?.refresh()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover.pointer?.refresh()
+    }
 }

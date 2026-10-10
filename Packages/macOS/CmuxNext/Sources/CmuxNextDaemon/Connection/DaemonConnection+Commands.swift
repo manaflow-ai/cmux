@@ -37,35 +37,10 @@ extension DaemonConnection {
 
     @discardableResult
     public func setWorkspaceMetadata(_ key: WorkspaceKey, color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
-                                     title: FieldUpdate<String> = .unchanged) async throws -> WorkspaceMetadataResult {
-        try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, mutation: mutation()))
-    }
-
-    // Groups (`workspace-groups-v1`)
-
-    @discardableResult
-    public func createGroup(name: String, id: WorkspaceGroupID? = nil, color: String? = nil, index: Int? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(CreateWorkspaceGroupRequest(name: name, group: id, color: color, index: index)).group
-    }
-
-    @discardableResult
-    public func updateGroup(_ id: WorkspaceGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                            collapsed: Bool? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(UpdateWorkspaceGroupRequest(group: id, name: name, color: color, collapsed: collapsed)).group
-    }
-
-    public func deleteGroup(_ id: WorkspaceGroupID) async throws {
-        _ = try await request(DeleteWorkspaceGroupRequest(group: id))
-    }
-
-    public func moveGroup(_ id: WorkspaceGroupID, to index: Int) async throws {
-        _ = try await request(MoveWorkspaceGroupRequest(group: id, index: index))
-    }
-
-    /// Puts a workspace in a group (nil ungroups) at an optional section index.
-    @discardableResult
-    public func moveWorkspace(_ key: WorkspaceKey, toGroup group: WorkspaceGroupID?, index: Int? = nil) async throws -> MoveWorkspaceToGroupRequest.Response {
-        try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
+                                     title: FieldUpdate<String> = .unchanged, pinned: Bool? = nil,
+                                     markedUnread: Bool? = nil) async throws -> WorkspaceMetadataResult {
+        try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned,
+                                                      markedUnread: markedUnread, mutation: mutation()))
     }
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
@@ -78,15 +53,15 @@ extension DaemonConnection {
 
     /// Whether this daemon closes many tabs, and the terminals they end, in
     /// one commit (`close-tabs`, `end_terminals`).
-    public var supportsBatchClose: Bool { identity?.supports(DaemonCapabilities.batchClose) == true }
+    public var supportsBatchClose: Bool { identity?.supports(DaemonCapabilities.shared.batchClose) == true }
 
     /// Closes `surfaces` in one daemon commit (`batch-close-v1`). With
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
     @discardableResult
     public func closeTabs(_ surfaces: [SurfaceID], endTerminals: Bool = true,
-                          transaction: ClientTransactionID? = nil) async throws -> CloseTabsResult {
+                          transaction: ClientTransactionID? = nil, reason: CloseReason? = nil) async throws -> CloseTabsResult {
         try await requestNew(CloseTabsRequest(surfaces: surfaces, endTerminals: endTerminals, transaction: transaction,
-                                              mutation: mutation()))
+                                              mutation: mutation(), reason: reason))
     }
 
     // Terminals, tabs, panes, columns, screens
@@ -95,7 +70,7 @@ extension DaemonConnection {
     /// provider's when the daemon supports `terminal-env-v1`.
     func terminalEnvironment(_ explicit: [String: String]?) async -> [String: String]? {
         if let explicit { return explicit }
-        guard identity?.supports(DaemonCapabilities.terminalEnv) == true, let provider = configuration.terminalEnvironment else {
+        guard identity?.supports(DaemonCapabilities.shared.terminalEnv) == true, let provider = configuration.terminalEnvironment else {
             return nil
         }
         let env = await provider()
@@ -111,10 +86,10 @@ extension DaemonConnection {
                                size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async throws -> CreateTerminalResult {
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(env)
-        if identity?.supports(DaemonCapabilities.terminalEnv) == true {
+        if identity?.supports(DaemonCapabilities.shared.terminalEnv) == true {
             env = (env ?? [:]).merging(Self.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         }
-        let keep = identity?.supports(DaemonCapabilities.terminalReap) == true ? keep : nil
+        let keep = identity?.supports(DaemonCapabilities.shared.terminalReap) == true ? keep : nil
         return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
                                                        terminalID: terminal, env: env, keep: keep, mutation: mutation()))
     }
@@ -191,17 +166,17 @@ extension DaemonConnection {
     /// gets `missingCapabilities` and no request.
     @discardableResult
     public func setTabPinned(_ surface: SurfaceID, _ pinned: Bool) async throws -> SetTabPinnedRequest.Response {
-        guard identity?.supports(DaemonCapabilities.tabMetadata) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.tabMetadata])
+        guard identity?.supports(DaemonCapabilities.shared.tabMetadata) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.tabMetadata])
         }
         return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
 
-    /// App-rendered browser tab (`frontend-browser-tabs-v1`).
+    /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
     @discardableResult
-    public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil,
-                                      profileID: String? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID))
+    public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
+                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after))
     }
 
     @discardableResult
@@ -222,6 +197,11 @@ extension DaemonConnection {
 
     public func setColumnWidth(of pane: PaneID, width: Double, transaction: UInt64? = nil) async throws {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
+    }
+
+    /// `set-column-dock` for the column holding `pane`; nil unpins it.
+    public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
+        _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
     }
 
     public func swapPane(_ pane: PaneID, with target: SwapTarget) async throws {
@@ -273,8 +253,13 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil) async throws -> NotificationID {
-        try await request(NotifyRequest(title: title, body: body, level: level, surface: surface)).notification
+    /// Posts a notification. `source` (`notification-source-v1`: `cli`,
+    /// `terminal`, `agent`, `daemon`) reaches daemons that serve it.
+    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil,
+                       source: String? = nil) async throws -> NotificationID {
+        let source = identity?.supports(DaemonCapabilities.shared.notificationSource) == true ? source : nil
+        return try await request(NotifyRequest(title: title, body: body, level: level, surface: surface, source: source))
+            .notification
     }
 
     /// Clears a tab's unread marker without selecting it (`notification-ack-v1`).
@@ -301,20 +286,28 @@ extension DaemonConnection {
     /// store resync, with an error. d1aa608 and older closed the socket
     /// instead, losing the shutdown reply.)
     @discardableResult
-    public func shutdownDaemon(endTerminals: Bool = false) async throws -> ShutdownDaemonRequest.Response {
+    public func shutdownDaemon(endTerminals: Bool = false, keepLayout: Bool = false) async throws -> ShutdownDaemonRequest.Response {
         guard let identity else { throw DaemonError.notConnected }
         guard endTerminals else {
             return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
         }
-        guard identity.supports(DaemonCapabilities.terminalReap) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.terminalReap])
+        guard identity.supports(DaemonCapabilities.shared.terminalReap) else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
         }
         guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
-        return try await Self.perform(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                      on: transport, timeout: Self.endTerminalsTimeout)
+        let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,
+                                            keepLayout: keepLayout ? true : nil)
+        return try await Self.perform(request, on: transport, timeout: Self.endTerminalsTimeout)
+    }
+
+    /// Quit's end choices (`SessionEnding.run`): ends every terminal and
+    /// stops the daemon; End Everything first closes every workspace but
+    /// Home. Returns every step that failed.
+    public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async -> EndedSessions {
+        await SessionEnding.run(on: self, deletingWorkspaces: deletingWorkspaces, keepingLayout: keepingLayout)
     }
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.

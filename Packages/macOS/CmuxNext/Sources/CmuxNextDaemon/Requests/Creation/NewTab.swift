@@ -27,6 +27,15 @@ public struct SpawnOptions: Sendable, Hashable {
     /// Caller-chosen host id (`terminal-placement-env-v1`). Set by
     /// `DaemonConnection`, which also names it in `env`; callers leave it nil.
     public var terminalID: TerminalID?
+    /// Arguments for the terminal's shell (`terminal-shell-args-v1`): Ghostty's
+    /// argv-based shell integration. Set by `DaemonConnection` from `env`
+    /// (`GhosttyShellIntegration.shellArguments(for:)`); callers leave it nil.
+    public var shellArgs: [String]?
+    /// Client-minted public ids of a new pane and its tab (`split-client-keys-v1`); only
+    /// `split`, `new-pane` and `new-pane-right` send them. Dropped by `DaemonConnection` for a
+    /// daemon without the capability.
+    public var paneID: String?
+    public var tabID: String?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -40,7 +49,22 @@ public struct SpawnOptions: Sendable, Hashable {
         self.keep = keep
     }
 
-    enum CodingKeys: String, CodingKey { case cwd, cols, rows, argv, command, name, env, keep, terminalID }
+    /// Drops what a daemon does not serve: the caller-chosen terminal id
+    /// (`terminal-placement-env-v1`) and the client-minted pane and tab ids
+    /// (`split-client-keys-v1`).
+    mutating func drop(callerTerminal: Bool, clientKeys: Bool) {
+        if callerTerminal { terminalID = nil }
+        if clientKeys {
+            paneID = nil
+            tabID = nil
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case cwd, cols, rows, argv, command, name, env, keep, terminalID
+        case shellArgs = "shell_args"
+        case paneID, tabID
+    }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(cwd, forKey: .cwd)
@@ -52,6 +76,9 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(env, forKey: .env)
         try c.encodeIfPresent(keep, forKey: .keep)
         try c.encodeIfPresent(terminalID, forKey: .terminalID)
+        try c.encodeIfPresent(shellArgs, forKey: .shellArgs)
+        try c.encodeIfPresent(paneID, forKey: .paneID)
+        try c.encodeIfPresent(tabID, forKey: .tabID)
     }
 }
 

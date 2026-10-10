@@ -4,7 +4,8 @@ import CmuxNextDesign
 /// Development window: one terminal surface on a local shell PTY, with a
 /// live hover-preview mirror in the corner. Lets the terminal module be
 /// exercised before the daemon client exists. Not reachable in release UI.
-public enum TerminalDebugWindow {
+public struct TerminalDebugWindow {
+    public init() {}
     private static var controllers: [NSWindowController] = []
 
     /// Opens the local-shell window. `initialInput` is sent through the
@@ -30,7 +31,7 @@ public enum TerminalDebugWindow {
         window.tabbingMode = .disallowed
 
         let container = DebugContainerView(session: session)
-        window.contentView = container
+        window.install(kind: .terminalDebug, content: container, scope: .app)
 
         let controller = DebugWindowController(window: window, session: session, io: io)
         controllers.append(controller)
@@ -55,7 +56,7 @@ public enum TerminalDebugWindow {
         )
         window.title = String(localized: "terminal.debug.follower.title", defaultValue: "Scripted Follower (Debug)", bundle: .module)
         window.isReleasedWhenClosed = false
-        window.contentView = session.view
+        window.install(kind: .terminalDebug, content: session.view, scope: .app)
         let controller = DebugWindowController(window: window, session: session, io: nil)
         controllers.append(controller)
         WindowPlacement.present(window)

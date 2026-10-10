@@ -18,13 +18,14 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
     private var hoveredID: String?
+    /// No rubber band while every result fits.
+    private var scrollFit: ScrollFitElasticity?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        autohidesScrollers = true
-        scrollerStyle = .overlay
+        SystemScrollers.follow(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)
@@ -43,13 +44,23 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.onClick = { [weak self] row in self?.activate(row: row) }
         documentView = table
         contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: contentView
-        )
+        // queue: .main runs inline for the clip view's post on main (scroll order kept).
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.boundsChanged() } // main-proof: observer on queue: .main
+        }
+        scrollFit = ScrollFitElasticity(scrollView: self)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    private var boundsObserver: (any NSObjectProtocol)?
+
+    isolated deinit {
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+    }
 
     // MARK: Updates from the model
 
@@ -66,6 +77,9 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
+        // Size the table now, not at the next display, so the rubber band
+        // matches the new results before the next scroll event.
+        table.tile()
     }
 
     func setSelection(_ id: String?) {
@@ -104,7 +118,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     // MARK: Mouse
 
-    @objc private func boundsChanged() {
+    private func boundsChanged() {
         // Scrolling moves rows under a still pointer; re-hit-test so hover
         // follows the pointer, not the row it was over before the scroll.
         guard let window else { return }
@@ -205,7 +219,7 @@ final class PaletteTableView: NSTableView {
 /// Section title row.
 final class PaletteSectionHeaderCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.header")
-    private let label = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let label = PaletteText.label(Typography.header, tone: .secondary)
 
     var title: String {
         get { label.stringValue }

@@ -8,12 +8,15 @@ public nonisolated enum PageInfoCommandError: Error, Hashable, Sendable {
     case noSiteInformation
     /// Permissions, site data and site settings exist for web pages only.
     case notAWebPage
+    /// The action is disabled for this page (`unavailableReason(for:)`).
+    case unavailable(String)
 
     public var message: String {
         switch self {
         case .invalidArgument(let name, let value): PageInfoStrings.invalidArgument(name, value)
         case .noSiteInformation: PageInfoStrings.noSiteInformation
         case .notAWebPage: PageInfoStrings.notAWebPage
+        case .unavailable(let reason): reason
         }
     }
 }
@@ -22,18 +25,19 @@ extension PageInfoCommand {
     /// The command a registry action runs, from its string arguments.
     public static func from(actionID: String, arguments: [String: String]) throws(PageInfoCommandError) -> PageInfoCommand {
         switch actionID {
-        case ActionID.show: return .show(.main)
-        case ActionID.connection: return .show(.security)
-        case ActionID.cookies: return .show(.cookies)
-        case ActionID.certificate: return .showCertificate
-        case ActionID.resetPermissions: return .resetPermissions
-        case ActionID.siteSettings: return .siteSettings
-        case ActionID.manageSiteData: return .manageSiteData
-        case ActionID.aboutThisPage: return .aboutThisPage
-        case ActionID.deleteSiteData:
+        case PageInfoCommand.showActionID: return .show(.main)
+        case PageInfoCommand.connectionActionID: return .show(.security)
+        case PageInfoCommand.cookiesActionID: return .show(.cookies)
+        case PageInfoCommand.certificateActionID: return .showCertificate
+        case PageInfoCommand.resetPermissionsActionID: return .resetPermissions
+        case PageInfoCommand.siteSettingsActionID: return .siteSettings
+        case PageInfoCommand.manageSiteDataActionID: return .manageSiteData
+        case PageInfoCommand.aboutThisPageActionID: return .aboutThisPage
+        case PageInfoCommand.reenableCertificateWarningsActionID: return .reenableCertificateWarnings
+        case PageInfoCommand.deleteSiteDataActionID:
             let domain = arguments["domain"]?.trimmingCharacters(in: .whitespaces)
             return .deleteSiteData(domain: domain?.isEmpty == false ? domain : nil)
-        case ActionID.setPermission:
+        case PageInfoCommand.setPermissionActionID:
             let permission = arguments["permission"] ?? ""
             let setting = arguments["setting"] ?? ""
             guard let kind = SitePermissionKind(rawValue: permission) else {
@@ -50,16 +54,17 @@ extension PageInfoCommand {
 
     /// Every registry action id Page Info handles.
     public static let actionIDs = [
-        ActionID.show, ActionID.connection, ActionID.cookies, ActionID.certificate, ActionID.setPermission,
-        ActionID.resetPermissions, ActionID.siteSettings, ActionID.manageSiteData, ActionID.deleteSiteData,
-        ActionID.aboutThisPage,
+        PageInfoCommand.showActionID, PageInfoCommand.connectionActionID, PageInfoCommand.cookiesActionID, PageInfoCommand.certificateActionID, PageInfoCommand.setPermissionActionID,
+        PageInfoCommand.resetPermissionsActionID, PageInfoCommand.siteSettingsActionID, PageInfoCommand.manageSiteDataActionID, PageInfoCommand.deleteSiteDataActionID,
+        PageInfoCommand.aboutThisPageActionID, PageInfoCommand.reenableCertificateWarningsActionID,
     ]
 
     /// Commands that need a web page (not only a bubble).
     var needsWebPage: Bool {
         switch self {
         case .show(.main), .show(.security), .showCertificate, .close, .reload: false
-        case .show, .setPermission, .resetPermissions, .siteSettings, .manageSiteData, .deleteSiteData, .aboutThisPage: true
+        case .show, .setPermission, .resetPermissions, .siteSettings, .manageSiteData, .deleteSiteData, .aboutThisPage,
+             .reenableCertificateWarnings: true
         }
     }
 }
@@ -71,6 +76,16 @@ extension PageInfoController {
         let site = PageInfoSite(state: tab.state)
         if site.kind == .empty { throw .noSiteInformation }
         if command.needsWebPage, !site.isWeb { throw .notAWebPage }
+        if let reason = unavailableReason(for: command) { throw .unavailable(reason) }
         perform(command)
+    }
+
+    /// Why `command` is disabled for the current page, or nil. The App
+    /// disables the action with this reason in the menu and the palette,
+    /// and `action.run` reports it.
+    public func unavailableReason(for command: PageInfoCommand) -> String? {
+        guard command == .reenableCertificateWarnings, let tab else { return nil }
+        let canTurnOn = (tab as? any BrowserCertificateWarningRevoking)?.canTurnOnCertificateWarnings ?? false
+        return canTurnOn ? nil : PageInfoStrings.certificateWarningsAlreadyOn
     }
 }

@@ -27,6 +27,14 @@ public struct ControlError: Error, Sendable, Hashable {
         self.data = data
     }
 
+    /// `name` (an action or method) belongs to a feature an administrator
+    /// turned off (`DisabledFeatures`).
+    public static func featureDisabled(_ name: String, feature: String) -> ControlError {
+        ControlError(code: "feature.disabled",
+                     message: ControlStrings.format("control.error.featureDisabled", "%1$@ is turned off by your organization (%2$@)", name, feature),
+                     data: ["action": .string(name), "feature": .string(feature)])
+    }
+
     public static func invalidParams(_ message: String, data: JSONValue? = nil) -> ControlError {
         ControlError(code: "invalid_params", message: message, data: data)
     }
@@ -88,7 +96,9 @@ enum ControlWire {
 extension Duration {
     var wholeMilliseconds: Int {
         let (seconds, attoseconds) = components
-        return Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000)
+        // Saturates for durations past Int.max milliseconds instead of trapping.
+        return Int(clamping: seconds).saturatingMultiplication(1_000)
+            .saturatingAddition(Int(clamping: attoseconds / 1_000_000_000_000_000))
     }
 
     var fractionalMilliseconds: Double {

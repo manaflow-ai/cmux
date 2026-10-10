@@ -8,7 +8,7 @@ final class TabGroupBandCell {
     let washLayer = CALayer()
     let lineLayer = CALayer()
     var color: GroupColor { didSet { if oldValue != color { updateColors() } } }
-    var appearance = NSAppearance.currentDrawing() { didSet { if oldValue !== appearance { updateColors() } } }
+    var themeScope: ThemeScope = .app { didSet { updateColors() } }
 
     init(color: GroupColor) {
         self.color = color
@@ -45,7 +45,7 @@ final class TabGroupBandCell {
     }
 
     private func updateColors() {
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
             washLayer.backgroundColor = color.wash.cgColor
             lineLayer.backgroundColor = color.swatch.cgColor
         }

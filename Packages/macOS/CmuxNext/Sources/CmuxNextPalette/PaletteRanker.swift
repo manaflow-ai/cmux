@@ -1,5 +1,5 @@
-import CmuxNextActions
 public import Foundation
+import os
 
 /// One ranked row by entry index. Sendable; the main actor maps it to an item.
 nonisolated public struct PaletteRankedRow: Sendable, Hashable {
@@ -15,62 +15,78 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
     public let rows: [PaletteRankedRow]
 }
 
-/// Turns matches into ordered sections. Pure, so it runs on the searcher
-/// actor (or synchronously in tests and benchmarks).
+/// Thin Swift compatibility surface for the shared TypeScript ranker.
 ///
-/// Empty query: a Recent section (top frecency) when the page wants it, then
-/// every visible entry grouped by section in section order. Non-empty query:
-/// entries scored as match + frecency boost + bias, grouped by section, with
-/// sections ordered by their best row and rows by score.
-nonisolated public enum PaletteRanker {
-    /// Disabled rows (unbound actions in debug builds) sink below every
-    /// enabled match but stay visible.
-    static let disabledPenalty = 1_000
+/// The palette keeps this API so existing providers and callers do not need to
+/// know about JavaScriptCore. All scoring, matching, frecency and grouping now
+/// run in `webviews/src/palette/ranker.ts` through one persistent
+/// ``PaletteRankerBridge``.
+public final class PaletteRanker {
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.ranker")
 
-    public static func rank(
+    private let bridge: PaletteRankerBridge?
+    /// Why the shared ranker did not load (its bundle is missing or broken), nil when it did.
+    /// Without it every page ranks to no rows, so the reason is kept and logged instead of lost.
+    nonisolated public let loadError: PaletteRankerBridgeError?
+
+    /// Creates a ranker with a persistent JavaScriptCore context.
+    nonisolated public convenience init() {
+        self.init(loading: { try PaletteRankerBridge() })
+    }
+
+    nonisolated init(loading: () throws -> PaletteRankerBridge) {
+        do {
+            bridge = try loading()
+            loadError = nil
+        } catch {
+            let reason = error as? PaletteRankerBridgeError ?? .runtimeFailed(String(describing: error))
+            bridge = nil
+            loadError = reason
+            Self.logger.fault("palette ranker did not load, the palette has no rows: \(reason.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Ranks a prepared palette index through the shared TypeScript engine.
+    ///
+    /// - Parameter version: A stable snapshot identifier. Reusing it for the
+    ///   same entries lets the bridge reuse its prepared text fields.
+    nonisolated public func rank(
         index: inout PaletteSearchIndex,
+        version: Int? = nil,
         query: String,
         sectionOrders: [Int],
         frecency: FrecencyStore,
         now: Date,
         showsRecent: Bool,
+        keepsSectionOrder: Bool = false,
+        ranksPrefixFirst: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
         highlightLimit: Int = 60
     ) -> [PaletteRankedSection] {
-        let parsed = FuzzyQuery(query)
-        let entries = index.entries
-        if parsed.isEmpty {
-            return rankEmpty(entries: entries, sectionOrders: sectionOrders, frecency: frecency, now: now,
-                             showsRecent: showsRecent, recentLimit: recentLimit)
+        do {
+            guard let bridge else { return [] }
+            return try bridge.rank(
+                index: index,
+                version: version,
+                query: query,
+                sectionOrders: sectionOrders,
+                frecency: frecency,
+                now: now,
+                showsRecent: showsRecent,
+                keepsSectionOrder: keepsSectionOrder,
+                ranksPrefixFirst: ranksPrefixFirst,
+                recentLimit: recentLimit,
+                rowLimit: rowLimit,
+                highlightLimit: highlightLimit
+            )
+        } catch {
+            return []
         }
-        let hasHistory = !frecency.entries.isEmpty
-        var scored: [(index: Int, score: Int)] = index.matches(for: parsed).map { match in
-            let entry = entries[match.index]
-            var score = match.score + entry.rankBias
-            if hasHistory, let key = entry.frecencyKey { score += frecency.boost(for: key, at: now) }
-            if !entry.isEnabled { score -= Self.disabledPenalty }
-            return (match.index, score)
-        }
-        scored.sort { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.index < rhs.index
-        }
-        if scored.count > rowLimit { scored.removeLast(scored.count - rowLimit) }
-
-        // Group by section, keeping the global order inside each section.
-        var order: [Int] = []
-        var rowsBySection: [Int: [PaletteRankedRow]] = [:]
-        for (rank, match) in scored.enumerated() {
-            let section = entries[match.index].sectionIndex
-            let highlights = rank < highlightLimit ? index.highlights(for: match.index, query: parsed) : []
-            if rowsBySection[section] == nil { order.append(section) }
-            rowsBySection[section, default: []].append(PaletteRankedRow(index: match.index, score: match.score, highlights: highlights))
-        }
-        return order.map { PaletteRankedSection(sectionIndex: $0, rows: rowsBySection[$0]!) }
     }
 
-    public static func rankEmpty(
+    /// Ranks the visible rows for an empty query through the shared TypeScript engine.
+    nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
         sectionOrders: [Int],
         frecency: FrecencyStore,
@@ -78,31 +94,18 @@ nonisolated public enum PaletteRanker {
         showsRecent: Bool,
         recentLimit: Int = 5
     ) -> [PaletteRankedSection] {
-        var sections: [PaletteRankedSection] = []
-        var recent = Set<Int>()
-        if showsRecent, recentLimit > 0, !frecency.entries.isEmpty {
-            var positionByKey: [String: Int] = [:]
-            for (i, entry) in entries.enumerated() where entry.isEnabled && entry.isVisibleWhenQueryEmpty {
-                if let key = entry.frecencyKey, positionByKey[key] == nil { positionByKey[key] = i }
-            }
-            let rows = frecency.topKeys(limit: recentLimit * 3, at: now)
-                .compactMap { positionByKey[$0] }
-                .prefix(recentLimit)
-                .map { PaletteRankedRow(index: $0, score: 0, highlights: []) }
-            if !rows.isEmpty {
-                recent = Set(rows.map(\.index))
-                sections.append(PaletteRankedSection(sectionIndex: nil, rows: Array(rows)))
-            }
+        do {
+            guard let bridge else { return [] }
+            return try bridge.rankEmpty(
+                entries: entries,
+                sectionOrders: sectionOrders,
+                frecency: frecency,
+                now: now,
+                showsRecent: showsRecent,
+                recentLimit: recentLimit
+            )
+        } catch {
+            return []
         }
-        var order: [Int] = []
-        var rowsBySection: [Int: [PaletteRankedRow]] = [:]
-        for (i, entry) in entries.enumerated() where entry.isVisibleWhenQueryEmpty && !recent.contains(i) {
-            if rowsBySection[entry.sectionIndex] == nil { order.append(entry.sectionIndex) }
-            rowsBySection[entry.sectionIndex, default: []].append(PaletteRankedRow(index: i, score: 0, highlights: []))
-        }
-        let sortKey = { (section: Int) in section < sectionOrders.count ? sectionOrders[section] : Int.max }
-        order.sort { sortKey($0) != sortKey($1) ? sortKey($0) < sortKey($1) : $0 < $1 }
-        sections += order.map { PaletteRankedSection(sectionIndex: $0, rows: rowsBySection[$0]!) }
-        return sections
     }
 }
