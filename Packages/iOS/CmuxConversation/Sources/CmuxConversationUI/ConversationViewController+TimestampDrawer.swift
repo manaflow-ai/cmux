@@ -53,8 +53,8 @@ extension ConversationViewController {
     func setTimestampReveal(_ reveal: CGFloat) {
         guard reveal != timestampReveal else { return }
         timestampReveal = reveal
-        // Every message row and the typing bubble slide together; centered
-        // rows (dates, notices, system events) stay, as in Messages.
+        // Message rows and the typing bubble slide (see
+        // `TimestampDrawerRows`); centered rows stay, as in Messages.
         for cell in collectionView.visibleCells {
             if let cell = cell as? MessageCell {
                 cell.timestampReveal = reveal
