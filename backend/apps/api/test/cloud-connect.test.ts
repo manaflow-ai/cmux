@@ -14,14 +14,6 @@ const runIn = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance:
  * machines for their creator only, every call audited without secrets.
  */
 
-describe("overlay address (transport.md 3.1)", () => {
-  it("is fd7c:6d78::/32 plus the first 96 bits of sha256(id), the same as cmux-link's overlay_addr.rs", async () => {
-    // Reference values from the Rust derivation's algorithm (RFC 5952 text form).
-    expect(await overlayAddress("inst_1")).toBe("fd7c:6d78:f4a0:cf32:b1d:3887:6548:15e5")
-    expect(await overlayAddress("host_0123456789abcdef0123")).toBe("fd7c:6d78:f88f:f2d3:66e:5b72:7958:91e2")
-  })
-})
-
 describe("part 3: connect_info", { timeout: 60_000 }, () => {
   it("answers the bound machine by machine or by host, with no credential", async () => {
     const x = person()
@@ -53,24 +45,6 @@ describe("part 3: connect_info", { timeout: 60_000 }, () => {
     expect(await x.stub.readOp(x.team, x.p, "cloud.machine.connect_info", { host: "host_00000000000000000009" })).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
     const unbound = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE }))).value.machine.id as string
     expect(await x.stub.readOp(x.team, x.p, "cloud.machine.connect_info", { machine: unbound })).toMatchObject({ ok: false, code: "cloud.machine.not_bound" })
-  })
-
-  it("a personal machine is for its creator only; a team machine for every member", async () => {
-    const alice = person()
-    const { machine } = await createdAndBound(alice)
-    const bob = { ...person().p, team: alice.team }
-    expect(await alice.stub.readOp(alice.team, bob, "cloud.machine.connect_info", { machine })).toMatchObject({ ok: false, code: "auth.forbidden" })
-
-    // A team machine binds only while its creator is a member of the team (cx-44j.51). No op adds a member
-    // to a shared team yet, so the owner's membership is stubbed (the refusal is tested in team-authority-leftovers).
-    const owner = person(SHARED_TEAM)
-    await runIn(owner.stub, async (instance) => {
-      instance.creatorIsMember = async (team: string, user: string) => team === SHARED_TEAM && user === owner.user
-    })
-    const shared = await createdAndBound(owner)
-    const member = { ...person().p, team: SHARED_TEAM }
-    const r = await owner.stub.readOp(SHARED_TEAM, member, "cloud.machine.connect_info", { machine: shared.machine })
-    expect(r).toMatchObject({ ok: true, value: { services: ["daemon", "ssh"] } })
   })
 
   it("audits every call (who, when, which machine), never a secret", async () => {

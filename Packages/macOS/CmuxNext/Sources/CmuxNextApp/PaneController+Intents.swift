@@ -102,7 +102,13 @@ extension PaneController {
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
+        // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
+        // that types its own text first keeps the keys where they are.
+        let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         services.registry.track(Task { [services] in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -113,6 +119,7 @@ extension PaneController {
                 }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                landed = true
                 then?(created.surface)
                 return nil
             } catch {

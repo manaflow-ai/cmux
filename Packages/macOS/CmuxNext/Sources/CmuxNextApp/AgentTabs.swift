@@ -144,17 +144,16 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
-    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
-    /// nil answers the page `native.not_connected`.
-    private let git: AgentPaneGitLink?
+    /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
+    /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
-        self.git = git
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
@@ -248,24 +247,27 @@ final class AgentTabStore {
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
         guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else { return nil }
+        let seed = local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil
         // A tab this run did not open and that has no chat yet is a New Tab page the store
-        // restored after a relaunch: it opens as the page again, not as an empty chat.
-        if local, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+        // restored after a relaunch: it opens as the page again, not as an empty chat. A seeded
+        // tab is a chat this run opened (New Agent Chat's workspace, listed by the tree before
+        // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
+        if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
+           !linkedSessions.contains(key) {
             newTabPages[key] = firstPageNewTab?(nil)
         }
         let model = AgentPaneModel(
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
-            seed: local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil,
+            seed: seed,
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
-            // This Mac's git reads would read this Mac's folders, not the chat's machine's, and
-            // the other machine's store keeps its own record of the session (no bind from here).
-            model.onGit = nil
+            // The other machine's store keeps its own record of the session (no bind from here).
+            // Its git reads go to that machine's daemon (``gitLink``).
             model.onSessionChange = nil
         }
         guard let view = makeView(model) else { return nil }
@@ -341,8 +343,10 @@ final class AgentTabStore {
             newTabPages[resolve(provisional)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
-        // A local session's folder is read by the local session host; the page refuses cloud sessions.
-        if let git { model.onGit = { request in try await git.read(request) } }
+        model.onGit = { [weak self] request in
+            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            return try await link.read(request)
+        }
         wireAgentFolder(model, key: provisional)
     }
 

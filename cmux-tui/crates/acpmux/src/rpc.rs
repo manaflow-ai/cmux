@@ -194,9 +194,12 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    /// The signed app gives this launch's person key (`hub/person.rs`).
+    pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";

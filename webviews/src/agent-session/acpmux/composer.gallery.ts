@@ -5,6 +5,14 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+// Three prompts waiting for the running turn.
+const waiting = [
+  { id: "q1", prompt: "Then add a test for the 429 path" },
+  { id: "q2", prompt: "And update the README" },
+  { id: "q3", prompt: "Run the whole suite" },
+];
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -43,7 +51,8 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 420,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  // The transcript must not move while a play step opens a menu over it.
+  // The transcript must not move while a play step opens a menu over it, and the composer box
+  // must not move when queued prompts come and go above it.
   anchors: [
     { selector: ".acpmux-scroll" },
     { selector: ".acpmux-composer-box" },
@@ -71,6 +80,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
+    "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
     "new-chat": {
@@ -215,9 +225,62 @@ export default agentPaneEntry({
     },
     working: {
       note: "A turn running: Send becomes Stop.",
-      snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
+      snapshot: chat(working, { isWorking: true }),
+    },
+    queued: {
+      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      snapshot: chat(working, {
         isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
       }),
+    },
+    "queued-long": {
+      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          {
+            id: "q2",
+            prompt:
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+          },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ text: /^Once the retries land/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-send-remove": {
+      note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
+      snapshot: chat(working, { isWorking: true, queue: waiting }),
+      native: { "chat.queue.remove": { removed: true } },
+      then: {
+        // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
+        "chat.cancel": chat(
+          [
+            working[0]!,
+            { ...working[1]!, version: 2, streaming: false },
+            user("And update the README", 0),
+            assistant("Looking at the README…", 0, { streaming: true }),
+          ],
+          { isWorking: true, queue: waiting.slice(2) },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
+      },
     },
     "codex-model": {
       note: "Another harness and model in the chips.",
@@ -393,6 +456,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
     "model-menu-keyboard": {

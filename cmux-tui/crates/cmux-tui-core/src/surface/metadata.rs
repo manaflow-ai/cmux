@@ -122,11 +122,18 @@ impl Surface {
         &self,
         ttl: Duration,
     ) -> anyhow::Result<crate::terminal_host_runtime::RendererGrant> {
+        // Send under the runtime lock, wait after releasing it: the
+        // surface's reader takes that lock while it installs a reconnected
+        // host, before it can read the reply from the new stream.
         #[cfg(unix)]
-        if let Some(pty) = self.as_pty()
-            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
-        {
-            return host.mint_renderer_grant(ttl);
+        if let Some(pty) = self.as_pty() {
+            let pending = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => Some(host.begin_renderer_grant(ttl)),
+                PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
+            };
+            if let Some(pending) = pending {
+                return pending?.wait();
+            }
         }
         let _ = ttl;
         anyhow::bail!("surface is not backed by a terminal host")

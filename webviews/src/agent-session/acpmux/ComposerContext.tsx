@@ -5,6 +5,7 @@ import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
+import { AddProjectDialog } from "./AddProjectPanel";
 import { ProjectBadge } from "./ProjectBadge";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
@@ -120,6 +121,8 @@ export function ComposerContext({
             current={currentFolder}
             onPick={(cwd) => onProject?.(cwd)}
             onBrowse={onBrowseProject}
+            localName={localName}
+            peers={peers}
           />
         ) : (
           <LocationPicker
@@ -211,8 +214,9 @@ function BranchIcon() {
   );
 }
 
+/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else this Mac.
 function computerId(summary?: Summary): string {
-  return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
+  return summary?.peer || (summary?.hostKind === "cloud" && summary.host) || "local";
 }
 
 function availableComputers(
@@ -236,8 +240,8 @@ function availableComputers(
     seen.add(peer);
     computers.push({ id: peer, label: session.host ?? peer, detail: t(CONTEXT_LABELS.cloud) });
   }
-  const summaryPeer = summary?.hostKind === "cloud" ? (summary.peer ?? summary.host) : undefined;
-  if (summaryPeer && !seen.has(summaryPeer)) {
+  const summaryPeer = computerId(summary);
+  if (summaryPeer !== "local" && !seen.has(summaryPeer)) {
     computers.push({
       id: summaryPeer,
       label: summary?.host ?? summaryPeer,
@@ -345,6 +349,8 @@ function FolderMenu({
   current,
   onPick,
   onBrowse,
+  localName,
+  peers,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -353,8 +359,11 @@ function FolderMenu({
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  localName?: string;
+  peers?: string[];
 }) {
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [control, anchor] = useControlAnchor();
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
@@ -394,15 +403,26 @@ function FolderMenu({
               className="acpmux-menu-item acpmux-location-choose"
               onSelect={() => {
                 setOpen(false);
-                onBrowse();
+                setAdding(true);
               }}
             >
               <span className="ui-menu-check" aria-hidden="true" />
-              <span className="acpmux-menu-label">{t(CONTEXT_LABELS.chooseFolderMenu)}</span>
+              <span className="acpmux-menu-label">{t("project.add")}</span>
             </MenuItem>
           )}
         </MenuPopup>
       </Menu>
+      <AddProjectDialog
+        open={adding}
+        localName={localName}
+        peers={peers}
+        onBrowse={onBrowse}
+        onClose={() => setAdding(false)}
+        onPick={(cwd) => {
+          setAdding(false);
+          onPick(cwd);
+        }}
+      />
     </span>
   );
 }
