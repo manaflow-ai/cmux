@@ -411,6 +411,9 @@ final class CloudBrowserAccessState {
     func rememberNavigationRequest(_ request: URLRequest) {
         guard request.url != nil else { return }
         pendingNavigationRequest = request
+        // The next readiness transition must use this request as its replay
+        // template, even when the listener URL has not changed yet.
+        navigationURL = nil
     }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
