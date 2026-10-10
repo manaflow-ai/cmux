@@ -696,7 +696,12 @@ shows the same keys.
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
       "maxRows": 8,
-      "calculator": true
+      "calculator": true,
+      "glass": "regular",
+      "glassTint": "background",
+      "glassTintStrength": 0.35,
+      "cornerRadius": "theme",
+      "shadow": false
     }
   }
 }
@@ -720,7 +725,20 @@ shows the same keys.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
+- `omnibar.glass`: the address bar's material. `regular` (default) is Liquid Glass on
+  macOS 26 and later and a blur before it; `clear` shows more of what is behind the bar;
+  `off` draws the flat theme color. Reduce Transparency always draws the flat color.
+  Browser tabs and the New Tab page use the same bar.
+- `omnibar.glassTint`: the color over the glass, from the terminal theme. `background`
+  (default) is the theme's background; `accent` is the theme's own accent color, or its
+  focus gray when the theme names none; `none` leaves the glass untinted.
+- `omnibar.glassTintStrength`: the tint's opacity, `0` to `1`. Default: `0.35`.
+- `omnibar.cornerRadius`: `theme` (default, the standard 8 pt bar radius), `capsule` (fully
+  round ends), or points from `0` to `16`.
+- `omnibar.shadow`: a soft shadow under the glass bar. Default: `false`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`
