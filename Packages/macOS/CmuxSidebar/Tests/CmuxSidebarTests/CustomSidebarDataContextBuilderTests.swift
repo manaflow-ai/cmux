@@ -336,13 +336,15 @@ struct CustomSidebarDataContextBuilderTests {
             surfaceId: surfaceId,
             workingDirectory: "/repo",
             transcriptPath: "/tmp/sess-1.jsonl",
-            pid: 4242
+            pid: 4242,
+            lifecycle: "background_work_pending"
         )
         let value = builder.agentValue(full)
         #expect(value.member("id") == .string("sess-1"))
         #expect(value.member("kind") == .string("claude"))
         #expect(value.member("name") == .string("Claude"))
         #expect(value.member("status") == .string("working"))
+        #expect(value.member("lifecycle") == .string("background_work_pending"))
         #expect(value.member("sinceEpoch") == .int(100))
         #expect(value.member("lastActivityAt") == .int(160))
         #expect(value.member("title") == .string("Fix the crash"))
@@ -426,6 +428,7 @@ struct CustomSidebarDataContextBuilderTests {
         let value = builder.agentValue(minimal)
 
         #expect(value.member("status") == .string("idle"))
+        #expect(value.member("lifecycle") == nil)
         #expect(value.member("sinceEpoch") == nil)
         #expect(value.member("title") == nil)
         #expect(value.member("panelId") == nil)

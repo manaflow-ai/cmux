@@ -100,6 +100,11 @@ extension Workspace {
                 status = "ended"
                 stateSince = nil
             }
+            let lifecycle = Self.customSidebarAgentLifecycle(
+                state: record.state,
+                agentSource: record.agentKind.sourceName,
+                panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] }
+            )
             agents.append(
                 CustomSidebarAgentSnapshot(
                     sessionId: record.sessionID,
@@ -122,12 +127,36 @@ extension Workspace {
                             startedAt: child.startedAt,
                             endedAt: child.endedAt
                         )
-                    }
+                    },
+                    lifecycle: lifecycle
                 )
             )
             if agents.count >= Self.customSidebarAgentLimit { break }
         }
         return agents
+    }
+
+    /// Wire name of the hosting panel's agent lifecycle (`agents[j].lifecycle`),
+    /// the same journal-derived phase the built-in sidebar renders. Unlike
+    /// `status`, it can report `background_work_pending`.
+    ///
+    /// The lifecycle is keyed by panel and agent, not by session, so an ended
+    /// record reports none rather than a newer session's phase on that panel.
+    static func customSidebarAgentLifecycle(
+        state: ChatAgentState,
+        agentSource: String,
+        panelLifecycles: [String: AgentHibernationLifecycleState]?
+    ) -> String? {
+        if case .ended = state { return nil }
+        let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
+        guard let lifecycle = panelLifecycles?[key] else { return nil }
+        switch lifecycle {
+        case .unknown: return "unknown"
+        case .running: return "running"
+        case .backgroundWorkPending: return "background_work_pending"
+        case .needsInput: return "needs_input"
+        case .idle: return "idle"
+        }
     }
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {

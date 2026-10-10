@@ -150,6 +150,9 @@ public struct CustomSidebarDataContextBuilder {
             "status": .string(agent.status),
             "lastActivityAt": .int(Int(agent.lastActivityAt.timeIntervalSince1970)),
         ]
+        if let lifecycle = agent.lifecycle, !lifecycle.isEmpty {
+            fields["lifecycle"] = .string(lifecycle)
+        }
         if let since = agent.stateSince {
             fields["sinceEpoch"] = .int(Int(since.timeIntervalSince1970))
         }
