@@ -189,7 +189,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
       "targets": [
         "CmuxNextApps",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
