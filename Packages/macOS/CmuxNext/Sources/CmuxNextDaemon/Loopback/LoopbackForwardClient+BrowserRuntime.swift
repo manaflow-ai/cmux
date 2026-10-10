@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Browser runtimes (`browser-runtime-v1`) on the forwarding connection:
 /// the daemon starts the browser host on its machine, and the app reaches
