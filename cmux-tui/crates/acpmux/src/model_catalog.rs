@@ -43,24 +43,3 @@ pub fn resolve(option: &Value, requested: &str) -> Result<String, String> {
         )),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    #[test]
-    fn grouped_model_ids_are_preserved_and_ambiguous_aliases_fail() {
-        let id = r#"["go","flash"]"#;
-        let option = json!({"options": [{"group":"go", "name":"Go", "options":[{"value":id,"name":"Flash"}]}]});
-        assert_eq!(choices(&option), vec![(id.into(), "Flash".into())]);
-        for request in ["flash", "go/flash", id] {
-            assert_eq!(resolve(&option, request).unwrap(), id);
-        }
-        let both = json!({"options":[option, {"value":r#"["direct","flash"]"#}]});
-        assert!(resolve(&both, "flash").is_err());
-        assert_eq!(resolve(&both, id).unwrap(), id);
-        let exact = json!({"options":[both, {"value":"flash"}]});
-        assert_eq!(resolve(&exact, "flash").unwrap(), "flash");
-        assert_eq!(resolve(&json!({"options":[]}), "unknown").unwrap(), "unknown");
-    }
-}

@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -25,7 +26,7 @@ final class ChatSettingsPush {
         let push = ChatSettingsPush(socketPath: environment.socketPath)
         push.watchSocket()
         Task { @MainActor in
-            for await value in Observations({ settings.chatSettings }) {
+            for await value in ObservationStream({ settings.chatSettings }) {
                 push.update(value)
             }
         }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentCursor
 import CmuxNextAgentCursorVisibility
+import CmuxNextCompat
 import CmuxNextLayout
 import Observation
 
@@ -91,7 +92,7 @@ final class AgentCursorVisibilitySource {
         guard let windows = services?.windows else { return }
         stateObservation = Task { [weak self] in
             // Shown workspace, tab selection and sidebar of every window.
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 windows.controllers.map { controller in
                     let state = controller.state
                     return "\(state.workspaceID ?? "-"):\(state.sidebarHidden):\(String(describing: state.selection))"
