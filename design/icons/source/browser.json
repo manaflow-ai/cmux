@@ -615,9 +615,9 @@
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 3.5a8.5 8.5 0 0 1 0 17Z' fill='currentColor'/></svg>",
    "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 3.5a8.5 8.5 0 0 1 0 17Z' fill='currentColor'/></svg>",
    "alts": [],
-   "note": "Composite circle (ring with content), so full size r 8.5. Right half filled, like circle.lefthalf.filled. Pairs with appearance.light and appearance.dark.",
+   "note": "Composite circle (ring with content), so full size r 8.5. Right half filled, like circle.lefthalf.filled. Pairs with appearance.light and appearance.dark. SF circle.lefthalf.filled stays with tunable.fades for catalog lookups.",
    "replaces": [
-    "circle.lefthalf.filled"
+    "circle.lefthalf.filled (browser theme)"
    ]
   },
   {

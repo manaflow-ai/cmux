@@ -34,8 +34,8 @@ final class SuggestionRowView: NSView {
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         layer?.cornerCurve = .continuous
 
-        let icon: IconName = switch suggestion.kind {
-        case .navigate: "globe"
+        let kind: IconName = switch suggestion.kind {
+        case .navigate: .browser
         case .search: .search
         case .history: .history
         case .bookmark: .bookmark
@@ -43,7 +43,7 @@ final class SuggestionRowView: NSView {
         case .switchToTab: .omnibarSwitchtab
         case .answer: .omnibarAnswer
         }
-        self.icon.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+        icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
         icon.imageScaling = .scaleNone
         label.lineBreakMode = .byTruncatingTail
         label.cell?.truncatesLastVisibleLine = true

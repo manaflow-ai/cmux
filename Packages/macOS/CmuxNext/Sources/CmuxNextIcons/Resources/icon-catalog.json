@@ -291,7 +291,7 @@
   {
    "name": "appearance.system",
    "meaning": "Page color scheme follows the app (browser theme button)",
-   "sf": "circle.lefthalf.filled",
+   "sf": "questionmark.square.dashed",
    "family": "appearance"
   },
   {

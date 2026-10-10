@@ -144,12 +144,19 @@ public struct ExtensionsMenu {
         return item
     }
 
+    /// The puzzle piece for an extension without an icon, named for VoiceOver.
+    private static func fallbackImage(name: String) -> NSImage {
+        let image = NSImage.icon(.extension, size: 16)
+        image.accessibilityDescription = name
+        return image
+    }
+
     func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage? {
         // The bundled icon first: the toolbar PNG carries the badge.
         let image = info.iconPath.flatMap(NSImage.init(contentsOfFile:))
             ?? png.flatMap(NSImage.init(data:))
-            ?? NSImage.icon(.extension, size: 16)
-        image?.size = NSSize(width: 16, height: 16)
+            ?? Self.fallbackImage(name: info.name)
+        image.size = NSSize(width: 16, height: 16)
         return image
     }
 
