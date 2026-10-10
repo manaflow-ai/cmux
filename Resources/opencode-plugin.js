@@ -710,6 +710,9 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   const pushBlocking = (event, requestId) => {
+    // form.created/form.updated can share an ID. Finish the old handler before
+    // replacing it so session cleanup and socket replies reach every promise.
+    resolvePending(requestId, { status: "timed_out" });
     const reply = new Promise((resolve) => {
       const finish = (value) => {
         if (!pending.has(requestId)) return;

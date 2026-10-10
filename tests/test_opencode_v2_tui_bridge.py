@@ -232,15 +232,14 @@ liveA.ui.router.current = () => fixture.tuis.a.route;
 liveA.ui.tabs.list = () => fixture.tuis.a.tabs.map((id) => ({ sessionID: id }));
 liveA.refresh?.();
 holdNextResponse = true;
-liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-session-end", action: "edit" } } });
+const endedPermission = liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-session-end", action: "edit" } } });
 await waitForObserved((event) => event._opencode_request_id === "perm-session-end");
 liveA.ui.router.current = () => fixture.starterClosed.route;
 liveA.ui.tabs.list = () => [];
 liveA.refresh?.();
-liveA.emit({ details: { type: "session.deleted", data: { info: { id: "child-a" } } } });
-await new Promise((resolve) => setImmediate(resolve));
+await liveA.emit({ details: { type: "session.deleted", data: { info: { id: "child-a" } } } });
 delayedResponses.get("perm-session-end")?.();
-await new Promise((resolve) => setTimeout(resolve, 100));
+await endedPermission;
 if (liveA.permissionCalls.some((value) => value.requestID === "perm-session-end")) throw new Error("session deletion left an OpenCode permission waiter alive");
 
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
@@ -260,7 +259,6 @@ if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dro
 if (stop?.surface_id !== "surface-b" || stop?.workspace_id !== "workspace-b") throw new Error("second TUI Feed event was routed to the first surface");
 const prompt = observed.find((event) => event.hook_event_name === "UserPromptSubmit");
 if (prompt?.tool_input?.prompt !== "hello from v2" || prompt?.context?.lastUserMessage !== "hello from v2") throw new Error("V2 inbox prompt was dropped from Feed context");
-const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd");
 if (!observed.some((event) => event.hook_event_name === "SessionEnd" && event.surface_id === "surface-b")) throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");
 

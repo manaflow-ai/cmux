@@ -220,7 +220,7 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     environment,
   });
   const onEvent = ({ details, event }) => {
-    void handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
+    return handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
   return () => {

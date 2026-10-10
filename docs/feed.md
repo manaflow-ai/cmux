@@ -28,7 +28,8 @@ Anything else the agent does, including tool uses, assistant messages, session s
                               │ ─────────────────────────────│
                               │ FeedCoordinator parks the    │
                               │ hook on a semaphore keyed by │
-                              │ request_id (up to 120s).     │
+                              │ request_id (120s default;    │
+                              │ opt-in waits for a reply).   │
                               └─────────────────────┬────────┘
                                                     │
                               ┌─────────────────────▼────────┐
@@ -170,7 +171,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
-**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
+**Agent waits on a permission request.** With **Keep Feed requests blocking** enabled, local agent requests remain pending beyond 120 seconds until answered or dismissed. Answer the card in Feed or end the agent session. With the setting off, or for relay-origin requests, Feed keeps its 120-second soft deadline. If those requests remain stuck, verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
 
 **Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
 
