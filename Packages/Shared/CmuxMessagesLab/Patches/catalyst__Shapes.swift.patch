@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
+@@ -15,7 +15,7 @@
+         if let p = cache[k] { return p }
+         if cache.count > 2000 { cache.removeAll() }
+         let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail).cgPath
+-        cache[k] = p
++        cache.updateValue(p, forKey: k) /* cmux */
+         return p
+     }
+     static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius) -> UIBezierPath {
 @@ -130,9 +130,10 @@
          let white = UIColor.white
          let space = CGColorSpace(name: CGColorSpace.sRGB)

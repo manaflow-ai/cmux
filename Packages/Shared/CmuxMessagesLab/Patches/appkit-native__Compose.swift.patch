@@ -26,7 +26,33 @@
      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
          super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
          onMarkedTextChange()
-@@ -166,6 +178,7 @@
+@@ -146,16 +158,20 @@
+         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
+         return ok
+     }
++    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
++    // a selector into this main-actor view trapped on a post off main (crash program).
++    private var keyObservers: [NSObjectProtocol] = []
++    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         let nc = NotificationCenter.default
+-        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+-        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
++        keyObservers.forEach { nc.removeObserver($0) }  // cmux
++        keyObservers = []
+         guard let window else { return }
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
++        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
++            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
++        }
+     }
+-    @objc private func keyChanged() { updateCaret() }
+     override func setFrameSize(_ newSize: NSSize) {
+         super.setFrameSize(newSize)
+         updateCaret(reset: false)
+@@ -166,6 +182,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -34,7 +60,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -180,7 +193,8 @@
+@@ -180,7 +197,8 @@
  /// layer (the shared code removes animations from it).
  final class ComposeTextView {
      let view: FieldTextView
@@ -44,7 +70,7 @@
      var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
      var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
      var text: String { view.string }
-@@ -253,7 +267,8 @@
+@@ -253,32 +271,34 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -54,7 +80,13 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -266,19 +281,20 @@
+     static let writingTools: NSWritingToolsBehavior = {
+         let a = ProcessInfo.processInfo.arguments
+-        switch a.firstIndex(of: "--writing-tools").flatMap({ $0 + 1 < a.count ? a[$0 + 1] : nil }) {
++        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
+         case "none": return .none
+         case "complete": return .complete
+         case "default": return .default
          default: return .limited
          }
      }()
@@ -79,7 +111,7 @@
      /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
      /// commit asked for one).
      private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -305,7 +321,8 @@
+@@ -305,7 +325,8 @@
              l.actions = none; l.contentsScale = DisplayScale.current
          }
          buttons.isUserInteractionEnabled = false
@@ -89,7 +121,7 @@
          addSubview(buttons)
          glass.anchorPoint = CGPoint(x: 0.5, y: 1)
          layer.addSublayer(glass)
-@@ -470,8 +487,9 @@
+@@ -470,8 +491,9 @@
              let grey = NSColor(white: 55 / 255, alpha: 1)
              let space = CGColorSpace(name: CGColorSpace.sRGB)
              for (stops, fromTop) in [(top, true), (bottom, false)] {
@@ -100,7 +132,7 @@
                  c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
              }
              c.restoreGState()
-@@ -485,11 +503,11 @@
+@@ -485,11 +507,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -114,7 +146,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -550,7 +568,7 @@
+@@ -550,7 +572,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -123,7 +155,23 @@
          let old = fieldHeight
          fieldHeight = h
          if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -630,7 +648,7 @@
+@@ -589,10 +611,11 @@
+     /// faded (catalyst's `tintOverBubble`).
+     func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
+         let e = Springs.fieldOpacity
+-        let n = max(2, Int((exit - begin) * 240) + 1)
+-        var values: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
+-        let low = values.indices.min { values[$0] < values[$1] } ?? n
+-        for i in 0...n { values[i] = i < low || i == n ? 0 : 1 - values[i] }
++        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // cmux: at most 60 s, no trap on NaN
++        let samples: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
++        // cmux: no index math.
++        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
++        let values = samples.enumerated().map { $0.offset < low || $0.offset == n ? 0 : 1 - $0.element }
+         let a = CAKeyframeAnimation(keyPath: "opacity")
+         a.values = values.map { NSNumber(value: $0) }
+         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
+@@ -630,7 +653,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

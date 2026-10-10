@@ -66,12 +66,18 @@ impl Hub {
 
     /// Probes every live-list harness at once; with `wait`, returns when all
     /// have answered or timed out. Runs beside the ACP probes.
-    pub(super) async fn probe_live_models(self: &Arc<Self>, wait: bool) {
+    pub(super) async fn probe_live_models(
+        self: &Arc<Self>,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
         let handles: Vec<_> = {
             let cfg = self.config.read().await;
             targets(&cfg.harnesses)
         }
         .into_iter()
+        .filter(|target| self.probes(&target.harness))
+        .filter(|target| only.as_ref().is_none_or(|o| o.contains(&target.harness)))
         .map(|target| {
             let hub = self.clone();
             tokio::spawn(async move { hub.probe_live(target).await })
@@ -88,7 +94,10 @@ impl Hub {
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
         let listed =
             crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)

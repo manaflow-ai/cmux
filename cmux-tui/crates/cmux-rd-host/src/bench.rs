@@ -2,6 +2,14 @@
 //! method (remote-desktop.md section 15.1) over `cmux.rd/1`: key press sent at t0 ->
 //! first decoded frame whose marker shows the expected counter. Uses the real
 //! reassembler, FEC, feedback and input path of `cmux-rd-core`.
+//!
+//! `--upstream mic|camera|screen [--upstream-frames N]` first sends N
+//! synthetic frames upstream (rd change C4) the way the viewer app does:
+//! `stream_open`, then `UpMedia` through `cmux-rd-core`'s `UpstreamSender`
+//! with the host's feedback, then `stream_close`. The report's `upstream`
+//! names the frames sent and acknowledged and an FNV-1a hash of the sent
+//! bytes, which a host started with `--upstream-record DIR` logs for the
+//! frames it received.
 
 use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
@@ -11,8 +19,12 @@ use crate::wire::{
     write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
 use crate::Res;
+use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::input::InputSender;
 use cmux_rd_core::reassembly::Reassembler;
+use cmux_rd_core::service::caps;
+use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
+use cmux_rd_proto::control::StreamKind;
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, Nack, HEADER_LEN, MAX_ARRIVALS,
     MAX_DATAGRAM_VPC,
@@ -25,6 +37,8 @@ use std::net::{SocketAddr, TcpStream, UdpSocket};
 use std::os::fd::AsRawFd;
 
 const KEY_A: u32 = 0x0007_0004;
+/// The bench's upstream stream id (any id the host does not use for a display).
+const UP_STREAM: u16 = 100;
 
 struct Viewer {
     tcp: TcpStream,
@@ -47,6 +61,13 @@ struct Viewer {
     stats: Vec<serde_json::Value>,
     ended: Option<String>,
     welcome: Option<serde_json::Value>,
+    max_datagram: usize,
+    /// The upstream sender once the host opened the stream.
+    upstream: Option<UpstreamSender>,
+    /// The host's answer to `stream_open`: opened, or the refusal reason.
+    stream_answer: Option<Result<(), String>>,
+    /// The host closed the upstream stream.
+    upstream_closed_by_host: bool,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -98,6 +119,15 @@ impl Viewer {
                     }
                 }
             }
+            DatagramKind::Feedback if h.stream == UP_STREAM => {
+                let resends = match self.upstream.as_mut() {
+                    Some(up) => up.on_datagram(d, now / 1000).unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                for datagram in resends {
+                    let _ = self.send_datagram(&datagram);
+                }
+            }
             DatagramKind::InputAck if payload.len() >= 4 => {
                 self.sender
                     .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
@@ -120,11 +150,22 @@ impl Viewer {
                 FRAME_DATAGRAM => self.on_datagram(&payload),
                 FRAME_CONTROL => match serde_json::from_slice::<Control>(&payload)? {
                     Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                    Control::Welcome { .. } => {
+                    Control::Welcome { max_datagram, .. } => {
+                        // Upstream datagrams use the size the host agreed to.
+                        self.max_datagram = max_datagram;
                         self.welcome = Some(serde_json::from_slice(&payload)?)
                     }
                     Control::Refused { reason } | Control::Ended { reason } => {
                         self.ended.get_or_insert(reason);
+                    }
+                    Control::StreamOpened { stream } if stream == UP_STREAM => {
+                        self.stream_answer = Some(Ok(()));
+                    }
+                    Control::StreamRefused { stream, reason } if stream == UP_STREAM => {
+                        self.stream_answer = Some(Err(reason));
+                    }
+                    Control::StreamClose { stream } if stream == UP_STREAM => {
+                        self.upstream_closed_by_host = true;
                     }
                     _ => {}
                 },
@@ -236,6 +277,102 @@ impl Viewer {
     }
 }
 
+/// One synthetic upstream frame: an Opus-sized packet, or a keyframe-sized
+/// or delta-sized access unit; every byte depends on the frame number.
+fn synthetic_frame(index: usize, audio: bool, independent: bool) -> Vec<u8> {
+    let len = if audio {
+        120
+    } else if independent {
+        8000
+    } else {
+        1200 + index % 7 * 100
+    };
+    (0..len).map(|i| (index.wrapping_mul(31).wrapping_add(i) & 0xff) as u8).collect()
+}
+
+/// Opens one upstream stream, sends `frames` synthetic frames at the media's
+/// rate, waits for the host to acknowledge the last one, and closes it.
+fn run_upstream(v: &mut Viewer, which: &str, frames: usize) -> Res<serde_json::Value> {
+    let (kind, codec, interval_ns, audio) = match which {
+        "mic" => (StreamKind::UpAudio, "opus", 10_000_000u64, true),
+        "camera" | "screen" => (StreamKind::UpVideo, "h264", 33_333_333u64, false),
+        other => return Err(format!("--upstream {other}: expected mic, camera or screen").into()),
+    };
+    write_control(
+        &mut v.tcp,
+        &Control::StreamOpen { stream: UP_STREAM, kind, codec: codec.into(), of: None },
+    )?;
+    let asked = now_ns();
+    while v.stream_answer.is_none() {
+        v.pump(5_000_000)?;
+        if let Some(e) = &v.ended {
+            return Err(format!("ended before the answer to stream_open: {e}").into());
+        }
+        if now_ns() - asked > 5_000_000_000 {
+            return Err("no answer to stream_open within 5 s".into());
+        }
+    }
+    if let Some(Err(reason)) = v.stream_answer.take() {
+        return Err(format!("upstream {which} refused by the host: {reason}").into());
+    }
+    v.upstream = Some(UpstreamSender::new(UpstreamConfig {
+        stream: UP_STREAM,
+        max_datagram: v.max_datagram,
+        cc: CcConfig::default(),
+        path: PathKind::DirectLan,
+        // Opus carries its own FEC; video gets block FEC.
+        fec: !audio,
+    }));
+    let (mut hash, mut bytes, mut sent) = (crate::upstream::FNV_OFFSET, 0u64, 0u32);
+    let begin = now_ns();
+    for index in 0..frames {
+        let due = begin + index as u64 * interval_ns;
+        while now_ns() < due {
+            v.pump(due.saturating_sub(now_ns()).max(1_000_000))?;
+        }
+        let Some(up) = v.upstream.as_mut() else { break };
+        let independent = audio || index % 30 == 0 || up.keyframe_requested();
+        let frame = synthetic_frame(index, audio, independent);
+        let now_us = now_ns() / 1000;
+        let datagrams = up
+            .send_frame(&frame, now_us, independent, now_us)
+            .map_err(|e| format!("upstream packetize: {e:?}"))?;
+        if let Some(datagrams) = datagrams {
+            for d in &datagrams {
+                v.send_datagram(d)?;
+            }
+            hash = crate::upstream::fnv1a(hash, &frame);
+            bytes += frame.len() as u64;
+            sent += 1;
+        }
+        if v.ended.is_some() || v.upstream_closed_by_host {
+            break;
+        }
+    }
+    // The sender numbers sent frames from 1, so the last one is `sent`.
+    let waited = now_ns();
+    while v.upstream.as_ref().is_some_and(|up| up.stats().acked_frame < sent)
+        && now_ns() - waited < 3_000_000_000
+        && v.ended.is_none()
+    {
+        v.pump(5_000_000)?;
+    }
+    let _ = write_control(&mut v.tcp, &Control::StreamClose { stream: UP_STREAM });
+    let stats = v.upstream.take().map(|up| up.stats());
+    Ok(json!({
+        "kind": which,
+        "frames_asked": frames,
+        "frames_sent": sent,
+        "frames_dropped": stats.map(|s| s.frames_dropped),
+        "acked_frame": stats.map(|s| s.acked_frame),
+        "loss": stats.map(|s| s.loss),
+        "bytes_sent": bytes,
+        "fnv1a": format!("{hash:016x}"),
+        "closed_by_host": v.upstream_closed_by_host,
+        "all_acked": stats.is_some_and(|s| s.acked_frame == sent && sent > 0),
+    }))
+}
+
 fn cpu_s() -> f64 {
     // SAFETY: rusage is plain old data; all-zero is a valid value.
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -282,7 +419,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         ended: None,
         welcome: None,
         udp: None,
+        max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
+        upstream: None,
+        stream_answer: None,
+        upstream_closed_by_host: false,
     };
+    let upstream = opts.get("upstream").map(str::to_owned);
     let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
     v.udp = udp;
     let pid = std::process::id();
@@ -295,7 +437,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             class: "user".into(),
             interactive: true,
             udp_port,
-            max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
+            max_datagram: v.max_datagram,
             token: match opts.get("token-fd") {
                 Some(fd) => Some(cmux_rd_proto::control::SecretHex(
                     crate::token::Token::read_fd(fd.parse()?)?.to_hex(),
@@ -303,7 +445,12 @@ pub fn run(opts: &Opts) -> Res<()> {
                 None => None,
             },
             service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-            caps: Vec::new(),
+            // Upstream media needs both caps (rd change C4).
+            caps: if upstream.is_some() {
+                vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
+            } else {
+                Vec::new()
+            },
         },
     )?;
     write_control(
@@ -328,6 +475,20 @@ pub fn run(opts: &Opts) -> Res<()> {
             .into());
         }
     }
+    let upstream_report = match &upstream {
+        Some(which) => {
+            let report = run_upstream(&mut v, which, opts.num_or("upstream-frames", 100)?)?;
+            println!("{}", json!({ "upstream": report }));
+            if report["all_acked"] != json!(true) {
+                return Err(format!(
+                    "upstream {which}: the host did not acknowledge every sent frame"
+                )
+                .into());
+            }
+            Some(report)
+        }
+        None => None,
+    };
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     let mut rng = Rng::new(u64::from(pid) ^ now_ns());
     let mut g2g = Vec::new();
@@ -376,6 +537,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "decode_errors": v.decode_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "host_stats_last": v.stats.last(),
+        "upstream": upstream_report,
         "ended": v.ended,
     });
     println!("{report}");

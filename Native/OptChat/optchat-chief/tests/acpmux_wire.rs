@@ -230,9 +230,11 @@ fn a_turn_over_the_acpmux_wire() {
             preset: None,
             tags: Default::default(),
             env: Default::default(),
+            fast: false,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
+        idle_limit: None,
     };
     let outcome = turn::run(
         &*acpmux,
@@ -319,6 +321,7 @@ fn compactor_session(dir: &std::path::Path) -> SessionSpec {
         preset: Some("optchat-compact-1a2b3c4d".into()),
         tags: Default::default(),
         env: Default::default(),
+        fast: false,
     }
 }
 

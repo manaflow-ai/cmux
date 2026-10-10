@@ -168,6 +168,7 @@ fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
@@ -925,4 +926,133 @@ fn a_report_steered_into_a_running_turn_is_logged_once() {
     };
     assert_eq!(count("a1"), 1, "{log:?}");
     assert_eq!(count("a2"), 1, "{log:?}");
+}
+
+/// Reference parity S4: a tell to a RUNNING subagent is steered into its
+/// session, read between its tool calls (one run answers both), not queued
+/// as a second turn.
+#[test]
+fn a_tell_to_a_running_subagent_is_steered_into_its_session() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().steering = true;
+    spawn(&mut s, &["one"]).unwrap();
+    let prompts = s.h.agents.inner.lock().unwrap().prompts.len();
+    let answer = call(&mut s, |sp| sp.tell("a1", "also check the tests")).unwrap();
+    assert!(answer.contains("between its tool calls"), "{answer}");
+    s.h.agents.wait_steers(1);
+    let inner = s.h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), prompts, "no second prompt");
+    assert_eq!(inner.steers.len(), 1);
+    assert_eq!(inner.steers[0].0, "s1");
+    assert_eq!(inner.steers[0].1[0]["text"], "also check the tests");
+}
+
+/// A running session that cannot steer (a harness without it) takes the
+/// tell as its next prompt, as before.
+#[test]
+fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
+    let mut s = setup();
+    spawn(&mut s, &["one"]).unwrap();
+    call(&mut s, |sp| sp.tell("a1", "more: please")).unwrap();
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        let sent =
+            s.h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .prompt_ids
+                .iter()
+                .any(|p| p.starts_with("optchat-tell:a1:"));
+        if sent {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the tell never became a prompt"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(s.h.agents.inner.lock().unwrap().steers.is_empty());
+}
+
+/// Reference parity S11: stop ONE subagent by name (`chief.stop {name}`):
+/// only its session is cancelled; the turn and the other subagents go on.
+#[test]
+fn chief_stop_with_a_name_stops_only_that_subagent() {
+    let mut s = setup();
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a2".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": true, "subagents": ["a2"], "note": "Stopped by the user: a2."})
+    );
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().cancels,
+        vec!["s2".to_owned()]
+    );
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a9".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": false, "error": "no subagent a9 at work"})
+    );
+}
+
+/// Reference parity S2: `spawn(tasks, effort?)`: how hard the subagents
+/// think; by default as hard as the Chief's turn.
+#[test]
+fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
+    assert_eq!(
+        Call::parse("spawn", &json!({"tasks": ["x"], "effort": "high"})).unwrap(),
+        Call::Spawn {
+            tasks: vec!["x".into()],
+            cwd: None,
+            effort: Some("high".into())
+        }
+    );
+    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "effort": "harder"})).is_err());
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    call(&mut s, |sp| {
+        sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))
+    })
+    .unwrap();
+    spawn(&mut s, &["two"]).unwrap();
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    let turn = specs[0].effort.clone();
+    let subs: Vec<_> = specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    assert_eq!(subs[0].effort.as_deref(), Some("high"));
+    assert_eq!(subs[1].effort, turn, "as hard as the turn");
+}
+
+/// Lawrence 2026-10-09: the user's first message in a subagent's pane must not
+/// ask "trust this folder": the host trusts the folder it made for its
+/// subagents (optchat/subagent) before it starts them, and never a folder of
+/// the user's (a spawn's cwd), which the pane still asks about.
+#[test]
+fn the_host_trusts_its_own_subagent_folder_and_no_other() {
+    let mut s = setup();
+    spawn(&mut s, &["one"]).unwrap();
+    let own = s.h.dir.path().join("subagent");
+    assert_eq!(s.h.agents.inner.lock().unwrap().trusted, vec![own]);
+    let theirs = tempfile::tempdir().unwrap();
+    let dir = theirs.path().display().to_string();
+    call(&mut s, move |sp| sp.spawn(vec!["two".into()], Some(dir))).unwrap();
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().trusted.len(),
+        1,
+        "the user's folder is not trusted"
+    );
 }

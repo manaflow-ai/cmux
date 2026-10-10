@@ -99,18 +99,23 @@ on:
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
-      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
@@ -211,18 +216,23 @@ on:
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
-      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
@@ -627,6 +637,13 @@ jobs:
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    # Style ratchets warn under a hard ceiling and fail over it: god files and
+    # types (GODFILES_WARN_SLACK: allowance + 20% of the budget, so a new type
+    # fails past 1200 lines), l10n style errors and custom scrollbars (by count).
+    # A warning is ratchet debt: an annotation here, and the ratchet-debt job
+    # keeps one issue of it for feat-cmux-next. Concurrency, notification
+    # centers and crash safety have no warning tier. Each ceiling is set on its
+    # own step only: the script tests below expect every hit to fail.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -643,26 +660,32 @@ jobs:
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GODFILES_WARN_SLACK: 20
         # A pull request fails only on what it grew (its merge commit's first
         # parent is the base), so a god file already on the base never blocks
         # it. A push checks every file.
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log"
 
       - name: God files (cmux-tui Rust)
         id: godfiles-rust
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GODFILES_WARN_SLACK: 20
         # A pull request fails only on what it grew (its merge commit's first
         # parent is the base), so a god file already on the base never blocks
         # it. A push checks every file.
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
         id: no-swift-cli
@@ -679,10 +702,22 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # A test that posts to a process-global notification center reaches every
+      # observer in the test process on the posting thread (#18771's signal 5).
+      - name: Tests inject their notification center
+        id: test-notification-centers
+        continue-on-error: true
+        run: scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: String tables (21 languages)
         id: l10n
         continue-on-error: true
-        run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
+        env:
+          L10N_STYLE_WARN_MAX: 100
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/l10n.log"
 
       - name: Module resource bundles
         id: module-resources
@@ -694,7 +729,19 @@ jobs:
       - name: Scrollbars follow macOS
         id: scrollbars
         continue-on-error: true
-        run: scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE"
+        env:
+          SCROLLBARS_WARN_MAX: 10
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ratchet-debt"
+          scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/scrollbars.log"
+
+      # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
+      # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
+      - name: Protected-folder copies
+        id: protected-folders
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
 
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
@@ -716,10 +763,12 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
+          bash scripts/cmux-next/tests/continue-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
@@ -728,16 +777,21 @@ jobs:
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
+          bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          node --test scripts/lib/reload-shim.test.mjs
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
           bash scripts/cmux-next/tests/private-bun.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
+          bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
+          bash scripts/cmux-next/tests/ratchet-tiers.test.sh
+          bash scripts/cmux-next/tests/ratchet-debt-issue.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -848,6 +902,16 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # The style ratchets' warnings, for the ratchet-debt job.
+      - name: Upload the ratchet debt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ratchet-debt
+          path: ${{ runner.temp }}/ratchet-debt
+          if-no-files-found: ignore
+          retention-days: 7
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -858,9 +922,11 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
+            ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
+            ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
@@ -891,6 +957,39 @@ jobs:
             echo "Each check's own step log has the details."
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
+
+  # Keeps one open issue (label ratchet-debt) listing the style ratchets'
+  # warnings on the feat-cmux-next tip: the checks job's annotations, rewritten
+  # on each push, closed when the debt is paid. Only base code runs here, and
+  # only this job can write issues.
+  ratchet-debt:
+    needs: checks
+    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result != 'skipped' }}
+    name: ratchet debt issue
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: cmux-next-ratchet-debt
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/ratchet-debt-issue.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          name: cmux-next-ratchet-debt
+          path: ${{ runner.temp }}/ratchet-debt
+      - name: Rewrite the ratchet debt issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 -I scripts/cmux-next/ratchet-debt-issue.py --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --run-url "$RUN_URL" "$RUNNER_TEMP/ratchet-debt"
 
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or
@@ -1151,7 +1250,7 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
-      - name: Run package tests (selected targets; control deadline, WebKit driver and attach stress tests run below)
+      - name: Run package tests (selected targets; control deadline and isolated suites run below)
         if: env.SWIFT_TARGETS != ''
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
@@ -1169,7 +1268,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip OmnibarFieldEditorTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
@@ -1180,58 +1279,41 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests|MobileReadinessRelayTests' --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests' --skip CLISurfaceParityTests
 
-      # These socket/readiness and CLI parity tests assert routing, not scheduler
-      # throughput. Concurrent app/catalog setup can occupy the main actor longer
-      # than their real request deadlines. Keep those deadlines and assertions,
-      # but run these suites alone and one test at a time, including action retries.
-      - name: Run daemon routing and CLI parity tests
+      # The CLI parity tests assert routing, not scheduler throughput. Concurrent
+      # app/catalog setup can occupy the main actor longer than their real request
+      # deadlines, so they run alone and one test at a time.
+      - name: Run CLI parity tests
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CLISurfaceParityTests
 
-      # The real field editor and state-resource event round trips need their
-      # own process: unrelated UI suites can change focus or delay callbacks
-      # beyond these tests' existing deadlines. Every test still runs.
-      # OmnibarFieldEditorTests: in the shared process the field editor lost its
-      # IME marked text mid-test (1 of 4 package runs; 0 of 11 alone or with
-      # only the browser target).
-      - name: Run field-editor and state-resource regressions
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests') || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
+      # The state-resource event round trips against the real daemon need their
+      # own process: unrelated suites can delay callbacks beyond these tests'
+      # existing deadlines. Every test still runs.
+      - name: Run state-resource regressions
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|OmnibarFieldEditorTests|BranchStateResourcesTests'
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
 
-      # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run in a
-      # process of their own, so the package's other main-actor tests do not
-      # delay those callbacks.
-      - name: Run WebKit driver package tests
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserAutomationTests')) }}
-        timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "420"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
-
-      # The attach driver stress tests run 80 seeded cases at once, each with
-      # its own typist, overflow and main-actor layout tasks. In the shared
-      # process they queued behind every other main-actor suite (and slowed
-      # them) past the time limits on loaded runners; alone, the run is bounded
-      # by its fixed work.
-      - name: Run attach driver stress tests
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBridgeTests')) }}
-        timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "420"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The live-daemon suites (daemon integration and branch tests, the mobile
   # live daemon and first launch) against this commit's own cmux-tui tree,
@@ -1409,6 +1491,18 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
+
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
   # (ActionSurfaceParityTests and its siblings) and the CI target graph. Its
@@ -1764,6 +1858,17 @@ jobs:
           SHA: ${{ github.sha }}
         run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
 
+      # GitHub runs `schedule` only from main's workflow, so this green compile
+      # is the periodic tick that publishes an earlier nightly-next build Apple
+      # accepted after its run stopped waiting (cx-f58x). It builds nothing and
+      # submits nothing (scripts/cmux-next/continue-nightly-next.sh, tested by
+      # scripts/cmux-next/tests/continue-nightly-next.test.sh).
+      - name: Request a nightly-next continuation for an accepted pending build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
+
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]
     # This run's own tier on a published tree (path routing's probe), or
@@ -1907,6 +2012,42 @@ jobs:
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      # A current feat-cmux-next push also produces the Release app consumed by
+      # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
+      # product: the daily channel has its own stable identity and must never
+      # replace the existing PR artifact.
+      - name: Compile the cmux NEXT DEV Release app
+        id: compile-cmux-next-dev-release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true'
+        env:
+          CMUX_NEXT_CONFIGURATION: Release
+          CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
+          CMUX_NEXT_BUNDLE_ID: com.cmuxterm.app.debug.next
+          CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
+          CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
+          CMUX_NEXT_TUI_MODE: tree
+          DEV_DAILY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"
+          scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
+          app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
+          test -d "$app"
+          scripts/cmux-next/check-app-personalities.sh "$app"
+          archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
+          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the cmux NEXT DEV Release app
+        if: steps.compile-cmux-next-dev-release.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-unsigned-${{ github.sha }}
+          path: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
+
       # Launch-time budget (#17587): warm launches of this build, on a copy
       # named for a tag of its own (its own socket, daemon and state), from an
       # empty profile. Budgets are about 4x a capture Mac's medians, so this
@@ -1931,7 +2072,10 @@ jobs:
       # before it writes the immutable R2 object or comments on the PR.
       - name: Package the trusted cmux-next dogfood artifact
         id: dogfood-artifact
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) }}
+        # Keep packaging independent of later launch-budget failures. The
+        # app-producing compile is the admission boundary; unrelated checks
+        # and tests are separate jobs and must not suppress this artifact.
+        if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) }}
         env:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -1950,7 +2094,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload the exact cmux-next app for the trusted publisher
-        if: ${{ steps.dogfood-artifact.outputs.archive != '' }}
+        if: ${{ always() && steps.dogfood-artifact.outputs.archive != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.dogfood-artifact.outputs.artifact_name }}

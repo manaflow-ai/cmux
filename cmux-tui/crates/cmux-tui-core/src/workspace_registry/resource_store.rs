@@ -1,12 +1,15 @@
+mod events_page;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
 mod patch_apply;
+mod topology_load;
 use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
+pub(crate) use topology_load::load_resource_topology;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -600,6 +603,7 @@ impl WorkspaceRegistry {
     /// after the projection transaction commits.
     pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
         self.connection
+            .get()
             .query_row(
                 "SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1",
                 [],
@@ -609,7 +613,8 @@ impl WorkspaceRegistry {
     }
 
     pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
         tx.commit()?;
         Ok(())
@@ -666,7 +671,7 @@ impl WorkspaceRegistry {
         // conditions keep the attempt budget unchanged. Other failures consume
         // the bounded budget and become quarantined at the cap.
         let transient = matches!(retry_class, AgentHookRetryClass::Transient);
-        self.connection.execute(
+        self.connection.get().execute(
             "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
@@ -700,7 +705,7 @@ impl WorkspaceRegistry {
         )?;
         // Keep quarantined failures bounded. Live retry rows remain untouched;
         // only the oldest dead letters beyond the retention cap are evicted.
-        self.connection.execute(
+        self.connection.get().execute(
             "DELETE FROM resource_agent_hook_pending
              WHERE attempt >= ?1
                AND rowid NOT IN (
@@ -719,7 +724,7 @@ impl WorkspaceRegistry {
         &mut self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
-        self.connection.execute(
+        self.connection.get().execute(
             "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
             [terminal_id.as_str()],
         )?;
@@ -732,7 +737,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection.execute(
+        self.connection.get().execute(
             "DELETE FROM resource_agent_hook_pending
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
             params![producer_id, origin, idempotency_key],
@@ -746,7 +751,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection.execute(
+        self.connection.get().execute(
             "UPDATE resource_agent_hook_pending
              SET error = CASE
                    WHEN attempt + 1 >= ?4 THEN 'agent hook retry limit reached'
@@ -766,7 +771,8 @@ impl WorkspaceRegistry {
     pub(crate) fn pending_agent_hook_projections(
         &self,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
         )?;
@@ -797,7 +803,8 @@ impl WorkspaceRegistry {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2
@@ -844,7 +851,8 @@ impl WorkspaceRegistry {
         after: Option<PendingAgentHookCursor>,
     ) -> anyhow::Result<(Vec<PendingAgentHookProjection>, Option<PendingAgentHookCursor>)> {
         let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE attempt < ?1
@@ -903,7 +911,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
-        resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
+        resource_patch_replay(&self.connection.get(), mutation, operation, &fingerprint)
     }
 
     #[cfg(test)]
@@ -950,7 +958,8 @@ impl WorkspaceRegistry {
         let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             if let Some(sequence) = journal_sequence {
                 advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
@@ -1110,7 +1119,8 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
@@ -1176,7 +1186,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Vec<NotificationPublicId>> {
         let mut committed = Vec::with_capacity(candidates.len());
         for candidate in candidates {
-            let exists: bool = self.connection.query_row(
+            let exists: bool = self.connection.get().query_row(
                 "SELECT EXISTS(
                    SELECT 1 FROM resource_effect_receipts
                    WHERE operation = 'notification.create'
@@ -1210,7 +1220,8 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
@@ -1274,7 +1285,8 @@ impl WorkspaceRegistry {
         &mut self,
         candidates: &[NotificationPublicId],
     ) -> anyhow::Result<Vec<NotificationPublicId>> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut remaining = Vec::new();
         for candidate in candidates {
             let retained: bool = tx.query_row(
@@ -1311,6 +1323,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<TerminalPublicId>> {
         validate_terminal_identity("terminal id", terminal_id)?;
         self.connection
+            .get()
             .query_row(
                 "SELECT public_id FROM resource_terminals
                  WHERE terminal_id = ?1 AND deleted_revision IS NULL",
@@ -1326,7 +1339,8 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        let mut statement = self.connection.prepare(
+        let db = self.connection.get();
+        let mut statement = db.prepare(
             "SELECT terminal_id, public_id
              FROM resource_terminals
              WHERE deleted_revision IS NULL
@@ -1346,6 +1360,7 @@ impl WorkspaceRegistry {
     /// identifiers that never existed.
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
         self.connection
+            .get()
             .query_row(
                 "SELECT terminal_id FROM resource_terminals
                  WHERE public_id = ?1",
@@ -1363,6 +1378,7 @@ impl WorkspaceRegistry {
         public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<String>> {
         self.connection
+            .get()
             .query_row(
                 "SELECT terminal_id FROM resource_terminals
                  WHERE public_id = ?1 AND deleted_revision IS NULL",
@@ -1393,7 +1409,11 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
-        load_resource_topology(&self.connection, self.session_id.clone(), self.generation.clone())
+        load_resource_topology(
+            &self.connection.get(),
+            self.session_id.clone(),
+            self.generation.clone(),
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1443,7 +1463,8 @@ impl WorkspaceRegistry {
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
         let started = std::time::Instant::now();
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
         }
@@ -1574,7 +1595,8 @@ impl WorkspaceRegistry {
             anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replay);
         }
@@ -1663,7 +1685,7 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
-            self.connection.execute_batch(
+            self.connection.get().execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
                  BEFORE INSERT ON session_journal
                  WHEN NEW.resource_revision IS NOT NULL
@@ -1671,6 +1693,7 @@ impl WorkspaceRegistry {
             )?;
         } else {
             self.connection
+                .get()
                 .execute_batch("DROP TRIGGER IF EXISTS cmux_test_fail_resource_patch")?;
         }
         Ok(())
@@ -1678,16 +1701,17 @@ impl WorkspaceRegistry {
 
     #[cfg(test)]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
-        let count =
-            self.connection.query_row("SELECT COUNT(*) FROM resource_mutations", [], |row| {
-                row.get::<_, i64>(0)
-            })?;
+        let count = self.connection.get().query_row(
+            "SELECT COUNT(*) FROM resource_mutations",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
         u64::try_from(count).context("resource mutation count is negative")
     }
 
     #[cfg(test)]
     pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
-        let count = self.connection.query_row(
+        let count = self.connection.get().query_row(
             "SELECT COUNT(*) FROM resource_agent_projections",
             [],
             |row| row.get::<_, i64>(0),
@@ -1703,6 +1727,7 @@ impl WorkspaceRegistry {
         idempotency_key: &str,
     ) -> anyhow::Result<Option<(i64, String)>> {
         self.connection
+            .get()
             .query_row(
                 "SELECT attempt, error
                  FROM resource_agent_hook_pending
@@ -1979,99 +2004,7 @@ pub struct ResourceEventPage {
     pub batches: Vec<ResourceEventBatch>,
 }
 
-impl WorkspaceRegistry {
-    pub fn resource_events_after(&self, revision: u64) -> anyhow::Result<ResourceEventPage> {
-        let head_revision = current_resource_revision(&self.connection)?;
-        if revision > head_revision {
-            anyhow::bail!(
-                "cursor.invalid: revision {revision} is ahead of current revision {head_revision}"
-            );
-        }
-        let oldest_revision = self
-            .connection
-            .query_row(
-                "SELECT MIN(resource_revision) FROM journal_event_index
-                 WHERE resource_revision IS NOT NULL",
-                [],
-                |row| row.get::<_, Option<i64>>(0),
-            )?
-            .map(|revision| {
-                u64::try_from(revision).context("stored resource event revision is negative")
-            })
-            .transpose()?;
-        if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
-            || (oldest_revision.is_none() && revision < head_revision)
-        {
-            anyhow::bail!(
-                "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
-            );
-        }
-        let indexed = {
-            let mut statement = self.connection.prepare(
-                "SELECT resource_revision, sequence FROM journal_event_index
-                 WHERE resource_revision > ?1
-                 ORDER BY resource_revision ASC
-                 LIMIT ?2",
-            )?;
-            statement
-                .query_map(
-                    params![
-                        i64::try_from(revision)
-                            .context("resource revision exceeds SQLite range")?,
-                        i64::try_from(RESOURCE_EVENT_PAGE_SIZE)?,
-                    ],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-                )?
-                .map(|row| {
-                    let (resource_revision, sequence) = row?;
-                    Ok((
-                        u64::try_from(resource_revision)
-                            .context("resource event revision is negative")?,
-                        u64::try_from(sequence).context("resource event sequence is negative")?,
-                    ))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let sequences = indexed.iter().map(|(_, sequence)| *sequence).collect::<Vec<_>>();
-        let mut records =
-            session_journal::query_session_journal_sequences(&self.connection, &sequences)?
-                .into_iter()
-                .map(|record| (record.sequence, record))
-                .collect::<HashMap<_, _>>();
-        let mut expected_revision = revision.saturating_add(1);
-        let mut batches = Vec::with_capacity(indexed.len());
-        for (indexed_revision, sequence) in indexed {
-            anyhow::ensure!(
-                indexed_revision == expected_revision,
-                "resource event history contains a gap before revision {indexed_revision}"
-            );
-            let record = records
-                .remove(&sequence)
-                .context("indexed resource event is absent from the journal")?;
-            anyhow::ensure!(
-                record.resource_revision == Some(indexed_revision)
-                    && record.previous_resource_revision == Some(indexed_revision - 1),
-                "indexed resource event revision does not match its journal record"
-            );
-            batches.push(ResourceEventBatch {
-                previous_revision: indexed_revision - 1,
-                revision: indexed_revision,
-                changes: record
-                    .payload
-                    .get("changes")
-                    .cloned()
-                    .context("resource journal record omitted changes")?,
-            });
-            expected_revision = expected_revision.saturating_add(1);
-        }
-        Ok(ResourceEventPage {
-            generation: self.generation.clone(),
-            head_revision,
-            oldest_revision,
-            batches,
-        })
-    }
-}
+impl WorkspaceRegistry {}
 
 pub(crate) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
     match layout {
@@ -2350,212 +2283,6 @@ pub(crate) fn complete_terminal_close_patch(
 
     validate_resource_patch(&patch)?;
     Ok((patch, deltas))
-}
-
-/// Load the live resource topology from `connection`. The registry's
-/// snapshot and the startup repair (which runs inside the open transaction,
-/// before this open's generation exists) share it.
-pub(crate) fn load_resource_topology(
-    connection: &Connection,
-    session_id: SessionPublicId,
-    generation: String,
-) -> anyhow::Result<ResourceTopologySnapshot> {
-    let revision = current_resource_revision(connection)?;
-    let active_workspace =
-        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
-    let active_screens = {
-        let mut statement = connection.prepare(
-            "SELECT public_id, active_screen_id
-             FROM resource_workspaces
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
-            .map(|row| {
-                let (workspace, screen) = row?;
-                Ok((
-                    WorkspacePublicId::parse(workspace)?,
-                    screen.map(ScreenPublicId::parse).transpose()?,
-                ))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
-    let screens = {
-        let mut statement = connection.prepare(
-            "SELECT public_id, workspace_id, position, name, layout_json,
-                    active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
-             FROM resource_screens
-             WHERE deleted_revision IS NULL
-             ORDER BY workspace_id ASC, position ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
-            })?
-            .map(|row| {
-                let (
-                    public_id,
-                    workspace_id,
-                    position,
-                    name,
-                    layout,
-                    active_pane,
-                    zoomed_pane,
-                    auto_layout,
-                    viewport,
-                ) = row?;
-                Ok(RegistryScreen {
-                    public_id: ScreenPublicId::parse(public_id)?,
-                    workspace_id: WorkspacePublicId::parse(workspace_id)?,
-                    position: usize::try_from(position)
-                        .context("stored screen position is negative")?,
-                    name,
-                    layout: serde_json::from_str(&layout)?,
-                    active_pane: PanePublicId::parse(active_pane)?,
-                    zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
-                    auto_layout: auto_layout
-                        .map(|value| serde_json::from_str(&value))
-                        .transpose()?,
-                    viewport: serde_json::from_str(&viewport)?,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
-    let screens = screen_rows::with_side_tables(connection, screens)?;
-    let panes = {
-        let mut statement = connection.prepare(
-            "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
-             FROM resource_panes
-             WHERE deleted_revision IS NULL
-             ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
-            })?
-            .map(|row| {
-                let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
-                Ok(RegistryPane {
-                    public_id: PanePublicId::parse(public_id)?,
-                    screen_id: ScreenPublicId::parse(screen_id)?,
-                    name,
-                    active_tab: active_tab.map(TabPublicId::parse).transpose()?,
-                    creation_ordinal: u64::try_from(creation_ordinal)
-                        .context("stored pane creation ordinal is negative")?,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
-    let tabs = {
-        let mut statement = connection.prepare(
-            "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
-                    t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
-             FROM resource_tabs t
-             LEFT JOIN resource_browsers b ON b.public_id = t.content_id
-             LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
-             WHERE t.deleted_revision IS NULL
-             ORDER BY t.pane_id ASC, t.position ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, i64>(9)?,
-                ))
-            })?
-            .map(|row| {
-                let (
-                    public_id,
-                    pane_id,
-                    position,
-                    kind,
-                    content_id,
-                    name,
-                    browser_url,
-                    terminal_id,
-                    name_source,
-                    name_revision,
-                ) = row?;
-                let content_id = match kind.as_str() {
-                    "terminal" => ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?),
-                    "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
-                    _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
-                };
-                Ok(RegistryTab {
-                    public_id: TabPublicId::parse(public_id)?,
-                    pane_id: PanePublicId::parse(pane_id)?,
-                    position: usize::try_from(position)
-                        .context("stored tab position is negative")?,
-                    content_id,
-                    name,
-                    name_source: serde_json::from_value(json!(name_source))?,
-                    name_revision: u64::try_from(name_revision)
-                        .context("negative name revision")?,
-                    browser_url,
-                    terminal_id,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
-    let browsers = {
-        let mut statement = connection.prepare(
-            "SELECT public_id, url, metadata_json
-             FROM resource_browsers
-             WHERE deleted_revision IS NULL
-             ORDER BY public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-            })?
-            .map(|row| {
-                let (public_id, url, metadata) = row?;
-                let browser: RegistryBrowser = serde_json::from_str(&metadata)
-                    .with_context(|| format!("invalid metadata for browser {public_id}"))?;
-                validate_registry_browser(&browser)?;
-                if browser.public_id.as_str() != public_id || browser.url != url {
-                    anyhow::bail!("browser {public_id} metadata does not match its indexed fields");
-                }
-                Ok(browser)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
-    Ok(ResourceTopologySnapshot {
-        session_id,
-        generation,
-        revision,
-        active_workspace,
-        active_screens,
-        screens,
-        panes,
-        tabs,
-        browsers,
-    })
 }
 
 /// Repair terminal rows left live by older close implementations. This is a

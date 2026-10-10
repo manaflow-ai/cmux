@@ -26,7 +26,7 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var channelSwitchTarget: AppChannelSwitchTarget?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public var testFeedURL: String? = nil
-    /// The card above the footer (a check the user asked for), or nil.
+    /// The notice card's update status (``UpdaterService/card``), or nil.
     public var card: UpdateCard? = nil
     /// The footer pill's label ("Update Ready" for a staged update), or nil
     /// when it does not show.

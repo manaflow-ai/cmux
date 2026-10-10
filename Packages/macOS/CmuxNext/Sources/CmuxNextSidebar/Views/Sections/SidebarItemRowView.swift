@@ -9,7 +9,7 @@ import QuartzCore
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot
 /// on the glyph instead of a count; the sidebar's own icon looks hide them.
-final class SidebarItemRowView: NSView {
+class SidebarItemRowView: NSView {
     enum Style: Hashable {
         /// Bare glyph and label: reads as app chrome (Home).
         case builtIn

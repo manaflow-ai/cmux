@@ -22,7 +22,7 @@
   background: none;
   box-shadow: inset 0 .5px 0 var(--acpmux-composer-edge);
   color: var(--agent-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 16px;
 }
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; flex: 1 1 0; }
@@ -86,7 +86,7 @@
 /* The menus: the composer menu's surface, rows highlighted with the theme's wash, never a system blue.
    Base UI's positioner places them (portaled to the body, which is why styles.css gives
    .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
-.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: 13px; }
+.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
 /* The recent folders scroll; Choose folder… stays in view under them. The menu opens above its
    control (ComposerContext.tsx useControlAnchor), so the list also fits the room the positioner
    reports there, less Choose folder… and the menu's padding, but never under two rows. */
@@ -151,8 +151,8 @@
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
-.acpmux-access-item .acpmux-menu-label { font-size: 13px; font-weight: 500; }
-.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: 11.5px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
@@ -228,7 +228,7 @@
   border-radius: 7px;
 }
 .acpmux-composer-context .acpmux-location-label {
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 @media (max-width: 480px) {
   .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
@@ -278,7 +278,7 @@
 .acpmux-composer-bar .acpmux-model-name,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
-  font-size: 14px;
+  font-size: var(--text-control);
 }
 .acpmux-composer-bar .acpmux-effort,
 .acpmux-composer-bar .acpmux-access {
@@ -296,4 +296,11 @@
 @media (max-width: 480px) {
   .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
+}
+/* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
+   and rounded corners move to the top. */
+.acpmux-composer-box[data-context-first] > .acpmux-composer-context {
+  border-top: 0;
+  border-bottom: 1px solid var(--acpmux-composer-edge);
+  border-radius: 18px 18px 0 0;
 }

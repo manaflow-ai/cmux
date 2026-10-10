@@ -320,7 +320,7 @@ fn engine_and_stop_are_one_call_each() {
         parsed.control,
         Some(Control::Engine(vec![("model".into(), "m".into()), ("effort".into(), "high".into())]))
     );
-    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop));
+    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
     let homed = parse_args(&strings(&["--chief-home", "/tmp/h", "engine"])).unwrap();
     assert_eq!(homed.control, Some(Control::Engine(vec![])), "a global flag may come first");
     assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
@@ -371,4 +371,91 @@ fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
         watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some()
     );
     assert!(watch.done);
+}
+
+#[test]
+fn a_brain_gets_the_harness_logins_and_nothing_else() {
+    use super::launch::brain_env_allowed;
+    for name in [
+        "HOME",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CODEX_HOME",
+        "ANTHROPIC_BASE_URL",
+        "LC_ALL",
+        "MUX_HARNESS",
+        "OPTCHAT_CHIEF_HARNESS",
+        "CMUX_MCP_COMMAND",
+    ] {
+        assert!(brain_env_allowed(name), "{name}");
+    }
+    for name in ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DYLD_INSERT_LIBRARIES", "PWD"] {
+        assert!(!brain_env_allowed(name), "{name}");
+    }
+}
+
+/// The cmux-next app reads the same vectors (ChiefHomeVectorTests.swift).
+#[test]
+fn the_cli_resolves_every_chief_home_vector_as_the_app_does() {
+    use super::home::ChiefHome;
+    use std::path::Path;
+    let vectors: Value =
+        serde_json::from_str(include_str!("../../../../../../schemas/chief-home/vectors.json"))
+            .unwrap();
+    let cases = vectors["cases"].as_array().unwrap();
+    assert!(cases.len() >= 6);
+    for case in cases {
+        let mut env: Vec<(String, String)> = case["environment"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+            .collect();
+        if let Some(tag) = case["tag"].as_str() {
+            env.push(("CMUX_TAG".into(), tag.into()));
+        }
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+        let user = Path::new(case["user_home"].as_str().unwrap());
+        let home = ChiefHome::resolve(None, lookup, user, Path::new("/"));
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(home.root.to_str().unwrap(), case["root"].as_str().unwrap(), "{name}");
+        assert_eq!(home.session(), case["session"].as_str().unwrap(), "{name}");
+        if let Some(isolated) = case["isolated"].as_bool() {
+            assert_eq!(home.isolated, isolated, "{name}");
+        }
+    }
+}
+
+#[test]
+fn a_message_steered_into_a_running_turn_ends_with_that_turn() {
+    // The brain delivers a message into the running turn (between tool
+    // calls): its read cursor passes the message while the Chief already
+    // types, and that turn's one reply answers it (parity run 2026-10-09:
+    // `cmux chief -p` waited its whole --timeout).
+    let mut watch = TurnWatch::new(5);
+    watch.on(&typing(true));
+    watch.on(&cursor(5));
+    assert!(watch.on(&UiEvent::Message(message(6, "agent_mux", "both answered", "t"))).is_some());
+    watch.on(&typing(false));
+    assert!(watch.done);
+}
+
+#[test]
+fn stop_takes_a_subagent_and_engine_takes_speeds() {
+    use super::control::{Control, engine_line};
+    assert_eq!(
+        parse_args(&strings(&["stop", "a3"])).unwrap().control,
+        Some(Control::Stop(Some("a3".into())))
+    );
+    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
+    let parsed =
+        parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
+    assert_eq!(
+        parsed.control,
+        Some(Control::Engine(vec![
+            ("speed".into(), "fast".into()),
+            ("compactor_speed".into(), "default".into())
+        ]))
+    );
+    let report = json!({"engine": {"harness": "codex", "model": "gpt-6-sol", "effort": "high", "speed": "fast"}});
+    assert_eq!(engine_line(&report), "codex · gpt-6-sol · high · fast");
 }

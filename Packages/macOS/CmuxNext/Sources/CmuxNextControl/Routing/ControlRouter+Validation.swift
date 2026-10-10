@@ -65,10 +65,10 @@ extension ControlRouter {
                     data: ["valid": .array(action.arguments.map { .string($0.name) })]
                 )
             }
-            request.arguments[name] = try value(raw, for: argument, action: action.id, knownKinds: knownKinds)
+            request.arguments.updateValue(try value(raw, for: argument, action: action.id, knownKinds: knownKinds), forKey: name)
         }
         let interactive = params["interactive"]?.boolValue ?? false
-        let missing = action.arguments.filter { $0.isRequired && request.arguments[$0.name] == nil }.map(\.name)
+        let missing = action.arguments.filter { $0.isRequired && request.arguments.index(forKey: $0.name) == nil }.map(\.name)
         if !missing.isEmpty, !interactive {
             throw ControlError.invalidParams(
                 ControlStrings.format("control.error.missingArguments", "%1$@ requires %2$@", action.id, missing.map { "--\($0)" }.joined(separator: ", ")),
@@ -93,7 +93,7 @@ extension ControlRouter {
             default: throw fail("a string")
             }
         case .int:
-            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces), radix: 10) }
             guard let number else { throw fail("an integer") }
             if let range = argument.range, !range.contains(number) { throw fail("an integer in \(range.lowerBound)...\(range.upperBound)") }
             return .int(number)

@@ -14,6 +14,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
+import { tailwindPlugin } from "./tailwindCompile.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -46,7 +47,7 @@ await build({
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   outfile,
-  plugins: [reactCompiler],
+  plugins: [reactCompiler, tailwindPlugin],
 });
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));

@@ -166,12 +166,24 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ScreenGroupUngroup
         | ResourceOperation::ClosedList
         | ResourceOperation::ClosedReopen
+        | ResourceOperation::ClosedDelete
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::ProjectList
+        | ResourceOperation::ProjectObserve
+        | ResourceOperation::ProjectAdd
+        | ResourceOperation::ProjectUpdate
+        | ResourceOperation::ProjectRemove
+        | ResourceOperation::ProjectSync
+        | ResourceOperation::PaletteUsageGet
+        | ResourceOperation::PaletteUsageRecord
+        | ResourceOperation::PaletteUsageImport
+        | ResourceOperation::PaletteUsageHide
+        | ResourceOperation::PaletteUsageForget
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear

@@ -36,7 +36,9 @@ Exceptions that stay (recorded decisions, not violations):
 | Cloud conversations, inbox, feed, teams, installs | TS DO (cloud owner) | the DO | daemon replica, then Swift/TS | `/v1/wire/*`, `/v1/ops` from the daemon sync actor | DO storage |
 | Settings (cmux.json, managed prefs) | Rust | config actor (cx-9ce.24) | Swift, TUI, TS settings page via generated schema | `settings.*` ops | `~/.config/cmux/cmux.json` |
 | Settings schema, defaults, ranges | data file (`schemas/settings`) | the schema file | Swift, TS, Rust via codegen | generated sources | checked-in data |
+| Settings page layout: categories, group cards, order, titles | Swift schema (`CmuxNextSettings/Schema/SettingsPageLayout.swift`) | that file, exported as `page` in `schemas/settings/settings-schema.json` | React Settings page, GPUI | the export (stale check: `SettingsSchemaExportTests`) | checked-in data |
 | Action catalog, surfaces, shortcuts defaults | data file (`plans/cmux-next/actions.md`, `action-surfaces.json`) | the catalog | Swift, TS, Rust via codegen | generated sources | checked-in data |
+| Project list (path, sources, user overlay: rename, pin, hide, order; projects.md) | Rust | store (`cmux-tui-core::state::projects`) | Swift, TS pickers, Settings | v2 `project.*` + `state` events | store table `projects` |
 | Browser history, bookmarks | Rust | daemon (`frontend_browser_history.rs`, `bookmarks.rs`) | Swift | v2 ops | store |
 | Browser tab record | Rust | workspace store | Swift | v2 ops | store |
 | Browser runtime (page, live URL, history stack) | Swift | the Mac app rendering it | that app | none | engine profile store |
