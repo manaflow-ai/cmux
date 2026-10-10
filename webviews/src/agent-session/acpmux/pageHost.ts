@@ -90,8 +90,12 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.dictation?.(value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
-    case "command":
+    case "command": {
+      // `{name, detail}` carries a pinned request (AgentPageEvent.command(_:detail:)).
+      const value = event.value as { name?: unknown; detail?: unknown } | null;
+      if (value && typeof value === "object" && typeof value.name === "string") return bridge?.command?.(value.name, value.detail);
       return bridge?.command?.(String(event.value));
+    }
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

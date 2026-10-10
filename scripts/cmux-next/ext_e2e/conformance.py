@@ -421,14 +421,15 @@ class Run:
             session.close()
 
     def answer_prompt(self, kind, timeout=6):
-        """Accepts the cmux extension prompt of `kind` through its sheet's
-        debug verb (fork API 12). False when none appeared."""
+        """Accepts the cmux extension prompt of `kind` through the DEBUG test
+        fixture `fixture_answer` (fork API 12): automation may not press the
+        sheet's accept (cx-zk9t). False when none appeared."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             prompts = (self.app.call("debug.extensions.prompt").get("result") or {}).get("prompts") or []
             for prompt in prompts:
                 if prompt.get("kind") == kind:
-                    self.app.call("debug.extensions.prompt", {"id": prompt["id"], "answer": "accept"})
+                    self.app.call("debug.extensions.prompt", {"id": prompt["id"], "fixture_answer": "accept"})
                     return True
             time.sleep(0.2)
         return False

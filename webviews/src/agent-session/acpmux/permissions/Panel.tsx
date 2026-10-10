@@ -3,6 +3,13 @@ import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
 
+declare global {
+  interface Window {
+    /// The first pending permission request (the app reads it before its Allow confirmation).
+    cmuxAcpmuxPendingPermission?: () => { groupId: string; revision: number; title: string } | null;
+  }
+}
+
 const choices: Record<PermissionDecision, StringKey> = {
   allow_once: "permission.allowOnce",
   allow_chat: "permission.allowChat",
@@ -84,19 +91,30 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
   callbacks.current = { onRespond, onRetry, onRevoke, onRefresh };
   useEffect(() => {
     const handlers = new Map<string, EventListener>([
-      ["permissionAllowOnce", () => respondToPending("allow_once")],
-      ["permissionAllowChat", () => respondToPending("allow_chat")],
+      ["permissionAllowOnce", (event) => respondToPending("allow_once", pinnedGroup(event))],
+      ["permissionAllowChat", (event) => respondToPending("allow_chat", pinnedGroup(event))],
       ["permissionDeny", () => respondToPending("deny")],
       ["permissionRetry", runRetry],
       ["permissionRevoke", runRevoke],
       ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
-    function respondToPending(decision: PermissionDecision) {
+    // The app's confirmation pinned one request (cx-zk9t): an allow answers only that group,
+    // at the revision the person saw; a changed or answered group stays pending.
+    function pinnedGroup(event: Event): { groupId: string; revision: number } | undefined {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== "object") return undefined;
+      const { groupId, revision } = detail as { groupId?: unknown; revision?: unknown };
+      return typeof groupId === "string" && typeof revision === "number" ? { groupId, revision } : undefined;
+    }
+    function respondToPending(decision: PermissionDecision, pinned?: { groupId: string; revision: number }) {
       const current = stateRef.current;
       if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
       const group = pendingRef.current.find(
-        (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
+        (candidate) =>
+          candidate.state === "pending" &&
+          candidate.decisions.includes(decision) &&
+          (!pinned || (candidate.groupId === pinned.groupId && candidate.revision === pinned.revision)),
       );
       if (group) callbacks.current.onRespond(group.groupId, group.revision, decision);
     }
@@ -114,8 +132,20 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
       if (current.supported && !!current.error && !current.busy && !current.loading) callbacks.current.onRefresh();
     }
     for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
+    // The request an Allow shortcut would answer, for the app's confirmation to name and pin.
+    window.cmuxAcpmuxPendingPermission = () => {
+      const group = pendingRef.current.find((candidate) => candidate.state === "pending");
+      if (!group) return null;
+      const titles = group.items.map((item) => {
+        const tool = item.request.toolCall;
+        const title = tool && typeof tool === "object" ? (tool as Record<string, unknown>).title : undefined;
+        return typeof title === "string" ? title : "";
+      });
+      return { groupId: group.groupId, revision: group.revision, title: titles.filter(Boolean).join(", ") };
+    };
     return () => {
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
+      window.cmuxAcpmuxPendingPermission = undefined;
     };
   }, []);
   if (!state.supported) return null;

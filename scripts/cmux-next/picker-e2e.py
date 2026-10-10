@@ -227,11 +227,8 @@ try:
     print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     if app and app.poll() is None:
-        print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
-        time.sleep(1)  # test harness: the quit sheet, if any
-        sheet = rpc("debug.quit") or {}
-        if sheet.get("asking"):
-            print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
+        # The DEBUG quit fixture (no sheet): automation may not end the sessions itself (cx-zk9t).
+        print(f"fixture_quit end-everything: {rpc('debug.quit', {'fixture_quit': 'end-everything'})}", flush=True)
         try:
             app.wait(timeout=20)
             print(f"quit {app.pid} exit {app.returncode}", flush=True)

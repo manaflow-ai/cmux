@@ -91,7 +91,8 @@ final class AppPageNativeProvider: PageProvider {
     static func arguments(_ args: CmuxNextSettings.JSONValue?, for descriptor: ActionDescriptor?) -> [String: ActionValue] {
         guard case .object(let members)? = args else { return [:] }
         var out: [String: ActionValue] = [:]
-        for (name, value) in members {
+        // A page never confirms a person-only action (cx-zk9t): its user-only dialog still asks.
+        for (name, value) in members where !(name == ActionArgument.confirmName && descriptor?.isPersonOnly == true) {
             let kind = descriptor?.arguments.first { $0.name == name }?.kind
             switch (kind, value) {
             case (.bool?, .bool(let flag)): out[name] = .bool(flag)

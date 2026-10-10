@@ -19,6 +19,11 @@ enum CertificateWarningHandlers {
             registry.bind(id, unavailable: { reason(ActionInvocation()) }, run: { invocation in
                 let entry = try context.page(invocation)
                 if let refusal = command.unavailableReason(on: entry.tab) { throw ActionFailure(message: refusal) }
+                // A confirmed Proceed acts only on the warning page its dialog named (cx-zk9t).
+                if ActionEffectPin.missesPin(command.actionID, invocation)
+                    || invocation[ActionEffectPin.urlArgument]?.stringValue.map({ entry.tab.state.url?.absoluteString != $0 }) == true {
+                    throw ActionFailure(message: RefusalStrings.changedWhileConfirming)
+                }
                 command.perform(on: entry.tab)
             })
             // An explicit target (the warning page's own tab).

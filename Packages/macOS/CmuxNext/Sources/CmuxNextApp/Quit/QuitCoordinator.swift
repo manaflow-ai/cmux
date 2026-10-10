@@ -68,7 +68,7 @@ final class QuitCoordinator {
         isQuitting = true
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
-        let origin = origins.consume(appleEventReason: Self.quitReason())
+        let origin = origins.consume(appleEventReason: Self.quitReason(), appleEventQuit: Self.isAppleEventQuit())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
@@ -195,6 +195,12 @@ final class QuitCoordinator {
     }
 
     /// `kAEQuitReason` of the quit Apple event being handled, if any.
+    /// Whether the quit in progress came as a quit Apple Event.
+    private static func isAppleEventQuit() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return false }
+        return event.eventClass == AEEventClass(kCoreEventClass) && event.eventID == AEEventID(kAEQuitApplication)
+    }
+
     private static func quitReason() -> OSType? {
         guard let event = NSAppleEventManager.shared().currentAppleEvent,
               event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication),

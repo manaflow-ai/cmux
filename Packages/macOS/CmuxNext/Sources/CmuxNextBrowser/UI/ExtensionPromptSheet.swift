@@ -19,7 +19,7 @@ import CmuxNextDesign
         return CmuxDialogSpec(title: Self.title(for: prompt), lines: [Self.body(for: prompt)],
                               buttons: [CmuxDialogButton(id: "cancel", title: deny, role: .cancel),
                                         CmuxDialogButton(id: "accept", title: Self.acceptTitle(for: prompt.kind), role: .default)],
-                              icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)")
+                              icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)", confirmKind: .trust)
     }
 
     /// Shows the dialog in `scope`; `completion` runs once with the answer.
@@ -30,12 +30,15 @@ import CmuxNextDesign
         }
     }
 
-    /// Ends the dialog as if the user chose `answer` (debug socket, quit).
-    func end(_ answer: ExtensionInstallPrompt.Answer) {
+    #if DEBUG
+    /// DEV-only test fixture (cx-zk9t): answers the prompt without its dialog's buttons,
+    /// then takes the dialog away. Compiled only in DEBUG; a release build has no path to it.
+    func fixtureAnswer(_ answer: ExtensionInstallPrompt.Answer) {
         guard completion != nil else { return }
-        if let dialogID, CmuxDialogCenter.shared.press(dialogID, button: answer == .accept ? "accept" : "cancel") { return }
         finish(answer)
+        if let dialogID { CmuxDialogCenter.shared.dismiss(dialogID) }
     }
+    #endif
 
     private func finish(_ answer: ExtensionInstallPrompt.Answer) {
         guard let completion else { return }
