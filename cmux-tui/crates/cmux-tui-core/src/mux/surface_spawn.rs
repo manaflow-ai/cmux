@@ -54,6 +54,8 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
+        // `split-client-keys-v1`: the tab id fixed when the creation was prepared.
+        let tab_id = reservation.as_ref().and_then(|reservation| reservation.tab_id.clone());
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
@@ -138,17 +140,22 @@ impl Mux {
                 prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
             self.record_terminal_relaunch(&terminal_hex, launched);
             let spawned = match prelaunched {
-                Some(prelaunched) => {
-                    Surface::spawn_prelaunched(prelaunched.into_host(), Arc::downgrade(self))
-                }
-                None => Surface::spawn_with_terminal_id_at_cell_pixels(
+                Some(prelaunched) => Surface::spawn_prelaunched(
+                    prelaunched.into_host().with_tab_id(tab_id),
+                    Arc::downgrade(self),
+                ),
+                None => Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
                     id,
                     opts,
                     Arc::downgrade(self),
-                    Some(terminal_id),
+                    (
+                        Some(terminal_id),
+                        // Reopen Closed of an archived terminal (ARCHIVE-1).
+                        &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
+                    ),
+                    Some(terminal_identity(tab_id)?),
+                    crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
-                    // Reopen Closed of an archived terminal (ARCHIVE-1).
-                    &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                 ),
             };
             let surface = match spawned {
@@ -266,13 +273,35 @@ impl Mux {
             }
             #[cfg(test)]
             let surface_result = if self.test_surface_runtime {
-                Surface::spawn_for_test_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
+                Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    Some(terminal_identity(tab_id)?),
+                    cell_pixels,
+                )
             } else {
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
+                Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    (None, &[]),
+                    Some(terminal_identity(tab_id)?),
+                    crate::surface::PtyLifetime::SessionOwned,
+                    cell_pixels,
+                )
             };
             #[cfg(not(test))]
             let surface_result =
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels);
+                Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    (None, &[]),
+                    Some(terminal_identity(tab_id)?),
+                    crate::surface::PtyLifetime::SessionOwned,
+                    cell_pixels,
+                );
             let surface = match surface_result {
                 Ok(surface) => surface,
                 Err(error) => {

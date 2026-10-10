@@ -25,6 +25,9 @@ nonisolated enum PaletteStrings {
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
+    static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }
+    static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .module) }
+    static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .module) }
     static var back: String { String(localized: "palette.back", defaultValue: "Back", bundle: .module) }
     static var unbound: String { String(localized: "palette.unbound", defaultValue: "Not bound", bundle: .module) }
     static var copyActionID: String { String(localized: "palette.command.copyActionID", defaultValue: "Copy Action ID", bundle: .module) }

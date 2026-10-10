@@ -1,4 +1,5 @@
 import { roleOf, type RowsWithScan } from "./domains/team-members.ts"
+import { roleHas } from "./domains/team-roles.ts"
 import { currentPolicy, enforcedOn, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import type { TeamState } from "./domains/team.ts"
@@ -29,7 +30,9 @@ export const signInRulesOf = (state: TeamState, rows: RowsWithScan | undefined, 
   const min = values["updates.minimumVersion"]?.value
   const classes = values["agents.allowedClasses"]?.value
   return {
-    sso_required: enforce && (role !== "owner" || owners),
+    // Owners stay exempt unless sso.enforceForOwners (cx-3bi.4 review P3-4, lead decision): the exemption is
+    // the break-glass path out of an SSO misconfiguration lockout, and an owner (Stack $delete_team) could delete the team in Stack anyway.
+    sso_required: enforce && (!roleHas(role, "team.owner") || owners),
     minimum_version: typeof min === "string" ? min : null,
     allowed_classes: Array.isArray(classes) ? (classes as Array<string>) : ["mux", "agent", "run"]
   }

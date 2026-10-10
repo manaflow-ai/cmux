@@ -1486,7 +1486,10 @@ dependencies = [
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-image-paste",
  "cmux-tui-platform",
+ "cmux-tui-remote-access",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "flate2",
  "fs4",
@@ -1494,6 +1497,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "parking_lot",
  "proptest",
  "quick-xml",
  "regex",
@@ -1510,6 +1514,18 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-image-paste"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1551,8 +1567,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tui-remote-access"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-link",
+ "getrandom 0.3.4",
+]
+
+[[package]]
 name = "cmux-tui-source-watch"
 version = "0.0.0"
+
+[[package]]
+name = "cmux-tui-util"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-platform",
+ "getrandom 0.3.4",
+ "libc",
+ "rusqlite",
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-unix-socket"

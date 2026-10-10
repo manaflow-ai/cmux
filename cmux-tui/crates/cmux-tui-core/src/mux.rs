@@ -108,6 +108,41 @@ use terminal_exit_waiters::TerminalExitDetachTracker;
 use terminal_exit_waiters::TerminalExitStateQueryGuard;
 pub(crate) use terminal_exit_waiters::TerminalExitSubscription;
 use terminal_exit_waiters::TerminalExitWaiters;
+mod results;
+use results::BrowserSurfaceAttach;
+pub use results::ConfigReloadError;
+pub(crate) use results::DaemonHandoffRequest;
+pub(crate) use results::DaemonIdentity;
+pub(crate) use results::RESERVED_TERMINAL_ID_FIELD;
+pub(crate) use results::RunCommandOptions;
+pub(crate) use results::RunCommandResult;
+pub use results::RunPlacement;
+pub use results::SidebarPluginOptions;
+use results::SidebarPluginRuntime;
+pub use results::SidebarPluginStatus;
+pub(crate) use results::TerminalCloseGuard;
+pub(crate) use results::TerminalCloseGuardFailed;
+pub use results::TerminalCloseResult;
+pub use results::TerminalMoveResult;
+pub use results::TerminalPlacementResult;
+use results::TerminalReservationRequest;
+pub use results::TerminalResolution;
+use results::TreeCloseTarget;
+use results::WorkspaceMutationAuthority;
+pub use results::WorkspaceMutationResult;
+pub use results::WorkspacePlacement;
+use results::terminal_env_field;
+pub(crate) use results::validate_terminal_env;
+mod guards;
+use guards::CLIENT_FOCUS_MEMORY_LIMIT;
+use guards::ClientFocusRecord;
+use guards::ConfigReloadState;
+#[cfg(unix)]
+pub(crate) use guards::PendingTerminalHostBinding;
+#[cfg(unix)]
+use guards::PendingTerminalHostRelease;
+use guards::PendingWorkspaceSurface;
+pub(crate) use guards::ResourceWaitWake;
 mod agent_reports;
 mod agent_roster_fold;
 mod agent_roster_restore;
@@ -118,6 +153,7 @@ mod browser_tab_create;
 mod closed_workspace_replay;
 #[cfg(test)]
 mod legacy_actor_test_wrappers;
+mod spawn_options;
 #[cfg(test)]
 mod test_actor_wrappers;
 mod test_hooks;
@@ -127,6 +163,8 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
+pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -364,28 +402,6 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 /// log, so the core does not need to know how diagnostics are persisted.
 pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DaemonIdentity {
-    pub(crate) pid: u32,
-    pub(crate) generation: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DaemonHandoffRequest {
-    pub(crate) expected_identity: Option<DaemonIdentity>,
-    pub(crate) force: bool,
-}
-
-impl DaemonHandoffRequest {
-    pub(crate) fn unfenced(force: bool) -> Self {
-        Self { expected_identity: None, force }
-    }
-
-    pub(crate) fn fenced(pid: u32, generation: String, force: bool) -> Self {
-        Self { expected_identity: Some(DaemonIdentity { pid, generation }), force }
-    }
-}
-
 #[cfg(test)]
 type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 #[cfg(test)]
@@ -402,34 +418,6 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-#[cfg(unix)]
-pub(crate) struct PendingTerminalHostBinding {
-    mux: Weak<Mux>,
-    surface_id: SurfaceId,
-    identity: TerminalHostIdentity,
-}
-
-#[cfg(unix)]
-impl Drop for PendingTerminalHostBinding {
-    fn drop(&mut self) {
-        let Some(mux) = self.mux.upgrade() else { return };
-        let mut pending = mux.pending_terminal_hosts.lock().unwrap();
-        if pending.get(&self.surface_id) == Some(&self.identity) {
-            pending.remove(&self.surface_id);
-        }
-    }
-}
-
-#[cfg(unix)]
-struct PendingTerminalHostRelease(Arc<Surface>);
-
-#[cfg(unix)]
-impl Drop for PendingTerminalHostRelease {
-    fn drop(&mut self) {
-        self.0.release_pending_terminal_host_binding();
-    }
-}
-
 fn workspace_resource_upsert(
     sequence: usize,
     session_id: &str,
@@ -469,324 +457,13 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RunPlacement {
-    pub surface: SurfaceId,
-    pub pane: PaneId,
-    pub screen: ScreenId,
-    pub workspace: WorkspaceId,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct RunCommandResult {
-    pub placement: Option<RunPlacement>,
-    pub terminal: RegistryTerminal,
-    pub terminal_revision: u64,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct RunCommandOptions {
-    pub pane: Option<PaneId>,
-    pub new_workspace: bool,
-    pub workspace_key: Option<String>,
-    pub cwd: Option<String>,
-    pub name: Option<String>,
-    pub size: Option<(u16, u16)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalCloseResult {
-    pub surface: Option<SurfaceId>,
-    pub terminal_id: String,
-    pub terminal_incarnation: Option<String>,
-    pub already_closed: bool,
-    pub terminal_revision: u64,
-}
-
-/// A precondition checked atomically with a terminal close.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TerminalCloseGuard {
-    None,
-    /// The terminal has no tab placement and is not marked `keep`
-    /// (`terminal-reap-v1`).
-    UnplacedAndNotKept,
-}
-
-/// The close guard did not hold, so nothing changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
-
-impl fmt::Display for TerminalCloseGuardFailed {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("terminal_close_guard_failed")
-    }
-}
-
-impl std::error::Error for TerminalCloseGuardFailed {}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TerminalResolution {
-    pub surface: Option<SurfaceId>,
-    pub terminal: RegistryTerminal,
-    pub terminal_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalPlacementResult {
-    pub placement: Option<RunPlacement>,
-    pub terminal_id: String,
-    pub terminal_incarnation: Option<String>,
-    pub terminal_revision: u64,
-    pub replayed: bool,
-    pub(crate) created_path: Option<Value>,
-    pub(crate) created_surface: Option<SurfaceId>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TerminalMoveResult {
-    pub placement: Option<RunPlacement>,
-    pub terminal: RegistryTerminal,
-    pub terminal_revision: u64,
-    pub replayed: bool,
-    pub changed: bool,
-}
-
-#[derive(Debug, Clone)]
-struct TerminalReservationRequest {
-    terminal_id: TerminalId,
-    mutation: WorkspaceMutation,
-    fingerprint: Value,
-    expected_generation: Option<String>,
-    expected_revision: Option<u64>,
-    on_exit: TerminalOnExit,
-    /// Extra environment for this terminal's child only (such as the
-    /// frontend user's login-shell environment), applied at spawn. Like
-    /// argv and cwd it is kept with the creation receipt in the local state
-    /// directory so a recovered creation spawns identically.
-    env: Vec<(String, String)>,
-}
-
-/// Longest accepted per-terminal environment: entries and total bytes.
-const MAX_TERMINAL_ENV_ENTRIES: usize = 1024;
-const MAX_TERMINAL_ENV_BYTES: usize = 256 * 1024;
-
-/// Validate a per-terminal environment and return it as ordered pairs.
-pub(crate) fn validate_terminal_env(
-    env: &std::collections::BTreeMap<String, String>,
-) -> anyhow::Result<Vec<(String, String)>> {
-    anyhow::ensure!(
-        env.len() <= MAX_TERMINAL_ENV_ENTRIES,
-        "bad request: env has more than {MAX_TERMINAL_ENV_ENTRIES} entries"
-    );
-    let mut bytes = 0usize;
-    for (key, value) in env {
-        anyhow::ensure!(
-            !key.is_empty() && !key.contains('=') && !key.contains('\0') && !value.contains('\0'),
-            "bad request: env names must be nonempty without '=' or NUL, and values without NUL"
-        );
-        bytes = bytes.saturating_add(key.len()).saturating_add(value.len());
-    }
-    anyhow::ensure!(
-        bytes <= MAX_TERMINAL_ENV_BYTES,
-        "bad request: env exceeds {MAX_TERMINAL_ENV_BYTES} bytes"
-    );
-    Ok(env.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
-}
-
-/// Internal creation field carrying a caller-chosen terminal host id.
-pub(crate) const RESERVED_TERMINAL_ID_FIELD: &str = "reserved_terminal_id";
-
-/// How to start the terminal a placement command creates.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TerminalSpawnOptions {
-    pub cwd: Option<String>,
-    /// Extra environment for the new terminal's child only.
-    pub env: Vec<(String, String)>,
-    /// Caller-chosen terminal host id (32 lowercase hex, UUIDv4), so the
-    /// caller can put it in `env` before the child starts.
-    pub terminal_id: Option<String>,
-    /// The program and arguments to run instead of the bare default shell
-    /// (`terminal-shell-args-v1` resolves `shell_args` into it).
-    pub argv: Option<Vec<String>>,
-}
-
-impl TerminalSpawnOptions {
-    pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
-        Self { cwd, env, terminal_id: None, argv: None }
-    }
-}
-
-/// Environment pairs stored in a creation's `env` field.
-fn terminal_env_field(fields: &Value) -> Vec<(String, String)> {
-    fields
-        .get("env")
-        .and_then(Value::as_object)
-        .map(|env| {
-            env.iter()
-                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspacePlacement {
-    pub workspace: WorkspaceId,
-    pub key: String,
-    pub index: usize,
-    pub revision: u64,
-    pub replayed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceMutationResult {
-    pub workspace: Option<WorkspaceId>,
-    pub key: String,
-    pub index: Option<usize>,
-    pub revision: u64,
-    pub replayed: bool,
-    pub changed: bool,
-}
-
-#[derive(Clone, Copy)]
-enum TreeCloseTarget {
-    Pane(PaneId),
-    Screen(ScreenId),
-}
-
-enum WorkspaceMutationAuthority<'a> {
-    Ordinary,
-    TrustedProvider,
-    ProviderCredential(&'a str),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SidebarPluginOptions {
-    pub command: Vec<String>,
-    pub cwd: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SidebarPluginStatus {
-    pub surface: Option<SurfaceId>,
-    pub error: Option<String>,
-    pub retry_after: Option<Duration>,
-}
-
-#[derive(Debug, Default)]
-struct SidebarPluginRuntime {
-    options: Option<SidebarPluginOptions>,
-    surface: Option<SurfaceId>,
-    last_size: Option<(u16, u16)>,
-    last_error: Option<String>,
-    failures: u32,
-    retry_at: Option<Instant>,
-}
-
-enum BrowserSurfaceAttach {
-    MissingPane,
-    Attached(Option<TreeDelta>),
-}
-
-struct PendingWorkspaceSurface<'a> {
-    pending: &'a Mutex<HashMap<SurfaceId, WorkspaceId>>,
-    surface: SurfaceId,
-}
-
-impl Drop for PendingWorkspaceSurface<'_> {
-    fn drop(&mut self) {
-        self.pending.lock().unwrap().remove(&self.surface);
-    }
-}
-
-/// One-shot wakeup shared by a terminal-exit subscription and any
-/// connection-owned cancellation sources. The durable terminal registry
-/// remains authoritative; this only decides when a waiter should query it.
-pub(crate) struct ResourceWaitWake {
-    notified: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl Default for ResourceWaitWake {
-    fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
-    }
-}
-
-impl ResourceWaitWake {
-    pub(crate) fn notify(&self) {
-        let mut notified = self.notified.lock().unwrap();
-        *notified = true;
-        self.changed.notify_all();
-    }
-
-    /// Returns true for an explicit wake and false when the deadline expires.
-    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
-        let mut notified = self.notified.lock().unwrap();
-        while !*notified {
-            match deadline {
-                Some(deadline) => {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        return false;
-                    };
-                    let (next, timeout) = self.changed.wait_timeout(notified, remaining).unwrap();
-                    notified = next;
-                    if timeout.timed_out() && !*notified {
-                        return false;
-                    }
-                }
-                None => notified = self.changed.wait(notified).unwrap(),
-            }
-        }
-        true
-    }
-}
-
-/// The multiplexer. Shared by frontends and the control socket server.
-#[derive(Default)]
-struct ConfigReloadState {
-    requested: u64,
-    applied: u64,
-}
-
-/// Describes why an owner did not confirm a requested configuration reload.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConfigReloadError {
-    /// The owner stopped before it could apply the request.
-    OwnerStopped,
-    /// The owner did not confirm the request before the failure deadline.
-    TimedOut,
-}
-
-impl fmt::Display for ConfigReloadError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::OwnerStopped => "configuration reload owner stopped before applying the request",
-            Self::TimedOut => "configuration reload owner did not apply the request",
-        })
-    }
-}
-
-impl std::error::Error for ConfigReloadError {}
-
-/// One client's most recently reported focus (client-focus-v1).
-#[derive(Clone)]
-struct ClientFocusRecord {
-    client_id: String,
-    pane: PaneId,
-    tab: Option<usize>,
-}
-
-/// Bounded size of the per-client focus memory.
-const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
-
 #[cfg(test)]
 type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 
 pub struct Mux {
-    /// Serializes durable workspace commits, their in-memory projection, and
-    /// publication of revisioned workspace deltas. Lock order is always
-    /// registry, then state.
+    /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
+    pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
@@ -795,7 +472,7 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
-    pub(crate) state: Mutex<State>,
+    pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,
@@ -896,7 +573,7 @@ pub struct Mux {
     cell_pixel_operation: Mutex<Option<CellPixelOperationHook>>,
     #[cfg(test)]
     cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
-    default_colors: Mutex<DefaultColors>,
+    default_colors: crate::lock_rank::RankedMutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,

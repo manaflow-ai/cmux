@@ -38,6 +38,12 @@ nonisolated final class HomeSourceRouter: HomeSource {
     }
 
     private let state = Mutex(State())
+
+    /// Each owner's last connection as this router applied it (tests and
+    /// diagnostics; the merged connection is the one the store sees).
+    var ownerConnections: (local: HomeConnection, cloud: HomeConnection?) {
+        state.withLock { ($0.localConnection, $0.cloudConnection) }
+    }
     private static let eventBuffer = 1024
     let local: any HomeSource
     let cloud: CloudHomeSource

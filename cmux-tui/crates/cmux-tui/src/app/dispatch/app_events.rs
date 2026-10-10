@@ -2,10 +2,16 @@
 //! plugin updates, machine updates, owner config reloads, browser resize
 //! failures, normalized input and host input failures.
 
-// The handler bodies came verbatim from app.rs and name its items and imports.
+use std::sync::atomic::Ordering;
+
+use crate::app::App;
+use crate::app::host_input::TerminalInput;
 use crate::app::pointer::TerminalPointerAdmission;
-use crate::app::*;
+use crate::app::pointer::deferred::ReplayedInputContext;
+use crate::app::render_pacing::RenderAction;
 use crate::browser_input::BrowserResizeFailure;
+use crate::localization;
+use crate::machine::MachineUpdate;
 
 impl App {
     pub(super) fn on_mux_recovery_complete(

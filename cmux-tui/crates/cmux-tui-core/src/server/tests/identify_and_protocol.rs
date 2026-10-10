@@ -473,6 +473,8 @@ fn identify_advertises_private_link_port_discovery() {
 #[cfg(target_os = "linux")]
 #[test]
 fn private_link_port_discovery_reports_listener_process() {
+    use crate::server::cmd_server::machine_listening_tcp_json;
+
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = listener.local_addr().unwrap().to_string();
     let inventory = machine_listening_tcp_json().unwrap();
