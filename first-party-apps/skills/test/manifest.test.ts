@@ -24,7 +24,7 @@ describe("manifests", () => {
     expect(Object.keys(v2.scopes)).toEqual(Object.keys(v1.scopes))
     expect(Object.keys(v2.optionalScopes)).toEqual(Object.keys(v1.optionalScopes))
     expect(v2.variants[0].values).toEqual(v1.contributes.settings.properties.variant.enum)
-    for (const name of [...Object.keys(v2.implements), ...(v2.consumes ?? [])]) {
+    for (const name of [...Object.keys(v2.implements), ...(v2.consumes?.interfaces ?? [])]) {
       const [iface, major] = name.split("/")
       expect(() => readFileSync(join(host, "interfaces", iface, `${major}.json`))).not.toThrow()
     }

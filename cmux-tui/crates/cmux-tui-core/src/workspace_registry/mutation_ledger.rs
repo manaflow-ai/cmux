@@ -245,7 +245,7 @@ impl super::WorkspaceRegistry {
         key: &str,
     ) -> anyhow::Result<Option<String>> {
         let sql = "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1";
-        Ok(self.connection.query_row(sql, [key], |row| row.get::<_, String>(0)).optional()?)
+        Ok(self.connection.get().query_row(sql, [key], |row| row.get::<_, String>(0)).optional()?)
     }
 }
 

@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use optchat_core::{
-    block_cuts, compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId,
+    block_cuts, compact_request, finish_line, size_check_for, CompactRequest, Memory, NodeId,
     SizeCheck, Work,
 };
 
@@ -45,6 +45,19 @@ pub struct State {
 impl State {
     pub fn writable(&self) -> bool {
         !self.closed && self.fatal.is_none()
+    }
+
+    /// Whether a turn may start (section 6): every view line is built, or
+    /// stuck (its call fails with a request error that repeats on every
+    /// try; the turn reads it unbuilt, `PLACEHOLDER`, which `zoom` opens),
+    /// or imported (`Memory::turn_ready`).
+    pub fn turn_ready(&self) -> bool {
+        self.memory.turn_ready()
+            || self.memory.view().iter().all(|p| {
+                self.memory.is_built(*p)
+                    || self.stuck.contains(p)
+                    || self.memory.is_imported(p.end() - 1)
+            })
     }
 
     /// Saves where the memory stands (`db::checkpoint`); a failure costs
@@ -448,7 +461,15 @@ fn size_loop(model: &dyn CompactModel, request: &CompactRequest) -> Result<Strin
             None => &reply.text,
         };
         tries.push(text.to_string());
-        match size_check_in(&tries, room) {
+        // The step's <input>: what a try that does not fit is measured
+        // against, when the tries run out.
+        let input = request
+            .step
+            .split_once("<input>\n")
+            .map_or("", |(_, rest)| {
+                rest.rsplit_once("\n</input>").map_or(rest, |(i, _)| i)
+            });
+        match size_check_for(&tries, room, input) {
             SizeCheck::Accept(text) => return Ok(text),
             SizeCheck::Fail => return Err(ModelError::new("empty reply")),
             SizeCheck::Retry(retry) => followups.push(Followup { reply, retry }),

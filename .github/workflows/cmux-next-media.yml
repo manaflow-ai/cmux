@@ -1,0 +1,227 @@
+name: cmux-next media
+
+# Screenshots and a short video of each cmux-next UI pull request, posted in
+# one sticky comment (scripts/cmux-next/media/publish.py). The tour builds the
+# head as a tagged dev app on an owned Mac's gui runner, launches it, drives it
+# through the bundled cmux CLI (scripts/cmux-next/media/tour.py) and captures
+# every step. Tours are data in scripts/cmux-next/media/tours.
+#
+# Not a required check. It never runs on Blacksmith, whose macOS sessions sit
+# at a locked screen and cannot capture: with no owned gui runner the tour
+# does not run and the comment says why (scripts/ci/cmux_next_media_runner.py).
+# Same-repository heads only: owned Macs run trusted code, and the publish job
+# holds the pr-media write token. That job never checks out or runs the pull
+# request's code: its scripts come from the base revision, and it reads the
+# tour artifact as data (publish.py validates names and paths before upload).
+# A pull_request run still takes this file from the pull request, so the
+# boundary that holds is same-repository write access: anyone who can push a
+# branch here could edit these jobs, and forks never reach them.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next, feat-cmux-next-acpmux]
+    types: [opened, synchronize, reopened]
+    paths:
+      - Packages/macOS/CmuxNext/Sources/**
+      - webviews/src/**
+      - scripts/cmux-next/media/**
+      - scripts/ci/cmux_next_media_runner.py
+      - .github/workflows/cmux-next-media.yml
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-media-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  route:
+    name: Pick the tour runner
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      runs_on: ${{ steps.pick.outputs.runs_on }}
+      reason: ${{ steps.pick.outputs.reason }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/cmux_next_media_runner.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+
+      - name: Pick an owned gui runner
+        id: pick
+        env:
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"
+
+  tour:
+    name: Tour the app
+    needs: route
+    if: ${{ needs.route.outputs.runs_on != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.route.outputs.runs_on }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+      # One tag per runner keeps its DerivedData warm across pull requests;
+      # a mini has one gui runner, so two tours never share it at once.
+      TOUR_TAG: ci-media
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Check the tours
+        run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
+
+      - name: Check screen capture
+        run: |
+          set -euo pipefail
+          echo "runner user: $(id -un), console user: $(stat -f %Su /dev/console)"
+          system_profiler SPDisplaysDataType 2>/dev/null | sed -n '/Displays:/,$p' | head -20 || true
+          if [ -f scripts/ci/preflight-e2e-screen-capture.py ]; then
+            python3 scripts/ci/preflight-e2e-screen-capture.py
+          fi
+
+      # The same grant main's E2E recorder makes on these Macs
+      # (.github/actions/e2e-run-tests on main): screencapture from a job
+      # otherwise fails with "could not create image". Best effort; tour.py
+      # probes which capture route works and reports it.
+      - name: Grant screen capture to screencapture
+        continue-on-error: true
+        run: |
+          tcc="/Library/Application Support/com.apple.TCC/TCC.db"
+          sudo -n sqlite3 "$tcc" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" \
+            || echo "::warning::could not grant screen capture in the system TCC database"
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Build the tagged app
+        id: build
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/reload.out"
+          ./scripts/reload.sh --tag "$TOUR_TAG" --no-global-cli-links 2>&1 | tee "$log"
+          app="$(awk '/^App path:/ { getline; sub(/^ +/, ""); print; exit }' "$log")"
+          if [ -z "$app" ] || [ ! -d "$app" ]; then
+            app="$(find "$HOME/Library/Developer/Xcode/DerivedData/cmux-$TOUR_TAG/Build/Products/Debug" -maxdepth 1 -name '*.app' | head -1)"
+          fi
+          [ -d "$app" ] || { echo "::error::reload.sh built no app"; exit 1; }
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "Built $app"
+
+      - name: Run the tours
+        env:
+          APP: ${{ steps.build.outputs.app }}
+        # --fresh-state: the ci-media tag's saved workspaces would otherwise
+        # carry one tour's windows into the next run on the same Mac.
+        # exec: the runner signals the step's shell on cancel, and bash would
+        # not pass it on, so tour.py could not stop the app and its daemon.
+        run: exec python3 scripts/cmux-next/media/tour.py --app "$APP" --out "$RUNNER_TEMP/media" --fresh-state scripts/cmux-next/media/tours
+
+      - name: Keep the media for the publish job
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-media
+          path: ${{ runner.temp }}/media
+          if-no-files-found: ignore
+          retention-days: 3
+
+  publish:
+    name: Post the tour media
+    needs: [route, tour]
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    # contents: write reaches the pr-media branch; main and the feature
+    # branches are protected by their rulesets.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # The publisher comes from the base revision, never the head: this job
+      # holds a write token and runs no pull request code.
+      - name: Checkout the publisher from the base revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/pr-media.py
+            scripts/cmux-next/media/publish.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the tour media
+        if: ${{ needs.tour.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-media
+          path: ${{ runner.temp }}/media
+
+      - name: Check for a publisher in the base revision
+        id: publisher
+        run: |
+          if [ -f scripts/cmux-next/media/publish.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The base revision has no cmux-next media publisher yet; the media stays in the run artifact."
+          fi
+
+      # Without ffmpeg the comment still carries the screenshots, only no
+      # video, so a slow or stuck apt never holds the comment back.
+      - name: Install ffmpeg
+        if: ${{ steps.publisher.outputs.present == 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
+
+      - name: Upload the media and update the comment
+        if: ${{ steps.publisher.outputs.present == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ROUTE_REASON: ${{ needs.route.outputs.reason }}
+          TOUR_RESULT: ${{ needs.tour.result }}
+        run: |
+          set -euo pipefail
+          note=""
+          case "$TOUR_RESULT" in
+            skipped) note="The tour did not run: $ROUTE_REASON." ;;
+            failure)
+              if compgen -G "$RUNNER_TEMP/media/*/manifest.json" >/dev/null; then
+                note="The tour failed; the failed steps are below."
+              else
+                note="The tour job failed before the tour ran (build or setup); the run log has the output."
+              fi ;;
+          esac
+          python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
+            --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"

@@ -19,6 +19,8 @@
 //! ```
 
 #[cfg(test)]
+use crate::mux::DaemonHandoffRequest;
+#[cfg(test)]
 use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
@@ -29,7 +31,7 @@ use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -49,6 +51,8 @@ use crate::AttachFrame;
 #[cfg(test)]
 use crate::BrowserAttachState;
 #[cfg(test)]
+use crate::GraphicsStatus;
+#[cfg(test)]
 use crate::JournalClass;
 #[cfg(test)]
 use crate::JournalSensitivity;
@@ -57,31 +61,36 @@ use crate::NotificationSource;
 #[cfg(test)]
 use crate::SurfaceRenderFrame;
 #[cfg(test)]
+use crate::TreeDeltaKind;
+use crate::browser::BrowserMouseDispatch;
+#[cfg(test)]
+use crate::browser::BrowserPointerOwner;
+#[cfg(test)]
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
-use crate::browser::{BrowserMouseDispatch, BrowserPointerOwner};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
-use crate::model::{Screen, State, Workspace};
+use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
-use crate::mux::DaemonHandoffRequest;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
+#[cfg(test)]
+use crate::resource::ContentPublicId;
 use crate::resource::{
-    ContentPublicId, RequestId as ResourceRequestId, ResourceError, ResourceOperation,
-    StreamPublicId, TerminalPublicId,
+    RequestId as ResourceRequestId, ResourceError, ResourceOperation, StreamPublicId,
+    TerminalPublicId,
 };
 use crate::sizing_policy::{
-    TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
-    detach_reason,
+    TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, detach_reason,
 };
-use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
-use crate::surface::{AttachLifecycle, ClearHistoryDelivery, ClearHistoryFailure};
+use crate::stream_interrupt::StreamInterrupt;
+#[cfg(test)]
+use crate::surface::AttachLifecycle;
+use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
-    Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux,
-    MuxEvent, Node, PairingDecision, PaneId, Rgb, ScreenId, SplitDir, SplitId, SurfaceId,
-    SurfaceKind, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError,
-    WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
+    PairingDecision, PaneId, Rgb, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
+    TerminalColors, TreeDecorations, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 #[cfg(test)]
 use ghostty_vt::KeyInput;
@@ -135,6 +144,7 @@ mod resource_trust;
 use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
+mod feed_local;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
@@ -155,9 +165,10 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 #[cfg(test)]
-use cmd_server::{machine_listening_tcp_json, stamped_build_commit, stamped_ghostty_commit};
+use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
+mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
@@ -171,6 +182,9 @@ mod split_kind;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
+#[cfg(test)]
+use cmd_subscribe::subscribed_event_json;
+use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
 pub use fs_wire::FsGate;
 pub use launch_snapshot::{
@@ -189,7 +203,8 @@ use responses::{
 use screen_json::screen_json;
 mod group_outcome_json;
 use group_outcome_json::{
-    screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+    pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
+    workspace_group_json, workspace_groups_json,
 };
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
@@ -581,73 +596,6 @@ impl DetachNotice {
     const fn network() -> Self {
         Self { reason: detach_reason::NETWORK, by: None }
     }
-}
-
-fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&str>) -> Value {
-    let mut event = json!({"event": "detached", "surface": surface, "reason": notice.reason});
-    if let Some(by) = notice.by.as_ref().filter(|by| !by.is_empty()) {
-        event["by"] = json!(by);
-    }
-    if let Some(view) = view {
-        event["view"] = json!(view);
-    }
-    event
-}
-
-/// The connection's own view that a `detach-client` target names, when that
-/// connection opted into [`SIZING_VIEW_DETACH_CAPABILITY`]: the view leaves
-/// and the connection stays. `None` keeps the whole-client kick.
-fn own_view_detach_target(
-    mux: &Mux,
-    target: &DetachClientTarget,
-    surface: Option<SurfaceId>,
-) -> Option<(u64, SurfaceId)> {
-    let DetachClientTarget::Participant(participant) = target else { return None };
-    let (client, placement, view) = match surface {
-        Some(surface) => mux.terminal_participant_member_on(surface, participant)?,
-        None => mux.terminal_participant_member(participant)?,
-    };
-    (view.is_none()
-        && mux.control_clients.supports_capability(client, SIZING_VIEW_DETACH_CAPABILITY))
-    .then_some((client, placement))
-}
-
-/// `state` as `client` may read it (`open-device-kinds-v1`).
-fn size_state_for_client(mux: &Mux, client: u64, state: &TerminalSizingState) -> Value {
-    let open = mux.control_clients.supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
-    json!(state.for_client(open))
-}
-
-/// A `size-state` event. Without a client it has only the kinds every
-/// `shared-sizing-v1` client decodes.
-fn size_state_event_json(
-    surface: SurfaceId,
-    runtime: SurfaceId,
-    state: &TerminalSizingState,
-    client: Option<(u64, bool)>,
-) -> Value {
-    let open = client.is_some_and(|(_, open)| open);
-    let mut event =
-        json!({"event": "size-state", "surface": surface, "state": state.for_client(open)});
-    if let Some((client, _)) = client {
-        let id = crate::mux::view_participant_id(runtime, surface, client);
-        if state.participant(&id).is_some() {
-            event["self_participant"] = json!(id);
-        }
-    }
-    event
-}
-
-/// The actor recorded on a kick: the explicit `by`, else the requester's own identity.
-fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> TerminalDetachActor {
-    by.unwrap_or_else(|| {
-        let identity = mux.control_clients.sizing_identity(requester).unwrap_or_default();
-        TerminalDetachActor {
-            user_id: identity.user_id,
-            display_name: identity.display_name,
-            device_name: identity.device_name,
-        }
-    })
 }
 
 #[derive(Deserialize)]
@@ -1321,6 +1269,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `split-client-keys-v1`: caller-minted ids of the pane and its tab.
+        #[serde(default)]
+        pane_id: Option<String>,
+        #[serde(default)]
+        tab_id: Option<String>,
     },
     NewPaneRight(split_kind::NewPaneRightParams),
     Split(split_kind::SplitParams),
@@ -1610,6 +1563,12 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    /// The local feed owner (`feed-local-owner-v1`, server/feed_local.rs).
+    FeedLocalList(feed_local::ListParams),
+    FeedLocalRead(feed_local::ReadParams),
+    FeedLocalHandoffBegin(feed_local::ItemParams),
+    FeedLocalHandoffAbort(feed_local::ItemParams),
+    FeedLocalHandoffDone(feed_local::DoneParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -2218,23 +2177,6 @@ fn column_anchor(
     }
 }
 
-fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> Value {
-    let mut value = json!({
-        "id": run.group.id,
-        "name": run.group.name,
-        "color": run.group.color,
-        "collapsed": run.group.collapsed,
-        "saved_id": run.group.saved_id,
-        "start": run.start,
-        "count": run.members.len(),
-        "surfaces": run.members,
-    });
-    if let Some(pane) = pane {
-        value["pane"] = json!(pane);
-    }
-    value
-}
-
 /// Deserialize a field whose absence and `null` mean different things:
 /// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
 fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
@@ -2243,30 +2185,6 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
-}
-
-fn workspace_group_json(
-    group: &crate::workspace_registry::WorkspaceGroupRecord,
-    index: usize,
-) -> Value {
-    json!({
-        "id": group.id,
-        "name": group.name,
-        "color": group.color,
-        "collapsed": group.collapsed,
-        "index": index,
-    })
-}
-
-fn workspace_groups_json(presentation: &crate::workspace_registry::PresentationSnapshot) -> Value {
-    json!(
-        presentation
-            .groups
-            .iter()
-            .enumerate()
-            .map(|(index, group)| workspace_group_json(group, index))
-            .collect::<Vec<_>>()
-    )
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -2429,251 +2347,12 @@ const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
 
-#[derive(Default)]
-struct ResourceWorkerAdmissionState {
-    active: usize,
-    active_by_client: HashMap<u64, usize>,
-}
-
-struct ResourceWorkerAdmission {
-    per_client_capacity: usize,
-    server_capacity: usize,
-    state: Mutex<ResourceWorkerAdmissionState>,
-    changed: Condvar,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResourceWorkerAdmissionError {
-    ClientCapacity,
-    ServerCapacity,
-}
-
-#[derive(Clone)]
-struct ResourceWorkerPermit {
-    _lease: Arc<ResourceWorkerPermitLease>,
-}
-
-struct ResourceWorkerPermitLease {
-    admission: Arc<ResourceWorkerAdmission>,
-    client: u64,
-}
-
-impl Drop for ResourceWorkerPermitLease {
-    fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
-        state.active = state.active.saturating_sub(1);
-        let remove_client = state.active_by_client.get_mut(&self.client).is_some_and(|active| {
-            *active = active.saturating_sub(1);
-            *active == 0
-        });
-        if remove_client {
-            state.active_by_client.remove(&self.client);
-        }
-        self.admission.changed.notify_all();
-    }
-}
-
-impl ResourceWorkerAdmission {
-    fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
-        Arc::new(Self {
-            per_client_capacity,
-            server_capacity,
-            state: Mutex::new(ResourceWorkerAdmissionState::default()),
-            changed: Condvar::new(),
-        })
-    }
-
-    fn try_reserve(
-        self: &Arc<Self>,
-        client: u64,
-    ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
-        let mut state = self.state.lock().unwrap();
-        if state.active_by_client.get(&client).copied().unwrap_or_default()
-            >= self.per_client_capacity
-        {
-            return Err(ResourceWorkerAdmissionError::ClientCapacity);
-        }
-        if state.active >= self.server_capacity {
-            return Err(ResourceWorkerAdmissionError::ServerCapacity);
-        }
-        state.active += 1;
-        *state.active_by_client.entry(client).or_default() += 1;
-        Ok(ResourceWorkerPermit {
-            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
-        })
-    }
-
-    #[cfg(test)]
-    fn active(&self) -> usize {
-        self.state.lock().unwrap().active
-    }
-
-    #[cfg(test)]
-    fn wait_until_idle(&self, deadline: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
-        while state.active != 0 {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
-            if timeout.timed_out() && state.active != 0 {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-#[derive(Default)]
-struct ServerSurfaceOperationState {
-    workers: usize,
-    retained_bytes: usize,
-}
-
-#[derive(Default)]
-pub(crate) struct ServerSurfaceOperationAdmission {
-    state: Mutex<ServerSurfaceOperationState>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ServerSurfaceAdmissionError {
-    RetainedByteCapacity,
-}
-
-struct ServerSurfaceWorkerPermit {
-    admission: Arc<ServerSurfaceOperationAdmission>,
-}
-
-impl Drop for ServerSurfaceWorkerPermit {
-    fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
-        state.workers = state.workers.saturating_sub(1);
-    }
-}
-
-struct ServerSurfaceBytesPermit {
-    admission: Arc<ServerSurfaceOperationAdmission>,
-    retained_bytes: usize,
-}
-
-impl Drop for ServerSurfaceBytesPermit {
-    fn drop(&mut self) {
-        let mut state = self.admission.state.lock().unwrap();
-        state.retained_bytes = state.retained_bytes.saturating_sub(self.retained_bytes);
-    }
-}
-
-impl ServerSurfaceOperationAdmission {
-    fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
-        let mut state = self.state.lock().unwrap();
-        if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
-            return None;
-        }
-        state.workers += 1;
-        Some(ServerSurfaceWorkerPermit { admission: self.clone() })
-    }
-
-    fn try_reserve_bytes(
-        self: &Arc<Self>,
-        retained_bytes: usize,
-    ) -> Result<ServerSurfaceBytesPermit, ServerSurfaceAdmissionError> {
-        let mut state = self.state.lock().unwrap();
-        if retained_bytes
-            > SERVER_SURFACE_RETAINED_BYTE_CAPACITY.saturating_sub(state.retained_bytes)
-        {
-            return Err(ServerSurfaceAdmissionError::RetainedByteCapacity);
-        }
-        state.retained_bytes += retained_bytes;
-        Ok(ServerSurfaceBytesPermit { admission: self.clone(), retained_bytes })
-    }
-}
-
-struct PendingSurfaceRequest {
-    request: Request,
-    retained_bytes: usize,
-    _bytes_permit: ServerSurfaceBytesPermit,
-}
-
-#[derive(Default)]
-struct ConnectionSurfaceState {
-    requests: VecDeque<PendingSurfaceRequest>,
-    queued_bytes: usize,
-    active_clear_surfaces: HashSet<SurfaceId>,
-    /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
-    active_creations: usize,
-    dispatcher_started: bool,
-    dispatcher_done: bool,
-    closed: bool,
-}
-
-/// Set when a connection's request scheduler closes. Request handlers that
-/// wait (wait-for) register an interrupt instead of polling the flag.
-#[derive(Default)]
-struct ConnectionCancellation {
-    flag: AtomicBool,
-    interrupts: InterruptSet,
-}
-
-impl ConnectionCancellation {
-    fn cancel(&self) {
-        self.flag.store(true, Ordering::Release);
-        self.interrupts.fire();
-    }
-
-    fn is_cancelled(&self) -> bool {
-        self.flag.load(Ordering::Acquire)
-    }
-
-    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
-        self.interrupts.register(interrupt);
-    }
-}
-
-struct ConnectionSurfaceScheduler {
-    state: Mutex<ConnectionSurfaceState>,
-    changed: Condvar,
-    admission: Arc<ServerSurfaceOperationAdmission>,
-    cancelled: ConnectionCancellation,
-    dispatcher: Mutex<Option<JoinHandle<()>>>,
-    connection_permit: Mutex<Option<ConnectionPermit>>,
-    creations: terminal_create::ConnectionCreations,
-}
-
-impl Default for ConnectionSurfaceScheduler {
-    fn default() -> Self {
-        Self::new(Arc::new(ServerSurfaceOperationAdmission::default()))
-    }
-}
-
-impl ConnectionSurfaceScheduler {
-    fn new(admission: Arc<ServerSurfaceOperationAdmission>) -> Self {
-        Self::new_inner(admission, None)
-    }
-
-    #[cfg(test)]
-    fn new_with_connection_permit(
-        admission: Arc<ServerSurfaceOperationAdmission>,
-        permit: ConnectionPermit,
-    ) -> Self {
-        Self::new_inner(admission, Some(permit))
-    }
-
-    fn new_inner(
-        admission: Arc<ServerSurfaceOperationAdmission>,
-        connection_permit: Option<ConnectionPermit>,
-    ) -> Self {
-        Self {
-            state: Mutex::new(ConnectionSurfaceState::default()),
-            changed: Condvar::new(),
-            admission,
-            cancelled: ConnectionCancellation::default(),
-            dispatcher: Mutex::new(None),
-            connection_permit: Mutex::new(connection_permit),
-            creations: terminal_create::ConnectionCreations::default(),
-        }
-    }
-}
+mod worker_admission;
+pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
+use worker_admission::{
+    ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
+    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+};
 
 mod render_service;
 use render_service::{
@@ -2686,330 +2365,12 @@ use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
-impl ConnectionSurfaceScheduler {
-    fn dispatch(
-        self: &Arc<Self>,
-        mux: Arc<Mux>,
-        client: u64,
-        request: &mut Option<Request>,
-        retained_bytes: usize,
-        writer: MessageWriter,
-    ) -> Option<bool> {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return Some(false);
-        }
-        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
-        let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
-        let over_bytes = retained_bytes
-            > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-        if over_count || over_bytes {
-            drop(state);
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request.take().unwrap().id,
-                "surface request queue is full; request was not executed",
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
-        }
-        let request_id = request.as_ref().unwrap().id.clone();
-        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
-            Ok(bytes) => bytes,
-            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
-                drop(state);
-                let request_id = request.take().unwrap().id;
-                return Some(if is_clear_history {
-                    send_request_error_with_delivery(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                        Some(ResponseErrorDelivery::KnownNotDelivered),
-                    )
-                } else {
-                    send_request_error(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                    )
-                });
-            }
-        };
-        let start_dispatcher = !state.dispatcher_started;
-        state.dispatcher_started = true;
-        state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
-        state.requests.push_back(PendingSurfaceRequest {
-            request: request.take().unwrap(),
-            retained_bytes,
-            _bytes_permit: bytes_permit,
-        });
-        self.changed.notify_all();
-        drop(state);
-
-        if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
-            self.finish_dispatcher();
-            self.close();
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request_id,
-                &format!("could not start connection request dispatcher: {error}"),
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
-        }
-        Some(true)
-    }
-
-    fn start_dispatcher(
-        self: &Arc<Self>,
-        mux: Arc<Mux>,
-        client: u64,
-        writer: MessageWriter,
-    ) -> std::io::Result<()> {
-        let scheduler = self.clone();
-        let handle = std::thread::Builder::new()
-            .name("mux-control-dispatch".into())
-            .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
-        *self.dispatcher.lock().unwrap() = Some(handle);
-        Ok(())
-    }
-
-    fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
-        if state.active_clear_surfaces.is_empty() {
-            return (!state.requests.is_empty()).then_some(0);
-        }
-        for (index, pending) in state.requests.iter().enumerate() {
-            let surface = pending.request.cmd.ordering_surface()?;
-            if state.active_clear_surfaces.contains(&surface) {
-                continue;
-            }
-            if pending.request.cmd.can_overtake_clear_barrier() {
-                return Some(index);
-            }
-            return None;
-        }
-        None
-    }
-
-    fn next_request(&self) -> Option<PendingSurfaceRequest> {
-        let mut state = self.state.lock().unwrap();
-        loop {
-            if let Some(index) = Self::next_runnable_index(&state) {
-                let pending = state.requests.remove(index).unwrap();
-                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
-                if pending.request.cmd.is_clear_history() {
-                    let surface = pending
-                        .request
-                        .cmd
-                        .ordering_surface()
-                        .expect("clear-history is ordered by surface");
-                    let inserted = state.active_clear_surfaces.insert(surface);
-                    assert!(inserted, "a clear worker cannot overlap its surface");
-                }
-                return Some(pending);
-            }
-            if state.closed && state.requests.is_empty() {
-                state.dispatcher_done = true;
-                self.changed.notify_all();
-                return None;
-            }
-            state = self.changed.wait(state).unwrap();
-        }
-    }
-
-    fn finish_clear(&self, surface: SurfaceId) {
-        let mut state = self.state.lock().unwrap();
-        state.active_clear_surfaces.remove(&surface);
-        self.changed.notify_all();
-    }
-
-    fn finish_dispatcher(&self) {
-        {
-            let mut state = self.state.lock().unwrap();
-            state.dispatcher_done = true;
-            self.changed.notify_all();
-        }
-        self.connection_permit.lock().unwrap().take();
-    }
-
-    fn close(&self) {
-        self.cancelled.cancel();
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        state.requests.clear();
-        state.queued_bytes = 0;
-        let dispatcher_never_started = !state.dispatcher_started;
-        if dispatcher_never_started {
-            state.dispatcher_done = true;
-        }
-        self.changed.notify_all();
-        drop(state);
-        if dispatcher_never_started {
-            self.connection_permit.lock().unwrap().take();
-        }
-    }
-
-    fn finish(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        let dispatcher_never_started = !state.dispatcher_started;
-        if dispatcher_never_started {
-            state.dispatcher_done = true;
-        }
-        self.changed.notify_all();
-        drop(state);
-        if dispatcher_never_started {
-            self.connection_permit.lock().unwrap().take();
-        }
-    }
-
-    fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
-        let mut state = self.state.lock().unwrap();
-        while !state.dispatcher_done
-            || !state.active_clear_surfaces.is_empty()
-            || state.active_creations != 0
-        {
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    break;
-                }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
-                state = next;
-            } else {
-                state = self.changed.wait(state).unwrap();
-            }
-        }
-        let drained = state.dispatcher_done
-            && state.active_clear_surfaces.is_empty()
-            && state.active_creations == 0;
-        drop(state);
-        if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
-            let _ = dispatcher.join();
-        }
-        drained
-    }
-
-    fn finish_and_wait(&self) {
-        self.finish();
-        let drained = self.wait_for_completion(None);
-        debug_assert!(drained, "unbounded graceful drain must settle");
-    }
-
-    fn close_and_wait(&self, timeout: Duration) -> bool {
-        self.close();
-        self.wait_for_completion(Some(timeout))
-    }
-}
-
-struct ActiveClearGuard {
-    scheduler: Arc<ConnectionSurfaceScheduler>,
-    surface: SurfaceId,
-}
-
-impl Drop for ActiveClearGuard {
-    fn drop(&mut self) {
-        self.scheduler.finish_clear(self.surface);
-    }
-}
-
-struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>);
-
-impl Drop for ConnectionDispatcherGuard {
-    fn drop(&mut self) {
-        self.0.finish_dispatcher();
-    }
-}
-
-fn run_pending_request(
-    scheduler: &ConnectionSurfaceScheduler,
-    mux: &Arc<Mux>,
-    client: u64,
-    pending: PendingSurfaceRequest,
-    writer: &MessageWriter,
-) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
-}
-
-fn run_connection_surface_dispatcher(
-    scheduler: Arc<ConnectionSurfaceScheduler>,
-    mux: Arc<Mux>,
-    client: u64,
-    writer: MessageWriter,
-) {
-    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
-    while writer.is_open() {
-        let Some(pending) = scheduler.next_request() else { return };
-        if pending.request.cmd.is_clear_history() {
-            let surface = pending
-                .request
-                .cmd
-                .ordering_surface()
-                .expect("clear-history is ordered by surface");
-            let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
-                let id = pending.request.id.clone();
-                drop(pending);
-                scheduler.finish_clear(surface);
-                if !send_request_error_with_delivery(
-                    &writer,
-                    id,
-                    "too many clear-history operations are already in progress",
-                    Some(ResponseErrorDelivery::KnownNotDelivered),
-                ) {
-                    scheduler.close();
-                    return;
-                }
-                continue;
-            };
-            let shared_pending = Arc::new(Mutex::new(Some(pending)));
-            let worker_pending = shared_pending.clone();
-            let worker_scheduler = scheduler.clone();
-            let worker_mux = mux.clone();
-            let worker_writer = writer.clone();
-            let spawn =
-                std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
-                    let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
-                    // Drop the mux-wide permit before `_active` wakes the next
-                    // request queued behind this surface barrier.
-                    let _worker_permit = worker_permit;
-                    let pending = worker_pending.lock().unwrap().take().unwrap();
-                    if !run_pending_request(
-                        &worker_scheduler,
-                        &worker_mux,
-                        client,
-                        pending,
-                        &worker_writer,
-                    ) {
-                        worker_scheduler.close();
-                    }
-                });
-            if let Err(error) = spawn {
-                let pending = shared_pending.lock().unwrap().take().unwrap();
-                let id = pending.request.id.clone();
-                drop(pending);
-                scheduler.finish_clear(surface);
-                if !send_request_error_with_delivery(
-                    &writer,
-                    id,
-                    &format!("could not start clear-history worker: {error}"),
-                    Some(ResponseErrorDelivery::KnownNotDelivered),
-                ) {
-                    scheduler.close();
-                    return;
-                }
-            }
-        } else if pending.request.cmd.creates_terminal() {
-            if !scheduler.submit_creation(&mux, client, pending, &writer) {
-                scheduler.close();
-                return;
-            }
-        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
-            scheduler.close();
-            return;
-        }
-    }
-    scheduler.close();
-}
+mod connection_scheduler;
+#[cfg(test)]
+use connection_scheduler::ConnectionSurfaceState;
+use connection_scheduler::{
+    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
+};
 
 mod bounded_outbound;
 use bounded_outbound::{
@@ -3055,172 +2416,14 @@ fn json_line_payload_len(line: &str) -> usize {
     line.strip_suffix('\n').map_or(line.len(), str::len)
 }
 
-fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
-    disconnect_client_with_notice(mux, client, send_detached, None, &DetachNotice::network())
-}
-
-/// Disconnect a client because another participant (or the client itself)
-/// asked. Its `detached` events carry `reason:"disconnected-by"` and `by`, so
-/// the viewer does not reconnect automatically.
-fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) -> bool {
-    disconnect_client_with_notice(
-        mux,
-        client,
-        true,
-        None,
-        &DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) },
-    )
-}
-
-fn disconnect_client_with_notice(
-    mux: &Arc<Mux>,
-    client: u64,
-    send_detached: bool,
-    notice: Option<&str>,
-    detach: &DetachNotice,
-) -> bool {
-    let record = {
-        let _lifecycle = mux.lock_client_sizing_lifecycle();
-        let Some(record) = mux.control_clients.remove(client) else { return false };
-        mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
-        record
-    };
-    mux.unbind_conversation_principal(client);
-    mux.release_cloud_conversation_client(client);
-    // Provider capabilities are valid only for the control connection that
-    // published them. Release before announcing detachment so waiters can
-    // never observe a stale target after the owning client is gone.
-    mux.unregister_browser_provider(client);
-    #[cfg(unix)]
-    mux.image_pastes.disconnect(client);
-    if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
-        // Pointer commands do not require a frame-stream attachment, so any
-        // browser worker may own this negotiated client. Disconnects are rare;
-        // wake all browser workers after registry removal instead of polling
-        // every idle worker forever.
-        let surfaces = mux.with_state(|state| {
-            state
-                .surfaces
-                .values()
-                .filter(|surface| surface.kind() == SurfaceKind::Browser)
-                .cloned()
-                .collect::<Vec<_>>()
-        });
-        for surface in surfaces {
-            surface.forget_browser_pointer_owner(owner);
-            surface.wake_browser_pointer_cleanup();
-        }
-    }
-    if send_detached {
-        let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
-        if let Some(event) = notice {
-            let _ = record.writer.send_control(&json!({"event": event}));
-            let _ = record.writer.flush_control(CLIENT_DETACH_WRITE_TIMEOUT);
-        }
-        for (surface, attached) in &record.attached {
-            for stream in attached.streams.values() {
-                let _ = record
-                    .writer
-                    .send_terminal(&detached_event_json(*surface, detach, None), stream);
-            }
-        }
-        record.writer.close_after_control();
-    } else {
-        record.writer.close();
-    }
-    mux.emit(MuxEvent::ClientDetached(client));
-    true
-}
-
-fn complete_daemon_shutdown_after_ack(
-    mux: &Arc<Mux>,
-    requesting_client: u64,
-    writer: &MessageWriter,
-) -> bool {
-    if mux
-        .commit_daemon_handoff_after_ack(requesting_client, || {
-            writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT)
-        })
-        .is_err()
-    {
-        mux.cancel_daemon_handoff(requesting_client);
-        return false;
-    }
-    let requester_notice_sent = writer
-        .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
-        .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
-        .is_ok();
-    for peer in mux.control_clients.client_ids() {
-        if peer != requesting_client {
-            disconnect_client_with_notice(
-                mux,
-                peer,
-                true,
-                Some(DAEMON_SHUTDOWN_EVENT),
-                &DetachNotice { reason: detach_reason::HOST_SHUTDOWN, by: None },
-            );
-        }
-    }
-    // Keep the owner alive until every detached client has received the
-    // shutdown notice. The committed handoff reservation fences new work
-    // while these notices are being flushed.
-    mux.request_daemon_shutdown();
-    requester_notice_sent
-}
-
-/// Detaches `owner`'s own view of `placement` and tells it with
-/// `detached {scope:"view"}`; its connection and relay sub-views stay.
-fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDetachActor) {
-    mux.detach_terminal_own_view(placement, owner);
-    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
-    let mut event = detached_event_json(placement, &notice, None);
-    event["scope"] = json!("view");
-    mux.control_clients.send_surface_event(owner, placement, None, &event);
-}
-
-/// Disconnects one shared-sizing participant on behalf of `requester` (the
-/// in-process frontend's `detach-client {client: <participant>}`): a relay
-/// sub-view leaves alone and its relay forwards the notice; the own view of
-/// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
-/// client stays; any other participant's whole client is kicked with `disconnected-by`.
-pub fn detach_size_participant(
-    mux: &Arc<Mux>,
-    requester: u64,
-    participant: &str,
-    surface: Option<SurfaceId>,
-) -> anyhow::Result<()> {
-    let by = detach_actor(mux, requester, None);
-    let target = DetachClientTarget::Participant(participant.to_string());
-    if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
-        detach_own_view(mux, owner, placement, by);
-        return Ok(());
-    }
-    let member = match surface {
-        Some(surface) => mux.terminal_participant_member_on(surface, participant),
-        None => mux.terminal_participant_member(participant),
-    };
-    let Some((client, placement, view)) = member else {
-        anyhow::bail!("unknown participant {participant}");
-    };
-    if let Some(view) = view {
-        mux.detach_terminal_sub_view(placement, client, &view);
-        let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
-        mux.control_clients.send_surface_event(
-            client,
-            placement,
-            None,
-            &detached_event_json(placement, &notice, Some(&view)),
-        );
-        return Ok(());
-    }
-    anyhow::ensure!(client != requester, "cannot disconnect this client");
-    anyhow::ensure!(kick_client(mux, client, by), "unknown client {client}");
-    Ok(())
-}
-
-pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
-    disconnect_client(mux, client, true)
-}
+mod disconnect;
+pub use disconnect::detach_control_client;
+pub use disconnect::detach_size_participant;
+use disconnect::{
+    complete_daemon_shutdown_after_ack, detach_actor, detach_own_view, detached_event_json,
+    disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
+    size_state_for_client,
+};
 
 #[cfg(test)]
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
@@ -3238,293 +2441,8 @@ use journal_stream::run_session_journal_stream;
 #[cfg(test)]
 use session_event_stream::run_session_event_stream;
 
-fn handle_resource_session_shutdown(
-    mux: &Arc<Mux>,
-    client: u64,
-    request: crate::resource_router::ParsedResourceRequest,
-    id: ResourceRequestId,
-    writer: &MessageWriter,
-) -> bool {
-    let operation = ResourceOperation::SessionShutdown;
-    let force =
-        request.fields["force"].as_bool().expect("catalog validates the shutdown force flag");
-    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
-        mux.begin_daemon_handoff(client, DaemonHandoffRequest::unfenced(force)).map_err(|error| {
-            ResourceError::operation_failed(
-                "session.shutdown",
-                error.to_string(),
-                json!({"force":force}),
-            )
-        })
-    });
-    if let Err(error) = result {
-        return send_resource_response(writer, id, operation, Err(error));
-    }
-
-    match crate::resource_router::commit_session_shutdown(mux, request) {
-        Ok(result) => {
-            let sent = send_resource_response(writer, id, operation, Ok(result));
-            if sent {
-                complete_daemon_shutdown_after_ack(mux, client, writer)
-            } else {
-                mux.cancel_daemon_handoff(client);
-                false
-            }
-        }
-        Err(error) => {
-            mux.cancel_daemon_handoff(client);
-            send_resource_response(writer, id, operation, Err(error))
-        }
-    }
-}
-
-/// Dispatches one request the origin gate admitted; `request` is the
-/// gate's own parse of the line.
-fn handle_resource_connection_message(
-    mux: &Arc<Mux>,
-    client: u64,
-    request: crate::resource_router::ParsedResourceRequest,
-    writer: &MessageWriter,
-) -> bool {
-    let id = request.envelope.id.clone();
-    let operation = request.envelope.operation;
-    if matches!(
-        operation,
-        ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
-    ) && !mux.server_lifecycle_ready()
-    {
-        let operation_name = match operation {
-            ResourceOperation::SessionShutdown => "session.shutdown",
-            ResourceOperation::SessionReloadConfig => "session.reload_config",
-            _ => unreachable!("lifecycle readiness applies only to lifecycle operations"),
-        };
-        return send_resource_response(
-            writer,
-            id,
-            operation,
-            Err(ResourceError::new(
-                "operation.failed",
-                "server lifecycle is not ready",
-                json!({
-                    "operation": operation_name,
-                    "reason": "lifecycle_not_ready",
-                }),
-                false,
-            )),
-        );
-    }
-    debug_assert_eq!(
-        handles_resource_connection_operation(operation),
-        crate::resource_router::requires_connection_context(operation)
-    );
-    match operation {
-        operation if conversation_resource::handles(operation) => {
-            conversation_resource::handle(mux, client, request, writer)
-        }
-        operation if chief_control::handles(operation) => {
-            chief_control::handle(mux, client, request, writer)
-        }
-        ResourceOperation::SessionShutdown => {
-            handle_resource_session_shutdown(mux, client, request, id, writer)
-        }
-        ResourceOperation::PairingRequestList | ResourceOperation::PairingRequestResolve => {
-            let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
-                crate::resource_router::handle_trusted_local_auxiliary(mux, request)
-            });
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::ClientList
-        | ResourceOperation::ClientGet
-        | ResourceOperation::ClientMetadataUpdate
-        | ResourceOperation::ClientSizingSet
-        | ResourceOperation::ClientSizingRelease
-        | ResourceOperation::ClientCellPixelsSet
-        | ResourceOperation::TerminalRendererGrantCreate
-        | ResourceOperation::TerminalViewerResize
-        | ResourceOperation::TerminalViewerRelease
-        | ResourceOperation::BrowserViewerResize
-        | ResourceOperation::BrowserViewerRelease => {
-            let result = handle_resource_connection_control(mux, client, &request);
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::ClientDetach => {
-            let result = prepare_resource_client_detach(mux, client, &request);
-            match result {
-                Ok(target) if target == client => {
-                    if !send_resource_response(writer, id, operation, Ok(json!({}))) {
-                        return false;
-                    }
-                    false
-                }
-                Ok(target) => {
-                    let result = if kick_client(mux, target, detach_actor(mux, client, None)) {
-                        Ok(json!({}))
-                    } else {
-                        Err(ResourceError::not_found(
-                            "client",
-                            request.selectors.client.as_deref().unwrap_or("<missing>"),
-                        ))
-                    };
-                    send_resource_response(writer, id, operation, result)
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::TerminalAttach => {
-            match prepare_terminal_resource_attach(mux, client, writer, &request) {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        cleanup_resource_attach(mux, client, &start.common);
-                        return false;
-                    }
-                    start_terminal_resource_attach(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::BrowserAttach => {
-            match prepare_browser_resource_attach(mux, client, writer, &request) {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        cleanup_resource_attach(mux, client, &start.common);
-                        return false;
-                    }
-                    start_browser_resource_attach(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::SidebarViewAttach => {
-            match prepare_sidebar_resource_attach(mux, client, writer, &request) {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        cleanup_resource_stream(mux, client, &start.stream_id);
-                        return false;
-                    }
-                    start_sidebar_resource_attach(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::SessionEvents => {
-            match prepare_session_event_stream(mux, client, writer, &request) {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
-                        return false;
-                    }
-                    start_session_event_stream(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::SessionJournalProducerList
-        | ResourceOperation::SessionJournalProducerPut
-        | ResourceOperation::SessionJournalAppend
-        | ResourceOperation::SessionJournalHookList
-        | ResourceOperation::SessionJournalHookPut
-        | ResourceOperation::SessionJournalCheckpointCreate
-        | ResourceOperation::SessionJournalCheckpointList
-        | ResourceOperation::SessionJournalRestorePreview
-        | ResourceOperation::SessionJournalSegmentList
-        | ResourceOperation::SessionJournalSegmentSeal => {
-            let result = trusted_local_resource_client(mux, client, operation)
-                .and_then(|()| handle_journal_extension_request(mux, &request));
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::SessionJournalSubscribe => {
-            let prepared = prepare_session_journal_stream(mux, client, writer, &request);
-            match prepared {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
-                        return false;
-                    }
-                    start_session_journal_stream(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-        ResourceOperation::SessionSnapshot => {
-            let result = resource_session_snapshot(mux, client, &request.selectors);
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
-            start_resource_wait(mux.clone(), client, writer.clone(), request, id)
-        }
-        ResourceOperation::RequestCancel => {
-            let result = cancel_resource_request(mux, client, writer, &request);
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::StreamCancel => {
-            let result = cancel_resource_stream(mux, client, writer, &request);
-            send_resource_response(writer, id, operation, result)
-        }
-        ResourceOperation::OriginConfirmationIssue => {
-            origin_gate::handle_issue(mux, client, &request, id, writer)
-        }
-        _ => {
-            debug_assert!(
-                !crate::resource_router::requires_connection_context(request.envelope.operation),
-                "connection-owned operation fell through to the transport-independent router"
-            );
-            let operation = request.envelope.operation;
-            match crate::resource_router::handle_parsed_resource_request(mux, request) {
-                Ok(response) => {
-                    activity::note_resource_input(mux, client, operation, &response);
-                    writer.send_control(&response).is_ok()
-                }
-                // Only a response that cannot be encoded fails here.
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
-            }
-        }
-    }
-}
-
 mod resource_waits;
 use resource_waits::start_resource_wait;
-fn handle_resource_connection_control(
-    mux: &Arc<Mux>,
-    client: u64,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    match request.envelope.operation {
-        ResourceOperation::ClientList => resource_client_list(mux, client, request),
-        ResourceOperation::ClientGet => resource_client_get(mux, client, request),
-        ResourceOperation::ClientMetadataUpdate => {
-            resource_client_metadata_update(mux, client, request)
-        }
-        ResourceOperation::ClientSizingSet => resource_client_sizing_set(mux, client, request),
-        ResourceOperation::ClientSizingRelease => {
-            resource_client_sizing_release(mux, client, request)
-        }
-        ResourceOperation::ClientCellPixelsSet => {
-            resource_client_cell_pixels_set(mux, client, request)
-        }
-        ResourceOperation::TerminalViewerResize => {
-            resource_terminal_viewer_resize(mux, client, request)
-        }
-        ResourceOperation::TerminalViewerRelease => {
-            resource_terminal_viewer_release(mux, client, request)
-        }
-        ResourceOperation::BrowserViewerResize => {
-            resource_browser_viewer_resize(mux, client, request)
-        }
-        ResourceOperation::BrowserViewerRelease => {
-            resource_browser_viewer_release(mux, client, request)
-        }
-        ResourceOperation::TerminalRendererGrantCreate => {
-            renderer_grant::create(mux, client, request)
-        }
-        operation => unreachable!("connection handler received {operation:?}"),
-    }
-}
-
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
 use resource_clients::{
@@ -3535,7 +2453,6 @@ use resource_clients::{
     resource_session_id, resource_session_snapshot, resource_terminal_surface,
     resource_terminal_viewer_release, resource_terminal_viewer_resize,
 };
-
 mod resource_attach;
 #[cfg(test)]
 use resource_attach::browser_resource_frame;
@@ -3545,7 +2462,6 @@ use resource_attach::{
     resource_stream_id, resource_wait_install_error, send_resource_response,
     start_browser_resource_attach, start_sidebar_resource_attach, start_terminal_resource_attach,
 };
-
 mod session_event_stream;
 use session_event_stream::{prepare_session_event_stream, start_session_event_stream};
 mod journal_stream;
@@ -3555,110 +2471,10 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
-fn send_resource_stream_item(
-    writer: &MessageWriter,
-    outbound: &OutboundStream,
-    stream_id: &StreamPublicId,
-    sequence: u64,
-    cursor: &Value,
-    item: Value,
-) -> bool {
-    writer
-        .send_stream_backpressured(
-            &json!({
-                "protocol":"cmux.protocol/2",
-                "type":"stream_item",
-                "stream_id":stream_id,
-                "sequence":sequence.to_string(),
-                "cursor":cursor,
-                "item":writer.project_conversation_tab_item(item),
-            }),
-            outbound,
-        )
-        .is_ok()
-}
-
-fn cancel_resource_stream(
-    mux: &Arc<Mux>,
-    client: u64,
-    writer: &MessageWriter,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let route = crate::ResourceSelectors {
-        machine: request.selectors.machine.clone(),
-        session: request.selectors.session.clone(),
-        ..Default::default()
-    };
-    mux.resolve_resource_path(crate::ResourceTarget::Session, &route)?;
-    let stream_id: StreamPublicId = request
-        .selectors
-        .stream
-        .as_deref()
-        .ok_or_else(|| ResourceError::not_found("stream", "<missing>"))
-        .and_then(|stream| StreamPublicId::parse(stream.to_string()))?;
-    if let Some(stream) = mux.control_clients.take_resource_stream(client, &stream_id) {
-        stream.canceled.store(true, Ordering::Release);
-        let end = resource_stream_end(&stream_id, "canceled", None, None, None);
-        writer
-            .send_terminal(&end, &stream.outbound)
-            .map_err(|_| ResourceError::transport_closed("could not end the canceled stream"))?;
-    }
-    Ok(json!({}))
-}
-
-fn cancel_resource_request(
-    mux: &Arc<Mux>,
-    client: u64,
-    writer: &MessageWriter,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let request_id = ResourceRequestId::parse(
-        request.fields["request_id"].as_str().expect("catalog validates request cancellation ids"),
-    )?;
-    let canceled = match mux.control_clients.cancel_resource_wait(client, &request_id) {
-        ResourceWaitCancel::Missing => false,
-        ResourceWaitCancel::Canceled(lifecycle) => {
-            lifecycle.wait_for_worker_finish();
-            true
-        }
-        ResourceWaitCancel::Completing(lifecycle) => {
-            if !lifecycle.wait_for_response_attempt() {
-                writer.close();
-                return Err(ResourceError::transport_closed(
-                    "terminal wait completion ended before attempting its response",
-                ));
-            }
-            false
-        }
-    };
-    Ok(json!({"canceled":canceled}))
-}
-
-fn resource_stream_end(
-    stream_id: &StreamPublicId,
-    reason: &str,
-    cursor: Option<Value>,
-    recovery: Option<&str>,
-    error: Option<(ResourceOperation, ResourceError)>,
-) -> Value {
-    let mut end = json!({
-        "protocol":"cmux.protocol/2",
-        "type":"stream_end",
-        "stream_id":stream_id,
-        "reason":reason,
-    });
-    if let Some(cursor) = cursor {
-        end["cursor"] = cursor;
-    }
-    if let Some(recovery) = recovery {
-        end["recovery"] = json!(recovery);
-    }
-    if let Some((operation, error)) = error {
-        let error = crate::resource_router::validate_operation_error(operation, error);
-        end["error"] = json!(error);
-    }
-    end
-}
+mod resource_connection;
+use resource_connection::{
+    handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
+};
 
 /// One frame of a connection. `transport` is the connection's own value
 /// (not a registry lookup), so a remote-entry connection always takes the
@@ -3988,362 +2804,10 @@ fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
 
-fn pane_json(
-    state: &State,
-    id: PaneId,
-    short_ids: &HashMap<u64, String>,
-    notifications: &TreeDecorations,
-) -> Value {
-    let Some(pane) = state.panes.get(&id) else {
-        return json!({ "id": id, "dead": true });
-    };
-    let tab_groups = crate::mux::pane_tab_groups(state, &notifications.presentation, id);
-    let group_of = |surface: &SurfaceId| {
-        tab_groups.iter().find(|run| run.members.contains(surface)).map(|run| run.group.id.as_str())
-    };
-    json!({
-        "id": id,
-        "resource_id": state.resource_indexes.pane_ids.get(&id),
-        "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
-        "name": pane.name,
-        "active_tab": pane.active_tab,
-        "focused_at": pane.focused_at,
-        "tab_groups": tab_groups.iter().map(|run| pane_tab_group_json(run, None)).collect::<Vec<_>>(),
-        "tabs": pane.tabs.iter().map(|sid| {
-            let surface = state.surfaces.get(sid);
-            let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
-            let terminal_resource_id = surface
-                .and_then(|surface| surface.resource_identity())
-                .and_then(|identity| match &identity.content_id {
-                    ContentPublicId::Terminal(id) => Some(id),
-                    ContentPublicId::Browser(_) => None,
-                });
-            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
-            // runtime surface after a restart; its identity is the index's.
-            let tab_resource_id = surface
-                .and_then(|surface| surface.resource_identity())
-                .map(|identity| &identity.tab_id)
-                .or_else(|| state.resource_indexes.tab_ids.get(sid));
-            // A restored tab with no runtime surface (an ended terminal after
-            // a restart) keeps its content id in the index, like its tab id.
-            let content_resource_id = surface
-                .and_then(|surface| surface.resource_identity())
-                .map(|identity| identity.content_id.as_str())
-                .or_else(|| state.resource_indexes.content_ids.get(sid).map(|content| content.as_str()));
-            let directory = notifications.directories.get(sid);
-            let frontend_browser = surface
-                .and_then(|surface| surface.resource_identity())
-                .and_then(|identity| match &identity.content_id {
-                    ContentPublicId::Browser(id) => {
-                        notifications.presentation.frontend_browsers.get(id.as_str())
-                    }
-                    ContentPublicId::Terminal(_) => None,
-                });
-            let conversation = content_resource_id
-                .and_then(|id| notifications.presentation.conversation_tabs.get(id));
-            let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
-                notifications.presentation.pinned_tabs.contains(tab.as_str())
-            });
-            // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
-            // ended, to restart a shell in. After a restart it has no surface,
-            // so its name and last title come from the record; a live
-            // terminal's own title always wins.
-            let kept = state
-                .resource_indexes
-                .tab_ids
-                .get(sid)
-                .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
-                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()));
-            let relaunch = kept.map(|kept| json!({"cwd": kept.cwd}));
-            // R41: a terminal tab with no runtime surface is dead only when
-            // its terminal really ended; a host still being adopted, or one
-            // this build cannot adopt, keeps running its shell.
-            let content_terminal = state.resource_indexes.content_ids.get(sid).and_then(|content| {
-                match content {
-                    ContentPublicId::Terminal(id) => Some(id.as_str()),
-                    ContentPublicId::Browser(_) => None,
-                }
-            });
-            let pending_terminal = surface
-                .is_none()
-                .then(|| content_terminal.and_then(|id| notifications.pending_terminals.get(id)))
-                .flatten();
-            let is_terminal_tab = surface.map_or(content_terminal.is_some(), |surface| {
-                surface.kind() == SurfaceKind::Pty
-            });
-            let dead = surface.map(|s| s.is_dead()).unwrap_or(pending_terminal.is_none());
-            let terminal_state = match (pending_terminal, is_terminal_tab) {
-                (Some(pending), _) => Some(pending.state()),
-                (None, false) => None,
-                (None, true) if dead => Some("exited"),
-                (None, true) => Some(
-                    match surface.and_then(|surface| surface.terminal_host_connection_state()) {
-                        Some(crate::surface::TerminalHostConnectionState::Reconnecting) => "reconnecting",
-                        Some(crate::surface::TerminalHostConnectionState::Failed) => "failed",
-                        _ => "running",
-                    },
-                ),
-            };
-            let host_record_version = match pending_terminal {
-                Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => *record_version,
-                _ => None,
-            };
-            // Why a dead terminal ended: its runtime's end, else the durable
-            // receipt of a terminal that has no runtime here.
-            let end = if !dead || !is_terminal_tab {
-                None
-            } else {
-                surface
-                    .and_then(|surface| surface.terminal_end())
-                    .map(|end| end.wire_json())
-                    .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
-                    .map(|end| notifications.with_loss_cause(content_terminal, end))
-            };
-            let mut tab = json!({
-                "surface": sid,
-                "tab_resource_id": tab_resource_id,
-                "terminal_state": terminal_state,
-                "host_record_version": host_record_version,
-                "group": group_of(sid),
-                "pinned": pinned,
-                "relaunch": relaunch,
-                "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
-                "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
-                "git_detached": directory.is_some_and(|directory| directory.git_detached),
-                "content_resource_id": content_resource_id,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_resource_id": terminal_resource_id,
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-                "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
-                "supports_clear_history_key_fallback": surface
-                    .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
-                "notification": notifications.get(sid).copied().map(|n| {
-                    json!({
-                        "notification": n.notification,
-                        "unread": n.unread,
-                        "level": n.level.as_str(),
-                        "source": n.source.as_str(),
-                    })
-                }),
-                "name": surface
-                    .and_then(|s| s.name())
-                    .or_else(|| kept.and_then(|k| k.name.clone())),
-                "title": surface
-                    .map(|s| s.title())
-                    .filter(|title| !title.is_empty())
-                    .or_else(|| kept.and_then(|k| k.title.clone()))
-                    .unwrap_or_default(),
-                "size": surface.map(|s| {
-                    let (c, r) = s.size();
-                    json!({"cols": c, "rows": r})
-                }),
-                "dead": dead,
-                // Why a dead terminal ended (R41, terminal-state-v1).
-                "end": end,
-            });
-            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
-            tab
-        }).collect::<Vec<_>>(),
-    })
-}
-
-pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
-    let short_ids = tree_short_ids(state);
-    json!({
-        "workspace_revision": state.workspace_revision,
-        "pane_revision": state.pane_revision,
-        "groups": workspace_groups_json(&notifications.presentation),
-        "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
-            workspace_json(state, workspace, index, &short_ids, notifications)
-        }).collect::<Vec<_>>(),
-    })
-}
-
-fn tree_short_ids(state: &State) -> HashMap<u64, String> {
-    let ids = state
-        .workspaces
-        .iter()
-        .flat_map(|ws| {
-            let mut ids = vec![ws.id];
-            for screen in &ws.screens {
-                ids.push(screen.id);
-                screen.root.pane_ids(&mut ids);
-            }
-            ids
-        })
-        .chain(state.surfaces.keys().copied());
-    assign_short_ids(ids)
-}
-
-fn workspace_json(
-    state: &State,
-    workspace: &Workspace,
-    index: usize,
-    short_ids: &HashMap<u64, String>,
-    notifications: &TreeDecorations,
-) -> Value {
-    let presentation = notifications.presentation.workspace(&workspace.key);
-    let screen_groups =
-        crate::mux::workspace_screen_groups(workspace, &notifications.presentation.screens);
-    let group_of = |screen: ScreenId| {
-        screen_groups
-            .iter()
-            .find(|run| run.members.contains(&screen))
-            .map(|run| run.group.id.as_str())
-    };
-    json!({
-        "id": workspace.id,
-        "resource_id": workspace.public_id,
-        "key": workspace.key,
-        "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
-        "name": workspace.name,
-        "group": presentation.and_then(|presentation| presentation.group.as_deref()),
-        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
-        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
-        "title": presentation.and_then(|presentation| presentation.title.as_deref()),
-        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
-        "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
-        "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
-        "unread_count": workspace_unread_count(state, workspace, notifications),
-        "active": index == state.active_workspace,
-        "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
-            screen_json(
-                state,
-                screen,
-                screen_index == workspace.active_screen,
-                group_of(screen.id),
-                short_ids,
-                notifications,
-            )
-        }).collect::<Vec<_>>(),
-        "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
-    })
-}
-
-fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
-    json!({
-        "id": run.group.id,
-        "name": run.group.name,
-        "color": run.group.color,
-        "collapsed": run.group.collapsed,
-        "saved_id": run.group.saved_id,
-        "start": run.start,
-        "count": run.members.len(),
-        "screens": run.members,
-    })
-}
-
-/// Tabs in a workspace whose content has an unread notification marker.
-fn workspace_unread_count(
-    state: &State,
-    workspace: &Workspace,
-    notifications: &TreeDecorations,
-) -> usize {
-    workspace
-        .screens
-        .iter()
-        .flat_map(|screen| screen.root.pane_ids_vec())
-        .filter_map(|pane| state.panes.get(&pane))
-        .flat_map(|pane| pane.tabs.iter())
-        .filter(|surface| notifications.get(surface).is_some_and(|marker| marker.unread))
-        .count()
-}
-
-pub(crate) fn tree_entity_json(
-    state: &State,
-    notifications: &TreeDecorations,
-    kind: TreeDeltaKind,
-    id: u64,
-) -> Option<Value> {
-    if matches!(
-        kind,
-        TreeDeltaKind::WorkspaceAdded
-            | TreeDeltaKind::WorkspaceClosed
-            | TreeDeltaKind::WorkspaceRenamed
-            | TreeDeltaKind::WorkspaceMoved
-            | TreeDeltaKind::WorkspaceChanged
-    ) {
-        let short_ids = tree_short_ids(state);
-        let index = state.workspace_index(id)?;
-        let workspace = state.workspaces.get(index)?;
-        return Some(workspace_json(state, workspace, index, &short_ids, notifications));
-    }
-    let tree = workspaces_json(state, notifications);
-    let workspaces = tree.get("workspaces")?.as_array()?;
-    match kind {
-        TreeDeltaKind::WorkspaceAdded
-        | TreeDeltaKind::WorkspaceClosed
-        | TreeDeltaKind::WorkspaceRenamed
-        | TreeDeltaKind::WorkspaceMoved
-        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
-        TreeDeltaKind::ScreenAdded
-        | TreeDeltaKind::ScreenClosed
-        | TreeDeltaKind::ScreenRenamed
-        | TreeDeltaKind::ScreenChanged => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
-            .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
-            .cloned(),
-        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
-            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
-            .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
-            .cloned(),
-        TreeDeltaKind::TabAdded
-        | TreeDeltaKind::TabClosed
-        | TreeDeltaKind::TabRenamed
-        | TreeDeltaKind::TabChanged => workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-            })
-            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
-            .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
-            .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
-            .cloned(),
-    }
-}
-
-fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
-    let mut value = json!({
-        "event": delta.kind.as_str(),
-        "workspace": delta.workspace,
-        "entity": delta.entity,
-    });
-    if let Some(screen) = delta.screen {
-        value["screen"] = json!(screen);
-    }
-    if let Some(pane) = delta.pane {
-        value["pane"] = json!(pane);
-    }
-    if let Some(surface) = delta.surface {
-        value["surface"] = json!(surface);
-    }
-    if let Some(index) = delta.index {
-        value["index"] = json!(index);
-    }
-    if let Some(transaction) = &delta.transaction {
-        value["transaction"] = json!(transaction.as_ref());
-    }
-    if let Some(revision) = delta.workspace_revision {
-        value["workspace_revision"] = json!(revision);
-        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value["origin"] = json!(event.origin);
-            value["mutation_id"] = json!(event.mutation_id);
-        }
-        let (registry_id, generation) = mux.registry_identity();
-        value["registry_id"] = json!(registry_id);
-        value["generation"] = json!(generation);
-    }
-    value
-}
+mod tree_json;
+pub(crate) use tree_json::tree_entity_json;
+pub(crate) use tree_json::workspaces_json;
+use tree_json::{pane_json, tree_delta_json};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -4419,365 +2883,14 @@ use render_messages::{
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
 
-fn spawn_attach_notification_stream(
-    mux: Arc<Mux>,
-    surface_id: SurfaceId,
-    writer: MessageWriter,
-    lifecycle: AttachLifecycle,
-    outbound_stream: OutboundStream,
-) -> std::io::Result<()> {
-    let events = mux.subscribe_attached_surface(surface_id);
-    std::thread::Builder::new()
-        .name("mux-attach-notifications".into())
-        .spawn(move || {
-            let interrupt = StreamInterrupt::new();
-            writer.register_interrupt(&interrupt);
-            outbound_stream.register_interrupt(&interrupt);
-            lifecycle.register_interrupt(&interrupt);
-            events.wake_on(&interrupt);
-            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_until_interrupted(&interrupt) {
-                    Ok(event) => event,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                let value = match event {
-                    MuxEvent::Notification(notification)
-                        if notification.surface == Some(surface_id) =>
-                    {
-                        json!({
-                            "event": "notification",
-                            "notification": notification.notification,
-                            "title": notification.title,
-                            "body": notification.body,
-                            "level": notification.level.as_str(),
-                            "surface": notification.surface,
-                        })
-                    }
-                    MuxEvent::ScrollChanged { surface, offset, at_bottom }
-                        if surface == surface_id =>
-                    {
-                        json!({
-                            "event": "scroll-changed",
-                            "surface": surface,
-                            "offset": offset,
-                            "at_bottom": at_bottom,
-                        })
-                    }
-                    _ => continue,
-                };
-                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                    handle_attach_send_error(&lifecycle, &error);
-                    break;
-                }
-            }
-            if events.overflowed() {
-                lifecycle.mark_overflow();
-            }
-            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-        })
-        .map(|_| ())
-}
-
-struct MarkedClientAttach {
-    lease: Option<String>,
-    size_rollback: Option<crate::mux::ClientSizeRollback>,
-    client_changed: Option<(Option<String>, Option<String>)>,
-    resize_reservation: Option<u64>,
-    resize_completion: Option<std::sync::mpsc::Receiver<Result<(), Arc<str>>>>,
-}
-
-fn mark_client_attached(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: OutboundStream,
-    initial_size: Option<(u16, u16)>,
-) -> anyhow::Result<MarkedClientAttach> {
-    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, false)
-}
-
-fn mark_resource_client_attached(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: OutboundStream,
-    initial_size: Option<(u16, u16)>,
-) -> anyhow::Result<MarkedClientAttach> {
-    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, true)
-}
-
-fn mark_client_attached_with_lease_policy(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: OutboundStream,
-    initial_size: Option<(u16, u16)>,
-    require_lease: bool,
-) -> anyhow::Result<MarkedClientAttach> {
-    let lease = if require_lease {
-        Some(mux.control_clients.attach_surface_with_required_lease(
-            client,
-            surface,
-            stream.clone(),
-        )?)
-    } else {
-        mux.control_clients.attach_surface(client, surface, stream.clone())?
-    };
-    if let Some((cols, rows)) = initial_size {
-        let cols = cols.max(1);
-        let rows = rows.max(1);
-        let is_browser = mux.surface(surface).is_some_and(|surface| surface.as_browser().is_some());
-        let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
-        let mut previous_view_size = None;
-        let resize = if let Some(lease) = lease.as_deref() {
-            let _lifecycle = mux.lock_client_sizing_lifecycle();
-            match mux.control_clients.prepare_view_resize(client, surface, lease, (cols, rows))? {
-                ViewResizePreparation::GeometryOwner { update, previous_view_size: previous } => {
-                    previous_view_size = Some(previous);
-                    mux.resize_surface_for_prepared_control_client_with_completion(
-                        surface,
-                        client,
-                        (cols, rows),
-                        is_browser.then_some(completion_tx),
-                        Some(update),
-                    )
-                }
-                ViewResizePreparation::Passive { changed, name, kind } => {
-                    return Ok(MarkedClientAttach {
-                        lease: Some(lease.to_string()),
-                        size_rollback: None,
-                        client_changed: changed.then_some((name, kind)),
-                        resize_reservation: None,
-                        resize_completion: None,
-                    });
-                }
-                ViewResizePreparation::Superseded => {
-                    anyhow::bail!("view attachment was superseded before initial sizing");
-                }
-            }
-        } else {
-            mux.resize_surface_for_control_client_with_completion(
-                surface,
-                client,
-                cols,
-                rows,
-                is_browser.then_some(completion_tx),
-            )
-        }
-        .inspect_err(|_| {
-            if let (Some(lease), Some(previous)) = (lease.as_deref(), previous_view_size) {
-                mux.control_clients.restore_view_size(client, surface, lease, previous);
-            }
-            cleanup_failed_attach(mux, client, surface, stream.id);
-        })?;
-        let Some((changed, name, kind, _)) = resize.attached else {
-            cleanup_failed_attach(mux, client, surface, stream.id);
-            anyhow::bail!("client {client} is not attached to surface {surface}");
-        };
-        let mut resize_reservation = resize.reservation_id;
-        let mut resize_completion = is_browser.then_some(completion_rx);
-        let effective_size = resize.effective_size;
-        let rollback = resize.rollback;
-        if resize_reservation.is_none()
-            && let Some((effective_cols, effective_rows)) = effective_size
-        {
-            let Some(attached_surface) = mux.surface(surface) else {
-                rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
-                anyhow::bail!("surface {surface} disappeared while sizing before attach");
-            };
-            match attached_surface.pending_resize_completion(effective_cols, effective_rows) {
-                Ok(Some(pending)) => {
-                    resize_reservation = Some(pending.reservation);
-                    resize_completion = Some(pending.completion);
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
-                    return Err(error);
-                }
-            }
-        }
-        return Ok(MarkedClientAttach {
-            lease,
-            size_rollback: Some(rollback),
-            client_changed: changed.then_some((name, kind)),
-            resize_reservation,
-            resize_completion,
-        });
-    }
-    Ok(MarkedClientAttach {
-        lease,
-        size_rollback: None,
-        client_changed: None,
-        resize_reservation: None,
-        resize_completion: None,
-    })
-}
-
-fn wait_for_initial_browser_resize(
-    completion: &std::sync::mpsc::Receiver<Result<(), Arc<str>>>,
-    surface: SurfaceId,
-    reservation: u64,
-) -> anyhow::Result<()> {
-    match completion.recv_timeout(INITIAL_BROWSER_RESIZE_TIMEOUT) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => {
-            anyhow::bail!(
-                "failed to size browser surface {surface} before attach (reservation {reservation}): {error}"
-            )
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            anyhow::bail!("timed out sizing browser surface {surface} before attach");
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            anyhow::bail!(
-                "browser resize completion disconnected before attach (surface {surface}, reservation {reservation})"
-            )
-        }
-    }
-}
-
-fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
-    if let Some((transport, name, kind)) = mux.control_clients.announce_attached(client)? {
-        mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-/// `attach-surface` result: the view lease when negotiated and, for a
-/// `shared-sizing-v1` client on a terminal, this view's host participant id
-/// and the current size state.
-fn attach_response(mux: &Mux, surface: SurfaceId, client: u64, lease: Option<String>) -> Value {
-    let mut response = json!({});
-    if let Some(lease) = lease {
-        response["lease"] = json!(lease);
-    }
-    if mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY)
-        && let Some(participant) = mux.terminal_view_participant_id(surface, client)
-        && let Some(state) = mux.terminal_size_state(surface)
-    {
-        response["participant"] = json!(participant);
-        response["size_state"] = size_state_for_client(mux, client, &state);
-    }
-    response
-}
-
-fn commit_client_attach(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: u64,
-    changed: Option<(Option<String>, Option<String>)>,
-    rollback: Option<crate::mux::ClientSizeRollback>,
-) -> anyhow::Result<()> {
-    mux.control_clients.commit_surface(client, surface, stream, rollback)?;
-    // Attaching is activity: the view joins the terminal's sizing engine and,
-    // once it has a viewport, takes the grid under the default policy. The
-    // attaching client reads the resulting state from the attach response.
-    mux.sync_terminal_client_view(surface, client);
-    let newly_announced = announce_client_attached(mux, client)?;
-    if !newly_announced && let Some((name, kind)) = changed {
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    }
-    Ok(())
-}
-
-struct AttachWorkerCommit {
-    start: std::sync::mpsc::SyncSender<()>,
-    lifecycle: AttachLifecycle,
-    changed: Option<(Option<String>, Option<String>)>,
-    size_rollback: Option<crate::mux::ClientSizeRollback>,
-}
-
-fn commit_client_attach_and_start_worker(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: u64,
-    worker: AttachWorkerCommit,
-) -> anyhow::Result<()> {
-    if let Err(error) =
-        commit_client_attach(mux, client, surface, stream, worker.changed, worker.size_rollback)
-    {
-        worker.lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
-        return Err(error);
-    }
-    if worker.start.send(()).is_err() {
-        worker.lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
-        anyhow::bail!("attach output worker exited before stream {stream} was committed");
-    }
-    Ok(())
-}
-
-fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    let _lifecycle = mux.lock_client_sizing_lifecycle();
-    let detached = mux.control_clients.detach_surface(client, surface, stream);
-    if detached.final_stream {
-        mux.remove_surface_size_client(surface, client);
-    } else if let Some(replacement) = detached.geometry_replacement {
-        apply_view_geometry_replacement(mux, client, surface, replacement);
-    }
-}
-
-fn rollback_failed_attach(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    stream: u64,
-    size_rollback: Option<crate::mux::ClientSizeRollback>,
-) {
-    let detached = {
-        let _lifecycle = mux.lock_client_sizing_lifecycle();
-        mux.control_clients.detach_surface(client, surface, stream)
-    };
-    if detached.final_stream {
-        // A failed first attach is one transaction: restore the geometry that
-        // preceded its provisional size report before removing the report.
-        // Final-stream detach has no surviving view to promote, so the
-        // generic geometry-replacement marker must not suppress this rollback.
-        if let Some(size_rollback) = detached.rollback.or(size_rollback) {
-            mux.rollback_surface_size_client(surface, client, size_rollback);
-        }
-        mux.remove_surface_size_client(surface, client);
-    } else if let Some(replacement) = detached.geometry_replacement {
-        apply_view_geometry_replacement(mux, client, surface, replacement);
-    } else if let Some(size_rollback) = detached.rollback.or(size_rollback) {
-        mux.rollback_surface_size_client(surface, client, size_rollback);
-    }
-}
-
-fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    let lifecycle = mux.lock_client_sizing_lifecycle();
-    let detached = mux.control_clients.detach_surface(client, surface, stream);
-    if detached.final_stream {
-        mux.remove_surface_size_client(surface, client);
-    } else if let Some(replacement) = detached.geometry_replacement {
-        apply_view_geometry_replacement(mux, client, surface, replacement);
-    } else if let Some(rollback) = detached.rollback {
-        // Rollback performs its own report-order-checked lifecycle transaction.
-        // Release this transaction first so legacy multi-stream clients cannot
-        // recursively acquire the non-reentrant lifecycle mutex.
-        drop(lifecycle);
-        mux.rollback_surface_size_client(surface, client, rollback);
-    }
-}
-
-fn apply_view_geometry_replacement(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    replacement: Option<(u16, u16)>,
-) {
-    if let Some((cols, rows)) = replacement {
-        let _ = mux.resize_surface_for_client_with_reservation(surface, client, cols, rows);
-    } else {
-        mux.remove_surface_size_client(surface, client);
-    }
-}
+mod attach_lifecycle;
+use attach_lifecycle::{
+    AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
+    detach_committed_attach, mark_client_attached, mark_resource_client_attached,
+    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+};
+#[cfg(test)]
+use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
 
 #[cfg(test)]
 fn handle_command(
@@ -4802,12 +2915,7 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
-        Command::SubscribeActivity => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("subscribe-activity requires a trusted local connection");
-            }
-            mux.activity.subscribe(mux, client, writer)
-        }
+        Command::SubscribeActivity => cmd_subscribe::subscribe_activity(mux, client, writer),
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
@@ -5163,21 +3271,7 @@ fn handle_command_with_cancellation(
         Command::ReopenSavedScreenGroup { saved, workspace } => {
             cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            cmd_panes::new_pane(
-                mux,
-                client,
-                actor,
-                pane,
-                cols,
-                rows,
-                cwd,
-                env,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        command @ Command::NewPane { .. } => cmd_panes::new_pane(mux, client, actor, command),
         Command::NewPaneRight(params) => cmd_panes::new_pane_right(mux, client, params),
         Command::Split(params) => cmd_panes::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
@@ -5350,6 +3444,11 @@ fn handle_command_with_cancellation(
         Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
         Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
         Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
+        cmd @ (Command::FeedLocalList(_)
+        | Command::FeedLocalRead(_)
+        | Command::FeedLocalHandoffBegin(_)
+        | Command::FeedLocalHandoffAbort(_)
+        | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
@@ -5614,103 +3713,7 @@ fn handle_command_with_cancellation(
             cmd_terminal_io::scroll_surface(mux, surface, delta)
         }
         Command::Subscribe { tree_events, surface } => {
-            let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
-                "coarse" => false,
-                "deltas" => true,
-                other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
-            };
-            let events = match surface {
-                Some(surface) => mux
-                    .subscribe_surface_session(surface)
-                    .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
-                None => mux.subscribe(),
-            };
-            let event_mux = mux.clone();
-            let trusted_pairing_client = mux.control_clients.is_unix(client);
-            let pending_pairings =
-                if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
-            let writer = writer.clone();
-            let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-            std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
-                let mut transport_overflow = false;
-                for challenge in pending_pairings {
-                    let value = json!({
-                        "event": "pairing-requested",
-                        "request": challenge.id,
-                        "code": challenge.code,
-                        "peer": challenge.peer,
-                        "expires_in": challenge.expires_in,
-                    });
-                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
-                        break;
-                    }
-                }
-                let interrupt = StreamInterrupt::new();
-                writer.register_interrupt(&interrupt);
-                outbound_stream.register_interrupt(&interrupt);
-                events.wake_on(&interrupt);
-                while writer.is_open() && outbound_stream.is_open() {
-                    let event = match events.recv_until_interrupted(&interrupt) {
-                        Ok(event) => event,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                    };
-                    let value = match &event {
-                        MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
-                            if !trusted_pairing_client =>
-                        {
-                            continue;
-                        }
-                        MuxEvent::Conversation(event) if event.is_draft() => continue,
-                        MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
-                            if !trusted_pairing_client =>
-                        {
-                            continue;
-                        }
-                        MuxEvent::PairingRequested(challenge) => json!({
-                            "event": "pairing-requested",
-                            "request": challenge.id,
-                            "code": challenge.code,
-                            "peer": challenge.peer,
-                            "expires_in": challenge.expires_in,
-                        }),
-                        MuxEvent::PairingResolved { request } => json!({
-                            "event": "pairing-resolved",
-                            "request": request,
-                        }),
-                        MuxEvent::TreeDelta(delta) if tree_deltas => {
-                            tree_delta_json(delta, &event_mux)
-                        }
-                        MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
-                        MuxEvent::TreeSelectionChanged if tree_deltas => {
-                            json!({"event": "tree-changed"})
-                        }
-                        MuxEvent::TreeSelectionChanged => continue,
-                        MuxEvent::SizeStateChanged { surface, runtime, state } => {
-                            if !event_mux
-                                .control_clients
-                                .supports_capability(client, SHARED_SIZING_CAPABILITY)
-                            {
-                                continue;
-                            }
-                            let open = event_mux
-                                .control_clients
-                                .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
-                            size_state_event_json(*surface, *runtime, state, Some((client, open)))
-                        }
-                        _ => subscribed_event_json(&event),
-                    };
-                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
-                        break;
-                    }
-                }
-                if events.overflowed() || transport_overflow {
-                    let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
-                }
-            })?;
-            Ok(json!({}))
+            cmd_subscribe::subscribe_command(mux, client, writer, tree_events, surface)
         }
         Command::AttachSurface {
             surface: surface_id,
@@ -5773,181 +3776,6 @@ fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
         None => Ok(()),
     }
-}
-
-fn subscribed_event_json(event: &MuxEvent) -> Value {
-    match event {
-        MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
-        MuxEvent::SurfaceResized { surface, cols, rows, reservation_id } => json!({
-            "event": "surface-resized",
-            "surface": surface,
-            "cols": cols,
-            "rows": rows,
-            "reservation_id": reservation_id,
-        }),
-        MuxEvent::SurfaceResizeFailed {
-            surface,
-            cols,
-            rows,
-            error,
-            retry_after_ms,
-            reservation_id,
-        } => json!({
-            "event": "surface-resize-failed",
-            "surface": surface,
-            "cols": cols,
-            "rows": rows,
-            "error": error.as_ref(),
-            "retry_after_ms": retry_after_ms,
-            "reservation_id": reservation_id,
-        }),
-        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
-        MuxEvent::SizeStateChanged { surface, runtime, state } => {
-            size_state_event_json(*surface, *runtime, state, None)
-        }
-        MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
-        }
-        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
-            "event": "agent-changed",
-            "surface": surface,
-            "state": state.as_ref(),
-            "source": source.as_ref(),
-            "session": session.as_deref(),
-            "agent": agent.as_deref(),
-            "updated_at_ms": updated_at_ms,
-        }),
-        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
-        MuxEvent::Notification(notification) => json!({
-            "event": "notification",
-            "notification": notification.notification,
-            "title": notification.title,
-            "body": notification.body,
-            "level": notification.level.as_str(),
-            "surface": notification.surface,
-            "source": notification.source.as_str(),
-        }),
-        MuxEvent::GraphicsStatus(status) => match status {
-            GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
-                "event": "graphics-status",
-                "kind": "kitty-image-budget-worker-start-failed",
-                "error": error.as_ref(),
-            }),
-            GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => json!({
-                "event": "graphics-status",
-                "kind": "kitty-image-budget-update-failed",
-                "retry_exhausted": retry_exhausted,
-                "summary": summary.as_ref(),
-            }),
-            GraphicsStatus::CellPixelUpdateRetriesExhausted {
-                attempts,
-                remaining,
-                cell_pixels,
-            } => json!({
-                "event": "graphics-status",
-                "kind": "cell-pixel-update-retries-exhausted",
-                "attempts": attempts,
-                "remaining": remaining,
-                "cell_width": cell_pixels.0,
-                "cell_height": cell_pixels.1,
-            }),
-        },
-        MuxEvent::Status(message) => json!({"event": "status", "message": message}),
-        MuxEvent::MachineUsageChanged(usage) => {
-            let mut payload = machine_usage_json(usage.as_ref());
-            payload["event"] = json!("machine-usage-changed");
-            payload
-        }
-        MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
-        MuxEvent::WindowTitleRequested(title) => {
-            json!({"event": "window-title-requested", "title": title})
-        }
-        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
-            "event": "scroll-changed",
-            "surface": surface,
-            "offset": offset,
-            "at_bottom": at_bottom,
-        }),
-        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
-        MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
-        MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
-        MuxEvent::FrontendProjectionChanged {
-            frontend,
-            scope,
-            subject_key,
-            projection_revision,
-            origin,
-            mutation_id,
-        } => json!({
-            "event": "frontend-projection-changed",
-            "frontend": frontend,
-            "scope": scope,
-            "subject_key": subject_key,
-            "projection_revision": projection_revision,
-            "origin": origin,
-            "mutation_id": mutation_id,
-        }),
-        MuxEvent::PersonalChanged { personal_revision } => json!({
-            "event": "personal-changed",
-            "personal_revision": personal_revision,
-        }),
-        MuxEvent::Conversation(event) => event.wire_json(),
-        MuxEvent::CloudConversation(event) => event.wire_json(),
-        MuxEvent::BookmarksChanged(change) => json!({
-            "event": "bookmarks-changed",
-            "browser_profile_id": change.browser_profile_id,
-            "bookmarks_revision": change.bookmarks_revision,
-        }),
-        MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
-            "event":"terminal-registry-changed",
-            "registry_id":registry_id,
-            "generation":generation,
-            "terminal_revision":terminal_revision,
-            "refetch":"terminal-events-or-list-terminals",
-        }),
-        MuxEvent::TerminalReaped { terminal_id, terminal, grace_ms } => json!({
-            "event": "terminal-reaped",
-            "terminal_id": terminal_id,
-            "terminal": terminal,
-            "grace_ms": grace_ms,
-        }),
-        MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
-        MuxEvent::ClientAttached { client, transport, name, kind } => json!({
-            "event": "client-attached",
-            "client": client,
-            "transport": transport,
-            "name": name,
-            "kind": kind,
-        }),
-        MuxEvent::ClientChanged { client, name, kind } => json!({
-            "event": "client-changed",
-            "client": client,
-            "name": name,
-            "kind": kind,
-        }),
-        MuxEvent::ClientDetached(client) => {
-            json!({"event": "client-detached", "client": client})
-        }
-        MuxEvent::ClientListInvalidated => json!({"event": "client-list-invalidated"}),
-        MuxEvent::PairingRequested(challenge) => json!({
-            "event": "pairing-requested",
-            "request": challenge.id,
-            "code": challenge.code,
-            "peer": challenge.peer,
-            "expires_in": challenge.expires_in,
-        }),
-        MuxEvent::PairingResolved { request } => {
-            json!({"event": "pairing-resolved", "request": request})
-        }
-        MuxEvent::Empty => json!({"event": "empty"}),
-    }
-}
-
-fn subscription_overflow_json() -> Value {
-    json!({
-        "event": "overflow",
-        "error": "subscriber fell behind; resubscribe to continue receiving events",
-    })
 }
 
 /// Remove the socket file (call on clean shutdown).

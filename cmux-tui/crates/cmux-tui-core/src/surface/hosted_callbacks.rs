@@ -6,8 +6,7 @@ use super::*;
 /// `program_status` receives the mirror's OSC 7501 records: the daemon is
 /// their owner, while only the host's own parser answers the support query.
 pub(super) fn hosted_terminal_callbacks(
-    id: SurfaceId,
-    mux: Weak<Mux>,
+    bells: &PendingBells,
     title_changed: Arc<AtomicBool>,
     program_status: crate::program_status::SharedProgramStatus,
 ) -> Callbacks {
@@ -20,11 +19,8 @@ pub(super) fn hosted_terminal_callbacks(
         on_title_changed: Some(Box::new(move || {
             title_changed.store(true, Ordering::Relaxed);
         })),
-        on_bell: Some(Box::new(move || {
-            if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
-            }
-        })),
+        // Counted only: the reader emits after it releases the terminal lock.
+        on_bell: Some(bells.callback()),
         on_clipboard_read: None,
         on_program_status: Some(crate::program_status::sink(program_status)),
     }

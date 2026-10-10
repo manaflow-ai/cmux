@@ -59,6 +59,9 @@ public struct PaletteItem: Identifiable {
     /// the same match (ten setting rows are titled "Color"), so 200 setting
     /// rows never bury the commands.
     public var isDemoted = false
+    /// The catalog's first-use suggestion order: the row shows in the empty
+    /// query's Suggested section (`ActionDescriptor.paletteSuggestionRank`).
+    public var suggestedRank: Int?
 
     public init(
         id: String,

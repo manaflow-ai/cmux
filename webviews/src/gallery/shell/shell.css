@@ -115,9 +115,9 @@ body {
 .gallery-variants a {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 14px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 4px;
   border: 1px solid var(--g-line);
   color: var(--g-text);
   text-decoration: none;
@@ -172,14 +172,19 @@ body {
   font-weight: 500;
   vertical-align: middle;
 }
+.gallery-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .gallery-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  align-items: end;
-  margin-top: 8px;
+  align-items: center;
+  gap: 6px;
 }
-.gallery-controls label {
+.gallery-controls label,
+.gallery-more-grid label {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -192,13 +197,14 @@ body {
   gap: 4px;
   color: var(--g-text);
 }
-.gallery-controls select,
-.gallery-controls input:not([type="checkbox"]):not([type="radio"]) {
+.gallery-controls input:not([type="checkbox"]):not([type="radio"]),
+.gallery-more-grid input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
   color: var(--g-text);
   max-width: 220px;
 }
-.gallery-controls input[type="number"] {
+.gallery-controls input[type="number"],
+.gallery-more-grid input[type="number"] {
   width: 70px;
 }
 .gallery-segmented {
@@ -222,6 +228,73 @@ body {
   align-items: center;
   gap: 3px;
   color: var(--g-text);
+}
+.gallery-control-select .ui-select-button {
+  min-width: 112px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font-size: 12px;
+}
+.gallery-control-select .ui-select-value {
+  max-width: 190px;
+}
+.gallery-more-button {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font: inherit;
+  font-size: 12px;
+}
+.gallery-more-button:hover,
+.gallery-more-button[aria-expanded="true"] {
+  background: var(--g-hover);
+}
+.gallery-more-popover {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 96px));
+  overflow: auto;
+}
+.gallery-more-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.gallery-more-grid .ui-select-button {
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font-size: 12px;
+}
+.gallery-more-grid .ui-select-value {
+  max-width: 170px;
+}
+.gallery-more-grid .gallery-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--g-text);
+}
+.gallery-more-reset {
+  min-height: 26px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: 12px;
 }
 .gallery-covers {
   margin: 8px 0 0;
@@ -271,9 +344,11 @@ body {
 }
 /* A plain neutral frame around the surface: no shape of the native window. */
 .gallery-window {
+  position: relative;
   overflow: hidden;
   outline: 1px solid var(--g-line);
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
+  background: var(--g-bg);
 }
 .gallery-window iframe {
   transform-origin: 0 0;
@@ -288,6 +363,10 @@ body {
   padding: 16px 0 24px;
 }
 .gallery-browse-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 14px;
 }
 .gallery-browse-header h1 {
@@ -298,6 +377,89 @@ body {
   margin: 0;
   max-width: 80ch;
   color: var(--g-muted);
+}
+.gallery-browse-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.gallery-browse-tools > label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--g-muted);
+  font-size: var(--text-caption);
+}
+.gallery-browse-tools input[type="search"] {
+  box-sizing: border-box;
+  width: min(280px, 100%);
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font: inherit;
+}
+.gallery-browse-kind-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 3px 5px 4px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+}
+.gallery-browse-kind-filter legend {
+  padding: 0 4px;
+  color: var(--g-muted);
+  font-size: var(--text-caption);
+}
+.gallery-browse-kind-filter button {
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+.gallery-browse-kind-filter button:hover,
+.gallery-browse-kind-filter button[aria-pressed="true"] {
+  border-color: var(--g-muted);
+  background: var(--g-current);
+}
+.gallery-browse-cycle {
+  align-self: center;
+  color: var(--g-text) !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 5px !important;
+  padding-bottom: 2px;
+}
+.gallery-browse-filter {
+  display: flex;
+  flex: 0 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--g-muted);
+  font-size: var(--text-caption);
+}
+.gallery-browse-filter input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  background: var(--g-bg);
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.gallery-browse-filter input:focus-visible {
+  outline: 2px solid var(--g-text);
+  outline-offset: 1px;
 }
 .gallery-browse-grid {
   display: grid;
@@ -357,6 +519,13 @@ body {
 .gallery-browse-variants button.active {
   background: var(--g-current);
   border-color: var(--g-muted);
+}
+.gallery-browse-cycle-note {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--g-muted);
+  font-size: var(--text-caption);
+  font-style: italic;
 }
 .gallery-browse-card .gallery-stage {
   margin: 0;
@@ -704,6 +873,13 @@ main .gallery-entry-error {
   }
   .gallery-banner {
     margin-inline: -10px;
+  }
+  .gallery-browse-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .gallery-browse-filter {
+    flex-basis: auto;
   }
   .gallery-browse-grid {
     grid-template-columns: minmax(0, 1fr);

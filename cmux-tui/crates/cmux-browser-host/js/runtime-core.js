@@ -32,7 +32,7 @@
   // The page-agent methods frame.observe allows (browser lead contract v1).
   // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
   // among them.
-  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "framePosition", "iframeHandles", "retarget", "read", "readBounded", "readAllBounded", "documentHTML", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1100,12 +1100,12 @@
     async evaluateHandle(fn, arg) {
       return this.evaluate(fn, arg);
     }
+    // The document's HTML, read within the page-read budget in the page
+    // agent (see Locator._read).
     async content() {
-      return this.evaluate(() => {
-        let doctype = "";
-        if (document.doctype) doctype = new XMLSerializer().serializeToString(document.doctype);
-        return doctype + (document.documentElement ? document.documentElement.outerHTML : "");
-      });
+      const r = await this._agent("documentHTML");
+      if (r.cut) this._page._printReadCut("page.content", r.cut, "the HTML ends where it stopped");
+      return r.value;
     }
     async title() {
       return this.evaluate(() => document.title);
@@ -1347,10 +1347,14 @@
 
     async _scrollIntoView(frame, handle) {
       await frame._agent("scrollIntoViewIfNeeded", handle);
-      // Bring each owner <iframe> into its parent's viewport too.
+      // Bring each owner <iframe> into its parent's viewport too. The owner
+      // is the one the child's place in window.frames names, else (a frame
+      // in a shadow tree) one found within the parent's node budget: the
+      // page sets the parent's size, so no action walks its whole DOM.
       for (let child = frame; child._parent; child = child._parent) {
         const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
+        const position = await child._agent("framePosition");
+        const iframes = (await parent._agent("iframeHandles", position)).handles;
         for (const h of iframes) {
           const f = await parent._contentFrame(h);
           if (f === child) {
@@ -1634,8 +1638,15 @@
       });
       return this._page.screenshot({ ...options, clip: box, fullPage: false });
     }
+    // String reads (textContent, innerText, innerHTML, getAttribute,
+    // inputValue) run within the page-read budget in the page agent: a
+    // value past it is cut there, ends with "…", and a note says where it
+    // stopped.
     async _read(what, arg, options, title) {
-      return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      if (!BOUNDED_READS.has(what)) return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      const r = await this._withElement(options || {}, title, [], (frame, handle) => frame._agent("readBounded", handle, what, arg));
+      if (r.cut) this._page._printReadCut(title, r.cut, "the value ends where it stopped");
+      return r.value;
     }
     textContent(options) {
       return this._read("textContent", undefined, options, "locator.textContent");
@@ -1714,11 +1725,20 @@
       const handles = r ? r.handles : [];
       return frame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
     }
+    // Read in the page agent within one page-read budget for all the
+    // elements, as _read.
+    async _readAll(what, title) {
+      const r = await this._resolveAll();
+      if (!r || !r.handles.length) return [];
+      const out = await r.frame._agent("readAllBounded", r.handles, what);
+      if (out.cut) this._page._printReadCut(title, out.cut, "the values after it are cut or empty");
+      return out.values;
+    }
     async allTextContents() {
-      return this.evaluateAll((els) => els.map((e) => e.textContent || ""));
+      return this._readAll("textContent", "locator.allTextContents");
     }
     async allInnerTexts() {
-      return this.evaluateAll((els) => els.map((e) => e.innerText));
+      return this._readAll("innerText", "locator.allInnerTexts");
     }
     async count() {
       const r = await this._resolveAll();
@@ -2098,6 +2118,10 @@
   // How long Download.path() waits for download.finished after the driver
   // reported the saved path (the event travels apart from the reply).
   const DOWNLOAD_FINISHED_WAIT_MS = 30000;
+  // Downloads of a tab still running: a page can start them without end,
+  // so past this the oldest is dropped and reads as gone (a finished one
+  // is dropped when it finishes; its Download keeps its outcome).
+  const MAX_RUNNING_DOWNLOADS = 1000;
 
   class Download {
     constructor(page, payload) {
@@ -2115,6 +2139,7 @@
       return this._p.suggestedFilename;
     }
     async path() {
+      if (this._dropped) throw new Error(this._dropped);
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
@@ -2142,6 +2167,12 @@
     async failure() {
       const r = await this._finished;
       return r.error || null;
+    }
+    // The tab had too many downloads running; this one is no longer
+    // tracked, and never stands for another.
+    _drop(limit) {
+      this._dropped = `download ${this._p.downloadId} is gone: its tab had more than ${limit} downloads running, and the oldest are no longer tracked`;
+      this._resolveFinished({ error: this._dropped });
     }
     async saveAs(target) {
       const files = this._page._session.files;
@@ -2280,6 +2311,12 @@
   // Unfinished requests a page keeps to pair with their later events.
   const MAX_OPEN_REQUESTS = 1000;
 
+  // The prefixes of at most MAX_FRAME_TOMBSTONES detached frames a Page
+  // keeps (Page._forgetFrame): past it the oldest go, and a ref with a
+  // dropped prefix fails as one that does not exist (prefixes are never
+  // reused, so it never resolves to another frame's element).
+  const MAX_FRAME_TOMBSTONES = 1024;
+
   class Page extends EventEmitter {
     constructor(session, targetId) {
       super();
@@ -2293,11 +2330,15 @@
       this._requests = new Map();
       this._testIdAttribute = "data-testid";
       // Frame prefixes are assigned once per frame, in DOM order of first
-      // sight, so a frame's refs keep their prefix.
-      this._framePrefixes = new Map();
+      // sight, so a frame's refs keep their prefix. A detached frame's
+      // prefix maps to null (a tombstone, so its refs fail stale), for the
+      // newest MAX_FRAME_TOMBSTONES detached frames; prefixes are never
+      // reused, so an older one's refs fail as refs that do not exist.
+      this._framePrefixes = new WeakMap();
       this._prefixFrames = new Map([["", this._mainFrame]]);
+      this._prefixTombstones = new Set();
       this._prefixCounter = 0;
-      this._refMax = new Map();
+      this._refMax = new WeakMap();
       this._heldDialog = null;
       this._listenedDialog = null;
       this._dismissedDialogs = [];
@@ -2403,11 +2444,29 @@
       }
       for (const [id, frame] of this._frames) {
         if (!alive.has(frame)) {
-          frame._detached = true;
+          this._forgetFrame(frame);
           this._frames.delete(id);
         }
       }
       return list;
+    }
+    // A frame left the tab: its prefix becomes a tombstone (its refs fail
+    // stale) and its ref numbers go.
+    _forgetFrame(frame) {
+      frame._detached = true;
+      const prefix = this._framePrefixes.get(frame);
+      if (prefix) this._tombstone(prefix);
+      this._refMax.delete(frame);
+    }
+    _tombstone(prefix) {
+      this._prefixFrames.delete(prefix);
+      this._prefixFrames.set(prefix, null);
+      this._prefixTombstones.add(prefix);
+      for (const old of this._prefixTombstones) {
+        if (this._prefixTombstones.size <= MAX_FRAME_TOMBSTONES) break;
+        this._prefixTombstones.delete(old);
+        this._prefixFrames.delete(old);
+      }
     }
     _prefixFor(frame) {
       if (frame === this._mainFrame) return "";
@@ -2415,7 +2474,8 @@
       if (!prefix) {
         prefix = `f${++this._prefixCounter}`;
         this._framePrefixes.set(frame, prefix);
-        this._prefixFrames.set(prefix, frame);
+        if (frame._detached) this._tombstone(prefix);
+        else this._prefixFrames.set(prefix, frame);
       }
       return prefix;
     }
@@ -2470,6 +2530,12 @@
       const d = this._heldDialog;
       if (!d || d._handled) return null;
       return new Error(`page is blocked by a JavaScript ${d.type()} dialog ${JSON.stringify(d.message())}; answer it with page.dialog().accept() or page.dialog().dismiss()`);
+    }
+    // A note for a page read the page-read budget cut.
+    _printReadCut(title, cut, rest) {
+      try {
+        this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
+      } catch {}
     }
     // Settles when `promise` does, or when a dialog nobody listens for opens:
     // input then counts as delivered, an evaluation fails with the way out.
@@ -2597,7 +2663,7 @@
       // The next web process has new frame ids; address the main frame by
       // default until frames are read again.
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
       this.emit("crash", this);
     }
@@ -2605,7 +2671,7 @@
     // to save memory, or recovered a crashed one): frames have new ids.
     _onReplaced() {
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
     }
     _onClosed() {
@@ -2658,12 +2724,19 @@
     }
     _onDownload(p) {
       const download = new Download(this, p);
-      (this._downloads || (this._downloads = new Map())).set(p.downloadId, download);
+      const running = this._downloads || (this._downloads = new Map());
+      running.set(p.downloadId, download);
+      if (running.size > MAX_RUNNING_DOWNLOADS) {
+        const [oldestId, oldest] = running.entries().next().value;
+        running.delete(oldestId);
+        oldest._drop(MAX_RUNNING_DOWNLOADS);
+      }
       this.emit("download", download);
     }
     _onDownloadFinished(p) {
       const d = this._downloads && this._downloads.get(p.downloadId);
       if (d) {
+        this._downloads.delete(p.downloadId);
         d._outcome = p;
         d._resolveFinished(p);
       }
@@ -3210,6 +3283,7 @@
   // "frames", maxNodes, maxSize, frames }. Every read that stops there says
   // so in these words (classic runtime-core.js).
   const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const BOUNDED_READS = new Set(["textContent", "innerText", "innerHTML", "getAttribute", "inputValue"]);
   function readCutNote(what, cut) {
     const why =
       cut.truncated === "time" ? "after 8 s of reading"

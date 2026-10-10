@@ -34,6 +34,12 @@ final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
         MainRunLoopHop().perform { self.enqueue(work) }
     }
 
+    /// The next main run loop turn, without waiting for a display frame
+    /// (the control work queue's first request after idle).
+    nonisolated func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
+        MainRunLoopHop().perform(work)
+    }
+
     func enqueue(_ work: @escaping @MainActor @Sendable () -> Void) {
         pending.append(work)
         client.activate()

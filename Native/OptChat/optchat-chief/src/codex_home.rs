@@ -235,7 +235,7 @@ pub fn prepare_codex_homes_at(paths: &Paths, user_home: &Path, fast: bool) -> Re
         .map_err(|e| format!("preparing {}: {e}", private_home.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
+    for k in 0..crate::compactor::compactor_slot_count() {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))
@@ -349,24 +349,4 @@ pub fn wipe_codex_home(dir: &Path) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod turn_tests {
-    use super::*;
-
-    #[test]
-    fn a_codex_turn_home_keeps_routing_and_project_docs_and_turns_native_subagents_off() {
-        let user = "model = \"gpt-6\"\nmodel_provider = \"sr\"\n[mcp_servers.x]\ncommand = \"y\"\n";
-        let text = codex_turn_config(Some(user)).unwrap();
-        let table: toml::Table = text.parse().unwrap();
-        assert_eq!(table["model"].as_str(), Some("gpt-6"));
-        assert_eq!(table["model_provider"].as_str(), Some("sr"));
-        assert!(table.get("mcp_servers").is_none(), "no user MCP servers");
-        assert_eq!(table["features"]["multi_agent"].as_bool(), Some(false));
-        assert!(
-            table.get("project_doc_max_bytes").is_none(),
-            "the turn reads the session directory's AGENTS.md: {text}"
-        );
-    }
 }

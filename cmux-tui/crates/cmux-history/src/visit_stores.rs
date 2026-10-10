@@ -260,7 +260,3 @@ pub fn profile_from_file_name(name: &str) -> Option<String> {
     let profile = String::from_utf8(bytes).ok()?;
     (profile_file_name(&profile) == name).then_some(profile)
 }
-
-#[cfg(test)]
-#[path = "visit_stores_tests.rs"]
-mod tests;

@@ -264,11 +264,11 @@ pub(in super::super) fn validate_screen_splits(
 impl WorkspaceRegistry {
     /// `(kind, live)` of `public_id` in the identity ledger, if registered.
     pub(crate) fn split_identity(&self, public_id: &str) -> anyhow::Result<Option<(String, bool)>> {
-        identity_state(&self.connection, public_id)
+        identity_state(&self.connection.get(), public_id)
     }
 
     /// Runs `sql` on the registry, to stage records that another build wrote.
     pub(crate) fn execute_sql_for_test(&self, sql: &str) -> anyhow::Result<()> {
-        Ok(self.connection.execute_batch(sql)?)
+        Ok(self.connection.get().execute_batch(sql)?)
     }
 }

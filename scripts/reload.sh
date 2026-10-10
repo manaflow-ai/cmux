@@ -608,6 +608,12 @@ publish_reload_cli_path() {
     return 0
   fi
 
+  # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
+  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
+  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # release only because readers outside this repo still read /tmp: the
+  # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
+  # builds older than the app pointer. Remove it once those read last-app-cli.
   reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   publish_reload_cli_links "$cli_path"
 }
@@ -1306,6 +1312,16 @@ else
     echo "==> cmux-next: bundling the cmux-tui client set built on this host, $CMUX_TUI_CLIENT_LOCAL"
   fi
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# Release reloads build the helper binaries universal: Release is universal
+# (ONLY_ACTIVE_ARCH = NO), and Bundle acpmux and Bundle optchat-chief need every
+# app architecture in their binaries, while both build scripts default to the
+# host. A fleet --release build failed on "acpmux has architectures arm64, but
+# the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
 fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
@@ -2168,6 +2184,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
   if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
+  fi
+  # ... and every other page from the `bun run dev:pages` server (PageDevServer).
+  if [[ -n "${CMUX_NEXT_PAGES_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_PAGES_DEV_URL="$CMUX_NEXT_PAGES_DEV_URL")
   fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")

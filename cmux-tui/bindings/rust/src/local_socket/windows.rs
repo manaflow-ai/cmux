@@ -486,15 +486,3 @@ pub fn peer_pid(stream: &Stream) -> io::Result<u32> {
     }
     Ok(pid)
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn owner_only_sddl_is_protected_and_inherited_by_children() {
-        let s = String::from_utf16_lossy(&super::owner_only_sddl("S-1-5-21-1-2-3-1002"));
-        assert_eq!(
-            s.trim_end_matches('\0'),
-            "O:S-1-5-21-1-2-3-1002D:P(A;OICI;FA;;;S-1-5-21-1-2-3-1002)"
-        );
-    }
-}

@@ -42,7 +42,7 @@ impl Mux {
                     )?,
                 Some(preparation) => preparation,
                 None => {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.lock_state_pinned(&registry).unwrap();
                     let selectors = self.select_live_creation_selectors(
                         operation,
                         &selector_candidates,

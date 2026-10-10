@@ -177,7 +177,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
-        services.onboarding.showIfNeeded()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).
@@ -229,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
         services.chatsFeed?.keepCurrent()
+        services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second

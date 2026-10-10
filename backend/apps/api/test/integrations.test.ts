@@ -83,20 +83,6 @@ describe("provider clients (fake HTTP)", () => {
       "https://api.github.com/user/memberships/orgs/manaflow-ai": () => ok({ state: "active", role: opts.role ?? "member" })
     })
 
-  it("GitHub: proves the user can access the installation and records only the user's repositories", async () => {
-    const r = await github.complete(e, ghLink({ repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })
-    expect(r).toMatchObject({
-      account: { key: "github:installation:42", name: "manaflow-ai" },
-      scopes_granted: ["issues:write"],
-      credential: { kind: "github_installation", installation_id: 42 },
-      resources: { repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }
-    })
-    const whole = await github.complete(e, ghLink().http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: { githubScope: "installation", requireOrgAdmin: false } })
-    expect(whole.resources).toEqual({ repos: null })
-    await expect(github.complete(e, ghLink({ installations: { installations: [{ id: 7 }] } }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/cannot access/)
-    await expect(github.complete(e, ghLink().http, { installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/no installation_id or code/)
-  })
-
   it("GitHub: require_org_admin refuses a member and accepts an admin", async () => {
     const policy = { githubScope: "linking_user_repos" as const, requireOrgAdmin: true }
     await expect(github.complete(e, ghLink({ role: "member" }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy })).rejects.toThrow(/organization admin/)

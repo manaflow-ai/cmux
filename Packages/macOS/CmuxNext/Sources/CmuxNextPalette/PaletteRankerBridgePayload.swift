@@ -16,6 +16,8 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let actionID: String?
     let demoted: Bool
     let hasShortcut: Bool
+    let suggestedRank: Int?
+    let suggestedSectionIndex: Int?
     let entersScope: Bool
 
     init(_ entry: PaletteSearchEntry) {
@@ -34,6 +36,8 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         actionID = entry.actionID
         demoted = entry.demoted
         hasShortcut = entry.hasShortcut
+        suggestedRank = entry.suggestedRank
+        suggestedSectionIndex = entry.suggestedSectionIndex
         entersScope = entry.entersScope
     }
 }
@@ -49,6 +53,7 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
     let capacity: Int
     let picks: [PaletteRankerBridgePick]
     let pickHalfLife: Double
+    let hidden: [String]
 
     /// `query` nil sends no learned picks (the empty query); otherwise only the
     /// picks whose start begins the query go (the ranker reads no others), so
@@ -65,6 +70,7 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
                                     lastUsed: pick.lastUsed.timeIntervalSinceReferenceDate, last: pick.isLast)
         }
         pickHalfLife = store.pickHalfLife
+        hidden = store.hidden.sorted()
     }
 
     /// The query as learned picks key it (the daemon's rule, palette_usage.rs

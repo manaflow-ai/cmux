@@ -1,5 +1,5 @@
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { authenticate, withGrantClasses } from "./auth.ts"
+import { authenticate } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
@@ -7,7 +7,10 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
-import { selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
+import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
+
+/** The owner each wire scope reaches (principalForOwner). */
+const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
@@ -76,7 +79,10 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
   if (refused) return Response.json({ error: refused }, { status: 403 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
-  const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
+  // In a shared team, a role without team.resources (guest, billing) opens no owner's socket but TeamDO's, which checks by grant (review P2-2).
+  const granted = scope === "user" ? authed : await principalForOwner(env, WIRE_OWNER[scope] ?? "", authed).catch(() => null)
+  if (granted === null) return Response.json({ error: { code: "owner.unreachable", message: "team membership could not be checked; retry" } }, { status: 503 })
+  const principal = granted && !("refused" in granted) ? granted : undefined
   if (!principal) return new Response("forbidden", { status: 403 })
   const [ns, entity] =
     scope === "user"

@@ -144,17 +144,16 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
-    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
-    /// nil answers the page `native.not_connected`.
-    private let git: AgentPaneGitLink?
+    /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
+    /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
-        self.git = git
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
@@ -209,9 +208,9 @@ final class AgentTabStore {
         canHostChat && localHost != nil && holdsTabs(daemon)
     }
 
-    /// The tab showing acpmux session `session` (`cmux://session/<id>`) of this Mac, if any.
-    func tab(showing session: String) -> String? {
-        let host = localHost
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
+    func tab(showing session: String, host: String? = nil) -> String? {
+        let host = host ?? localHost
         return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
     }
 
@@ -260,13 +259,11 @@ final class AgentTabStore {
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
-        model.sessionMustExist = linkedSessions.contains(key) || !local
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
-            // This Mac's git reads would read this Mac's folders, not the chat's machine's, and
-            // the other machine's store keeps its own record of the session (no bind from here).
-            model.onGit = nil
+            // The other machine's store keeps its own record of the session (no bind from here).
+            // Its git reads go to that machine's daemon (``gitLink``).
             model.onSessionChange = nil
         }
         guard let view = makeView(model) else { return nil }
@@ -342,8 +339,10 @@ final class AgentTabStore {
             newTabPages[resolve(provisional)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
-        // A local session's folder is read by the local session host; the page refuses cloud sessions.
-        if let git { model.onGit = { request in try await git.read(request) } }
+        model.onGit = { [weak self] request in
+            guard let link = self?.gitLink?(self?.resolve(provisional) ?? provisional) else { throw AgentPaneGitFailure.notConnected }
+            return try await link.read(request)
+        }
         wireAgentFolder(model, key: provisional)
     }
 
@@ -356,6 +355,7 @@ final class AgentTabStore {
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
         view.deviceChats = pageChats.chats
+        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view
     }

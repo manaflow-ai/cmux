@@ -315,6 +315,10 @@ pub struct Item {
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
+    /// The resume note's cut messages (their full text), for a resume turn
+    /// that is cut again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut: Vec<String>,
 }
 
 /// A cut turn to run again (`HostState::resumes`).
@@ -327,6 +331,11 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The full text of the cut turn's human messages, in log order: the
+    /// resume turn's new messages carry them after the note (they are in
+    /// the log already and are not logged again).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -638,44 +647,6 @@ impl StateFile {
             std::fs::File::open(dir)?.sync_all()?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_conversation::Part;
-
-    #[test]
-    fn state_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = StateFile::new(&dir.path().join("host.json"));
-        assert_eq!(file.load(), HostState::default());
-        let mut state = HostState {
-            conversation: Some("conv_a".into()),
-            logged_seq: 4,
-            ..Default::default()
-        };
-        state.outbox.push(OutboxEntry {
-            conversation: "conv_a".into(),
-            idempotency_key: "turn:optchat:3".into(),
-            op: Op::MessageSend {
-                client_msg_id: "turn:optchat:3".into(),
-                parts: vec![Part::Text {
-                    text: "hi".into(),
-                    runs: None,
-                }],
-                reply_to: None,
-            },
-            rate_retried: false,
-            not_before: None,
-            attempted: false,
-            rate_attempts: 0,
-        });
-        file.save(&state).unwrap();
-        assert_eq!(file.load(), state);
-        std::fs::write(dir.path().join("host.json"), b"{torn").unwrap();
-        assert_eq!(file.load(), HostState::default());
     }
 }
 

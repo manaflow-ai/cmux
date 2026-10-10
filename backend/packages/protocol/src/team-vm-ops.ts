@@ -61,7 +61,9 @@ export const TeamVmView = Schema.Struct({
   /** Set while the current epoch is tainted by a member removal; null otherwise. */
   taint: Schema.NullOr(TeamVmTaint),
   /** VMs replaced by a rebuild that an owner has not deleted yet. */
-  retired: Schema.Array(TeamVmRetired)
+  retired: Schema.Array(TeamVmRetired),
+  /** The team has no owner (Stack demoted the last one): owner actions wait until a Stack team admin promotes one (cx-3bi.4). */
+  no_owner: Schema.optionalKey(Schema.Boolean)
 }).annotate({ identifier: "TeamVmView" })
 
 export const TeamVmStatusRead = def({
@@ -233,7 +235,7 @@ export const TeamVmRetiredExport = def({
   name: "team_vm.retired.export",
   owner: "cloud:TeamDO",
   class: "mutation",
-  risk: "read",
+  risk: "mutate-shared",
   target: "team",
   principals: ["session"],
   params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),

@@ -21,6 +21,10 @@ export interface PaletteRankEntry {
   entersScope?: boolean;
   /** The section the row joins while the user types (the root merges all rows into one list). */
   typingSectionIndex?: number | null;
+  /** The catalog's first-use suggestion order (`ActionDescriptor.paletteSuggestionRank`), if any. */
+  suggestedRank?: number | null;
+  /** The section a suggested row shows in on the empty query (Suggested). */
+  suggestedSectionIndex?: number | null;
   /** The registry action id; found only by a query that is the id or starts it (4+ letters). */
   actionID?: string | null;
   /** A row of a secondary kind (a setting): one tier lower than a command with the same match. */
@@ -51,6 +55,8 @@ export interface PaletteFrecency {
   capacity?: number;
   picks?: PaletteLearnedPick[];
   pickHalfLife?: number;
+  /** Usage keys of rows the user hid: gone from the palette except for a whole-title query. */
+  hidden?: string[];
 }
 
 export interface PaletteRankedRow {
@@ -746,8 +752,13 @@ function sectionOrder(sections: number[], orders: readonly number[]): void {
   });
 }
 
+/** Suggested rows the empty query shows at most. */
+const suggestionLimit = 5;
+
 export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">): PaletteRankedSection[] {
   const entries = request.entries;
+  const hidden = new Set(request.frecency?.hidden ?? []);
+  const isHidden = (entry: PaletteRankEntry) => entry.frecencyKey != null && hidden.has(entry.frecencyKey);
   const orders = request.sectionOrders ?? [];
   const store = request.frecency;
   const now = request.now ?? 0;
@@ -757,9 +768,12 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
   if (request.showsRecent && recentLimit > 0 && store?.entries && Object.keys(store.entries).length > 0) {
     const positionByKey = new Map<string, number>();
     entries.forEach((entry, index) => {
+      // Any row kind the user ran may be Recent (a workspace, tab or setting shows its section
+      // only while typing); a row that matches only behind a query prefix never is.
       if (
         (entry.isEnabled ?? true) &&
-        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        entry.queryPrefix == null &&
+        !isHidden(entry) &&
         entry.frecencyKey &&
         !positionByKey.has(entry.frecencyKey)
       )
@@ -775,10 +789,32 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
       sections.push({ sectionIndex: null, rows });
     }
   }
+  // Suggested: the catalog's first-use commands in its order, after Recent and never
+  // repeating a Recent row (palette-ranking.md 5.2: favorites, recents, suggestions).
+  const suggested = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry, index }) =>
+        entry.suggestedRank != null &&
+        entry.suggestedSectionIndex != null &&
+        (entry.isEnabled ?? true) &&
+        (entry.isVisibleWhenQueryEmpty ?? true) &&
+        !recent.has(index) &&
+        !isHidden(entry),
+    )
+    .sort((a, b) => (a.entry.suggestedRank ?? 0) - (b.entry.suggestedRank ?? 0) || a.index - b.index)
+    .slice(0, suggestionLimit);
+  if (request.showsRecent && suggested.length) {
+    sections.push({
+      sectionIndex: suggested[0].entry.suggestedSectionIndex ?? null,
+      rows: suggested.map(({ index }) => ({ index, score: 0, highlights: [] })),
+    });
+    suggested.forEach(({ index }) => recent.add(index));
+  }
   const order: number[] = [];
   const rowsBySection = new Map<number, PaletteRankedRow[]>();
   entries.forEach((entry, index) => {
-    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index)) return;
+    if (!(entry.isVisibleWhenQueryEmpty ?? true) || recent.has(index) || isHidden(entry)) return;
     const section = entry.sectionIndex ?? 0;
     if (!rowsBySection.has(section)) order.push(section);
     rowsBySection.set(section, [...(rowsBySection.get(section) ?? []), { index, score: 0, highlights: [] }]);
@@ -796,6 +832,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   const now = request.now ?? 0;
   const gated = entries.some((entry) => entry.queryPrefix != null || entry.hidesWhenTyping === true);
   const prepared = fieldsForEntries(entries, request.version);
+  const hidden = new Set(store?.hidden ?? []);
   const scored: Array<{
     index: number;
     score: number;
@@ -815,6 +852,8 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
       if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
       const match = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
       if (!match) return;
+      // A hidden row shows only for a query that is its whole title (so it can be shown again).
+      if (entry.frecencyKey && hidden.has(entry.frecencyKey) && !titleIsQuery(entry.title, query.raw)) return;
       if (match.tier >= matchTier.substring) strong++;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
       if (entry.isEnabled === false) score -= disabledPenalty;

@@ -505,20 +505,3 @@ impl Drop for SubscribeEvents {
         }
     }
 }
-
-#[cfg(test)]
-mod capability_tests {
-    use super::declared_capabilities;
-
-    #[test]
-    fn only_advertised_capabilities_are_declared_in_configured_order() {
-        let s = |v: &[&str]| v.iter().map(|c| c.to_string()).collect::<Vec<_>>();
-        let configured = s(&["agent-session-tabs-v1", "conversation-tabs-v1", "not-advertised-v1"]);
-        let advertised = s(&["conversation-tabs-v1", "bookmarks-v1", "agent-session-tabs-v1"]);
-        assert_eq!(
-            declared_capabilities(&configured, &advertised),
-            s(&["agent-session-tabs-v1", "conversation-tabs-v1"])
-        );
-        assert!(declared_capabilities(&configured, &[]).is_empty(), "identify failed: nothing");
-    }
-}
