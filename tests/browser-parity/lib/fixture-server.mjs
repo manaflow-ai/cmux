@@ -120,7 +120,10 @@ export async function startFixtureServers({ primaryPort = 0, peerPort = 0 } = {}
     origins,
     close: () => {
       for (const socket of tunnels) socket.destroy();
-      return Promise.all([primary, peer].map((s) => new Promise((r) => s.close(r))));
+      // A browser that outlives the run (the app's Chromium in host-cef)
+      // keeps idle keep-alive connections open; close() would wait for
+      // them for ever (cx-04cy: host-cef runs hung until the job timeout).
+      return Promise.all([primary, peer].map((s) => new Promise((r) => { s.close(r); s.closeAllConnections(); })));
     },
   };
 }
