@@ -53,6 +53,8 @@ import {
 } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
+import { useComposerSettings, type ComposerDesign } from "./composerSettings";
+import { composerDesignClasses } from "./composerDesigns";
 import { remoteComposer } from "./remoteEditing";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -169,6 +171,8 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// A DEV/NIGHTLY layout override. The host setting remains the default when omitted.
+  design?: ComposerDesign;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -209,8 +213,11 @@ export function Composer({
   handle,
   sessionId,
   blocked,
+  design: designOverride,
 }: Props) {
   const t = useT();
+  const { design: configuredDesign } = useComposerSettings();
+  const design = designOverride ?? configuredDesign;
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
@@ -757,7 +764,8 @@ export function Composer({
   return (
     <form
       ref={form}
-      className="acpmux-composer"
+      className={`acpmux-composer ${composerDesignClasses(design)}`}
+      data-design={design === "today" ? undefined : design}
       data-shell={shell ? "" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);

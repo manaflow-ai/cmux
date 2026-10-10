@@ -1,9 +1,11 @@
 import CmuxNextAgentPane
+import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSettings
 import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
-/// `agentPane.editedFiles.*` and `agentPane.showContextUsage`. Each change reaches every open view; a new view gets the current
+/// `agentPane.editedFiles.*`, `agentPane.showContextUsage` and the DEV/NIGHTLY composer design. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
@@ -14,6 +16,7 @@ final class AgentPanePageSettings {
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
+    private var composerDesignObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setShowContextUsage(_:)``).
     private weak var settings: SettingsController?
 
@@ -44,10 +47,20 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        // task-owner: lives as long as the tabs; observes config and the DEV/NIGHTLY design override.
         composerObservation = Task { [weak self] in
-            for await value in Observations({ settings.snapshot.agentPaneComposer }) {
+            for await value in Observations({ settings.snapshot.agentPaneComposer.resolved(previewsEnabled: DevTools.isEnabled) }) {
                 guard let self else { return }
                 composer = value
+                push()
+            }
+        }
+        // Debug Settings writes the preview through TunableStore rather than cmux.json. Observe
+        // its revision so every open pane changes with the same setting switch.
+        composerDesignObservation = Task { [weak self] in
+            for await _ in Observations({ TunableStore.shared.revision }) {
+                guard let self, DevTools.isEnabled else { return }
+                composer = settings.snapshot.agentPaneComposer.resolved(previewsEnabled: true)
                 push()
             }
         }

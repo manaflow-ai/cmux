@@ -24,7 +24,8 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+            + SettingsPresentation.tunables + NewTabTunables.all + HomeTunables.all
+            + [SidebarToggleIcon.tunable.descriptor, AgentPaneComposerDesign.tunable.descriptor]
     }
 }
 

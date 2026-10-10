@@ -13,6 +13,7 @@
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
+import type { ComposerDesign } from "../agent-session/acpmux/composerSettings";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
 import type { ProviderRow } from "../pages/coderouter/types";
@@ -144,6 +145,8 @@ export type AgentPaneVariant = VariantBase & {
   /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
    *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
   afterCall?: Record<string, AcpmuxSnapshot>;
+  /** DEV/NIGHTLY composer design selected for this gallery stage. */
+  composerDesign?: ComposerDesign;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

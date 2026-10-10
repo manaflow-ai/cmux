@@ -2,7 +2,8 @@
 // The composer's states (Composer.tsx, ComposerPickers.tsx, ComposerContext.tsx: the prompt,
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
-import { agentPaneEntry } from "../../gallery/format";
+import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
@@ -21,6 +22,81 @@ const finished = [
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
   summary(9, { status: "completed" }),
 ];
+
+const designDraft = "Also stage the **quiet fallback** after `5` failures.\nKeep the POST rule as is.";
+
+const pasteScreenshot: Play = async (ctx) => {
+  const view = ctx.document.defaultView!;
+  const canvas = new view.OffscreenCanvas(280, 160);
+  const paint = canvas.getContext("2d")!;
+  paint.fillStyle = "#8b8478";
+  paint.fillRect(0, 0, 280, 160);
+  paint.fillStyle = "#eee8dc";
+  paint.fillRect(28, 42, 224, 14);
+  paint.fillRect(28, 72, 176, 14);
+  const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "composer-note.png", {
+    type: "image/png",
+  });
+  const field = ctx.find({ selector: ".acpmux-md" });
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+  field.dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+};
+
+const confirmDesign =
+  (design: "halo" | "rail" | "notch"): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(`.acpmux-composer[data-design="${design}"]`));
+    await ctx.focus({ selector: ".acpmux-md" });
+  };
+
+const confirmWorkingDesign =
+  (design: "halo" | "rail" | "notch"): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(`.acpmux-composer[data-design="${design}"]`));
+    await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Stop"]'));
+  };
+
+function designVariants(design: "halo" | "rail" | "notch"): Record<string, AgentPaneVariant> {
+  const base = { composerDesign: design } as const;
+  return {
+    [`design-${design}`]: {
+      ...base,
+      note: `${design}: empty new chat; the quiet writing surface keeps every control reachable from its rail.`,
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: confirmDesign(design),
+    },
+    [`design-${design}-draft`]: {
+      ...base,
+      note: `${design}: two-line draft; the prompt grows without hiding its controls.`,
+      ready: { draft: designDraft },
+      snapshot: chat(finished),
+      play: confirmDesign(design),
+    },
+    [`design-${design}-working`]: {
+      ...base,
+      note: `${design}: a running turn; the shared send control becomes Stop in place.`,
+      snapshot: chat(working, { isWorking: true }),
+      play: confirmWorkingDesign(design),
+    },
+    [`design-${design}-with-attachments`]: {
+      ...base,
+      note: `${design}: pasted image; the attachment row remains above the prompt.`,
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, promptCapabilities: { image: true } } }),
+      play: pasteScreenshot,
+    },
+    [`design-${design}-narrow`]: {
+      ...base,
+      note: `${design}: narrow-pane proof; open at the gallery's narrow width to check the quiet rail.`,
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      play: confirmDesign(design),
+    },
+  };
+}
 
 const composerControls = {
   configOptions: [
@@ -71,6 +147,10 @@ export default agentPaneEntry({
       value: 33,
       reason: "Composer interactions must stay below one display frame on the gallery host.",
     },
+    popupLayer: {
+      value: true,
+      reason: "Composer menus are opaque portal layers and must stay above the transcript and card edges.",
+    },
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
@@ -83,6 +163,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
+    ...designVariants("halo"),
+    ...designVariants("rail"),
+    ...designVariants("notch"),
     "new-chat": {
       note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },

@@ -16596,6 +16596,87 @@
     },
     {
       "accepts" : [
+        "today",
+        "halo",
+        "rail",
+        "notch"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.composerToday",
+            "text" : "Today"
+          },
+          "value" : "today"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.composerHalo",
+            "text" : "Halo"
+          },
+          "value" : "halo"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.composerRail",
+            "text" : "Rail"
+          },
+          "value" : "rail"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.composerNotch",
+            "text" : "Notch"
+          },
+          "value" : "notch"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "today",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.composer.design.help",
+        "text" : "DEV/NIGHTLY preview layout for the agent composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.composer.design",
+      "keywords" : [
+        "composer",
+        "design",
+        "layout",
+        "preview",
+        "DEV",
+        "NIGHTLY"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "agentPane",
+        "composer",
+        "design"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.composer.design",
+        "text" : "Composer Design"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -17425,7 +17506,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a4ab8db8dd10e662698bdfcdbc9464159ea3a807d09dec16df67ff9a07f46e96",
+  "schema_hash" : "457baf929806153f2685a66ad25b3cde0775d14bad7b3496cf57cf7dea74e733",
   "sections" : [
     {
       "id" : "general",

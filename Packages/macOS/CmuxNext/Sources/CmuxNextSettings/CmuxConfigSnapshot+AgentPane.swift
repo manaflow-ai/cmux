@@ -1,5 +1,5 @@
 /// The agent pane's settings: the edited-files card (`agentPane.editedFiles.*`) and the composer
-/// (`agentPane.showContextUsage`).
+/// (`agentPane.showContextUsage` and the DEV/NIGHTLY `agentPane.composer.design`).
 nonisolated extension CmuxConfigSnapshot {
     /// Parses every agent pane key into `snapshot`.
     static func parseAgentPane(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {

@@ -1,6 +1,793 @@
 {
   "sourceLanguage": "en",
   "strings": {
+
+  "settings.agentPane.composer.design": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تصميم محرر الرسائل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Izgled uređivača poruka"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Beskedfeltets design"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Design des Eingabefelds"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Composer Design"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diseño del compositor"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Disposition de la saisie"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Design del compositore"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "コンポーザーのデザイン"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "រចនាប័ទ្មប្រអប់សារ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "컴포저 디자인"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Utforming av meldingsfelt"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wygląd edytora wiadomości"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Design do compositor"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Дизайн поля сообщения"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "รูปแบบช่องเขียนข้อความ"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "İleti alanı tasarımı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Дизайн поля повідомлення"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Thiết kế ô soạn thảo"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "撰写器设计"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "編輯器設計"
+        }
+      }
+    }
+  },
+  "settings.agentPane.composer.design.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تخطيط معاينة لمحرر رسائل الوكيل في DEV/NIGHTLY."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Probni raspored uređivača poruka agenta za DEV/NIGHTLY."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Forhåndsvisning af agentens beskedfelt i DEV/NIGHTLY."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Vorschau-Layout für das Agent-Eingabefeld in DEV/NIGHTLY."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "DEV/NIGHTLY preview layout for the agent composer."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Diseño de vista previa del compositor de agente en DEV/NIGHTLY."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Disposition d’aperçu de la saisie des messages de l’agent dans DEV/NIGHTLY."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Layout di anteprima del compositore dell’agente in DEV/NIGHTLY."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "DEV/NIGHTLY のエージェントコンポーザーのプレビューレイアウト。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ប្លង់មើលជាមុនសម្រាប់ប្រអប់សារភ្នាក់ងារនៅក្នុង DEV/NIGHTLY។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "DEV/NIGHTLY 에이전트 컴포저 미리보기 레이아웃입니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Forhåndsvisning av agentens meldingsfelt i DEV/NIGHTLY."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Podgląd układu edytora wiadomości agenta w DEV/NIGHTLY."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Layout de prévia do compositor do agente no DEV/NIGHTLY."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Предварительный макет поля сообщения агента в DEV/NIGHTLY."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "รูปแบบตัวอย่างของช่องเขียนข้อความเอเจนต์ใน DEV/NIGHTLY"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "DEV/NIGHTLY için ajan ileti alanının önizleme düzeni."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Попередній макет поля повідомлення агента в DEV/NIGHTLY."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bố cục xem trước cho ô soạn thảo của tác tử trong DEV/NIGHTLY."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "DEV/NIGHTLY 的代理撰写器预览布局。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "DEV/NIGHTLY 的代理編輯器預覽版面。"
+        }
+      }
+    }
+  },
+  "settings.choice.composerToday": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "الحالي"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Trenutni"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nuværende"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aktuell"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Today"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Actual"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Actuelle"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Attuale"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "現在"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បច្ចុប្បន្ន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "현재"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nåværende"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Obecny"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Atual"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Текущий"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ปัจจุบัน"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Mevcut"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Поточний"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hiện tại"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "当前"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "目前"
+        }
+      }
+    }
+  },
+  "settings.choice.composerHalo": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "هالة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Prsten"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glorie"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Lichtring"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Halo"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aureola"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Auréole"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aureola"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "光輪"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "រង្វង់ពន្លឺ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "광륜"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glorie"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aureola"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Auréola"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ореол"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "วงแสง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hale"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ореол"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Vầng sáng"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "光环"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "光環"
+        }
+      }
+    }
+  },
+  "settings.choice.composerRail": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "شريط جانبي"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bočna traka"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sideskinne"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Seitenleiste"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Rail"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Barra lateral"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Barre latérale"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Barra laterale"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "サイドレール"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "របារចំហៀង"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "측면 레일"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sideskinne"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Boczna listwa"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Barra lateral"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Боковая панель"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แถบด้านข้าง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Yan şerit"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Бічна панель"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Thanh bên"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "侧栏"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "側欄"
+        }
+      }
+    }
+  },
+  "settings.choice.composerNotch": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "هامش"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Urez"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Indhak"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kerbe"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Notch"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Muesca"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Encoche"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Incavo"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "切り込み"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ស្នាមឆក"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "홈"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hakk"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wcięcie"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Entalhe"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Выемка"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "รอยบาก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Çentik"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Виїмка"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Khía"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "缺口"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "凹槽"
+        }
+      }
+    }
+  },
   "settings.agentPane.zoom": {
     "extractionState": "manual",
     "localizations": {

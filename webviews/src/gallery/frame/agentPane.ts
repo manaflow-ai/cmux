@@ -8,6 +8,7 @@ import type { AgentPaneVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
+import { setComposerSettings } from "../../agent-session/acpmux/composerSettings";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -27,6 +28,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
+  // Gallery stages select the same host setting the native pane pushes. Reset to today's
+  // composer when a stage does not opt into a variation so stages remain independently browsable.
+  setComposerSettings({ showContextUsage: true, design: state.composerDesign ?? "today" });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   const deliver = () => {
