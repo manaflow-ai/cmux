@@ -29,6 +29,7 @@ public final class MobileDisplaySettings {
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let useLegacyTerminalSizingKey = "cmux.mobile.useLegacyTerminalSizing"
+    private static let handoffTerminalSizingWhenInactiveKey = "cmux.mobile.handoffTerminalSizingWhenInactive"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
@@ -113,6 +114,18 @@ public final class MobileDisplaySettings {
     /// injected ``UserDefaults``.
     public var useLegacyTerminalSizing: Bool {
         didSet { defaults.set(useLegacyTerminalSizing, forKey: Self.useLegacyTerminalSizingKey) }
+    }
+
+    /// Whether an inactive iPhone releases its terminal viewport so a Mac can
+    /// take the grid. Defaults to `false`, preserving the host policy and the
+    /// last confirmed grid across a background/foreground transition.
+    public var handoffTerminalSizingWhenInactive: Bool {
+        didSet {
+            defaults.set(
+                handoffTerminalSizingWhenInactive,
+                forKey: Self.handoffTerminalSizingWhenInactiveKey
+            )
+        }
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
@@ -238,6 +251,9 @@ public final class MobileDisplaySettings {
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
+        self.handoffTerminalSizingWhenInactive = defaults.object(
+            forKey: Self.handoffTerminalSizingWhenInactiveKey
+        ) as? Bool ?? false
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
