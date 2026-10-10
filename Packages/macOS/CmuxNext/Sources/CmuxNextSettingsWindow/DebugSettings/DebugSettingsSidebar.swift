@@ -20,6 +20,7 @@ struct DebugSettingsSidebar: View {
                     if !model.query.isEmpty {
                         Button { model.query = "" } label: { Icon(.fieldClear, size: 13) }
                             .buttonStyle(.plain).foregroundStyle(SettingsStyle.tertiary)
+                            .help(DebugSettingsStrings.clearSearch).accessibilityLabel(DebugSettingsStrings.clearSearch)
                     }
                 }
                 .padding(.horizontal, Metrics.space4)
