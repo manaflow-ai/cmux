@@ -74,7 +74,7 @@ export const toChat = (b: Json): Json | string => {
   const tc = b.tool_choice as Json | undefined
   if (out.tools && tc?.type === "any") out.tool_choice = "required"
   else if (out.tools && tc?.type === "tool" && typeof tc.name === "string") out.tool_choice = { type: "function", function: { name: tc.name } }
-  else if (tc?.type === "none") delete out.tools
+  else if (out.tools && tc?.type === "none") out.tool_choice = "none"
   return out
 }
 
@@ -103,7 +103,10 @@ const fromChatJson = (j: Json, model: unknown): Json => {
   return { id: `msg_${String(j.id ?? crypto.randomUUID()).replace(/^chatcmpl-/, "")}`, type: "message", role: "assistant", model, content, stop_reason: STOP[String(choice.finish_reason)] ?? "end_turn", stop_sequence: null, usage: usageOf(j.usage) }
 }
 
-/** chat/completions SSE -> Messages SSE (text and tool_use blocks; reasoning is dropped). */
+/**
+ * chat/completions SSE -> Messages SSE (text and tool_use blocks; reasoning is dropped). Providers
+ * send each tool call's deltas in order; an interleaved provider would split a call into two blocks.
+ */
 const sseTranslator = (model: unknown) => {
   const enc = new TextEncoder()
   const dec = new TextDecoder()
@@ -177,7 +180,11 @@ const sseTranslator = (model: unknown) => {
       }
     },
     flush(c) {
-      if (!done && started) finish(c)
+      // No [DONE]: the upstream broke or sent nothing. Say so; never present a cut answer as complete.
+      if (!done) {
+        close(c)
+        c.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message: "the model stream ended early; retry" } })}\n\n`))
+      }
     }
   })
 }
@@ -186,7 +193,12 @@ const ERROR_TYPE: Readonly<Record<number, string>> = { 400: "invalid_request_err
 
 const fromChatError = async (r: Response): Promise<Response> => {
   const j = (await r.json().catch(() => ({}))) as { error?: { message?: string } }
-  return fail(r.status, ERROR_TYPE[r.status] ?? "api_error", j.error?.message ?? "the request failed")
+  const out = fail(r.status, ERROR_TYPE[r.status] ?? "api_error", j.error?.message ?? "the request failed")
+  for (const h of ["retry-after", "x-cmux-request-id"]) {
+    const v = r.headers.get(h)
+    if (v) out.headers.set(h, v)
+  }
+  return out
 }
 
 export const handleMessages = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
@@ -205,6 +217,7 @@ export const handleMessages = async (env: Env, request: Request, ctx: ExecutionC
 
 /** Token count estimate (bytes / 3, rounded up): an upper-leaning estimate; no provider call. */
 export const handleCountTokens = async (env: Env, request: Request): Promise<Response> => {
+  if (env.INFERENCE_FREE_IP_LIMIT && !(await env.INFERENCE_FREE_IP_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" })).success) return fail(429, "rate_limit_error", "too many requests from this network")
   const admitted = await admitRequest(env, request)
   if (admitted instanceof Response) return fromChatError(admitted)
   return Response.json({ input_tokens: Math.ceil(admitted.bytes / 3) })
