@@ -221,15 +221,21 @@ enum TabLifecycle {
         if [.cli, .mcp, .script].contains(invocation.origin) {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
+        // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
+        // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
+        let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
+        if let beside { agentTab = AgentBesidePlacement.placed(invocation, in: beside, then: agentTab) }
+        let background = beside != nil && invocation.newColumnBeside
         switch profileRequest {
         case .cascade: break
-        case .explicit(let id): return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+        case .explicit(let id):
+            return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
         case .agent:
             let profiles = ctx.services.browserProfiles
             ctx.registry.track(Task { @MainActor in
                 do {
                     let id = try await AgentBrowserProfile.ensure(profiles)
-                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
                     return nil
                 } catch {
                     return "agent-browser-profile: \(error)"
@@ -248,9 +254,9 @@ enum TabLifecycle {
             opener = target
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
-        // An agent's tab beside its chat: selected there, focus stays in the chat (AgentBesidePlacement).
-        if invocation.besideCaller, let controller = ctx.services.paneController(for: opener) {
-            return AgentBesidePlacement.openBrowser(invocation, url: url, engine: engine, in: controller, then: then)
+        if let beside {
+            _ = beside.newBrowserTab(url: url, engine: engine, background: background, then: agentTab)
+            return
         }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
@@ -295,9 +301,9 @@ enum TabLifecycle {
     /// `profile` argument). Without a URL it opens the new tab page rather
     /// than copying the selected tab, whose page belongs to another profile.
     private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
-                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
+                                      background: Bool = false, then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         if let controller = ctx.services.paneController(for: pane) {
-            controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
+            controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, then: agentTab)
             return
         }
         let browserTabs = ctx.services.cache.browserTabs

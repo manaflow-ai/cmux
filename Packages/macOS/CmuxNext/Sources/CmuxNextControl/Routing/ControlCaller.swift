@@ -74,10 +74,12 @@ struct ControlCallerLocation: Sendable, Equatable {
     }
 
     /// The first pane of the next column right of `pane` (`column`, as the
-    /// window draws columns left to right).
+    /// window draws columns left to right). Only a scrolling column counts:
+    /// a dock (another chat dock, a tool dock) never takes an agent's tabs,
+    /// so a chat in the strip's last column gets a new column instead.
     static func besidePane(of pane: ControlPaneInfo, on screen: ControlScreenInfo) -> ControlPaneInfo? {
         guard let column = pane.column else { return nil }
-        return screen.panes.first { $0.column == column + 1 }
+        return screen.panes.first { $0.column == column + 1 && $0.dock == nil }
     }
 
     /// A tab of the beside pane to aim an `openBrowser` at: its selected tab, else its first.
@@ -126,21 +128,16 @@ extension ControlRouter {
     /// Aims an agent's surface-opening run that names no target at the
     /// column right of its chat (beside_caller). An explicit target wins;
     /// a caller the topology does not show leaves the run as it is.
-    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo,
-                                  params: [String: JSONValue], topology: ControlTopology) throws {
-        guard besideCallerActions.contains(action.id), request.target == nil,
-              let caller = try ControlCaller(params), caller.agentSession != nil,
-              let location = ControlCallerLocation.resolve(caller, in: topology) else { return }
+    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) {
+        guard besideCallerActions.contains(action.id), request.target == nil, let session = request.callerAgentSession,
+              let location = ControlCallerLocation.resolve(ControlCaller(agentSession: session), in: topology) else { return }
         let paneTarget = action.targets.contains("pane")
-        if let beside = location.beside {
-            if paneTarget {
-                request.target = ControlTargetRef(kind: "pane", id: beside.id)
-            } else if let tab = location.besideTab {
-                request.target = ControlTargetRef(kind: "tab", id: tab)
-            } else {
-                return
-            }
+        if let beside = location.beside, paneTarget {
+            request.target = ControlTargetRef(kind: "pane", id: beside.id)
+        } else if location.beside != nil, let tab = location.besideTab {
+            request.target = ControlTargetRef(kind: "tab", id: tab)
         } else {
+            // No column right of the chat (or an empty one a tab target cannot name): a new column.
             request.target = paneTarget ? ControlTargetRef(kind: "pane", id: location.pane.id)
                 : ControlTargetRef(kind: "tab", id: location.tab.id)
             request.newColumnBeside = true

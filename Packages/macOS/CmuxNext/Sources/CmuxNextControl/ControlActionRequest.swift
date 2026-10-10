@@ -13,6 +13,8 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var focus: Bool
     /// The router aimed this run at the column right of its agent caller's
     /// chat (`caller.agent_session`, beside_caller in ControlCaller).
+    /// `caller.agent_session`: the agent that sent the run (ControlCaller).
+    public var callerAgentSession: String?
     public var besideCaller = false
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.

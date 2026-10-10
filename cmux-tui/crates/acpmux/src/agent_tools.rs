@@ -48,9 +48,10 @@ pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
 /// (`caller.agent_session`), so the app opens their tabs beside its chat.
 pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
-/// Caller ids an agent must not inherit from the daemon's own environment.
-pub const INHERITED_CALLER_ENV: [&str; 3] =
-    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID"];
+/// Caller ids an agent must not inherit from the daemon's own environment
+/// (a daemon an agent started carries that agent's session too).
+pub const INHERITED_CALLER_ENV: [&str; 4] =
+    ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
 
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.

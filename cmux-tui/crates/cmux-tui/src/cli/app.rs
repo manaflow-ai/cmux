@@ -699,20 +699,33 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
 }
 
 /// `params` with the caller added for a [`CALLER_METHODS`] method that names
-/// none. `browser.open_split` names a terminal with its own `terminal_id`
-/// and refuses unknown params, so it gets only an agent caller.
-fn with_caller(method: &str, mut params: Value) -> Value {
+/// none, and whether it was added. `browser.open_split` names a terminal with
+/// its own `terminal_id`, so it gets only an agent caller.
+fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
     if !CALLER_METHODS.contains(&method) {
-        return params;
+        return (params, false);
     }
-    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return params };
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
     if method == "browser.open_split" && caller.get("agent_session").is_none() {
-        return params;
+        return (params, false);
     }
-    if let Some(object) = params.as_object_mut() {
-        object.entry("caller").or_insert(caller);
+    let mut added = false;
+    if let Some(object) = params.as_object_mut()
+        && !object.contains_key("caller")
+    {
+        object.insert("caller".into(), caller);
+        added = true;
     }
-    params
+    (params, added)
+}
+
+/// An app from before `caller` refuses it as an unknown param (its
+/// `browser.open_split` takes no unknown params): the request is sent again
+/// without it, so a newer CLI still opens the tab there.
+fn refused_caller(response: &Result<Value, Value>) -> bool {
+    let Err(error) = response else { return false };
+    error_code(error) == Some("invalid_params")
+        && error.get("message").and_then(Value::as_str).is_some_and(|text| text.contains("caller"))
 }
 
 /// `timeout: None` reads until the app answers or closes the connection.
@@ -722,7 +735,13 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    exchange(stream, method, with_read_barrier(with_caller(method, params)), timeout)
+    let timeout = timeout.into();
+    let (with, added) = with_caller(method, params.clone());
+    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    if added && refused_caller(&response) {
+        return exchange(stream, method, with_read_barrier(params), timeout);
+    }
+    Ok(response)
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
