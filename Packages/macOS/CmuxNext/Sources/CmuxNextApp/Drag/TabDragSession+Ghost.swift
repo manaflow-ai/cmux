@@ -42,6 +42,11 @@ extension TabDragSession {
             update(current.point)
             moving = true
         }
+        // A pointer resting on a pane edge sends no events: hit-test again once the edge arms.
+        if current === drag, let layout = current.winner?.provider as? LayoutTabDropTarget, let deadline = layout.dwellDeadline {
+            if CACurrentMediaTime() >= deadline { update(current.point) }
+            moving = true
+        }
         current.ghost.render(current.motion)
         guard !moving else { return true }
         if current === landing { finishLanding() }
