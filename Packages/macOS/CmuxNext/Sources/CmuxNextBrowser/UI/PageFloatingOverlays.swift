@@ -114,8 +114,10 @@ final class PageFloatingOverlays {
         pagesObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: nil, queue: .main
         ) { [weak self] note in
+            // Only the window's identity crosses into the main-actor closure.
+            let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window = note.object as? NSWindow, window === self.page?.window else { return }
+                guard let self, let window, window == self.page?.window.map(ObjectIdentifier.init) else { return }
                 self.sync()
             }
         }
