@@ -47,6 +47,7 @@ pub(crate) const PALETTE_USAGE_HIDE: &str = "palette_usage.hide";
 pub(crate) const PALETTE_USAGE_FORGET: &str = "palette_usage.forget";
 pub(crate) const PALETTE_USAGE_IMPORT: &str = "palette_usage.import";
 pub(crate) const CLOSED_REOPEN: &str = "closed.reopen";
+pub(crate) const CLOSED_DELETE: &str = "closed.delete";
 pub(crate) const TAB_GROUP_LIST: &str = "tab_group.list";
 pub(crate) const TAB_GROUP_GET: &str = "tab_group.get";
 pub(crate) const TAB_GROUP_CREATE: &str = "tab_group.create";
