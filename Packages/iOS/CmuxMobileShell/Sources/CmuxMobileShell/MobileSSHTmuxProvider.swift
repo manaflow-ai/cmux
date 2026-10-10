@@ -68,7 +68,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     func collectStaleGroupedSessions() async {
         if let collection { return await collection.value }
         let task = Task { @MainActor [connection, tmux] in
-            let format = "#{session_attached}:#{session_name}".posixShellSingleQuoted
+            let format = "#{session_attached}:#{MobileSSHTmuxControlClient.groupedSessionOption}:#{session_name}".posixShellSingleQuoted
             guard let connection,
                   let result = try? await connection.exec("\(tmux) list-sessions -F \(format) 2>/dev/null"),
                   result.exitStatus == 0 else { return } // no server running
@@ -85,13 +85,13 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     }
 
     /// Names of the phone's grouped sessions with no attached client, from
-    /// `list-sessions -F '#{session_attached}:#{session_name}'`. Session
-    /// names cannot contain `:`, so the first `:` splits the fields.
+    /// `list-sessions -F '#{session_attached}:#{@cmux-ios-grouped}:#{session_name}'`.
+    /// Session names cannot contain `:`, so the two separators split the fields.
     nonisolated static func staleGroupedSessions(_ output: String) -> [String] {
         output.split(whereSeparator: \.isNewline).compactMap { line in
-            guard let colon = line.firstIndex(of: ":"), line[..<colon] == "0" else { return nil }
-            let name = String(line[line.index(after: colon)...])
-            return name.contains(MobileSSHTmuxControlClient.groupedSessionMarker) ? name : nil
+            let fields = line.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count == 3, fields[0] == "0", fields[1] == "1" else { return nil }
+            return String(fields[2])
         }
     }
 
@@ -113,6 +113,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// One row of `list-panes -a`.
     struct PaneRow: Equatable {
         var session: String
+        var isGrouped: Bool
         var windowIndex: Int
         var windowName: String
         var windowPaneCount: Int
@@ -122,15 +123,29 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     /// `:`-separated: tmux forbids `:` in session names and prints control
     /// characters (a tab) as `_`. The window name is last, so it may contain `:`.
-    nonisolated static let listFormat = ["#{session_name}", "#{window_index}", "#{window_panes}", "#{pane_id}", "#{pane_index}", "#{window_name}"]
+    nonisolated static let listFormat = ["#{session_name}", "#{@cmux-ios-grouped}", "#{window_index}", "#{window_panes}", "#{pane_id}", "#{pane_index}", "#{window_name}"]
         .joined(separator: ":")
 
     nonisolated static func parsePaneRows(_ output: String) -> [PaneRow] {
         output.split(whereSeparator: \.isNewline).compactMap { line in
-            let fields = line.split(separator: ":", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 6, let windowIndex = Int(fields[1]), let count = Int(fields[2]),
-                  let pane = MobileSSHTmuxControlParser.id(fields[3], "%"), let paneIndex = Int(fields[4]) else { return nil }
-            return PaneRow(session: fields[0], windowIndex: windowIndex, windowName: fields[5], windowPaneCount: count, pane: pane, paneIndex: paneIndex)
+            let fields = line.split(separator: ":", maxSplits: 6, omittingEmptySubsequences: false).map(String.init)
+            let offset: Int
+            let isGrouped: Bool
+            switch fields.count {
+            case 7:
+                offset = 1
+                isGrouped = fields[1] == "1"
+            case 6:
+                // Accept the pre-ownership format for callers and old fixtures;
+                // an untagged session is always treated as user-owned.
+                offset = 0
+                isGrouped = false
+            default:
+                return nil
+            }
+            guard let windowIndex = Int(fields[offset + 1]), let count = Int(fields[offset + 2]),
+                  let pane = MobileSSHTmuxControlParser.id(fields[offset + 3], "%"), let paneIndex = Int(fields[offset + 4]) else { return nil }
+            return PaneRow(session: fields[0], isGrouped: isGrouped, windowIndex: windowIndex, windowName: fields[offset + 5], windowPaneCount: count, pane: pane, paneIndex: paneIndex)
         }
     }
 
@@ -141,7 +156,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     nonisolated static func workspaces(from rows: [PaneRow]) -> [MobileSSHWorkspace] {
         var order: [String] = []
         var bySession: [String: [PaneRow]] = [:]
-        for row in rows where !row.session.contains(MobileSSHTmuxControlClient.groupedSessionMarker) {
+        for row in rows where !row.isGrouped {
             if bySession[row.session] == nil { order.append(row.session) }
             bySession[row.session, default: []].append(row)
         }
