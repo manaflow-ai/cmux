@@ -52,7 +52,7 @@ enum InProcessMachineCreateLauncher {
                     return provider
                 }
                 guard let scope, scope == registry.creationScope else { return nil }
-                _ = await registry.refresh(force: false)
+                _ = await registry.refresh(force: true)
                 return registry.provider(machineID: summary.id)
             },
             provider: { machineID in
@@ -260,7 +260,7 @@ enum InProcessMachineCreateLauncher {
             if provider == nil {
                 provider = dependencies.provider(machineID)
                 if provider == nil {
-                    await dependencies.refresh(false)
+                    await dependencies.refresh(true)
                     provider = dependencies.provider(machineID)
                 }
             }

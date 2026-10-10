@@ -606,14 +606,13 @@ extension TerminalController {
                 }
                 var payload: [String: Any]
                 var isCreatedReceipt = false
-                let createdReceiptSession = await registry.createdTrustedCarrierSession(machineID: vmId) ?? "cmux"
+                let createdReceiptSession = await registry.createdTrustedCarrierSession(machineID: vmId) ?? "cloud"
                 if deviceFingerprint == nil,
                    let endpoint = await registry.takeCreatedTrustedCarrierEndpoint(machineID: vmId) {
                     isCreatedReceipt = true
                     // New Machine: preserve the create receipt's complete
-                    // endpoint. In particular, the daemon session is a
-                    // backend contract (`cloud`), not the legacy local
-                    // default used by the route-only fallback below.
+                    // endpoint, including any explicitly assigned daemon
+                    // session instead of the default `cloud` session.
                     payload = Self.socketWorkerCloudAttachPayload(endpoint)
                 } else if deviceFingerprint == nil,
                           let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {

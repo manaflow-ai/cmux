@@ -179,7 +179,7 @@ public actor CloudMachineLinkManager {
     /// - Parameter machineID: The machine whose link is being opened.
     /// - Returns: The session shared by native and external CLI links.
     public func session(for machineID: String) -> String {
-        createdTrustedCarrierEndpoints[machineID]?.session ?? "cmux"
+        createdTrustedCarrierEndpoints[machineID]?.session ?? "cloud"
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {

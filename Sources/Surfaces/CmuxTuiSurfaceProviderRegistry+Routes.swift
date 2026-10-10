@@ -38,9 +38,9 @@ extension CmuxTuiSurfaceProviderRegistry {
         return route
     }
 
-    /// The create receipt's daemon session, when this process admitted the
-    /// machine from a trusted-carrier response. External CLI opens reuse this
-    /// value after the one-shot attach receipt has been consumed.
+    /// The daemon session shared with native links: a retained create receipt's
+    /// session when available, otherwise the Cloud daemon default. External CLI
+    /// opens reuse this value after the one-shot attach receipt is consumed.
     func createdTrustedCarrierSession(machineID: String) async -> String? {
         guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             return nil
