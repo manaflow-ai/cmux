@@ -115,6 +115,10 @@ DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+BOOT_ID_FILE=/etc/cmux/daemon-boot-id
+BOOT_ID_SOURCE=/proc/sys/kernel/random/boot_id
+# daemon_paths() URL-safe-base64 encodes the fixed cloud session component.
+REMOTE_SESSION_COMPONENT=Y2xvdWQ
 METADATA=http://169.254.169.254
 PARKED_TICK=0.05
 TEMPLATE_RUN_DIR=/run/cmux
@@ -149,10 +153,84 @@ instance_id() {
 }
 
 cmux_tui_layout
+boot_id_recovered=""
 
 daemon_pid=""
 desktop_pid=""
 parked=""
+
+# A hard power-off can leave the previous daemon's runtime marker without a
+# shutdown outcome. After a kernel reboot there cannot be a live predecessor
+# holding that lifecycle, so remove only stale runtime evidence. Preserve any
+# existing outcome unless it is explicitly a valid successful outcome: a
+# failed or malformed record remains an acknowledgement fence.
+recover_rebooted_daemon_state() {
+  current_boot_id=$(cat "$BOOT_ID_SOURCE" 2>/dev/null) || return 0
+  case "$current_boot_id" in
+    ""|*[!A-Za-z0-9-]*) return 0 ;;
+  esac
+  # The template park command removes the marker while this supervisor stays
+  # alive for the snapshot. Recreate it even when the in-memory boot ID is
+  # unchanged so a resumed clone has a predecessor marker before its first
+  # real reboot.
+  [ "$boot_id_recovered" = "$current_boot_id" ] && [ -e "$BOOT_ID_FILE" ] && return 0
+  previous_boot_id=$(cat "$BOOT_ID_FILE" 2>/dev/null || true)
+  if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
+    session_state="$REMOTE_STATE_DIR/sessions/$REMOTE_SESSION_COMPONENT"
+    outcome="$session_state/shutdown.json"
+    if [ ! -e "$outcome" ] || python3 - "$outcome" <<'PY'
+import json
+import sys
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate object key")
+        result[key] = value
+    return result
+
+def reject_constant(value):
+    raise ValueError("non-standard JSON constant")
+
+def contains_surrogate(value):
+    if isinstance(value, str):
+        return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+    if isinstance(value, dict):
+        return any(contains_surrogate(key) or contains_surrogate(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(contains_surrogate(item) for item in value)
+    return False
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = json.load(
+            stream,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+if (
+    contains_surrogate(value)
+    or type(value) is not dict
+    or type(value.get("version")) is not int
+    or value["version"] != 1
+    or type(value.get("lifecycle_id")) is not str
+    or not value["lifecycle_id"]
+    or value.get("status") != "succeeded"
+):
+    raise SystemExit(1)
+PY
+    then
+      rm -f "$session_state/runtime.json" "$outcome"
+    fi
+  fi
+  mkdir -p "$(dirname "$BOOT_ID_FILE")" 2>/dev/null \
+    && printf '%s\n' "$current_boot_id" >"$BOOT_ID_FILE" 2>/dev/null || true
+  boot_id_recovered=$current_boot_id
+}
 
 start_desktop() {
   [ -x "$DESKTOP_BOOT" ] || return 0
@@ -268,6 +346,7 @@ while true; do
   # this same selection names, so re-read the layout until one appears.
   [ -x "$BIN" ] || cmux_tui_layout
   if [ -x "$BIN" ]; then
+    recover_rebooted_daemon_state
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
       stop_daemon # the machine being snapshotted: parked until the snapshot is taken
