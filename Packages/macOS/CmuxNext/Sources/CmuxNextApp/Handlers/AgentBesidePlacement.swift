@@ -76,9 +76,9 @@ enum AgentBesidePlacement {
                 if chatHadFocus || content.focusedPane?.pane === anchor {
                     let chatID = chat.id
                     let listed = Task { @MainActor () -> Bool in
-                        // The chat's new dock pane, once the window shows it (the controller can come after the store's echo).
-                        let shown = { services.locateTab(chatID).flatMap { $0.1 === anchor ? nil : content.pane(for: $0.1.handle) } }
-                        for await moved in Observations({ shown() != nil }) where moved {
+                        // The store lists the chat in its new dock pane (the window's controller may come later;
+                        // focus goes by the pane's id, which the window applies when it shows the pane).
+                        for await moved in Observations({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
@@ -89,8 +89,8 @@ enum AgentBesidePlacement {
                     }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(chatID)?.1, let shown = content.pane(for: pane.handle) {
-                        PaneHandlers.focus(shown.layoutPaneID, in: content)
+                    if moved, let pane = services.locateTab(chatID)?.1 {
+                        PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
                     }
                 }
                 services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
