@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298" as const;
+export const SDK_IR_SHA256 = "3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1054,6 +1054,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "no_reply": {
+        "since": 12,
+        "capability": null
+      },
       "paste": {
         "since": 7,
         "capability": null
@@ -1066,7 +1070,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 6,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "no_reply": {
+        "since": 12,
+        "capability": null
+      }
+    },
     "stream": null,
     "constraints": [
       "PTY surfaces only."
@@ -11472,6 +11481,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Base64"
           }
         },
+        "no_reply": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "paste": {
           "default": false,
           "nullable": false,
@@ -11526,6 +11545,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             },
             "kind": "array",
             "min_items": 1
+          }
+        },
+        "no_reply": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "surface": {

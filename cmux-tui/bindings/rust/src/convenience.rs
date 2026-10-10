@@ -96,6 +96,7 @@ impl CmuxClient {
             surface,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
+            no_reply: None,
             paste: None,
         })
         .map(|_| ())
@@ -106,6 +107,7 @@ impl CmuxClient {
             surface,
             text: Optional::Missing,
             bytes: Optional::Value(bytes.into()),
+            no_reply: None,
             paste: None,
         })
         .map(|_| ())
@@ -116,6 +118,7 @@ impl CmuxClient {
             surface,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
+            no_reply: None,
             paste: Some(true),
         })
         .map(|_| ())

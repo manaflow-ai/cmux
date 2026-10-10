@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+pub const ir_sha256 = "3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4109,11 +4109,13 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    no_reply: ?bool = null,
     paste: ?bool = null,
     surface: Id,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "no_reply",
         "paste",
     };
 };
@@ -4129,6 +4131,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "no_reply", .since = 12, .capability = null },
                 .{ .name = "paste", .since = 7, .capability = null },
             },
         },
@@ -4138,7 +4141,12 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
 
 pub const SendKeyRequest = struct {
     keys: []const []const u8,
+    no_reply: ?bool = null,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "no_reply",
+    };
 };
 
 pub const SendKeyResult = EmptyResult;
@@ -4151,6 +4159,9 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
             .authority = "control",
             .since = 6,
             .capability = null,
+            .fields = &.{
+                .{ .name = "no_reply", .since = 12, .capability = null },
+            },
         },
         request,
     );

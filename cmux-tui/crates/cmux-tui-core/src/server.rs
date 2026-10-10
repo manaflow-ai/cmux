@@ -1051,6 +1051,11 @@ enum Command {
         bytes: Option<String>,
         #[serde(default)]
         paste: bool,
+        /// Latency-sensitive terminal input may explicitly opt out of the
+        /// command acknowledgement. This is intentionally scoped to input;
+        /// stateful control commands keep their normal receipts.
+        #[serde(default)]
+        no_reply: bool,
     },
     ReadScreen {
         surface: SurfaceId,
@@ -1111,6 +1116,9 @@ enum Command {
     SendKey {
         surface: SurfaceId,
         keys: Vec<String>,
+        /// See ``Send::no_reply``.
+        #[serde(default)]
+        no_reply: bool,
     },
     Copy {
         surface: SurfaceId,
@@ -1659,6 +1667,17 @@ enum Command {
 }
 
 impl Command {
+    /// Returns whether this command is explicitly a one-way terminal input.
+    /// Only raw or semantic input may suppress its acknowledgement; all other
+    /// commands retain their response so stateful control transitions remain
+    /// observable and retryable.
+    fn no_reply(&self) -> bool {
+        match self {
+            Self::Send { no_reply, .. } | Self::SendKey { no_reply, .. } => *no_reply,
+            _ => false,
+        }
+    }
+
     fn ordering_surface(&self) -> Option<SurfaceId> {
         match self {
             Self::PasteImage { surface, .. } => Some(*surface),
@@ -2003,6 +2022,7 @@ struct ServerSurfaceOperationState {
 #[derive(Default)]
 pub(crate) struct ServerSurfaceOperationAdmission {
     state: Mutex<ServerSurfaceOperationState>,
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2030,6 +2050,7 @@ impl Drop for ServerSurfaceBytesPermit {
     fn drop(&mut self) {
         let mut state = self.admission.state.lock().unwrap();
         state.retained_bytes = state.retained_bytes.saturating_sub(self.retained_bytes);
+        self.admission.changed.notify_all();
     }
 }
 
@@ -2982,41 +3003,81 @@ impl ConnectionSurfaceScheduler {
         if state.closed {
             return Some(false);
         }
+        let is_no_reply = request.as_ref().unwrap().cmd.no_reply();
         let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
-        let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
-        let over_bytes = retained_bytes
-            > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-        if over_count || over_bytes {
-            drop(state);
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request.take().unwrap().id,
-                "surface request queue is full; request was not executed",
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
-        }
-        let request_id = request.as_ref().unwrap().id.clone();
-        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
-            Ok(bytes) => bytes,
-            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
-                drop(state);
-                let request_id = request.take().unwrap().id;
-                return Some(if is_clear_history {
-                    send_request_error_with_delivery(
+        let bytes_permit = 'capacity: loop {
+            let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
+            let over_bytes = retained_bytes
+                > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
+            if over_count || over_bytes {
+                if !is_no_reply {
+                    drop(state);
+                    return Some(send_request_error_with_delivery(
                         &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                        Some(ResponseErrorDelivery::KnownNotDelivered),
-                    )
-                } else {
-                    send_request_error(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                    )
-                });
+                        request.take().unwrap().id,
+                        "surface request queue is full; request was not executed",
+                        is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+                    ));
+                }
+                // One-way input is still accepted by the protocol, so apply
+                // backpressure at the socket instead of dropping it or
+                // emitting an acknowledgement that can exhaust the control
+                // reserve.
+                let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+                state = next;
+                if state.closed {
+                    return Some(false);
+                }
+                if !writer.is_open() {
+                    drop(state);
+                    self.close();
+                    return Some(false);
+                }
+                continue;
+            }
+
+            match self.admission.try_reserve_bytes(retained_bytes) {
+                Ok(bytes) => break 'capacity bytes,
+                Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+                    if !is_no_reply {
+                        drop(state);
+                        let request_id = request.take().unwrap().id;
+                        return Some(if is_clear_history {
+                            send_request_error_with_delivery(
+                                &writer,
+                                request_id,
+                                "server surface-operation byte budget is full; request was not executed",
+                                Some(ResponseErrorDelivery::KnownNotDelivered),
+                            )
+                        } else {
+                            send_request_error(
+                                &writer,
+                                request_id,
+                                "server surface-operation byte budget is full; request was not executed",
+                            )
+                        });
+                    }
+                    drop(state);
+                    let admission_state = self.admission.state.lock().unwrap();
+                    let (next, _) = self
+                        .admission
+                        .changed
+                        .wait_timeout(admission_state, STREAM_DISCONNECT_POLL)
+                        .unwrap();
+                    drop(next);
+                    state = self.state.lock().unwrap();
+                    if state.closed {
+                        return Some(false);
+                    }
+                    if !writer.is_open() {
+                        drop(state);
+                        self.close();
+                        return Some(false);
+                    }
+                }
             }
         };
+        let request_id = request.as_ref().unwrap().id.clone();
         let start_dispatcher = !state.dispatcher_started;
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
@@ -3031,6 +3092,9 @@ impl ConnectionSurfaceScheduler {
         if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
             self.finish_dispatcher();
             self.close();
+            if is_no_reply {
+                return Some(false);
+            }
             return Some(send_request_error_with_delivery(
                 &writer,
                 request_id,
@@ -3087,6 +3151,7 @@ impl ConnectionSurfaceScheduler {
                     let inserted = state.active_clear_surfaces.insert(surface);
                     assert!(inserted, "a clear worker cannot overlap its surface");
                 }
+                self.changed.notify_all();
                 return Some(pending);
             }
             if state.closed && state.requests.is_empty() {
@@ -3687,6 +3752,32 @@ impl BoundedOutbound {
         }
     }
 
+    /// Waits for one outbound item while allowing the owning connection to
+    /// probe its peer for a disconnect. `Err(())` means only that the deadline
+    /// elapsed; `Ok(None)` means the queue was closed.
+    fn recv_timeout(&self, timeout: Duration) -> Result<Option<OutboundItem>, ()> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(item) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
+                return Ok(Some(item));
+            }
+            if state.closed {
+                return Ok(None);
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(());
+            };
+            let (next, timeout_result) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout_result.timed_out() {
+                return Err(());
+            }
+        }
+    }
+
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
@@ -3840,6 +3931,47 @@ impl SynchronizedTcpStream {
         self.stream.write_all(&header[..header_len])?;
         self.stream.write_all(payload)?;
         self.stream.flush()
+    }
+}
+
+fn tcp_peer_closed(stream: &TcpStream) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        };
+        // SAFETY: descriptor points to one initialized pollfd and the zero
+        // timeout makes this a non-blocking probe.
+        let result = unsafe { libc::poll(&mut descriptor, 1, 0) };
+        return result > 0
+            && descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0;
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLIN, POLLNVAL, WSAPOLLFD, WSAPoll,
+        };
+
+        let socket = stream.as_raw_socket();
+        let mut descriptor =
+            WSAPOLLFD { fd: socket, events: POLLIN | POLLHUP | POLLERR, revents: 0 };
+        // SAFETY: descriptor points to one initialized pollfd and the zero
+        // timeout makes this a non-blocking probe. WSAPoll reports hangup
+        // directly, so a concurrent reader cannot make a follow-up recv block.
+        let ready = unsafe { WSAPoll(&mut descriptor, 1, 0) };
+        return ready > 0 && descriptor.revents & (POLLHUP | POLLERR | POLLNVAL) != 0;
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = stream;
+        false
     }
 }
 
@@ -5897,29 +6029,49 @@ fn handle_connection_with_permit(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
     );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
-                    writer_outbound.close();
-                    let _ = write_half.shutdown(Shutdown::Both);
-                    break;
-                }
-            }
-            writer_close.close();
-            let _ = write_half.shutdown(Shutdown::Both);
-        })
-    else {
-        writer.close();
-        return;
-    };
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
+    let writer_outbound = outbound;
+    let writer_close = writer.clone();
+    let writer_scheduler = surface_scheduler.clone();
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
+            loop {
+                match writer_outbound.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(Some(item)) => {
+                        if write_line_outbound_item(&mut *write_half, item).is_err() {
+                            writer_outbound.close();
+                            let _ = write_half.shutdown(Shutdown::Both);
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(()) if write_half.peer_closed() => {
+                        // A blocked Unix reader may be waiting for scheduler
+                        // capacity while the peer has already disconnected.
+                        // Close the shared writer so that dispatch wakes and
+                        // releases the scheduler/connection permit.
+                        writer_outbound.close();
+                        let _ = write_half.shutdown(Shutdown::Both);
+                        break;
+                    }
+                    Err(()) => continue,
+                }
+            }
+            writer_close.close();
+            // Wake a reader that is blocked admitting a one-way input request.
+            // It may not get another read result from the disconnected peer.
+            writer_scheduler.close();
+            let _ = write_half.shutdown(Shutdown::Both);
+        })
+    else {
+        writer.close();
+        surface_scheduler.close();
+        return;
+    };
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
     loop {
@@ -6020,36 +6172,51 @@ fn handle_websocket_connection_with_permit(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
         render_service,
     );
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
     let writer_outbound = outbound;
     let writer_close = writer.clone();
+    let writer_scheduler = surface_scheduler.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(item) = writer_outbound.recv() {
-                let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
-                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                        let _ = flushed.send(());
-                    }),
-                };
-                if result.is_err() {
-                    writer_outbound.close();
-                    break;
+            loop {
+                match writer_outbound.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(Some(item)) => {
+                        let result = match item {
+                            OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                            OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                                let _ = flushed.send(());
+                            }),
+                        };
+                        if result.is_err() {
+                            writer_outbound.close();
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(()) if tcp_peer_closed(&writer_stream.stream) => {
+                        writer_outbound.close();
+                        break;
+                    }
+                    Err(()) => continue,
                 }
             }
             writer_close.close();
+            // Wake a reader that is blocked admitting a one-way input request.
+            // It may not get another read result from the disconnected peer.
+            writer_scheduler.close();
             let _ = writer_stream.write_websocket_close();
             let _ = writer_shutdown.shutdown(Shutdown::Both);
         })
     else {
         writer.close();
+        surface_scheduler.close();
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
 
     loop {
         if !writer.is_open() {
@@ -9869,7 +10036,13 @@ fn handle_connection_message(
         Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
     };
     let mut pending = Some(request);
-    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
+    match scheduler.dispatch(
+        mux.clone(),
+        client,
+        &mut pending,
+        json_line_payload_len(message),
+        writer.clone(),
+    ) {
         Some(keep_open) => keep_open,
         None => handle_request(mux, client, pending.take().unwrap(), writer),
     }
@@ -9887,6 +10060,7 @@ fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    let no_reply = cmd.no_reply();
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
@@ -9935,6 +10109,11 @@ fn handle_request_with_cancellation(
             }
         }
     };
+    if no_reply {
+        // Explicit one-way input does not consume the bounded control-reply
+        // reserve. Stateful commands never set this bit and retain receipts.
+        return true;
+    }
     let response_ok = response.ok;
     let sent = send_response(writer, response);
     // Flush the successful acknowledgement before making the owning loop
@@ -12495,7 +12674,7 @@ fn handle_command_with_cancellation(
                 }).collect::<Vec<_>>(),
             }))
         }
-        Command::Send { surface, text, bytes, paste } => {
+        Command::Send { surface, text, bytes, paste, .. } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             if paste {
@@ -12675,7 +12854,7 @@ fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             create_surface_with_receipt(mux, client, *request)
         }
-        Command::SendKey { surface, keys } => {
+        Command::SendKey { surface, keys, .. } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)
                 .map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
@@ -14539,7 +14718,7 @@ mod tests {
     };
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
 
@@ -14558,6 +14737,25 @@ mod tests {
         let mut oversized_line = oversized_payload;
         oversized_line.push('\n');
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tcp_peer_closed_probe_reports_disconnect_without_consuming_input() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        assert!(!tcp_peer_closed(&server));
+
+        client.shutdown(Shutdown::Both).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if tcp_peer_closed(&server) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("TCP peer disconnect was not observed");
     }
 
     struct TestSocketDir(PathBuf);
@@ -19503,6 +19701,26 @@ mod tests {
     }
 
     #[test]
+    fn one_way_terminal_input_does_not_enqueue_a_control_reply() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (writer, outbound) = captured_writer();
+        let request: Request = serde_json::from_value(json!({
+            "id": 0,
+            "cmd": "send",
+            "surface": surface.id,
+            "bytes": base64::engine::general_purpose::STANDARD.encode(b"x"),
+            "no_reply": true,
+        }))
+        .unwrap();
+
+        assert!(request.cmd.no_reply());
+        assert!(handle_request(&mux, 0, request, &writer));
+        assert!(outbound.try_pop().is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn shutting_down_a_writer_clone_unblocks_the_reader() {
         let socket = TestSocket::new("shutdown");
         let listener = transport::listen(&socket.path).unwrap();
@@ -19775,6 +19993,50 @@ mod tests {
     }
 
     #[test]
+    fn disconnected_writer_wakes_one_way_dispatch_waiting_for_capacity() {
+        let mux = test_mux();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        scheduler.state.lock().unwrap().queued_bytes = CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
+        let (writer, _) = captured_writer();
+        let dispatch_writer = writer.clone();
+        let dispatch_scheduler = scheduler.clone();
+        let dispatch_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let dispatch = std::thread::spawn(move || {
+            let mut request = Some(Request {
+                id: Some(json!(1)),
+                cmd: Command::Send {
+                    surface: 1,
+                    text: Some("x".to_string()),
+                    bytes: None,
+                    paste: false,
+                    no_reply: true,
+                },
+            });
+            result_tx
+                .send(dispatch_scheduler.dispatch(
+                    dispatch_mux,
+                    0,
+                    &mut request,
+                    1,
+                    dispatch_writer,
+                ))
+                .unwrap();
+        });
+
+        std::thread::sleep(STREAM_DISCONNECT_POLL + Duration::from_millis(20));
+        writer.close();
+        let result = result_rx.recv_timeout(Duration::from_secs(1));
+        if result.is_err() {
+            scheduler.close();
+        }
+        dispatch.join().unwrap();
+        assert_eq!(result.unwrap(), Some(false));
+        assert!(scheduler.state.lock().unwrap().closed);
+    }
+
+    #[test]
     fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let mut state = ConnectionSurfaceState::default();
@@ -19787,6 +20049,7 @@ mod tests {
                     text: Some("input".to_string()),
                     bytes: None,
                     paste: false,
+                    no_reply: false,
                 },
             ),
             (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),

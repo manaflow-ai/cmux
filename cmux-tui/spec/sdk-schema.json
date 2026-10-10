@@ -6582,6 +6582,16 @@
       "nullable": false,
       "default": false,
       "since": 7
+     },
+     "no_reply": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12
      }
     },
     "additional_properties": false,
@@ -7057,6 +7067,16 @@
         "syntax": "lowercase modifier+key chords"
        }
       ]
+     },
+     "no_reply": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12
      }
     },
     "additional_properties": false
