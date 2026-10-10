@@ -54,6 +54,8 @@ impl Host {
             client_msg_id: key.to_string(),
             parts: vec![text(body)],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         };
         self.run(actor, key, op).unwrap().message.unwrap()
     }
