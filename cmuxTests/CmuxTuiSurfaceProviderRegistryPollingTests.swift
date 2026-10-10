@@ -313,7 +313,6 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             notificationCenter: center
         )
         registry.start(catalog: SurfaceCatalog())
-        let refresh = Task { await registry.refresh(force: true) }
         let began = await received(started)
         if signOut {
             await registry.accessDidEnd()
@@ -323,7 +322,6 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         }
         let stopped = await received(closed)
         release.resolve(true)
-        _ = await refresh.value
         let status = await h.hub.status()
         await registry.accessDidEnd()
 
