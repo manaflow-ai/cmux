@@ -91,7 +91,12 @@ enum AgentBesidePlacement {
                     let moved = await listed.value
                     bound.cancel()
                     if moved, let pane = services.locateTab(chatID)?.1 {
-                        PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
+                        // Not a view change of the run: the run moved the focused chat out of its
+                        // pane, and focus follows the chat back to where the person had it (as
+                        // FocusCoordinator.followMovedTab does for a person's move).
+                        ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
+                            PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
+                        }
                     }
                 }
                 services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
