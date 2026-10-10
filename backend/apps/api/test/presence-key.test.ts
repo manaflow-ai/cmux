@@ -184,7 +184,7 @@ describe("presence keys and the text confirmation level", { timeout: 60_000 }, (
     expect((await op(d.token, "feed.answer", { item: plain, answer: { decision: "deny" } })).json.ok).toBe(true)
     // A malformed proof is refused and answers nothing.
     const bad = await posted()
-    for (const p of [{ install: d.install, ts: Date.now(), sig: "" }, { install: d.install, sig: "x" }]) {
+    for (const p of [{ install: d.install, ts: Date.now(), sig: "" }, { install: d.install, sig: "x" }, { ...proof, verified: true }]) {
       expect((await op(d.token, "feed.answer", { item: bad, answer: { decision: "allow", proof: p } })).json.ok).toBe(false)
     }
     expect((await call("/v1/read", d.session, { op: "feed.get", params: { item: bad } })).json.value.item.state).toBe("open")
