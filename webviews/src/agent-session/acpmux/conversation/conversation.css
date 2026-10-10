@@ -1444,7 +1444,7 @@ pre.cv-math-source {
 .acpmux-find {
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: var(--layer-sticky, 10);
   height: 0;
 }
 .acpmux-find__bar {
