@@ -539,7 +539,9 @@ fn a_hosted_terminals_processes_are_read_before_and_after_a_restart() {
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let info = wait_for_foreground(&daemon.socket, surface, "cmd.exe");
     assert!(
-        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("cmd.exe")),
+        info["foreground_executable"]
+            .as_str()
+            .is_some_and(|n| n.to_ascii_lowercase().ends_with("cmd.exe")),
         "the shell of a hosted terminal is not read: {info}"
     );
     assert!(info["foreground_cwd"].is_string(), "no directory for the hosted shell: {info}");
@@ -551,7 +553,9 @@ fn a_hosted_terminals_processes_are_read_before_and_after_a_restart() {
     );
     let info = wait_for_foreground(&daemon.socket, surface, "ping.exe");
     assert!(
-        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
+        info["foreground_executable"]
+            .as_str()
+            .is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
         "a program in a hosted terminal is not read: {info}"
     );
 
@@ -574,7 +578,9 @@ fn a_hosted_terminals_processes_are_read_before_and_after_a_restart() {
     };
     let info = wait_for_foreground(&daemon.socket, adopted, "ping.exe");
     assert!(
-        info["foreground_executable"].as_str().is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
+        info["foreground_executable"]
+            .as_str()
+            .is_some_and(|n| n.to_ascii_lowercase().ends_with("ping.exe")),
         "after a restart the daemon does not read the hosted terminal's processes: {info}"
     );
     assert!(info["foreground_cwd"].is_string(), "no directory after a restart: {info}");
