@@ -4,15 +4,15 @@ import Foundation
 extension Workspace {
     static let programStatusKey = "program_status"
 
+    /// Applies one OSC 7501 report and publishes the resulting safe snapshot.
     func applyProgramStatus(_ report: ProgramStatusReport, panelId: UUID) {
         guard panels[panelId] != nil else { return }
         // Every shell prompt emits a prompt-start event; panes that never
         // reported program status have nothing to drop. A clear has nothing to remove either.
         if report.event == .promptStart || report.state == .clear,
            programStatusStoresByPanelId[panelId] == nil { return }
-        let previous = programStatusStoresByPanelId[panelId]
-        updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
-        guard let store = programStatusStoresByPanelId[panelId], store != previous else { return }
+        let updatedStore = updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
+        guard let store = updatedStore else { return }
         CmuxEventBus.shared.publishProgramStatusChanged(
             workspaceId: id,
             surfaceId: panelId,
@@ -21,29 +21,47 @@ extension Workspace {
         )
     }
 
+    /// Removes working and blocked records after prompt-idle or child exit.
     func dropTransientProgramStatus(panelId: UUID) {
-        updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dropTransient() }
+        let updatedStore = updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dropTransient() }
+        guard let store = updatedStore else { return }
+        CmuxEventBus.shared.publishProgramStatusChanged(
+            workspaceId: id,
+            surfaceId: panelId,
+            event: .transientDrop,
+            store: store
+        )
     }
 
+    /// Removes done and error records after the user returns to a pane.
     func dismissCompletedProgramStatus(panelId: UUID) {
-        updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dismissCompleted() }
+        let updatedStore = updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dismissCompleted() }
+        guard let store = updatedStore else { return }
+        CmuxEventBus.shared.publishProgramStatusChanged(
+            workspaceId: id,
+            surfaceId: panelId,
+            event: .dismissed,
+            store: store
+        )
     }
 
     /// Mutates one pane's store and re-projects the sidebar only when the
-    /// records changed, so prompts and focus changes do not republish status.
+    /// records changed. Returning the new store lets each lifecycle caller
+    /// publish one matching event without duplicating no-op notifications.
     private func updateProgramStatusStore(
         panelId: UUID,
         createIfMissing: Bool = true,
         _ mutate: (inout ProgramStatusRecordStore) -> Void
-    ) {
+    ) -> ProgramStatusRecordStore? {
         guard var store = programStatusStoresByPanelId[panelId] ?? (createIfMissing ? ProgramStatusRecordStore() : nil) else {
-            return
+            return nil
         }
         let previous = programStatusStoresByPanelId[panelId]
         mutate(&store)
-        guard store != previous else { return }
+        guard store != previous else { return nil }
         programStatusStoresByPanelId[panelId] = store
         projectProgramStatus(panelId: panelId)
+        return store
     }
 
     /// Adopts the records a moved terminal carried from its previous owner.

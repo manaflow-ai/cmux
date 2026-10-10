@@ -156,6 +156,59 @@ struct WorkspaceProgramStatusTests {
         #expect(records.isEmpty)
     }
 
+    @Test func transientCleanupPublishesOnceBeforePromptStartNoOp() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .blocked, kind: .permission, id: "deploy"),
+            panelId: panelId
+        )
+        workspace.dropTransientProgramStatus(panelId: panelId)
+        // Shell integration can deliver this after prompt-idle cleanup. It is
+        // intentionally a no-op because the snapshot was already published.
+        workspace.applyProgramStatus(
+            ProgramStatusReport(event: .promptStart, state: .idle),
+            panelId: panelId
+        )
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 2)
+        let cleanupPayload = try #require(events.last?["payload"] as? [String: Any])
+        #expect(cleanupPayload["event"] as? String == "transient_drop")
+        let records = try #require(cleanupPayload["records"] as? [[String: Any]])
+        #expect(records.isEmpty)
+    }
+
+    @Test func dismissingCompletedStatusPublishesUpdatedSnapshot() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .done, id: "build"),
+            panelId: panelId
+        )
+        workspace.dismissCompletedProgramStatus(panelId: panelId)
+        workspace.dismissCompletedProgramStatus(panelId: panelId)
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 2)
+        let dismissedPayload = try #require(events.last?["payload"] as? [String: Any])
+        #expect(dismissedPayload["event"] as? String == "dismissed")
+        let records = try #require(dismissedPayload["records"] as? [[String: Any]])
+        #expect(records.isEmpty)
+    }
+
     @Test func movedPaneKeepsItsProgramStatusRecords() throws {
         let source = Workspace()
         let destination = Workspace()

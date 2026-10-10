@@ -12,13 +12,36 @@ extension CmuxEventBus {
         report: ProgramStatusReport,
         store: ProgramStatusRecordStore
     ) {
-        let addressedID = report.id ?? ""
-        let change = report.state == .clear ? "clear" : report.event.rawValue
-        let addressedRecord: [String: Any]? = {
-            guard report.event == .report, report.state != .clear,
-                  let record = store.record(id: addressedID) else { return nil }
-            return Self.programStatusRecordPayload(record, effectiveApp: store.effectiveApp(for: record))
-        }()
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(report: report, store: store)
+        )
+    }
+
+    /// Publishes a lifecycle cleanup together with the terminal's current
+    /// records. Lifecycle changes use the same event and snapshot shape as
+    /// OSC reports so consumers never need a second synchronization path.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        event: ProgramStatusChange,
+        store: ProgramStatusRecordStore
+    ) {
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(event: event, store: store)
+        )
+    }
+
+    /// Converts the package-owned payload into the event bus's JSON-compatible
+    /// dictionary representation and publishes it to terminal subscribers.
+    private func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        payload: ProgramStatusChangedPayload
+    ) {
         publish(
             name: "program_status.changed",
             category: "terminal",
@@ -26,29 +49,24 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId.uuidString,
             payload: [
-                "event": change,
-                "id": report.id ?? NSNull(),
-                "record": addressedRecord ?? NSNull(),
-                "records": store.records.map { record in
-                    Self.programStatusRecordPayload(record, effectiveApp: store.effectiveApp(for: record))
-                }
+                "event": payload.event.rawValue,
+                "id": payload.id ?? NSNull(),
+                "record": payload.record.map(Self.programStatusRecordPayload) ?? NSNull(),
+                "records": payload.records.map(Self.programStatusRecordPayload)
             ]
         )
     }
 
+    /// Converts one safe package snapshot to a Foundation dictionary.
     private static func programStatusRecordPayload(
-        _ record: ProgramStatusRecord,
-        effectiveApp: String?
+        _ record: ProgramStatusRecordSnapshot
     ) -> [String: Any] {
         [
             "id": record.id,
             "state": record.state.rawValue,
             "kind": record.kind.rawValue,
             "progress": record.progress ?? NSNull(),
-            "app": effectiveApp ?? NSNull(),
-            "title": record.title ?? NSNull(),
-            "msg": record.message ?? NSNull(),
-            "updated_seq": record.updateOrder
+            "updated_seq": record.updatedSequence
         ]
     }
 

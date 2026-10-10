@@ -341,11 +341,17 @@ Terminal program status:
 | --- | --- |
 | `program_status.changed` | An OSC 7501 report, clear, or prompt-start changed a terminal's records. The event includes the addressed record and the full current record list. |
 
-The `program_status.changed` payload has `event` (`report`, `clear`, or
-`prompt_start`), `id` (the addressed record id, or `null`), `record` (the
-updated record, or `null` for clear and prompt-start), and `records` (the
-terminal's current records). Each record includes `id`, `state`, `kind`,
-`progress`, `app`, `title`, `msg`, and `updated_seq`. Subscribe with
+The `program_status.changed` payload has `event` (`report`, `clear`,
+`prompt_start`, `transient_drop`, or `dismissed`), `id` (the addressed record
+id, or `null`), `record` (the updated record, or `null` for lifecycle cleanup),
+and `records` (the terminal's current records). `transient_drop` is emitted
+when shell prompt-idle or child-exit cleanup removes working/blocked records;
+`dismissed` is emitted when focusing a pane removes done/error records. Both
+events are suppressed when the store is already unchanged, so a later
+prompt-start callback does not duplicate the cleanup event. Each record
+contains only the safe protocol fields `id`, `state`, `kind`, `progress`, and
+`updated_seq`; free-form OSC text and provider names are intentionally omitted
+from the user-facing stream and persistent event log. Subscribe with
 `--category terminal` or `--name program_status.changed`.
 
 Notifications:
