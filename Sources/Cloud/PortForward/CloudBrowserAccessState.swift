@@ -459,6 +459,17 @@ final class CloudBrowserAccessState {
 
     func owns(_ url: URL) -> Bool {
         guard let remoteURL else { return false }
+        // A daemon browser owns its entire document session on the machine,
+        // rather than one preview port. Redirects and an explicit about:blank
+        // navigation therefore keep the Cloud resource attached to this pane;
+        // port preview resources retain the stricter host/port check below.
+        let ownsDaemonBrowserDocument = resourceID?.kind == .browser
+            && !(resourceID?.key.hasPrefix("port:") ?? false)
+            && (["http", "https"].contains(url.scheme?.lowercased() ?? "")
+                || url.absoluteString.lowercased() == "about:blank")
+        if ownsDaemonBrowserDocument {
+            return true
+        }
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }

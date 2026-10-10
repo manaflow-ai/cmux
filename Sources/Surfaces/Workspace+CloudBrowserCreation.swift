@@ -20,6 +20,9 @@ extension Workspace {
         let route: CloudBrowserCreationRoute?
         let unavailable: Bool
         let unsupportedURL: Bool
+        /// Session restore must not let WebKit load the saved URL before its
+        /// Cloud resource is rebound to the machine provider.
+        let suppressInitialNavigation: Bool
     }
 
     /// Resolves the remote target once for a browser creation intent. Restore
@@ -40,7 +43,8 @@ extension Workspace {
         return CloudBrowserCreationPlan(
             route: route,
             unavailable: creationPolicy != .restoration && requiresCloudBrowser && route == nil,
-            unsupportedURL: unsupportedURL
+            unsupportedURL: unsupportedURL,
+            suppressInitialNavigation: creationPolicy == .restoration && requiresCloudBrowser
         )
     }
 
@@ -141,6 +145,20 @@ extension Workspace {
                       activeProvider.isRegisteredInCatalog() else {
                     throw CmuxTuiSurfaceProvider.ProviderError.stateUnavailable(route.machine.rawValue)
                 }
+                // Adopt the daemon identity before configuring WebKit. If route
+                // setup cannot start (for example, the proxy is unavailable),
+                // the pane still owns the committed resource and can reconnect
+                // it later instead of leaving an orphaned catalog row/tab.
+                panel.retainTransferredSurfaceMachine(created.id.machine)
+                panel.cloudAccess.retainResource(created.id)
+                catalog.endProjections(panelID: panel.id, reason: .replaced)
+                catalog.record(SurfaceProjection(
+                    resource: created.id,
+                    workspaceID: self.id,
+                    panelID: panel.id,
+                    remoteWorkspaceID: remoteView.workspace.id,
+                    remoteTabID: remoteView.tabID
+                ))
                 if ["http", "https"].contains(route.url.scheme?.lowercased() ?? "") {
                     guard activeProvider.configureBrowser(panel, url: route.url, resourceID: created.id) else {
                         throw CmuxTuiSurfaceProvider.ProviderError.localForwardURLUnavailable
@@ -150,14 +168,6 @@ extension Workspace {
                 } else {
                     throw CmuxTuiSurfaceProvider.ProviderError.localForwardURLUnavailable
                 }
-                catalog.endProjections(panelID: panel.id, reason: .replaced)
-                catalog.record(SurfaceProjection(
-                    resource: created.id,
-                    workspaceID: self.id,
-                    panelID: panel.id,
-                    remoteWorkspaceID: remoteView.workspace.id,
-                    remoteTabID: remoteView.tabID
-                ))
             } catch {
                 guard !Task.isCancelled, self.panels[panel.id] === panel else { return }
                 panel.cloudAccess.showUnavailable(String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry."))
