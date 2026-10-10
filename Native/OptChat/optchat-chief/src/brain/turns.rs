@@ -1034,6 +1034,8 @@ impl Brain {
         }
         match conversation {
             Some(conversation) if !text.is_empty() => {
+                // Every mention of a subagent is its link (Lawrence 2026-10-10).
+                let text = self.link_subagents(&text);
                 self.state
                     .outbox
                     .push(reply_entry(conversation, key, &text));

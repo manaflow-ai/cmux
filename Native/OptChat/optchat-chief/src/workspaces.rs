@@ -144,6 +144,101 @@ pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
     .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
 }
 
+/// `text` with each mention of a known subagent (`a1`, or `[a1]` not already a link) written as
+/// its link (`subagent_link`), so every client shows it as a link whether or not the model
+/// wrote one (Lawrence 2026-10-10). `session_of` names a subagent's session (None: not one of
+/// this Chief's, left as written). Code spans and fences, existing links and words inside a
+/// longer token (`ma1`, `a1b`, `/a1`, `a1.txt`) are left alone.
+pub fn link_subagents(
+    text: &str,
+    parent: &str,
+    session_of: impl Fn(&str) -> Option<String>,
+) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut copied) = (0, 0);
+    let mut fence = false;
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let link_of = |id: &str| session_of(id).and_then(|s| subagent_link(parent, id, &s));
+    while i < b.len() {
+        let line_start = i == 0 || b[i - 1] == b'\n';
+        if line_start && text[i..].starts_with("```") {
+            fence = !fence;
+            i += 3;
+            continue;
+        }
+        if fence {
+            i += 1;
+            continue;
+        }
+        match b[i] {
+            b'`' => {
+                // An inline code span: to its closing backtick on this line.
+                let end = text[i + 1..]
+                    .find(['`', '\n'])
+                    .map_or(b.len(), |e| i + 1 + e);
+                i = if end < b.len() && b[end] == b'`' {
+                    end + 1
+                } else {
+                    i + 1
+                };
+            }
+            b'[' => {
+                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
+                match close {
+                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
+                        // An existing link: skip it whole.
+                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
+                    }
+                    Some(c) if b[c] == b']' => {
+                        let id = &text[i + 1..c];
+                        if is_id(id)
+                            && let Some(link) = link_of(id)
+                        {
+                            out.push_str(&text[copied..i]);
+                            out.push_str(&link);
+                            copied = c + 1;
+                        }
+                        i = c + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            b'a' if i == 0
+                || !(word(b[i - 1])
+                    || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
+            {
+                let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let id = &text[i..end];
+                let bounded = end > i + 1
+                    && !(end < b.len()
+                        && (word(b[end])
+                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                if bounded
+                    && is_id(id)
+                    && let Some(link) = link_of(id)
+                {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(&link);
+                    copied = end;
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// A subagent id: `a` and 1 to 6 digits, no leading zero.
+fn is_id(id: &str) -> bool {
+    let digits = id.strip_prefix('a').unwrap_or("");
+    (1..=6).contains(&digits.len())
+        && !digits.starts_with('0')
+        && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
 /// The agent tab host of a session in Chief home `home`'s acpmux.
 pub fn chief_host(home: &Path) -> String {
     format!("chief:{}", crate::paths::home_id(home))
