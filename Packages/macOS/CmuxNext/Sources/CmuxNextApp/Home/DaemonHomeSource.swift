@@ -53,12 +53,7 @@ nonisolated final class DaemonHomeSource: HomeSource {
 
     func publish(_ event: HomeEvent) {
         let targets = state.withLock { state -> [AsyncStream<HomeEvent>.Continuation] in
-            if case .connection = event {
-                state.lastEvent = [event]
-            } else if case .inbox = event {
-                // Replay keeps the connection and the newest inbox only.
-                state.lastEvent = state.lastEvent.filter { if case .inbox = $0 { false } else { true } } + [event]
-            }
+            if case .connection = event { state.lastEvent = [event] } else if case .inbox = event { state.lastEvent.append(event) }
             return Array(state.continuations.values)
         }
         for target in targets { target.yield(event) }
@@ -137,9 +132,6 @@ nonisolated final class DaemonHomeSource: HomeSource {
             }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
-        if case .createGroup(let title, let participants) = intent.op {
-            return try await createChannel(title: title, participants: participants, key: intent.key)
-        }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {
             throw HomeRejection.invalid("unsupported_on_local_owner")
         }
@@ -147,9 +139,6 @@ nonisolated final class DaemonHomeSource: HomeSource {
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
         let connection = try requireOwner()
         let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
-        if case .sendMessage = intent.op, let seq = result.seq, !result.replayed {
-            readThrough(seq, in: mapped.conversation, on: connection)
-        }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))
     }
 

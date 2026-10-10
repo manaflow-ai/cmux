@@ -82,7 +82,7 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
-                if case .sendMessage(let conversation, _, _) = next.op {
+                if case .sendMessage(let conversation, _) = next.op {
                     await self.waitForTurn(next.key, in: conversation)
                     guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
                 }

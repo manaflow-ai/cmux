@@ -25,43 +25,27 @@ enum DebugHomeAPI {
                 let result = try await router.submit(HomeIntent(op: op))
                 return .object(["ok": .bool(true), "rev": JSONValue(Int(result.rev)), "replayed": .bool(result.replayed),
                                 "conversation": result.conversation.map { .string($0.rawValue) } ?? .null])
-            case "watch_start":
-                return await MainActor.run { DebugHomeWatch.start(router) }
-            case "watch_read":
-                return await MainActor.run { DebugHomeWatch.read() }
-            case "store":
-                guard let id = params["conversation"]?.stringValue else { return failure("conversation required") }
-                return await MainActor.run { DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id)) }
             default:
-                return failure("call must be inbox, snapshot, submit, watch_start, watch_read or store")
+                return failure("call must be inbox, snapshot or submit")
             }
         } catch {
             return failure(String(describing: error))
         }
     }
 
-    /// Kinds: send {conversation, text, thread_root?}, edit {conversation,
-    /// message, text}, retract {conversation, message}, react and unreact
-    /// {conversation, message, emoji, part?}, read {conversation, seq},
-    /// create_group {title, participants}.
+    /// Kinds: send {conversation, text}, react {conversation, message,
+    /// emoji, part?}, read {conversation, seq}, create_group {title,
+    /// participants}.
     static func op(_ json: JSONValue) -> HomeOp? {
         let conversation = json["conversation"]?.stringValue.map { ConversationID($0) } ?? ConversationID("")
         let message = json["message"]?.stringValue.map { MessageID($0) } ?? MessageID("")
         let text = json["text"]?.stringValue ?? ""
         switch json["kind"]?.stringValue {
         case "send":
-            return .sendMessage(conversation: conversation, parts: [.text(text)],
-                                threadRoot: json["thread_root"]?.stringValue.map { MessageID($0) })
-        case "edit":
-            return .editMessage(message: message, conversation: conversation, parts: [.text(text)])
-        case "retract":
-            return .retractMessage(message: message, conversation: conversation)
+            return .sendMessage(conversation: conversation, parts: [.text(text)])
         case "react":
             return .addReaction(message: message, conversation: conversation, reaction: .emoji(json["emoji"]?.stringValue ?? ""),
                                 partIndex: json["part"]?.intValue ?? 0)
-        case "unreact":
-            return .removeReaction(message: message, conversation: conversation, reaction: .emoji(json["emoji"]?.stringValue ?? ""),
-                                   partIndex: json["part"]?.intValue ?? 0)
         case "read":
             return .setReadCursor(conversation: conversation, seq: Seq(json["seq"]?.intValue ?? 0))
         case "create_group":

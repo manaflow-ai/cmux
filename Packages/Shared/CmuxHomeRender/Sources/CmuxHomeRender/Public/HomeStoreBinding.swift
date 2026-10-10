@@ -198,7 +198,7 @@ public final class HomeStoreBinding {
                 // Refused before it reached the log (a duplicate, or a stopped
                 // store; a send made offline waits for the reconnect instead):
                 // give the text back. A logged refusal stays as "Not Delivered".
-                guard case .sendMessage(let id, _, _) = intent.op else {
+                guard case .sendMessage(let id, _) = intent.op else {
                     if let self, !self.stopped { self.onRefusal(intent, rejection) }
                     return
                 }

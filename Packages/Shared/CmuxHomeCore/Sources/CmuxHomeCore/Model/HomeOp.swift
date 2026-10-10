@@ -4,14 +4,8 @@ public import Foundation
 /// A typed change the client asks an owner to make. Every op travels with an
 /// idempotency key; the owner applies a key at most once.
 public enum HomeOp: Hashable, Sendable {
-    /// `message.send`. The key is the message's client id. `threadRoot` set:
-    /// a reply in that message's thread (both owners carry it as `reply_to`
-    /// part 0 of the root, so the root must be in the same conversation).
-    case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil)
-    /// `message.edit`: the user's own message gets new parts (`editedAt` set).
-    case editMessage(message: MessageID, conversation: ConversationID, parts: [MessagePart])
-    /// `message.retract`: the user's own message is unsent (`retractedAt` set, parts cleared).
-    case retractMessage(message: MessageID, conversation: ConversationID)
+    /// `message.send`. The key is the message's client id.
+    case sendMessage(conversation: ConversationID, parts: [MessagePart])
     /// `read_cursor.set` for the signed-in user.
     case setReadCursor(conversation: ConversationID, seq: Seq)
     /// `conversation.create`: a group with these participants (humans and Chiefs).
@@ -32,8 +26,6 @@ public enum HomeOp: Hashable, Sendable {
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
     case addReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
-    /// `reaction.remove`: takes back the user's own reaction (the same kind and part).
-    case removeReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
     /// `question.answer`: the signed-in person answers the question part at
     /// `partIndex`. Only the selections travel; the owner stamps who answered.
     case answerQuestion(message: MessageID, conversation: ConversationID, partIndex: Int, answer: AgentQuestionAnswer)
@@ -44,12 +36,9 @@ public enum HomeOp: Hashable, Sendable {
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
         switch self {
-        case .sendMessage(let conversation, _, _),
-             .editMessage(_, let conversation, _),
-             .retractMessage(_, let conversation),
+        case .sendMessage(let conversation, _),
              .setReadCursor(let conversation, _),
              .addReaction(_, let conversation, _, _),
-             .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
@@ -61,14 +50,11 @@ public enum HomeOp: Hashable, Sendable {
     /// The conversation this op writes, when it targets one.
     public var conversation: ConversationID? {
         switch self {
-        case .sendMessage(let conversation, _, _),
-             .editMessage(_, let conversation, _),
-             .retractMessage(_, let conversation),
+        case .sendMessage(let conversation, _),
              .setReadCursor(let conversation, _),
              .setPinned(let conversation, _),
              .setMuted(let conversation, _),
              .addReaction(_, let conversation, _, _),
-             .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             conversation
