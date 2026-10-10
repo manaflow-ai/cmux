@@ -86,6 +86,7 @@ struct BrowserScreen: View {
     #if DEBUG
     /// Synthetic fingers drawn by the DEBUG pinch driver (for recordings).
     @State private var debugFingers: [CGPoint] = []
+    private var debugPinchMode: String? { ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] }
     #endif
     @State private var overviewScroll: CGFloat = 0
     @State private var overviewPosition = ScrollPosition(y: 0)
@@ -188,6 +189,15 @@ struct BrowserScreen: View {
                            pageSize: size, safeTop: safeTop, strip: g.strip)
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
                     .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
+                    #if DEBUG
+                    // Recordings: outline the zoom rect so a frame-by-frame
+                    // check can find it exactly (DEBUG pinch driver only).
+                    .overlay {
+                        if !debugFingers.isEmpty || debugPinchMode != nil {
+                            Rectangle().strokeBorder(Color(red: 0, green: 1, blue: 0), lineWidth: 2)
+                        }
+                    }
+                    #endif
                     .offset(x: g.rect.minX, y: g.rect.minY)
                     .allowsHitTesting(false)
             }
@@ -581,7 +591,8 @@ struct BrowserScreen: View {
     private func decide(_ sample: PinchSample) {
         let session = pinchSession
         guard let start = session.start else { return }
-        let elapsed = sample.time - start.time
+        if session.movementStart == nil, abs(sample.scale - 1) > 0.005 { session.movementStart = sample.time }
+        let elapsed = session.movementStart.map { sample.time - $0 } ?? 0
         switch zoomState.phase {
         case .animating, .interactive:
             engage()
@@ -589,11 +600,18 @@ struct BrowserScreen: View {
             guard !chrome.editing, !chrome.menuOpen, model.activeTabId != nil || showsStartPage else {
                 session.decision = .rejected; return
             }
-            if sample.scale <= ZoomPinchSession.engageIn {
+            // Local decision, no round trip: a pinch-in that reaches 0.96
+            // within 40 ms of the fingers starting to move, or any pinch-in
+            // when the last frame shows the page at its minimum zoom (start
+            // pages and blank tabs count as that). Pinch-out and a slow
+            // pinch-in on a zoomed-in page go to the page.
+            let atMinimumZoom = showsStartPage || (model.activeFrame?.pageScale ?? 1) <= 1.02
+            let moving = session.movementStart.map { sample.time - $0 } ?? 0
+            if sample.scale <= ZoomPinchSession.engageIn, atMinimumZoom || moving <= ZoomPinchSession.decisionWindow {
                 zoomTabId = model.activeTabId
                 prepareOverview(revealing: model.activeIndex ?? 0, count: model.tabs.count)
                 engage()
-            } else if elapsed > ZoomPinchSession.decisionWindow || sample.scale > 1 {
+            } else if sample.scale > 1.005 || (!atMinimumZoom && moving > ZoomPinchSession.decisionWindow) {
                 session.decision = .rejected
             }
         case .overview:

@@ -62,6 +62,8 @@ final class ZoomPinchSession {
 
     var decision: Decision = .pending
     var start: PinchSample?
+    /// When the finger distance first changed (the decision window starts here).
+    var movementStart: CFTimeInterval?
     var startRect: CGRect = .zero
     var startedFromOverview = false
     var tracker: PinchTracker?
@@ -71,6 +73,7 @@ final class ZoomPinchSession {
     func reset() {
         decision = .pending
         start = nil
+        movementStart = nil
         tracker = nil
         history = []
     }
@@ -114,7 +117,8 @@ struct DebugPinchPath {
         }
     }
 
-    private func ease(_ t: CGFloat) -> CGFloat { t * t * (3 - 2 * t) }
+    /// Ease-out: fingers start fast and slow down, as a real pinch does.
+    private func ease(_ t: CGFloat) -> CGFloat { 1 - (1 - t) * (1 - t) }
 
     func sample(at t: CFTimeInterval) -> Point? {
         guard t >= start else { return Point(phase: .changed, scale: 1, centroid: .zero) }
