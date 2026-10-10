@@ -551,6 +551,10 @@ reset refuses on Windows before the host root
 (`ensure_checked_reset_deletion_supported`: "safe saved-state reset is not
 supported on this platform"), and about 70 Unix-only blocks in
 `workspace_registry.rs` (fingerprints, checked deletion, live markers) have
-no Windows side. A host-root step alone would be unreachable. Needs a scope
-decision: the Windows saved-state reset as one item (with the host root), or
-leave it.
+no Windows side. A host-root step alone would be unreachable.
+Decision (coordinator, 2026-10-10): leave it. The session reset of a host
+root is Unix only and not supported on Windows yet, because Windows has no
+checked saved-state reset at all; it comes with that work, if ever.
+
+Landing order: `-2` (gated 10b842f4d3c) first, then `-3` with its own
+receipt for its head.
