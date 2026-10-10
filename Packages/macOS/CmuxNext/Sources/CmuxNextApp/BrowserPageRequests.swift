@@ -40,6 +40,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let media = BrowserMediaHub()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
+    /// Background tabs whose title changed (the strip's unread dot).
+    let titleAttention = BrowserTitleAttention()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
