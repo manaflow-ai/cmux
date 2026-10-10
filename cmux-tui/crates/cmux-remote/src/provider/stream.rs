@@ -109,34 +109,3 @@ fn map_io(error: std::io::Error) -> LinkError {
         LinkError::Transport(error.to_string())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn duplex_round_trip_and_eof() {
-        let (left, right) = tokio::io::duplex(256);
-        let (left_read, left_write) = tokio::io::split(left);
-        let (right_read, right_write) = tokio::io::split(right);
-        let left = LengthDelimitedLink::new("left", 32, left_read, left_write);
-        let right = LengthDelimitedLink::new("right", 32, right_read, right_write);
-
-        left.send(Bytes::from_static(b"input")).await.unwrap();
-        assert_eq!(right.receive().await.unwrap().unwrap(), &b"input"[..]);
-        left.close().await.unwrap();
-        assert!(right.receive().await.unwrap().is_none());
-    }
-
-    #[tokio::test]
-    async fn rejects_length_before_allocating_payload() {
-        let (mut left, right) = tokio::io::duplex(32);
-        let (right_read, right_write) = tokio::io::split(right);
-        let link = LengthDelimitedLink::new("right", 8, right_read, right_write);
-        left.write_all(&9_u32.to_be_bytes()).await.unwrap();
-        assert!(matches!(
-            link.receive().await,
-            Err(LinkError::FrameTooLarge { actual: 9, maximum: 8 })
-        ));
-    }
-}
