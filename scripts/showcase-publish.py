@@ -152,6 +152,18 @@ def media_urls(markdown: str, public: list[str]) -> tuple[list[str], list[str]]:
     return stills, videos
 
 
+def public_markdown(urls: list[str]) -> str:
+    """Render reused public media with image syntax only for inline types."""
+    lines: list[str] = []
+    for url in urls:
+        suffix = Path(urllib.parse.urlparse(url).path).suffix.lower()
+        if suffix in {".gif", ".jpeg", ".jpg", ".png"}:
+            lines.append(f"![showcase]({url})")
+        else:
+            lines.append(f"[Full quality media]({url})")
+    return "\n".join(lines)
+
+
 def showcase_section(markdown: str, live_url: str) -> str:
     body = markdown.strip()
     lines = ["<!-- cmux-showcase:start -->", "## Showcase", ""]
@@ -186,12 +198,14 @@ def post_feed(pr: int, stills: list[str], videos: list[str], live_url: str, app:
     feed_path = os.environ.get("CMUX_FEED_POST", "~/.local/bin/feed-post")
     feed_url = os.environ.get("CMUX_FEED_URL", "").rstrip("/")
     if feed_url:
-        command = ["curl", "-sS", "-X", "POST", "-H", "Content-Type: application/json",
+        command = ["curl", "-sS", "--connect-timeout", "10", "--max-time", "60",
+                   "-X", "POST", "-H", "Content-Type: application/json",
                    "--data-binary", "@-", "-w", "\n%{http_code}", feed_url + "/api/posts"]
         done = subprocess.run(command, input=json.dumps(body), capture_output=True, text=True)
     else:
-        remote = "curl -sS -X POST -H 'Content-Type: application/json' --data-binary @- -w '\\n%{http_code}' http://127.0.0.1:18791/api/posts"
-        done = subprocess.run(["ssh", os.environ.get("CMUX_FEED_SSH", "cmux-lawrence"), remote],
+        remote = "curl -sS --connect-timeout 10 --max-time 60 -X POST -H 'Content-Type: application/json' --data-binary @- -w '\\n%{http_code}' http://127.0.0.1:18791/api/posts"
+        done = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15",
+                               "-o", "ServerAliveCountMax=3", os.environ.get("CMUX_FEED_SSH", "cmux-lawrence"), remote],
                               input=json.dumps(body), capture_output=True, text=True)
     if done.returncode:
         raise RuntimeError(f"feed-post: {(done.stderr or done.stdout).strip()}")
@@ -233,7 +247,8 @@ def main() -> int:
         # the old private references and the public Showcase URLs. Reuse the
         # public set on an idempotent rerun; a private-only body still requires
         # an explicit checkout so a private URL is never copied blindly.
-        if private_links and not args.capture_root and not public:
+        has_published_showcase = "<!-- cmux-showcase:start -->" in body and bool(public)
+        if private_links and not args.capture_root and not has_published_showcase:
             raise SystemExit("--from-body requires --capture-root for private capture links")
         if args.capture_root:
             files.extend(private_sources(body, args.capture_root))
@@ -246,9 +261,9 @@ def main() -> int:
             deduped_files.append(resolved)
     uploaded = local_markdown(args.pr, deduped_files, dry_run=args.dry_run,
                               gif_fps=args.gif_fps, gif_width=args.gif_width)
-    existing_public = "\n".join(f"![showcase]({url})" for url in public)
-    media_markdown = uploaded.strip() or existing_public
-    feed_markdown = "\n".join(part for part in (uploaded.strip(), existing_public) if part)
+    existing_public = public_markdown(public)
+    media_markdown = "\n".join(part for part in (uploaded.strip(), existing_public) if part)
+    feed_markdown = media_markdown
     stills, videos = media_urls(feed_markdown, [])
     if not media_markdown and not public:
         raise SystemExit("no public or local showcase media found")
