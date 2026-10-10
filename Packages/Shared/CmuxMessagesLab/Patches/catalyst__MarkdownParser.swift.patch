@@ -1,6 +1,21 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
-@@ -74,7 +74,7 @@
+@@ -55,6 +55,14 @@
+         get { lock.lock(); defer { lock.unlock() }; return extra }
+         set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
+     }
++    // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
++    // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
++    // Set at launch with `extraSchemes`; nil allows nothing more.
++    private static var rule: (@Sendable (URL) -> Bool)?
++    static var extraRule: (@Sendable (URL) -> Bool)? {
++        get { lock.lock(); defer { lock.unlock() }; return rule }
++        set { lock.lock(); rule = newValue; lock.unlock() }
++    }
+ 
+     /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
+     /// whitespace and control characters are removed first; the scheme is compared without case.
+@@ -74,14 +82,16 @@
          // "&" (an entity), "%" (percent-encoding), "/" (relative) or anything else before the
          // colon means no scheme: not a link.
          guard let colon = u.firstIndex(of: ":"), colon > 0 else { return nil }
@@ -9,7 +24,17 @@
          func ascii(_ c: Unicode.Scalar) -> Bool { c.isASCII && (("a"..."z").contains(c) || ("A"..."Z").contains(c)) }
          guard let first = head.first, ascii(first),
                head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
-@@ -223,19 +223,19 @@
+         let scheme = String(String.UnicodeScalarView(head)).lowercased()
+-        guard builtInSchemes.contains(scheme) || extraSchemes.contains(scheme) else { return nil }
++        let whole = builtInSchemes.contains(scheme) || extraSchemes.contains(scheme)
++        guard whole || extraRule != nil else { return nil }
+         let s = String(String.UnicodeScalarView(u))
+         guard let url = URL(string: s), url.scheme?.lowercased() == scheme else { return nil }
++        if !whole { return extraRule?(url) == true ? s : nil } // cmux: one exact form
+         let rest = u.count - colon - 1
+         switch scheme {
+         case "http", "https": guard let h = url.host, !h.isEmpty else { return nil }
+@@ -223,19 +233,19 @@
          let u = text.unicodeScalars
          var si = u.startIndex
          while si < u.endIndex {
@@ -33,7 +58,7 @@
          return out
      }
  }
-@@ -262,23 +262,23 @@
+@@ -262,23 +272,23 @@
      func dropping(cols: Int) -> MDLine {
          var col = 0, i = 0
          while i < s.count, col < cols {
@@ -63,7 +88,7 @@
  }
  
  // MARK: - Link reference definitions
-@@ -307,16 +307,15 @@
+@@ -307,16 +317,15 @@
              out.append(MDBlock(kind: k, blankBefore: blank && !out.isEmpty, lines: topLevel ? from..<i : 0..<0))
              blank = false
          }
@@ -83,7 +108,7 @@
                  }
                  while body.last?.isBlank == true { body.removeLast(); i -= 1 }
                  add(.code(lang: "", text: body.map(\.string).joined(separator: "\n"), fenced: false, closed: true), start)
-@@ -328,8 +327,7 @@
+@@ -328,8 +337,7 @@
                  var body: [MDLine] = []
                  var closed = false
                  i += 1
@@ -93,7 +118,7 @@
                      if l.indent < 4, let c = fence(l.dropping(cols: l.indent)), c.char == f.char, c.count >= f.count, c.info.isEmpty {
                          closed = true; i += 1; break
                      }
-@@ -348,8 +346,7 @@
+@@ -348,8 +356,7 @@
              if nest, t.s.first == ">" {
                  var inner: [MDLine] = []
                  var lastParagraph = false
@@ -103,7 +128,7 @@
                      let li = l.indent
                      if li < 4, l.dropping(cols: li).s.first == ">" {
                          var q = l.dropping(cols: li)
-@@ -377,8 +374,7 @@
+@@ -377,8 +384,7 @@
                  var startNumber = m.number
                  let ordered = m.ordered
                  let delim = m.delim
@@ -113,7 +138,7 @@
                      let li = l.indent
                      guard li < 4, let mk = listMarker(l.dropping(cols: li), interruptsParagraph: false),
                            mk.ordered == ordered, mk.delim == delim else { break }
-@@ -389,8 +385,7 @@
+@@ -389,8 +395,7 @@
                      var lastParagraph = !mk.first.isBlank
                      var sawBlank = mk.first.isBlank
                      var innerBlank = false
@@ -123,7 +148,7 @@
                          if l2.isBlank {
                              // An item may start with at most one blank line.
                              if body.count == 1, body[0].isBlank { break }
-@@ -424,8 +419,8 @@
+@@ -424,8 +429,8 @@
                      items.append(MDItem(marker: mk.marker, task: task, blocks: blocks))
                      if trailing > 0 {
                          // A blank line then another item of this list: loose.
@@ -134,7 +159,7 @@
                             n.ordered == ordered, n.delim == delim { loose = true } else { blankAfter = true; break }
                      }
                  }
-@@ -446,8 +441,7 @@
+@@ -446,8 +451,7 @@
              i += 1
              var setext = 0
              var tableAt: Int?
@@ -144,7 +169,7 @@
                  if l.isBlank { break }
                  let li = l.indent
                  let d = l.dropping(cols: li)
-@@ -465,7 +459,7 @@
+@@ -465,7 +469,7 @@
              } else if !text.isEmpty {
                  let p = MDInlineParser.parse(text, refs: known)
                  add(.paragraph(p), start)
@@ -153,7 +178,7 @@
              }
              if let at = tableAt, let tb = table(lines, at: at, known) {
                  let s2 = i
-@@ -482,7 +476,7 @@
+@@ -482,7 +486,7 @@
      static func fence(_ t: MDLine) -> Fence? {
          guard let c = t.s.first, c == "`" || c == "~" else { return nil }
          var n = 0
@@ -162,7 +187,7 @@
          guard n >= 3 else { return nil }
          let info = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
          if c == "`", info.contains("`") { return nil }
-@@ -491,12 +485,12 @@
+@@ -491,12 +495,12 @@
  
      static func atxHeading(_ t: MDLine) -> (Int, String)? {
          var n = 0
@@ -178,7 +203,7 @@
              if before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\t") {
                  body = String(before).trimmingCharacters(in: .whitespaces)
              }
-@@ -516,8 +510,8 @@
+@@ -516,8 +520,8 @@
      static func setextLevel(_ t: MDLine) -> Int? {
          guard let c = t.s.first, c == "=" || c == "-" else { return nil }
          var i = 0
@@ -189,7 +214,7 @@
          guard i == t.s.count else { return nil }
          return c == "=" ? 1 : 2
      }
-@@ -532,15 +526,15 @@
+@@ -532,15 +536,15 @@
              markerLen = 1
          } else if c.properties.numericType != nil, ("0"..."9").contains(c) {
              var j = 0
@@ -210,7 +235,7 @@
          if interruptsParagraph {
              if rest.isBlank { return nil }
              if ordered, number != 1 { return nil }
-@@ -562,12 +556,12 @@
+@@ -562,12 +566,12 @@
  
      static func taskPrefix(_ p: MDText) -> (Bool, MDText)? {
          let u = Array(p.string.utf16)
@@ -226,7 +251,7 @@
          rest.spans = p.spans.compactMap { s in
              let lo = max(s.location, cut), hi = s.location + s.length
              guard hi > lo else { return nil }
-@@ -586,13 +580,12 @@
+@@ -586,13 +590,12 @@
          var i = 0
          if t.first == "|" { i = 1 }
          var ticks = 0           // open code span's backtick count
@@ -244,7 +269,7 @@
                  if ticks == 0 { if hasClosingTicks(t, from: i + n, count: n) { ticks = n } }
                  else if n == ticks { ticks = 0 }
                  for _ in 0..<n { cur.append("`") }
-@@ -605,15 +598,15 @@
+@@ -605,15 +608,15 @@
              cur.append(c); i += 1
          }
          let last = String(cur).trimmingCharacters(in: .whitespaces)
@@ -263,7 +288,7 @@
                  if n == count { return true }
                  i += n
              } else { i += 1 }
-@@ -643,15 +636,14 @@
+@@ -643,15 +646,14 @@
  
      static func table(_ lines: [MDLine], at i: Int, _ known: MDRefs?) -> (table: MDTable, end: Int)? {
          guard i + 1 < lines.count else { return nil }
@@ -282,7 +307,7 @@
              if l.isBlank || (l.indent < 4 && startsBlock(l.dropping(cols: l.indent))) { break }
              let cells = splitRow(l).map { MDInlineParser.parse($0, breaks: false, refs: known) }
              cols = max(cols, cells.count)
-@@ -675,34 +667,34 @@
+@@ -675,34 +677,34 @@
          var rest = Substring(text)
          while rest.hasPrefix("[") {
              guard let close = rest.firstIndex(of: "]"), rest.index(after: close) < rest.endIndex,
@@ -333,7 +358,7 @@
          }
          return String(rest)
      }
-@@ -746,22 +738,21 @@
+@@ -746,22 +748,21 @@
          var text = String.UnicodeScalarView()
          var i = 0
          func flush() { if !text.isEmpty { nodes.append(.text(String(text))); text = .init() } }
@@ -362,7 +387,7 @@
                      var code = String(body)
                      if code.count >= 2, code.hasPrefix(" "), code.hasSuffix(" "), code.contains(where: { $0 != " " }) {
                          code = String(code.dropFirst().dropLast())
-@@ -783,12 +774,12 @@
+@@ -783,12 +784,12 @@
                  flush()
                  if breaks { nodes.append(.br) } else { text.append(" ") }
                  i += 1
@@ -378,7 +403,7 @@
                  let bWS = before.map(isWS) ?? true, aWS = after.map(isWS) ?? true
                  let bP = before.map(isPunct) ?? false, aP = after.map(isPunct) ?? false
                  let left = !aWS && (!aP || bWS || bP)
-@@ -801,7 +792,7 @@
+@@ -801,7 +802,7 @@
                      delims.append(Delim(node: nodes.count - 1, char: c, count: n, origCount: n, canOpen: canOpen, canClose: canClose))
                  }
                  i += n
@@ -387,7 +412,7 @@
                  flush()
                  nodes.append(.text("!["))
                  brackets.append(Bracket(node: nodes.count - 1, image: true, active: true, delimBottom: delims.count, pos: i + 2))
-@@ -819,9 +810,9 @@
+@@ -819,9 +820,9 @@
                  if let (d, _, e) = inlineLinkTail(src, i + 1) { dest = d; end = e }
                  else if let refs {
                      // [text][label], [text][], [text]
@@ -400,7 +425,7 @@
                          let key = MDRefs.normalize(label.isEmpty ? inner : label)
                          if let r = refs.map[key] { dest = r.0; end = close + 1 }
                      } else if let r = refs.map[MDRefs.normalize(inner)] { dest = r.0 }
-@@ -834,16 +825,17 @@
+@@ -834,16 +835,17 @@
                      // Never loaded: the text "[Image: alt]", so a reader knows it is an image and
                      // that it was not loaded; a link when the URL is allowed. The source goes to the
                      // host's image provider only.
@@ -422,7 +447,7 @@
                  }
                  i = end
              default:
-@@ -851,17 +843,17 @@
+@@ -851,17 +853,17 @@
                  if (c == "w" || c == "h" || c == "W" || c == "H"), prev(i).map({ isWS($0) || $0 == "(" || $0 == "*" || $0 == "_" || $0 == "~" || $0 == "\"" || $0 == "'" }) ?? true,
                     let (url, len) = extendedAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
                      flush()
@@ -444,7 +469,7 @@
                      text = t2
                      flush()
                      nodes.append(.styled(addr, .link, "mailto:" + addr))
-@@ -884,15 +876,13 @@
+@@ -884,15 +886,13 @@
          // Openers bottom per (char, closer can open, closer count % 3).
          var bottoms: [String: Int] = [:]
          var ci = bottom
@@ -462,7 +487,7 @@
                  if o.char == closer.char, o.canOpen, o.count > 0 {
                      if closer.char == "~" {
                          if o.count == closer.count { found = oi; break }
-@@ -912,30 +902,34 @@
+@@ -912,30 +912,34 @@
              let use: Int
              let style: MDStyle
              if closer.char == "~" { use = closer.count; style = .strike }
@@ -509,7 +534,7 @@
      }
  
      // MARK: Flatten
-@@ -986,7 +980,7 @@
+@@ -986,7 +990,7 @@
          var out: [MDSpan] = []
          for x in s {
              if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
@@ -518,7 +543,7 @@
              } else { out.append(x) }
          }
          return out
-@@ -998,19 +992,21 @@
+@@ -998,19 +1002,21 @@
          let u = Array(t.string.utf16)
          var keep = [Bool](repeating: true, count: u.count)
          var j = u.count - 1
@@ -548,7 +573,7 @@
              return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link, image: s.image) : nil
          }
          return MDText(string: String(utf16CodeUnits: out, count: out.count), spans: spans)
-@@ -1038,6 +1034,8 @@
+@@ -1038,6 +1044,8 @@
          return (33...47).contains(v) || (58...64).contains(v) || (91...96).contains(v) || (123...126).contains(v)
      }
      static func isWS(_ c: Unicode.Scalar) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" || c.properties.isWhitespace }
@@ -557,7 +582,7 @@
      static func isPunct(_ c: Unicode.Scalar) -> Bool {
          if isASCIIPunct(c) { return true }
          switch c.properties.generalCategory {
-@@ -1050,9 +1048,9 @@
+@@ -1050,9 +1058,9 @@
      private static func closingTicks(_ s: [Unicode.Scalar], from: Int, count: Int) -> Int? {
          var i = from
          while i < s.count {
@@ -569,7 +594,7 @@
                  if n == count { return i }
                  i += n
              } else { i += 1 }
-@@ -1068,13 +1066,14 @@
+@@ -1068,13 +1076,14 @@
          "para": "¶", "laquo": "«", "raquo": "»", "le": "≤", "ge": "≥", "ne": "≠", "infin": "∞",
      ]
      private static func entity(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int)? {
@@ -587,7 +612,7 @@
              return (String(scalar), semi - i + 1)
          }
          guard let r = entities[body] else { return nil }
-@@ -1082,12 +1081,12 @@
+@@ -1082,12 +1091,12 @@
      }
  
      private static func angleAutolink(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int, String)? {
@@ -604,7 +629,7 @@
                    scheme.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-" }) else { return nil }
              return (body, end - i + 1, body)
          }
-@@ -1104,7 +1103,7 @@
+@@ -1104,7 +1113,7 @@
          func has(_ p: String) -> Bool {
              let u = Array(p.unicodeScalars)
              guard i + u.count <= s.count else { return false }
@@ -613,7 +638,7 @@
              return true
          }
          var start = i
-@@ -1112,35 +1111,35 @@
+@@ -1112,35 +1121,35 @@
          if has("https://") { start += 8 } else if has("http://") { start += 7 } else if has("www.") { prefix = "http://" } else { return nil }
          // Domain: alphanumerics, "-", "_", "." ; at least one "."; no "_" in the last two labels.
          var j = start
@@ -659,7 +684,7 @@
          return (prefix + raw, end - i)
      }
  
-@@ -1148,13 +1147,13 @@
+@@ -1148,13 +1157,13 @@
      private static func emailAutolink(_ s: [Unicode.Scalar], _ i: Int, textTail: String.UnicodeScalarView) -> (Int, Int)? {
          let tail = Array(textTail)
          var k = tail.count
@@ -678,7 +703,7 @@
          guard domain.contains("."), !domain.hasPrefix("."), let last = domain.split(separator: ".").last,
                !last.contains("_"), last.count >= 2 else { return nil }
          return (localLen, j - i)
-@@ -1162,44 +1161,44 @@
+@@ -1162,44 +1171,44 @@
  
      /// `(dest "title")` after "]". Returns (dest, title, index after ")").
      private static func inlineLinkTail(_ s: [Unicode.Scalar], _ i: Int) -> (String, String?, Int)? {
@@ -740,7 +765,7 @@
          return (String(dest), title, j + 1)
      }
  
-@@ -1209,7 +1208,7 @@
+@@ -1209,7 +1218,7 @@
          let u = Array(s.unicodeScalars)
          var i = 0
          while i < u.count {
