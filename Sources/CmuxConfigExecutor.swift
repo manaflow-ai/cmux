@@ -1,9 +1,16 @@
 import AppKit
 import CmuxSettings
 import Foundation
+import CmuxTextActions
 
 @MainActor
 struct CmuxConfigExecutor {
+#if DEBUG
+    /// Tests answer the project-action confirm dialog here instead of
+    /// running a modal `NSAlert`. Debug-only, so release builds carry no
+    /// way to bypass the dialog.
+    static var confirmDialogOverrideForTesting: ((CmuxActionTrustDescriptor) -> Bool)?
+#endif
 
     @discardableResult
     static func execute(
@@ -129,6 +136,22 @@ struct CmuxConfigExecutor {
             )
         }
 
+        if let payload = action.action.textPayload {
+            return executeTextAction(
+                payload,
+                confirm: action.confirm ?? false,
+                actionID: action.id,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                tabManager: tabManager,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
         let targetTerminal = (target == .currentTerminal)
@@ -156,6 +179,133 @@ struct CmuxConfigExecutor {
             }
             onExecuted?()
         }
+    }
+
+    /// `type: "text"` actions paste literal text into the focused terminal;
+    /// `submit: true` presses Enter afterwards. Project-local text is gated
+    /// exactly like a `type: "command"` action targeting the current
+    /// terminal whether or not it submits: a paste that ends in a newline
+    /// executes in any program that has bracketed paste off, so "insert
+    /// only" is not a safety property the gate can rely on.
+    @discardableResult
+    static func executeTextAction(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        tabManager: TabManager,
+        presentingWindow: NSWindow?,
+        onExecuted: (() -> Void)?
+    ) -> Bool {
+        guard let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel else {
+            return false
+        }
+        return deliverTextActionIfAuthorized(
+            payload,
+            confirm: confirm,
+            actionID: actionID,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayTitle: displayTitle,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            presentingWindow: presentingWindow
+        ) {
+            guard deliver(payload, to: targetTerminal) else {
+                NSSound.beep()
+                return false
+            }
+            onExecuted?()
+            return true
+        }
+    }
+
+    /// Runs `onAuthorized` once the project-action trust gate allows the
+    /// payload: immediately for global config, trusted descriptors, and the
+    /// modal dialog; later for a sheet. Returns false when the gate refuses
+    /// or when a synchronous delivery reports failure, so callers can tell a
+    /// refused paste from a success; a sheet still pending reports true.
+    @discardableResult
+    static func deliverTextActionIfAuthorized(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Bool
+    ) -> Bool {
+        let descriptor = textTrustDescriptor(
+            payload,
+            actionID: actionID,
+            configSourcePath: configSourcePath,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            globalConfigPath: globalConfigPath
+        )
+        var delivered = true
+        let authorized = authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: payload.text,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            delivered = onAuthorized()
+        }
+        return authorized && delivered
+    }
+
+    /// Shares saved permission between text delivery and its tab-bar icon.
+    private static func textTrustDescriptor(
+        _ payload: CmuxTextActionPayload,
+        actionID: String,
+        configSourcePath: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: actionID,
+            // Saved permission for inserting text must not also authorize Enter.
+            kind: payload.submit ? "terminalTextSubmit" : "terminalText",
+            command: payload.text,
+            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
+    /// Realises a text payload on a terminal panel: bracketed paste of the
+    /// whole text, then an optional Enter. Stops at the first rejected step
+    /// so a cold surface that refuses the paste never receives a bare Enter
+    /// that could submit unrelated pending input. Returns whether every step
+    /// was accepted.
+    @discardableResult
+    static func deliver(_ payload: CmuxTextActionPayload, to panel: TerminalPanel) -> Bool {
+        for step in payload.deliverySteps {
+            switch step {
+            case .pasteText(let text):
+                guard panel.sendText(text) else { return false }
+            case .namedKey(let keyName):
+                guard panel.sendNamedKey(keyName) else { return false }
+            }
+        }
+        return true
     }
 
     @discardableResult
@@ -247,6 +397,17 @@ struct CmuxConfigExecutor {
             onAuthorized()
             return true
         }
+#if DEBUG
+        if let confirmDialogOverrideForTesting {
+            let allowed = confirmDialogOverrideForTesting(descriptor)
+            if allowed {
+                onAuthorized()
+            } else {
+                onDenied?()
+            }
+            return allowed
+        }
+#endif
         if let resolvedPresentingWindow {
             presentConfirmDialog(
                 command: displayCommand,
@@ -473,6 +634,17 @@ struct CmuxConfigExecutor {
         if let inlineWorkspaceCommand = button.inlineWorkspaceSyntheticCommand {
             return workspaceTrustDescriptor(
                 command: inlineWorkspaceCommand,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
+        if let payload = button.action.textPayload {
+            return textTrustDescriptor(
+                payload,
                 actionID: button.id,
                 configSourcePath: configSourcePath,
                 icon: resolvedIcon,
