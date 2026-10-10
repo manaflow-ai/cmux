@@ -59,3 +59,16 @@ await page.evaluate(() => {
 });
 const values = (await snapshot({ _maxSize: 5000, maxChars: Infinity })).tree;
 emitCmux("big-values-cut", { tail: values.includes('button "Tail"'), cut: /stopped after [\d,]+ characters/.test(values), short: values.length < 20000 });
+
+// ---- cell session=budget cmux-only
+// A name reads its sources within bounds charged to the snapshot: 1,000
+// buttons named by one shared 50,000-node label stop at the node budget
+// at once instead of reading the label 1,000 times whole.
+await page.evaluate(() => {
+  const words = "<span>w</span>".repeat(50000);
+  const buttons = Array.from({ length: 1000 }, (_, i) => `<button aria-labelledby="shared">B${i}</button>`).join("");
+  document.body.innerHTML = `<div id="shared" hidden>${words}</div>${buttons}`;
+});
+const namesStarted = Date.now();
+const names = (await snapshot({ maxChars: Infinity })).tree;
+emitCmux("shared-label-names", { cut: /stopped after [\d,]+ nodes/.test(names), fast: Date.now() - namesStarted < 15000 });

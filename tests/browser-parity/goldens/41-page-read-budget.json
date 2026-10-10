@@ -16,6 +16,10 @@
       "tail": false,
       "cut": true,
       "short": true
+    },
+    "shared-label-names": {
+      "cut": true,
+      "fast": true
     }
   }
 }
