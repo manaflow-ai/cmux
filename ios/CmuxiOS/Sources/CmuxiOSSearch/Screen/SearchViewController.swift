@@ -56,6 +56,9 @@ final class SearchViewController: UIViewController, UICollectionViewDelegate, UI
         searchController.searchBar.placeholder = SearchScreenText.placeholder
         searchController.searchBar.returnKeyType = .go
         searchController.searchBar.accessibilityIdentifier = "search.field"
+        // UISearchBar's accessibility element is a UIKit wrapper on iOS 26;
+        // expose the identifier on its actual text field as well.
+        searchController.searchBar.searchTextField.accessibilityIdentifier = "search.field"
         navigationItem.searchController = searchController
         navigationItem.hidesSearchBarWhenScrolling = false
         definesPresentationContext = true
