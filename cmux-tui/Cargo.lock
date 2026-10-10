@@ -1494,6 +1494,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "parking_lot",
  "proptest",
  "quick-xml",
  "regex",

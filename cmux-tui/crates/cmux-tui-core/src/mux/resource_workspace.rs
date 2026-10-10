@@ -155,7 +155,7 @@ impl Mux {
             return Ok(replay);
         }
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap();
         // Prepare and stage run before the durable commit, so subscribers
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {

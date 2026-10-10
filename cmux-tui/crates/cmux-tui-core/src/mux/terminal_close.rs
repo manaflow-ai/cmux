@@ -126,7 +126,7 @@ impl Mux {
             let mut registry = self.workspace_registry.lock().unwrap();
             if guard == TerminalCloseGuard::UnplacedAndNotKept {
                 let placed = {
-                    let state = self.state.lock().unwrap();
+                    let state = self.lock_state_pinned(&registry).unwrap();
                     state.surfaces.values().any(|surface| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
