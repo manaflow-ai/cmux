@@ -13,8 +13,9 @@ name: Nightly macOS build
 # `nightly-next`, DMG names, Sparkle key and feed (NIGHTLY_NEXT_FEED_BASE), so
 # its installs never read main's NIGHTLY feed and main's never read its feed.
 # Only main's nightly.yml job promote-nightly-next (release environment, release
-# App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
-# green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
+# App) moves `nightly-next`, to a feat-cmux-next head whose Swift canary or
+# Release compile is green; the 30-minute cmux-next dispatcher requests it.
+# Its signing and upload secrets live in the
 # `release-next` environment, which only `nightly-next` may use.
 on:
   # Publish changed main revisions, at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS
@@ -97,7 +98,7 @@ on:
         default: false
         type: boolean
       promote_nightly_next_sha:
-        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
+        description: Main only. Move branch nightly-next to this canary/Release-green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
         default: ''
         type: string
@@ -701,11 +702,11 @@ jobs:
   # Moves the protected branch `nightly-next` (the cmux-next NIGHTLY track,
   # which publishes from its own push run) to a feat-cmux-next commit. Runs
   # only here on main, in the `release` environment, with the release App (the
-  # only bypass actor of the nightly-next ruleset). cmux-next.yml on
-  # feat-cmux-next requests it after a green push run (debounce=true); a person
-  # can Run workflow with the SHA (no debounce). The commit counts only through
-  # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
-  # "cmux-next Release compile (Xcode 26)" job passed.
+  # only bypass actor of the nightly-next ruleset). The 30-minute cmux-next
+  # dispatcher requests it after a green push run; a person can Run workflow
+  # with the SHA. The commit counts only through a cmux-next.yml push run on
+  # feat-cmux-next for that exact SHA whose Swift canary or Release compile
+  # job passed.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
@@ -741,14 +742,18 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const target = 'nightly-next';
-            const requiredJob = 'cmux-next Release compile (Xcode 26)';
+            const requiredJobs = [
+              'cmux-next Swift canary',
+              'cmux-next Release compile (Xcode 26)',
+            ];
             const sha = (process.env.REQUESTED_SHA || '').trim();
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
               return;
             }
 
-            // A pushed feat-cmux-next head whose push run passed the Release compile.
+            // A pushed feat-cmux-next head whose push run passed the Swift
+            // canary or the full Release compile.
             const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
             });
@@ -758,13 +763,13 @@ jobs:
               const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
                 owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
               });
-              if (jobs.some((job) => job.name === requiredJob && job.conclusion === 'success')) {
+              if (jobs.some((job) => requiredJobs.includes(job.name) && job.conclusion === 'success')) {
                 green = true;
                 break;
               }
             }
             if (!green) {
-              core.setFailed(`${sha} has no cmux-next.yml push run on ${source} with a successful "${requiredJob}" job`);
+              core.setFailed(`${sha} has no cmux-next.yml push run on ${source} with a successful Swift canary or Release compile job`);
               return;
             }
 
