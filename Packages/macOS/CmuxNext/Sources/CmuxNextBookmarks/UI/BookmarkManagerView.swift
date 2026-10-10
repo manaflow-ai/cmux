@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The `cmux://bookmarks` page: folder tree on the left, the folder's
@@ -47,7 +48,7 @@ struct BookmarkManagerView: View {
                 Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
                 Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Icon(.actionMore, size: 14)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -72,7 +73,7 @@ struct BookmarkManagerView: View {
     private func folderRow(_ choice: BookmarkFolderChoice) -> some View {
         let selected = !model.isSearching && model.folder == choice.id
         return HStack(spacing: Metrics.space3) {
-            Image(systemName: choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? "menubar.rectangle" : "tray") : "folder")
+            Icon(choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? .bookmarksBar : .bookmarksOther) : .folder, size: 13)
                 .foregroundStyle(colors.secondary)
             Text(choice.title).lineLimit(1)
             Spacer(minLength: 0)
