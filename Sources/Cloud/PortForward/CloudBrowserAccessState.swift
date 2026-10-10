@@ -498,7 +498,7 @@ final class CloudBrowserAccessState {
 
     /// Explicit localhost links within a VM page keep that page's VM as their owner.
     func rewrittenLoopbackURL(_ url: URL) -> URL? {
-        guard model?.usesBrowserProxy == true, let remoteURL,
+        guard model?.usesBrowserProxy == true,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = model?.target.host else { return nil }
         if model?.usesRemoteNetwork == true, url.scheme?.lowercased() == "http" {
