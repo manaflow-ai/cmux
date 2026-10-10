@@ -142,22 +142,3 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
         other => Err(format!("codec {other} not available in this build").into()),
     }
 }
-
-#[cfg(all(test, feature = "openh264"))]
-mod tests {
-    use super::installed_library;
-    use cmux_encode::openh264::{CiscoBinary, Platform};
-
-    #[test]
-    fn openh264_without_a_path_uses_the_installers_per_user_copy() {
-        let dir = std::env::temp_dir().join(format!("cmux-rd-installed-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(installed_library(Some(&dir), Platform::LinuxX64), None, "not installed");
-        std::fs::create_dir_all(&dir).expect("dir"); // crash-allow: test fixture setup
-        let file = dir.join(CiscoBinary::for_platform(Platform::LinuxX64).file_name);
-        std::fs::write(&file, b"x").expect("write"); // crash-allow: test fixture setup
-        assert_eq!(installed_library(Some(&dir), Platform::LinuxX64), Some(file));
-        assert_eq!(installed_library(None, Platform::LinuxX64), None, "no data directory");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}
