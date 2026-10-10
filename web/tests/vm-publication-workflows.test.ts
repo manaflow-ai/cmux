@@ -11,6 +11,7 @@ import {
   type CloudVmPublicationTarget,
 } from "../services/vm-publications/repository";
 import {
+  makeVmPublicationProvider,
   VmPublicationProvider,
   VmPublicationProviderError,
   type PublicationDomainVerification,
@@ -1819,6 +1820,76 @@ describe("Cloud VM publication workflows", () => {
 
     expect(result).toEqual({ deleted: true, id: current.id });
     expect(calls).toEqual([`lookup:${current.hostname}`]);
+  });
+
+  // Security: the hostname sweep deleted every exact rule for a hostname. An
+  // unclaimed custom-domain row (a second account that typed someone else's
+  // hostname) could delete the claimed owner's live rule by deleting itself.
+  describe("deleting a publication removes only rules it owns", () => {
+    type Rule = { id: string; domain: string; protocol: "http"; source: { public: true }; destination: { vmId: string; port: number }; createdAt: string };
+    const rule = (id: string, vmId: string): Rule => ({
+      id, domain: "app.example.com", protocol: "http", source: { public: true },
+      destination: { vmId, port: 3_000 }, createdAt: NOW.toISOString(),
+    });
+    function ruleStore(rules: Rule[]) {
+      const deleted: string[] = [];
+      const client = {
+        tls: {
+          rules: {
+            list: async (options: { limit?: number; offset?: number } = {}) => {
+              const offset = options.offset ?? 0;
+              return { rules: rules.slice(offset, offset + (options.limit ?? 100)), totalCount: rules.length };
+            },
+            delete: async (id: string) => {
+              deleted.push(id);
+              rules.splice(rules.findIndex((candidate) => candidate.id === id), 1);
+            },
+          },
+        },
+      };
+      return { provider: makeVmPublicationProvider(() => client as never), deleted, rules };
+    }
+    function repositoryFor(row: CloudVmPublicationRow) {
+      return fakeRepository({
+        findOwnedPublication: () => Effect.succeed(target(row)),
+        beginDisablePublication: () => Effect.succeed({ ...row, state: "disabling" }),
+        revokePublicationSessions: () => Effect.succeed(0),
+        finishDisablePublication: () => Effect.succeed({ ...row, state: "disabled", disabledAt: NOW }),
+      });
+    }
+
+    test("an unclaimed row never deletes the claimed owner's live rule", async () => {
+      const store = ruleStore([rule("tls-owner-live", "vm-owner")]);
+      const unclaimed = publication("personal", {
+        id: "20000000-0000-4000-8000-000000000002",
+        hostname: "app.example.com",
+        hostnameClaimedAt: null,
+        providerTlsRuleId: null,
+      });
+      await run(deletePublication({
+        principal: { userId: "owner-1", teamIds: [] }, publicationId: unclaimed.id, now: NOW,
+      }), repositoryFor(unclaimed), store.provider);
+      expect(store.deleted).toEqual([]);
+      expect(store.rules.map((candidate) => candidate.id)).toEqual(["tls-owner-live"]);
+    });
+
+    test("a claimed row removes its own rule and crash duplicates, never another VM's", async () => {
+      const store = ruleStore([
+        rule("tls-own", "vm-provider-1"),
+        rule("tls-own-crash-duplicate", "vm-provider-1"),
+        rule("tls-other-vm", "vm-other"),
+      ]);
+      const claimed = publication("personal", {
+        hostname: "app.example.com",
+        hostnameClaimedAt: NOW,
+        providerTlsRuleId: "tls-own",
+      });
+      await run(deletePublication({
+        principal: { userId: "owner-1", teamIds: [] }, publicationId: claimed.id, now: NOW,
+      }), repositoryFor(claimed), store.provider);
+      expect(store.deleted.sort()).toEqual(["tls-own", "tls-own-crash-duplicate"]);
+      expect(store.rules.map((candidate) => candidate.id)).toEqual(["tls-other-vm"]);
+    });
   });
 
   test("resumes a delete left in disabling by a failed sweep", async () => {
