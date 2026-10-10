@@ -65,15 +65,16 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-def record(surface, name, trigger):
+def record(surface, name, trigger, seconds=None):
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, surface, name)
     os.makedirs(directory, exist_ok=True)
-    started = rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    seconds = seconds or opts.seconds
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
     time.sleep(0.15)  # test harness: a few still frames before the change
     reply = trigger()
-    time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{surface}/{name}: {frames} frames; record={json.dumps(started)[:100]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.4)  # test harness: settle before the next scenario
@@ -149,19 +150,34 @@ def focus():
     record("focus", "right", lambda: action("focusRight"))
 
 
+def key(name, *modifiers):
+    """A key press through the window's key path, as a person types it."""
+    return rpc("debug.key", {"key": name, "modifiers": list(modifiers)})
+
+
+def shown_toasts():
+    print("toasts shown:", json.dumps((rpc("debug.filepages") or {}).get("toasts")), flush=True)
+
+
 def toasts():
+    # Toasts answer a person's gesture (automation runs show none), so each
+    # step is a key press. Cmd-W on a terminal tab shows the close undo
+    # toast, recorded until it ends by itself; a second close while one is
+    # up replaces it; Cmd-Z undoes that close and its toast leaves. (A stack
+    # needs a second kind of user toast: the palette's Pin Tab traps on
+    # open, cx-bpcj, and a capture slot's window never becomes key, which
+    # the zoom readout needs.)
+    for _ in range(4):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
     save_layout("toasts")
-    record("toasts", "appear", lambda: action("palette.toggleTabPin"))
-    # A second, different toast: a user close of the first tab (its x, a
-    # click as a person makes it; automation closes show no toast).
-    pill = first_pill()
-    if pill:
-        left, top, width, height = pill
-        x, y = left + width - 14, top + height / 2
-        rpc("debug.mouse", {"action": "move", "x": x, "y": y})
-        time.sleep(0.3)  # test harness: the hovered tab shows its x
-        record("toasts", "stack", lambda: rpc("debug.mouse", {"action": "click", "x": x, "y": y}))
-    record("toasts", "undo", lambda: action("undo"))
+    record("toasts", "appear", lambda: key("w", "cmd"), seconds=7.5)
+    shown_toasts()
+    key("w", "cmd")
+    time.sleep(1.0)  # test harness: the close toast is up
+    record("toasts", "replace", lambda: key("w", "cmd"))
+    record("toasts", "undo", lambda: key("z", "cmd"))
+    shown_toasts()
 
 
 SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts}
