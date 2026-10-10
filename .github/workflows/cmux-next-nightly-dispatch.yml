@@ -123,19 +123,6 @@ jobs:
       - name: Continue an accepted pending nightly-next notarization
         if: always()
         continue-on-error: true
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            try {
-              await github.rest.actions.createWorkflowDispatch({
-                owner,
-                repo,
-                workflow_id: 'nightly.yml',
-                ref: 'nightly-next',
-                inputs: { nightly_next_continue_only: 'true' },
-              });
-              core.notice('Requested the nightly-next notarization continuation tick');
-            } catch (error) {
-              core.warning(`Could not request nightly-next continuation: ${error.message}`);
-            }
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
